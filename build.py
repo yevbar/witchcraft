@@ -53,6 +53,7 @@ import build_face_down
 import build_saga
 import build_stack
 import build_redundancy
+import build_keyword_action_index
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -86,7 +87,7 @@ GENERATED = [
     "datalog/ability_function.dl", "datalog/copy.dl", "datalog/tokens.dl",
     "datalog/tba.dl", "datalog/terms.dl", "datalog/zone_props.dl", "datalog/split.dl",
     "datalog/color.dl", "datalog/face_down.dl", "datalog/saga.dl", "datalog/stack.dl",
-    "datalog/redundancy.dl",
+    "datalog/redundancy.dl", "datalog/keyword_action_index.dl",
 ]
 
 
@@ -141,6 +142,7 @@ def regenerate() -> None:
     build_saga.main()
     build_stack.main()
     build_redundancy.main()
+    build_keyword_action_index.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()

@@ -1,0 +1,84 @@
+// keyword_action_index.dl — complete §701 keyword-action roster, interpreted from rules.txt.
+// keyword_action_index(rule, name). GENERATED.
+
+.decl keyword_action_index(rule: symbol, name: symbol)
+
+keyword_action_index("701.2", "activate").
+keyword_action_index("701.3", "attach").
+keyword_action_index("701.4", "behold").
+keyword_action_index("701.5", "cast").
+keyword_action_index("701.6", "counter").
+keyword_action_index("701.7", "create").
+keyword_action_index("701.8", "destroy").
+keyword_action_index("701.9", "discard").
+keyword_action_index("701.10", "double").
+keyword_action_index("701.11", "triple").
+keyword_action_index("701.12", "exchange").
+keyword_action_index("701.13", "exile").
+keyword_action_index("701.14", "fight").
+keyword_action_index("701.15", "goad").
+keyword_action_index("701.16", "investigate").
+keyword_action_index("701.17", "mill").
+keyword_action_index("701.18", "play").
+keyword_action_index("701.19", "regenerate").
+keyword_action_index("701.20", "reveal").
+keyword_action_index("701.21", "sacrifice").
+keyword_action_index("701.22", "scry").
+keyword_action_index("701.23", "search").
+keyword_action_index("701.24", "shuffle").
+keyword_action_index("701.25", "surveil").
+keyword_action_index("701.26", "tap_and_untap").
+keyword_action_index("701.27", "transform").
+keyword_action_index("701.28", "convert").
+keyword_action_index("701.29", "fateseal").
+keyword_action_index("701.30", "clash").
+keyword_action_index("701.31", "planeswalk").
+keyword_action_index("701.32", "set_in_motion").
+keyword_action_index("701.33", "abandon").
+keyword_action_index("701.34", "proliferate").
+keyword_action_index("701.35", "detain").
+keyword_action_index("701.36", "populate").
+keyword_action_index("701.37", "monstrosity").
+keyword_action_index("701.38", "vote").
+keyword_action_index("701.39", "bolster").
+keyword_action_index("701.40", "manifest").
+keyword_action_index("701.41", "support").
+keyword_action_index("701.42", "meld").
+keyword_action_index("701.43", "exert").
+keyword_action_index("701.44", "explore").
+keyword_action_index("701.45", "assemble").
+keyword_action_index("701.46", "adapt").
+keyword_action_index("701.47", "amass").
+keyword_action_index("701.48", "learn").
+keyword_action_index("701.49", "venture_into_the_dungeon").
+keyword_action_index("701.50", "connive").
+keyword_action_index("701.51", "open_an_attraction").
+keyword_action_index("701.52", "roll_to_visit_your_attractions").
+keyword_action_index("701.53", "incubate").
+keyword_action_index("701.54", "the_ring_tempts_you").
+keyword_action_index("701.55", "face_a_villainous_choice").
+keyword_action_index("701.56", "time_travel").
+keyword_action_index("701.57", "discover").
+keyword_action_index("701.58", "cloak").
+keyword_action_index("701.59", "collect_evidence").
+keyword_action_index("701.60", "suspect").
+keyword_action_index("701.61", "forage").
+keyword_action_index("701.62", "manifest_dread").
+keyword_action_index("701.63", "endure").
+keyword_action_index("701.64", "harness").
+keyword_action_index("701.65", "airbend").
+keyword_action_index("701.66", "earthbend").
+keyword_action_index("701.67", "waterbend").
+keyword_action_index("701.68", "blight").
+
+.output keyword_action_index
+
+// conformance — spot-check keyword actions §701 names plainly
+.decl expect_action(rule: symbol, name: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("action", R, N) :- expect_action(R, N), !keyword_action_index(R, N).
+.output conformance_fail
+.printsize conformance_fail
+expect_action("701.3", "attach").
+expect_action("701.34", "proliferate").
+expect_action("701.26", "tap_and_untap").

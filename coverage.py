@@ -43,6 +43,7 @@ import build_face_down
 import build_saga
 import build_stack
 import build_redundancy
+import build_keyword_action_index
 import build_keyword_definitions
 import build_enumerations
 import build_keyword_defs
@@ -123,6 +124,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_saga.saga_properties()}
                     | {r[0] for r in build_stack.skips_stack()}
                     | {r[0] for r in build_redundancy.instance_stacking()}
+                    | {r[0] for r in build_keyword_action_index.roster()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))
