@@ -468,6 +468,43 @@ def _restriction(rule, doc):
                "restriction")
 
 
+_TRIGGER_MARKS = ("if", "when", "whenever")
+
+
+def _clause_subject(verb):
+    """The noun subject lemma of a clause verb, or '-' (pronoun/none)."""
+    s = next((c for c in verb.children if c.dep_ in ("nsubj", "nsubjpass")), None)
+    return s.lemma_.lower() if s is not None and s.pos_ in ("NOUN", "PROPN") else "-"
+
+
+def _conditional(rule, doc):
+    """"If/When [trigger clause], [outcome clause]" -> conditional(trigger_subj, trigger_verb,
+    outcome_subj, outcome_verb, kind). The big two-clause family: rather than interpret the full
+    semantics, capture the STRUCTURE — which clause subject/verb triggers which outcome — exactly as
+    the restriction pattern captures a prohibition's qualifier. kind classifies the trigger:
+    replacement ("would … instead"), trigger ("When/Whenever …"), or condition ("If …")."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    trig = None                                            # the if/when adverbial clause
+    for c in root.children:
+        if c.dep_ in ("advcl", "ccomp"):
+            if any(t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS for t in c.subtree):
+                trig = c
+                break
+    if trig is None:
+        return None
+    ts, os_ = _clause_subject(trig), _clause_subject(root)
+    if ts == "-" and os_ == "-":                           # need at least one concrete clause subject
+        return None
+    sub = " ".join(t.text.lower() for t in trig.subtree)
+    mark = next((t.lemma_.lower() for t in trig.subtree if t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS), "if")
+    kind = ("replacement" if "would" in sub and "instead" in doc.text.lower()
+            else "trigger" if mark in ("when", "whenever") else "condition")
+    return Out(rule, f'conditional("{ts}", "{trig.lemma_.lower()}", "{os_}", '
+                     f'"{root.lemma_.lower()}", "{kind}").   // {rule}', "conditional")
+
+
 def _qual_list(q, doc, root):
     """A quality head + its conjuncts ("flying and/or reach"), but only if every
     one is a clean single keyword. Rejects comparatives like "greater power"
@@ -575,7 +612,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 
