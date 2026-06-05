@@ -19,6 +19,7 @@ from build_casting import extract as _casting_extract
 from build_zones import extract as _zones_extract
 from build_lookback import extract as _lookback_extract
 from build_supertypes import extract as _supertypes_extract
+from build_keyword_ability_index import roster as _keyword_ability_roster
 
 
 def _casting_resolves() -> list:
@@ -193,6 +194,8 @@ CHECKS = [
     ("ctype", "expect_type(C, T)", "miss", "has_type(C, T)"),
     ("color", "expect_color(C, Col)", "miss", "color(C, Col)"),
     ("ckw", "expect_keyword(C, K)", "miss", "has_keyword(C, K)"),
+    # every keyword the engine grants must be a defined §702 ability (interpreted roster)
+    ("unknown_keyword", "has_keyword(_, K)", "miss", "keyword_ability(K)", "K", '"-"'),
     ("csub", "expect_subtype(C, ST)", "miss", "subtype(C, ST)"),
     ("etbtap", "expect_etb_tapped(C)", "miss", "enters_tapped(C)"),
     ("etbctr", "expect_etb_counter(C, K, N)", "miss", "enters_with_counter(C, K, N)", "C", "K"),
@@ -363,6 +366,11 @@ def _rules(p: Program) -> None:
     p.rule("has_keyword(C, K)", ["copiable_keyword(C, K)", "!eff_remove_keyword(_, C, K)"])
     p.rule("has_keyword(C, K)", ["eff_grant_keyword(_, C, K)", "!eff_remove_keyword(_, C, K)"])
     p.rule("has_keyword(C, K)", ["counter(C, K, N)", "N >= 1", "is_keyword(K)", "!eff_remove_keyword(_, C, K)"], note="§122.1b keyword counter")
+    p.blank()
+    p.comment("§702 keyword vocabulary — the interpreted keyword-ability roster (build_keyword_ability_index).")
+    p.comment("The engine DEPENDS on this: every keyword it grants must be a defined §702 ability (see unknown_keyword conformance).")
+    p.decl("keyword_ability", [("name", "symbol")])
+    p.facts([f'keyword_ability("{name}")' for _r, name in _keyword_ability_roster()])
     p.blank()
     p.comment("§613.4 layer 7b — the latest set effect overrides the copiable base (7a CDA folded in).")
     p.decl("setp_ts", [("c", "symbol"), ("ts", "number")])

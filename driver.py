@@ -111,6 +111,30 @@ def _default_starting_life() -> int:
     return int(re.search(r'starting_life\("default", (\d+)\)', text).group(1))
 
 
+def _load_keyword_abilities() -> frozenset:
+    """The defined §702 keyword abilities (flying, trample, …), interpreted into
+    keyword_ability_index.dl — the canonical keyword vocabulary. The engine's build-time
+    conformance checks its test scenarios against this; the driver checks runtime states
+    fed through engine_rules.dl (which carries no conformance) against the same roster."""
+    text = Path("datalog/keyword_ability_index.dl").read_text()
+    return frozenset(re.findall(r'keyword_ability_index\("[^"]+", "([^"]+)"\)', text))
+
+
+KEYWORD_ABILITIES = _load_keyword_abilities()
+# keyword-bearing input relations whose LAST column is a keyword name (validated below).
+_KEYWORD_INPUTS = ("printed_keyword", "eff_grant_keyword", "eff_remove_keyword")
+
+
+def assert_known_keywords(state: dict) -> None:
+    """Guard a driver game state: every keyword it grants must be a defined §702 ability
+    (§702 roster, interpreted). Catches a typo'd keyword before it silently does nothing in
+    the engine — the runtime mirror of the engine's unknown_keyword conformance check."""
+    unknown = {row[-1] for rel in _KEYWORD_INPUTS for row in state.get(rel, set())
+               if row and row[-1] not in KEYWORD_ABILITIES}
+    if unknown:
+        raise ValueError(f"unknown keyword(s) not in the interpreted §702 roster: {sorted(unknown)}")
+
+
 DRAW_SKIP_VARIANTS = _load_draw_skip_variants()        # {"two-player", "two-headed_giant"}
 DEFAULT_LIFE = _default_starting_life()                # 20
 # §110.5b — permanents enter untapped/unflipped/face up/phased in; the driver never taps an
@@ -270,6 +294,7 @@ def _end_of_turn(state: dict) -> None:
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
     """The turn loop: cycle the rules-derived steps, run the engine, apply what it
     derives, pass the turn. Returns the loser (or None if the turn limit is hit)."""
+    assert_known_keywords(state)                                 # reject keywords outside the interpreted §702 roster
     variant = "two-player" if len(players) == 2 else "default"   # §103.8 first-turn draw skip applies per variant
     for turn in range(max_turns):
         ap = next(iter(state["active_player"]))[0]
