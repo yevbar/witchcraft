@@ -462,6 +462,33 @@ def _passive(rule, doc):
                "passive")
 
 
+_EFFECT_VERBS = {"become", "get", "gain", "lose", "set", "change", "switch", "remove", "add"}
+
+
+def _effect(rule, doc):
+    """Active effect verb "[subject] becomes/gets/loses/changes [object]" -> effect(subject, verb,
+    object, polarity). The game-state-change family; the verb carries the direction (gain vs lose),
+    and polarity = yes | no captures negation ('costs don't change the mana cost'). Passive ('is
+    changed') goes to _passive; modal ('may become') to permission. Masked objects/subjects dropped."""
+    root = _root(doc)
+    if root is None or root.lemma_ not in _EFFECT_VERBS or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if any(c.dep_ == "auxpass" for c in kids):             # passive -> _passive
+        return None
+    if any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
+        return None
+    obj = next((c for c in kids if c.dep_ in ("dobj", "obj", "attr", "acomp")), None)
+    o = (obj.lemma_.lower() if obj is not None and obj.pos_ in ("NOUN", "PROPN", "ADJ")
+         and not _masked(obj) else "-")
+    polarity = "no" if any(c.dep_ == "neg" for c in kids) else "yes"
+    return Out(rule, f'effect("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{o}", "{polarity}").   // {rule}',
+               "effect")
+
+
 def _classify_qualifier(root, doc):
     """The qualifier KIND + head of a modal clause, shared by _restriction and _permission.
     kind = except | by | condition | qualified | scope | frequency | absolute; the head is the
@@ -714,7 +741,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

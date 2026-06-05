@@ -1,0 +1,49 @@
+// effects.dl — active effect verbs (the game-state-change family), TRANSPILED by transpile.py
+// (spaCy dependency parse). effect(subject, verb, object, polarity); polarity = yes | no. GENERATED.
+
+.decl effect(subject: symbol, verb: symbol, object: symbol, polarity: symbol)
+
+// --- one per matched effect-verb sentence; the verb is the direction, polarity the negation ---
+effect("copy", "become", "token", "yes").
+effect("effect", "remove", "instance", "yes").
+effect("cost", "change", "cost", "no").
+effect("player", "lose", "game", "yes").
+effect("counter", "add", "-", "yes").
+effect("effect", "set", "type", "yes").
+effect("effect", "change", "type", "yes").
+effect("card", "set", "number", "yes").
+effect("card", "become", "object", "yes").
+effect("object", "become", "object", "yes").
+effect("deck", "become", "library", "yes").
+effect("effect", "add", "step", "yes").
+effect("player", "get", "priority", "yes").
+effect("creature", "become", "creature", "yes").
+effect("effect", "change", "text", "yes").
+effect("effect", "change", "text", "no").
+effect("ability", "change", "text", "yes").
+effect("player", "get", "refund", "no").
+effect("creature", "get", "-", "yes").
+effect("player", "gain", "-", "yes").
+effect("player", "add", "amount", "yes").
+effect("status", "change", "-", "yes").
+effect("spell", "lose", "change", "yes").
+effect("creature", "become", "-", "yes").
+effect("object", "become", "-", "yes").
+effect("value", "become", "information", "yes").
+effect("phrase", "become", "night", "yes").
+effect("game", "get", "-", "yes").
+effect("player", "get", "marker", "yes").
+effect("card", "add", "ability", "yes").
+effect("face", "become", "object", "yes").
+effect("player", "set", "life", "yes").
+effect("card", "become", "pool", "yes").
+
+.output effect
+
+// conformance — spot-check effects the rules state plainly
+.decl expect_effect(subject: symbol, verb: symbol, object: symbol, polarity: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("effect", S, V) :- expect_effect(S, V, O, P), !effect(S, V, O, P).
+.output conformance_fail
+.printsize conformance_fail
+expect_effect("deck", "become", "library", "yes").
