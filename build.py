@@ -56,6 +56,7 @@ import build_redundancy
 import build_keyword_action_index
 import build_keyword_ability_index
 import build_battle
+import build_name
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -90,7 +91,7 @@ GENERATED = [
     "datalog/tba.dl", "datalog/terms.dl", "datalog/zone_props.dl", "datalog/split.dl",
     "datalog/color.dl", "datalog/face_down.dl", "datalog/saga.dl", "datalog/stack.dl",
     "datalog/redundancy.dl", "datalog/keyword_action_index.dl",
-    "datalog/keyword_ability_index.dl", "datalog/battle.dl",
+    "datalog/keyword_ability_index.dl", "datalog/battle.dl", "datalog/name.dl",
 ]
 
 
@@ -148,6 +149,7 @@ def regenerate() -> None:
     build_keyword_action_index.main()
     build_keyword_ability_index.main()
     build_battle.main()
+    build_name.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()

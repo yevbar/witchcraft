@@ -147,6 +147,12 @@ interpreted("122.1g").
 interpreted("122.1h").
 interpreted("122.1i").
 interpreted("200.1").
+interpreted("201.2").
+interpreted("201.2a").
+interpreted("201.2b").
+interpreted("201.3a").
+interpreted("201.4").
+interpreted("201.5").
 interpreted("202.2").
 interpreted("202.2b").
 interpreted("202.2c").

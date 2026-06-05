@@ -17,6 +17,18 @@ This repo was migrated from the MacBook mid-session. Context did NOT transfer; o
 Sweeping rules.txt section by section into interpreted datalog (one build_*.py per family),
 keeping everything deterministic + conformance-clean. Commit per family with the Co-Authored-By trailer.
 
+## Deferred design: multi-state ("world column") Souffle batching
+search.py looks ahead by calling driver.run once per state (~55ms each, dominated by re-parsing
+the 30KB engine_rules.dl). To evaluate MANY states in one Souffle fixpoint, the pattern is a
+leading `w` (world/state-id) argument on EVERY relation, load N states tagged w1..wN, read outputs
+tagged by w. NOT done because it's a dramatic change to the GENERATED engine: every rule, every
+aggregate `N = sum X : {…}`, negation and comparison must thread `w`, plus driver run/apply and all
+determinism baselines. And it's premature — deep combo SEARCH is gated on modeling activated/mana
+abilities (the thin move space), not Souffle throughput; confirming a single known 10-step loop is a
+linear ~2s walk already. Cheaper interim win if ever needed: precompile the engine (`souffle -o`) to
+skip per-call parsing. Batching only amortizes the per-node constant; it does NOT fix the exponential
+of branching search (use the transposition table on canonical_key + bounded move space for that).
+
 ## Perpetual loop: mine rules.txt for grammar FORMULAS, interpret the cleanest, commit, repeat
 Method: `python3 coverage.py` to get uncovered rules, cluster them by recurring sentence template
 (opening trigrams, fixed anchor phrases), pick the highest-precision/highest-volume one, build an

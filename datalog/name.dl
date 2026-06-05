@@ -1,0 +1,24 @@
+// name.dl — §201 Name comparison rules, interpreted from rules.txt.
+// name_rule(property). GENERATED.
+
+.decl name_rule(property: symbol)
+
+name_rule("english_name_canonical").
+name_rule("same_if_shared_name").
+name_rule("nameless_never_matches").
+name_rule("different_if_each_named_no_shared").
+name_rule("interchangeable_same_name").
+name_rule("choose_name_from_oracle").
+name_rule("self_reference_is_specific").
+
+.output name_rule
+
+// conformance — spot-check the §201 name rules the rules state plainly
+.decl expect_name(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("name", P, "-") :- expect_name(P), !name_rule(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_name("same_if_shared_name").
+expect_name("nameless_never_matches").
+expect_name("choose_name_from_oracle").
