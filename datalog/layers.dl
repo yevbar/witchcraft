@@ -1,0 +1,35 @@
+// layers.dl — §613 continuous-effects layer system, interpreted from rules.txt (regex + lexicon).
+// layer(num, category) + sublayer(layer, label, category). GENERATED, not hand-written.
+
+.decl layer(num: number, category: symbol)
+.decl sublayer(layer: number, label: symbol, category: symbol)
+
+// --- the 7 main layers, in order ---
+layer(1, "copiable").
+layer(2, "control").
+layer(3, "text").
+layer(4, "type").
+layer(5, "color").
+layer(6, "ability").
+layer(7, "power_toughness").
+
+// --- 6 sublayers ---
+sublayer(1, "a", "copiable").
+sublayer(1, "b", "face_down").
+sublayer(7, "a", "cda").
+sublayer(7, "b", "set").
+sublayer(7, "c", "modify_pt").
+sublayer(7, "d", "switch").
+
+.output layer
+.output sublayer
+
+// conformance — spot-check the layer order the rules define
+.decl expect_layer(num: number, category: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("layer", C, "-") :- expect_layer(N, C), !layer(N, C).
+.output conformance_fail
+.printsize conformance_fail
+expect_layer(2, "control").
+expect_layer(4, "type").
+expect_layer(7, "power_toughness").

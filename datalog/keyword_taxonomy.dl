@@ -1,0 +1,250 @@
+// keyword_taxonomy.dl — §702 keyword -> ability-class, generated from rules.txt.
+// spaCy parses "[Keyword] is a [type] ability"; a verb-group classifier handles the rest
+// (represents/special-kind/appears-on/found-on). Facts are GENERATED, not hand-written.
+
+.decl keyword_class(kw: symbol, cls: symbol)
+.decl keyword_appears_on(kw: symbol, card_type: symbol)
+
+// --- 131 via spaCy "X is a Y ability" ---
+keyword_class("deathtouch", "static").   // 702.2a
+keyword_class("defender", "static").   // 702.3a
+keyword_class("double_strike", "static").   // 702.4a
+keyword_class("enchant", "static").   // 702.5a
+keyword_class("equip", "activated").   // 702.6a
+keyword_class("first_strike", "static").   // 702.7a
+keyword_class("flash", "static").   // 702.8a
+keyword_class("flying", "evasion").   // 702.9a
+keyword_class("haste", "static").   // 702.10a
+keyword_class("hexproof", "static").   // 702.11a
+keyword_class("indestructible", "static").   // 702.12a
+keyword_class("intimidate", "evasion").   // 702.13a
+keyword_class("landwalk", "evasion").   // 702.14b
+keyword_class("lifelink", "static").   // 702.15a
+keyword_class("protection", "static").   // 702.16a
+keyword_class("reach", "static").   // 702.17a
+keyword_class("shroud", "static").   // 702.18a
+keyword_class("trample", "static").   // 702.19a
+keyword_class("vigilance", "static").   // 702.20a
+keyword_class("ward", "triggered").   // 702.21a
+keyword_class("banding", "static").   // 702.22a
+keyword_class("rampage", "triggered").   // 702.23a
+keyword_class("cumulative_upkeep", "triggered").   // 702.24a
+keyword_class("flanking", "triggered").   // 702.25a
+keyword_class("phasing", "static").   // 702.26a
+keyword_class("shadow", "evasion").   // 702.28a
+keyword_class("cycling", "activated").   // 702.29a
+keyword_class("echo", "triggered").   // 702.30a
+keyword_class("horsemanship", "evasion").   // 702.31a
+keyword_class("kicker", "static").   // 702.33a
+keyword_class("sticker_kicker", "keyword").   // 702.33h
+keyword_class("fear", "evasion").   // 702.36a
+keyword_class("morph", "static").   // 702.37a
+keyword_class("provoke", "triggered").   // 702.39a
+keyword_class("storm", "triggered").   // 702.40a
+keyword_class("affinity", "static").   // 702.41a
+keyword_class("entwine", "static").   // 702.42a
+keyword_class("sunburst", "static").   // 702.44a
+keyword_class("bushido", "triggered").   // 702.45a
+keyword_class("soulshift", "triggered").   // 702.46a
+keyword_class("splice", "static").   // 702.47a
+keyword_class("offering", "static").   // 702.48a
+keyword_class("ninjutsu", "activated").   // 702.49a
+keyword_class("convoke", "static").   // 702.51a
+keyword_class("dredge", "static").   // 702.52a
+keyword_class("transmute", "activated").   // 702.53a
+keyword_class("bloodthirst", "static").   // 702.54a
+keyword_class("haunt", "triggered").   // 702.55a
+keyword_class("recover", "triggered").   // 702.59a
+keyword_class("ripple", "triggered").   // 702.60a
+keyword_class("split_second", "static").   // 702.61a
+keyword_class("absorb", "static").   // 702.64a
+keyword_class("aura_swap", "activated").   // 702.65a
+keyword_class("delve", "static").   // 702.66a
+keyword_class("fortify", "activated").   // 702.67a
+keyword_class("frenzy", "triggered").   // 702.68a
+keyword_class("gravestorm", "triggered").   // 702.69a
+keyword_class("poisonous", "triggered").   // 702.70a
+keyword_class("transfigure", "activated").   // 702.71a
+keyword_class("changeling", "defining").   // 702.73a
+keyword_class("hideaway", "triggered").   // 702.75a
+keyword_class("prowl", "static").   // 702.76a
+keyword_class("reinforce", "activated").   // 702.77a
+keyword_class("persist", "triggered").   // 702.79a
+keyword_class("wither", "static").   // 702.80a
+keyword_class("retrace", "static").   // 702.81a
+keyword_class("devour", "static").   // 702.82a
+keyword_class("exalted", "triggered").   // 702.83a
+keyword_class("unearth", "activated").   // 702.84a
+keyword_class("cascade", "triggered").   // 702.85a
+keyword_class("annihilator", "triggered").   // 702.86a
+keyword_class("level", "activated").   // 702.87a
+keyword_class("umbra_armor", "static").   // 702.89a
+keyword_class("infect", "static").   // 702.90a
+keyword_class("battle_cry", "triggered").   // 702.91a
+keyword_class("living_weapon", "triggered").   // 702.92a
+keyword_class("undying", "triggered").   // 702.93a
+keyword_class("miracle", "static").   // 702.94a
+keyword_class("scavenge", "activated").   // 702.97a
+keyword_class("evolve", "triggered").   // 702.100a
+keyword_class("extort", "triggered").   // 702.101a
+keyword_class("fuse", "static").   // 702.102a
+keyword_class("tribute", "static").   // 702.104a
+keyword_class("dethrone", "triggered").   // 702.105a
+keyword_class("hidden_agenda", "static").   // 702.106a
+keyword_class("outlast", "activated").   // 702.107a
+keyword_class("prowess", "triggered").   // 702.108a
+keyword_class("exploit", "triggered").   // 702.110a
+keyword_class("menace", "evasion").   // 702.111a
+keyword_class("renown", "triggered").   // 702.112a
+keyword_class("devoid", "defining").   // 702.114a
+keyword_class("ingest", "triggered").   // 702.115a
+keyword_class("myriad", "triggered").   // 702.116a
+keyword_class("surge", "static").   // 702.117a
+keyword_class("skulk", "evasion").   // 702.118a
+keyword_class("escalate", "static").   // 702.120a
+keyword_class("melee", "triggered").   // 702.121a
+keyword_class("crew", "activated").   // 702.122a
+keyword_class("fabricate", "triggered").   // 702.123a
+keyword_class("undaunted", "static").   // 702.125a
+keyword_class("improvise", "static").   // 702.126a
+keyword_class("embalm", "activated").   // 702.128a
+keyword_class("eternalize", "activated").   // 702.129a
+keyword_class("afflict", "triggered").   // 702.130a
+keyword_class("assist", "static").   // 702.132a
+keyword_class("mentor", "triggered").   // 702.134a
+keyword_class("afterlife", "triggered").   // 702.135a
+keyword_class("riot", "static").   // 702.136a
+keyword_class("spectacle", "static").   // 702.137a
+keyword_class("companion", "keyword").   // 702.139a
+keyword_class("encore", "activated").   // 702.141a
+keyword_class("demonstrate", "triggered").   // 702.144a
+keyword_class("training", "triggered").   // 702.149a
+keyword_class("visit", "keyword").   // 702.159a
+keyword_class("prototype", "static").   // 702.160a
+keyword_class("living_metal", "keyword").   // 702.161a
+keyword_class("toxic", "static").   // 702.164a
+keyword_class("backup", "triggered").   // 702.165a
+keyword_class("bargain", "static").   // 702.166a
+keyword_class("disguise", "static").   // 702.168a
+keyword_class("solved", "keyword").   // 702.169a
+keyword_class("plot", "keyword").   // 702.170a
+keyword_class("saddle", "activated").   // 702.171a
+keyword_class("spree", "static").   // 702.172a
+keyword_class("freerunning", "static").   // 702.173a
+keyword_class("mobilize", "triggered").   // 702.181a
+keyword_class("job_select", "triggered").   // 702.182a
+keyword_class("station", "activated").   // 702.184a
+keyword_class("mayhem", "static").   // 702.187a
+keyword_class("firebending", "triggered").   // 702.189a
+keyword_class("increment", "triggered").   // 702.191a
+
+// --- 64 via the verb-group classifier (represents/special-kind/keyword-that-functions) ---
+keyword_class("fading", "composite").
+keyword_class("madness", "triggered").
+keyword_class("amplify", "static").
+keyword_class("modular", "static").
+keyword_class("modular", "triggered").
+keyword_class("epic", "spell").
+keyword_class("epic", "triggered").
+keyword_class("replicate", "composite").
+keyword_class("forecast", "activated").
+keyword_class("graft", "static").
+keyword_class("graft", "triggered").
+keyword_class("suspend", "composite").
+keyword_class("vanishing", "composite").
+keyword_class("champion", "triggered").
+keyword_class("evoke", "static").
+keyword_class("evoke", "triggered").
+keyword_class("conspire", "composite").
+keyword_class("soulbond", "triggered").
+keyword_class("overload", "static").
+keyword_class("unleash", "static").
+keyword_class("bestow", "static").
+keyword_class("dash", "static").
+keyword_class("dash", "triggered").
+keyword_class("awaken", "spell").
+keyword_class("emerge", "static").
+keyword_class("partner", "composite").
+keyword_class("ascend_on_a_permanent", "spell").
+keyword_class("ascend_on_a_permanent", "static").
+keyword_class("escape", "static").
+keyword_class("escape", "triggered").
+keyword_class("mutate", "composite").
+keyword_class("boast", "activated").
+keyword_class("foretell", "keyword").
+keyword_class("daybound_and_nightbound", "static").
+keyword_class("decayed", "static").
+keyword_class("decayed", "triggered").
+keyword_class("cleave", "static").
+keyword_class("compleated", "static").
+keyword_class("reconfigure", "activated").
+keyword_class("blitz", "static").
+keyword_class("blitz", "triggered").
+keyword_class("casualty", "composite").
+keyword_class("enlist", "static").
+keyword_class("enlist", "triggered").
+keyword_class("squad", "composite").
+keyword_class("space_sculptor", "keyword").
+keyword_class("more_than_meets_the_eye", "static").
+keyword_class("for_mirrodin", "triggered").
+keyword_class("craft", "activated").
+keyword_class("gift", "spell").
+keyword_class("offspring", "composite").
+keyword_class("impending", "composite").
+keyword_class("exhaust", "activated").
+keyword_class("max_speed", "static").
+keyword_class("start_your_engines", "static").
+keyword_class("start_your_engines", "triggered").
+keyword_class("harmonize", "static").
+keyword_class("tiered", "static").
+keyword_class("warp", "static").
+keyword_class("warp", "triggered").
+keyword_class("web_slinging", "static").
+keyword_class("sneak", "static").
+keyword_class("paradigm", "spell").
+keyword_class("paradigm", "triggered").
+
+// --- 23 appearance facts (appears-on/found-on) ---
+keyword_appears_on("buyback", "instant").
+keyword_appears_on("buyback", "sorcery").
+keyword_appears_on("flashback", "instant").
+keyword_appears_on("flashback", "sorcery").
+keyword_appears_on("rebound", "instant").
+keyword_appears_on("rebound", "sorcery").
+keyword_appears_on("cipher", "instant").
+keyword_appears_on("cipher", "sorcery").
+keyword_appears_on("awaken", "instant").
+keyword_appears_on("awaken", "sorcery").
+keyword_appears_on("aftermath", "card").
+keyword_appears_on("jump_start", "instant").
+keyword_appears_on("jump_start", "sorcery").
+keyword_appears_on("mutate", "card").
+keyword_appears_on("mutate", "creature").
+keyword_appears_on("daybound_and_nightbound", "card").
+keyword_appears_on("disturb", "card").
+keyword_appears_on("compleated", "card").
+keyword_appears_on("compleated", "planeswalker").
+keyword_appears_on("read_ahead", "card").
+keyword_appears_on("ravenous", "card").
+keyword_appears_on("ravenous", "creature").
+keyword_appears_on("the_mathematical_symbol_for_infinity", "card").
+
+.output keyword_class
+.output keyword_appears_on
+
+// conformance
+.decl expect_class(kw: symbol, cls: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("class", K, C) :- expect_class(K, C), !keyword_class(K, C).
+.output conformance_fail
+.printsize conformance_fail
+
+// spot-check scenarios
+expect_class("deathtouch", "static").
+expect_class("equip", "activated").
+expect_class("cascade", "triggered").
+expect_class("first_strike", "static").
+expect_class("modular", "static").
+expect_class("modular", "triggered").
+expect_class("forecast", "activated").
+expect_class("fading", "composite").

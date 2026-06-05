@@ -1,0 +1,61 @@
+// keyword_actions.dl — §701 keyword-action zone transitions + status changes TRANSPILED from rules.txt
+// (preprocess -> spaCy dependency parse). Rule bodies are GENERATED, not hand-written.
+
+.decl do_cloak(o: symbol)
+.decl do_convert(o: symbol)
+.decl do_destroy(o: symbol)
+.decl do_discard(o: symbol)
+.decl do_exile(o: symbol)
+.decl do_manifest(o: symbol)
+.decl do_sacrifice(o: symbol)
+.decl do_tap(o: symbol)
+.decl do_transform(o: symbol)
+.decl do_untap(o: symbol)
+.decl zone_change(o: symbol, f: symbol, t: symbol)
+.decl status(o: symbol, s: symbol)
+
+// --- rules transpiled from the English text (one per matched §701 sentence) ---
+zone_change(O, "battlefield", "graveyard") :- do_destroy(O).   // 701.8a
+zone_change(O, "hand", "graveyard") :- do_discard(O).   // 701.9a
+zone_change(O, "any", "exile") :- do_exile(O).   // 701.13a
+zone_change(O, "battlefield", "graveyard") :- do_sacrifice(O).   // 701.21a
+status(O, "tapped") :- do_tap(O).   // 701.26a
+status(O, "untapped") :- do_untap(O).   // 701.26b
+status(O, "transformed") :- do_transform(O).   // 701.27a
+status(O, "transformed") :- do_convert(O).   // 701.28a
+status(O, "face_down") :- do_manifest(O).   // 701.40a
+status(O, "face_down") :- do_cloak(O).   // 701.58a
+
+.output zone_change
+.output status
+
+// conformance
+.decl expect_zone(o: symbol, f: symbol, t: symbol)
+.decl expect_status(o: symbol, s: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("zone", O, F) :- expect_zone(O, F, T), !zone_change(O, F, T).
+conformance_fail("status", O, S) :- expect_status(O, S), !status(O, S).
+.output conformance_fail
+.printsize conformance_fail
+
+// scenario under test
+do_destroy("perm1").
+expect_zone("perm1", "battlefield", "graveyard").
+do_discard("card1").
+expect_zone("card1", "hand", "graveyard").
+do_exile("obj1").
+expect_zone("obj1", "any", "exile").
+do_sacrifice("perm2").
+expect_zone("perm2", "battlefield", "graveyard").
+do_tap("perm3").
+expect_status("perm3", "tapped").
+do_untap("perm3b").
+expect_status("perm3b", "untapped").
+do_transform("perm4").
+expect_status("perm4", "transformed").
+do_convert("perm4b").
+expect_status("perm4b", "transformed").
+do_manifest("card2").
+expect_status("card2", "face_down").
+do_cloak("card2b").
+expect_status("card2b", "face_down").

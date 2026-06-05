@@ -1,0 +1,64 @@
+// objects.dl — §109 Objects, interpreted from rules.txt.
+// object_kind(kind); characteristic(name); description_word(word); controller_special(object, who). GENERATED.
+
+.decl object_kind(kind: symbol)
+.decl characteristic(name: symbol)
+.decl description_word(word: symbol)
+.decl controller_special(object: symbol, who: symbol)
+
+object_kind("ability_on_the_stack").
+object_kind("card").
+object_kind("copy_of_a_card").
+object_kind("token").
+object_kind("spell").
+object_kind("permanent").
+object_kind("emblem").
+
+characteristic("name").
+characteristic("mana_cost").
+characteristic("color").
+characteristic("color_indicator").
+characteristic("card_type").
+characteristic("subtype").
+characteristic("supertype").
+characteristic("rules_text").
+characteristic("abilities").
+characteristic("power").
+characteristic("toughness").
+characteristic("loyalty").
+characteristic("defense").
+characteristic("hand_modifier").
+characteristic("life_modifier").
+
+description_word("card").
+description_word("spell").
+description_word("source").
+
+controller_special("emblem", "creator").
+controller_special("vanguard", "owner").
+controller_special("scheme", "owner").
+controller_special("conspiracy", "owner").
+
+.output object_kind
+.output characteristic
+.output description_word
+.output controller_special
+
+// conformance — spot-check the §109 enumerations/rules stated plainly
+.decl expect_kind(kind: symbol)
+.decl expect_char(name: symbol)
+.decl expect_ctrl(object: symbol, who: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("kind", K, "-") :- expect_kind(K), !object_kind(K).
+conformance_fail("char", C, "-") :- expect_char(C), !characteristic(C).
+conformance_fail("ctrl", O, W) :- expect_ctrl(O, W), !controller_special(O, W).
+.output conformance_fail
+.printsize conformance_fail
+expect_kind("token").
+expect_kind("emblem").
+expect_kind("spell").
+expect_char("color").
+expect_char("power").
+expect_char("loyalty").
+expect_ctrl("emblem", "creator").
+expect_ctrl("scheme", "owner").

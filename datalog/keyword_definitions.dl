@@ -1,0 +1,239 @@
+// keyword_definitions.dl — §701/§702 keyword definition templates, interpreted from rules.txt.
+// keyword_means(keyword, params, expansion); keyword_represents(keyword, count, type). GENERATED.
+// keyword_defined(keyword) projects keywords that have a substitution definition (lookup/bridge).
+
+.decl keyword_means(keyword: symbol, params: symbol, expansion: symbol)
+.decl keyword_represents(keyword: symbol, n: number, ability_type: symbol)
+.decl keyword_defined(keyword: symbol)
+
+keyword_means("behold", "a [quality]", "Reveal a [quality] card from your hand or choose a [quality] permanent you control on the battlefield.").
+keyword_means("investigate", "", "Create a Clue token.").
+keyword_means("regenerate", "[permanent]", "The next time [permanent] would be destroyed this turn, instead remove all damage marked on it and its controller taps it. If it’s an attacking or blocking creature, remove it from combat.").
+keyword_means("regenerate", "[permanent]", "Instead remove all damage marked on [permanent] and its controller taps it. If it’s an attacking or blocking creature, remove it from combat.").
+keyword_means("clash", "with an opponent", "Choose an opponent. You and that opponent each clash.").
+keyword_means("monstrosity", "N", "If this permanent isn’t monstrous, put N +1/+1 counters on it and it becomes monstrous.").
+keyword_means("bolster", "N", "Choose a creature you control with the least toughness or tied for least toughness among creatures you control. Put N +1/+1 counters on that creature.").
+keyword_means("adapt", "N", "If this permanent has no +1/+1 counters on it, put N +1/+1 counters on it.").
+keyword_means("learn", "", "You may discard a card. If you do, draw a card. If you didn’t discard a card, you may reveal a Lesson card you own from outside the game and put it into your hand.").
+keyword_means("a", "[A player] faces a villainous choice — [option A], or [option B]", "[A player] chooses [option A] or [option B]. Then all actions in the chosen option are performed.").
+keyword_means("discover", "N", "Exile cards from the top of your library until you exile a nonland card with mana value N or less. You may cast that card without paying its mana cost if the resulting spell’s mana value is less than or equal to N. If you don’t cast it, put that card into your hand. Put the remaining exiled cards on the bottom of your library in a random order.").
+keyword_means("manifest", "dread", "Look at the top two cards of your library. Manifest one of them, then put the cards you looked at that were not manifested this way into your graveyard.").
+keyword_means("harness", "[this permanent]", "If this permanent isn’t harnessed, it becomes harnessed.").
+keyword_means("earthbend", "N", "Target land you control becomes a 0/0 land creature with haste in addition to its other types. Put N +1/+1 counters on it. When that land dies or is put into exile, return it to the battlefield tapped under your control.").
+keyword_means("waterbend", "[cost]", "Pay [cost]. For each generic mana in that cost, you may tap an untapped artifact or creature you control rather than pay that mana.").
+keyword_means("equip", "[cost]", "[Cost]: Attach this permanent to target creature you control. Activate only as a sorcery.").
+keyword_means("equip", "planeswalker [cost]", "[Cost]: Attach this permanent to target planeswalker you control as though that planeswalker were a creature. Activate only as a sorcery.").
+keyword_means("flash", "", "You may play this card any time you could cast an instant.").
+keyword_means("shroud", "", "This permanent or player can’t be the target of spells or abilities.").
+keyword_means("rampage", "N", "Whenever this creature becomes blocked, it gets +N/+N until end of turn for each creature blocking it beyond the first.").
+keyword_means("cumulative", "upkeep [cost]", "At the beginning of your upkeep, if this permanent is on the battlefield, put an age counter on this permanent. Then you may pay [cost] for each age counter on it. If you don’t, sacrifice it.").
+keyword_means("flanking", "", "Whenever this creature becomes blocked by a creature without flanking, the blocking creature gets -1/-1 until end of turn.").
+keyword_means("buyback", "[cost]", "You may pay an additional [cost] as you cast this spell").
+keyword_means("cycling", "[cost]", "[Cost], Discard this card: Draw a card.").
+keyword_means("when", "you cycle this card", "When you discard this card to pay an activation cost of a cycling ability.").
+keyword_means("type", "[Type]cycling [cost]", "[Cost], Discard this card: Search your library for a [type] card, reveal it, and put it into your hand. Then shuffle your library.").
+keyword_means("echo", "[cost]", "At the beginning of your upkeep, if this permanent came under your control since the beginning of your last upkeep, sacrifice it unless you pay [cost].").
+keyword_means("fading", "N", "This permanent enters with N fade counters on it").
+keyword_means("kicker", "[cost]", "You may pay an additional [cost] as you cast this spell.").
+keyword_means("multikicker", "[cost]", "You may pay an additional [cost] any number of times as you cast this spell.").
+keyword_means("sticker", "kicker [cost]", "Kicker [cost]").
+keyword_means("flashback", "[cost]", "You may cast this card from your graveyard if the resulting spell is an instant or sorcery spell by paying [cost] rather than paying its mana cost").
+keyword_means("madness", "[cost]", "If a player would discard this card, that player discards it, but exiles it instead of putting it into their graveyard").
+keyword_means("morph", "[cost]", "You may cast this card as a 2/2 face-down creature with no text, no name, no subtypes, and no mana cost by paying {3} rather than paying its mana cost.").
+keyword_means("megamorph", "[cost]", "You may cast this card as a 2/2 face-down creature with no text, no name, no subtypes, and no mana cost by paying {3} rather than paying its mana cost").
+keyword_means("amplify", "N", "As this object enters, reveal any number of cards from your hand that share a creature type with it. This permanent enters with N +1/+1 counters on it for each card revealed this way. You can’t reveal this card or any other cards that are entering the battlefield at the same time as this card.").
+keyword_means("provoke", "", "Whenever this creature attacks, you may choose to have target creature defending player controls block this creature this combat if able. If you do, untap that creature.").
+keyword_means("storm", "", "When you cast this spell, copy it for each other spell that was cast before it this turn. If the spell has any targets, you may choose new targets for any of the copies.").
+keyword_means("affinity", "for [text]", "This spell costs {1} less to cast for each [text] you control.").
+keyword_means("entwine", "[cost]", "You may choose all modes of this spell instead of just the number specified. If you do, you pay an additional [cost].").
+keyword_means("modular", "N", "This permanent enters with N +1/+1 counters on it").
+keyword_means("sunburst", "", "If this object is entering as a creature, ignoring any type-changing effects that would affect it, it enters with a +1/+1 counter on it for each color of mana spent to cast it. Otherwise, it enters with a charge counter on it for each color of mana spent to cast it.").
+keyword_means("bushido", "N", "Whenever this creature blocks or becomes blocked, it gets +N/+N until end of turn.").
+keyword_means("soulshift", "N", "When this permanent is put into a graveyard from the battlefield, you may return target Spirit card with mana value N or less from your graveyard to your hand.").
+keyword_means("splice", "onto [quality] [cost]", "You may reveal this card from your hand as you cast a [quality] spell. If you do, that spell gains the text of this card’s rules text and you pay [cost] as an additional cost to cast that spell.").
+keyword_means("quality", "[Quality] offering", "As an additional cost to cast this spell, you may sacrifice a [quality] permanent. If you chose to pay the additional cost, this spell’s total cost is reduced by the sacrificed permanent’s mana cost, and you may cast this spell any time you could cast an instant.").
+keyword_means("ninjutsu", "[cost]", "[Cost], Reveal this card from your hand, Return an unblocked attacking creature you control to its owner’s hand: Put this card onto the battlefield from your hand tapped and attacking.").
+keyword_means("commander", "ninjutsu [cost]", "[Cost], Reveal this card from your hand or from the command zone, Return an unblocked attacking creature you control to its owner’s hand: Put this card onto the battlefield tapped and attacking.").
+keyword_means("epic", "", "For the rest of the game, you can’t cast spells,").
+keyword_means("convoke", "", "For each colored mana in this spell’s total cost, you may tap an untapped creature of that color you control rather than pay that mana. For each generic mana in this spell’s total cost, you may tap an untapped creature you control rather than pay that mana.").
+keyword_means("dredge", "N", "As long as you have at least N cards in your library, if you would draw a card, you may instead mill N cards and return this card from your graveyard to your hand.").
+keyword_means("transmute", "[cost]", "[Cost], Discard this card: Search your library for a card with the same mana value as the discarded card, reveal that card, and put it into your hand. Then shuffle your library. Activate only as a sorcery.").
+keyword_means("bloodthirst", "N", "If an opponent was dealt damage this turn, this permanent enters with N +1/+1 counters on it.").
+keyword_means("bloodthirst", "X", "This permanent enters with X +1/+1 counters on it, where X is the total damage your opponents have been dealt this turn.").
+keyword_means("replicate", "[cost]", "As an additional cost to cast this spell, you may pay [cost] any number of times").
+keyword_means("graft", "N", "This permanent enters with N +1/+1 counters on it").
+keyword_means("recover", "[cost]", "When a creature is put into your graveyard from the battlefield, you may pay [cost]. If you do, return this card from your graveyard to your hand. Otherwise, exile this card.").
+keyword_means("ripple", "N", "When you cast this spell, you may reveal the top N cards of your library, or, if there are fewer than N cards in your library, you may reveal all the cards in your library. If you reveal cards from your library this way, you may cast any of those cards with the same name as this spell without paying their mana costs, then put all revealed cards not cast this way on the bottom of your library in any order.").
+keyword_means("split", "second", "As long as this spell is on the stack, players can’t cast other spells or activate abilities that aren’t mana abilities.").
+keyword_means("suspend", "N—[cost]", "If you could begin to cast this card by putting it onto the stack from your hand, you may pay [cost] and exile it with N time counters on it. This action doesn’t use the stack,").
+keyword_means("vanishing", "N", "This permanent enters with N time counters on it,").
+keyword_means("absorb", "N", "If a source would deal damage to this creature, prevent N of that damage.").
+keyword_means("aura", "swap [cost]", "[Cost]: You may exchange this permanent with an Aura card in your hand.").
+keyword_means("delve", "", "For each generic mana in this spell’s total cost, you may exile a card from your graveyard rather than pay that mana.").
+keyword_means("fortify", "[cost]", "[Cost]: Attach this Fortification to target land you control. Activate only as a sorcery.").
+keyword_means("frenzy", "N", "Whenever this creature attacks and isn’t blocked, it gets +N/+0 until end of turn.").
+keyword_means("gravestorm", "", "When you cast this spell, copy it for each permanent that was put into a graveyard from the battlefield this turn. If the spell has any targets, you may choose new targets for any of the copies.").
+keyword_means("poisonous", "N", "Whenever this creature deals combat damage to a player, that player gets N poison counters.").
+keyword_means("transfigure", "[cost]", "[Cost], Sacrifice this permanent: Search your library for a creature card with the same mana value as this permanent and put it onto the battlefield. Then shuffle your library. Activate only as a sorcery.").
+keyword_means("champion", "an [object]", "When this permanent enters, sacrifice it unless you exile another [object] you control").
+keyword_means("changeling", "", "This object is every creature type.").
+keyword_means("evoke", "[cost]", "You may cast this card by paying [cost] rather than paying its mana cost").
+keyword_means("hideaway", "N", "When this permanent enters, look at the top N cards of your library. Exile one of them face down and put the rest on the bottom of your library in a random order. The exiled card gains ‘The player who controls the permanent that exiled this card may look at this card in the exile zone.’").
+keyword_means("prowl", "[cost]", "You may pay [cost] rather than pay this spell’s mana cost if a player was dealt combat damage this turn by a source that, at the time it dealt that damage, was under your control and had any of this spell’s creature types.").
+keyword_means("reinforce", "N—[cost]", "[Cost], Discard this card: Put N +1/+1 counters on target creature.").
+keyword_means("conspire", "", "As an additional cost to cast this spell, you may tap two untapped creatures you control that each share a color with it").
+keyword_means("persist", "", "When this permanent is put into a graveyard from the battlefield, if it had no -1/-1 counters on it, return it to the battlefield under its owner’s control with a -1/-1 counter on it.").
+keyword_means("retrace", "", "You may cast this card from your graveyard by discarding a land card as an additional cost to cast it.").
+keyword_means("devour", "N", "As this object enters, you may sacrifice any number of creatures. This permanent enters with N +1/+1 counters on it for each creature sacrificed this way.").
+keyword_means("it", "devoured", "sacrificed as a result of its devour ability as it entered the battlefield.").
+keyword_means("devour", "[quality] N", "As this object enters, you may sacrifice any number of [quality] permanents. This permanent enters with N +1/+1 counters on it for each permanent sacrificed this way.").
+keyword_means("exalted", "", "Whenever a creature you control attacks alone, that creature gets +1/+1 until end of turn.").
+keyword_means("unearth", "[cost]", "[Cost]: Return this card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else. Activate only as a sorcery.").
+keyword_means("cascade", "", "When you cast this spell, exile cards from the top of your library until you exile a nonland card whose mana value is less than this spell’s mana value. You may cast that card without paying its mana cost if the resulting spell’s mana value is less than this spell’s mana value. Then put all cards exiled this way that weren’t cast on the bottom of your library in a random order.").
+keyword_means("annihilator", "N", "Whenever this creature attacks, defending player sacrifices N permanents.").
+keyword_means("level", "up [cost]", "[Cost]: Put a level counter on this permanent. Activate only as a sorcery.").
+keyword_means("rebound", "", "If this spell was cast from your hand, instead of putting it into your graveyard as it resolves, exile it and, at the beginning of your next upkeep, you may cast this card from exile without paying its mana cost.").
+keyword_means("umbra", "armor", "If enchanted permanent would be destroyed, instead remove all damage marked on it and destroy this Aura.").
+keyword_means("battle", "cry", "Whenever this creature attacks, each other attacking creature gets +1/+0 until end of turn.").
+keyword_means("living", "weapon", "When this Equipment enters, create a 0/0 black Phyrexian Germ creature token, then attach this Equipment to it.").
+keyword_means("undying", "", "When this permanent is put into a graveyard from the battlefield, if it had no +1/+1 counters on it, return it to the battlefield under its owner’s control with a +1/+1 counter on it.").
+keyword_means("miracle", "[cost]", "You may reveal this card from your hand as you draw it if it’s the first card you’ve drawn this turn. When you reveal this card this way, you may cast it by paying [cost] rather than its mana cost.").
+keyword_means("soulbond", "", "When this creature enters, if you control both this creature and another creature and both are unpaired, you may pair this creature with another unpaired creature you control for as long as both remain creatures on the battlefield under your control").
+keyword_means("scavenge", "[cost]", "[Cost], Exile this card from your graveyard: Put a number of +1/+1 counters equal to the power of the card you exiled on target creature. Activate only as a sorcery.").
+keyword_means("unleash", "", "You may have this permanent enter with an additional +1/+1 counter on it").
+keyword_means("cipher", "", "If this spell is represented by a card, you may exile this card encoded on a creature you control").
+keyword_means("evolve", "", "Whenever a creature you control enters, if that creature’s power is greater than this creature’s power and/or that creature’s toughness is greater than this creature’s toughness, put a +1/+1 counter on this creature.").
+keyword_means("extort", "", "Whenever you cast a spell, you may pay {W/B}. If you do, each opponent loses 1 life and you gain life equal to the total life lost this way.").
+keyword_means("bestow", "[cost]", "As you cast this spell, you may choose to cast it bestowed. If you do, you pay [cost] rather than its mana cost.").
+keyword_means("tribute", "N", "As this creature enters, choose an opponent. That player may put an additional N +1/+1 counters on it as it enters.").
+keyword_means("dethrone", "", "Whenever this creature attacks the player with the most life or tied for most life, put a +1/+1 counter on this creature.").
+keyword_means("hidden", "agenda", "As you put this conspiracy card into the command zone, turn it face down and secretly choose a card name.").
+keyword_means("outlast", "[cost]", "[Cost], {T}: Put a +1/+1 counter on this creature. Activate only as a sorcery.").
+keyword_means("prowess", "", "Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.").
+keyword_means("dash", "[cost]", "You may cast this card by paying [cost] rather than its mana cost,").
+keyword_means("exploit", "", "When this creature enters, you may sacrifice a creature.").
+keyword_means("renown", "N", "When this creature deals combat damage to a player, if it isn’t renowned, put N +1/+1 counters on it and it becomes renowned.").
+keyword_means("awaken", "N—[cost]", "You may pay [cost] rather than pay this spell’s mana cost as you cast this spell").
+keyword_means("devoid", "", "This object is colorless.").
+keyword_means("ingest", "", "Whenever this creature deals combat damage to a player, that player exiles the top card of their library.").
+keyword_means("myriad", "", "Whenever this creature attacks, for each opponent other than defending player, you may create a token that’s a copy of this creature that’s tapped and attacking that player or a planeswalker they control. If one or more tokens are created this way, exile the tokens at end of combat.").
+keyword_means("surge", "[cost]", "You may pay [cost] rather than pay this spell’s mana cost as you cast this spell if you or one of your teammates has cast another spell this turn.").
+keyword_means("emerge", "[cost]", "You may cast this spell by paying [cost] and sacrificing a creature rather than paying its mana cost").
+keyword_means("emerge", "from [quality] [cost]", "You may cast this spell by paying [cost] and sacrificing a [quality] permanent rather than paying its mana cost").
+keyword_means("escalate", "[cost]", "For each mode you choose beyond the first as you cast this spell, you pay an additional [cost].").
+keyword_means("melee", "", "Whenever this creature attacks, it gets +1/+1 until end of turn for each opponent you attacked with a creature this combat.").
+keyword_means("crew", "N", "Tap any number of other untapped creatures you control with total power N or greater: This permanent becomes an artifact creature until end of turn.").
+keyword_means("whenever", "[this Vehicle] becomes crewed", "Whenever a crew ability of [this Vehicle] resolves.").
+keyword_means("fabricate", "N", "When this permanent enters, you may put N +1/+1 counters on it. If you don’t, create N 1/1 colorless Servo artifact creature tokens.").
+keyword_means("partner", "", "You may designate two legendary cards as your commander rather than one if each of them has partner.").
+keyword_means("partner", "—[text]", "You may designate two legendary cards as your commander rather than one if each of them has the same ‘partner—[text]’ ability.").
+keyword_means("choose", "a Background", "You may designate two cards as your commander rather than one if one of them is this card and the other is a legendary Background enchantment card.").
+keyword_means("doctor", "’s companion", "You may designate two legendary creature cards as your commander rather than one if one of them is this card and the other is a legendary Time Lord Doctor creature card that has no other creature types.").
+keyword_means("improvise", "", "For each generic mana in this spell’s total cost, you may tap an untapped artifact you control rather than pay that mana.").
+keyword_means("aftermath", "", "You may cast this half of this split card from your graveyard,").
+keyword_means("embalm", "[cost]", "[Cost], Exile this card from your graveyard: Create a token that’s a copy of this card, except it’s white, it has no mana cost, and it’s a Zombie in addition to its other types. Activate only as a sorcery.").
+keyword_means("eternalize", "[cost]", "[Cost], Exile this card from your graveyard: Create a token that’s a copy of this card, except it’s black, it’s 4/4, it has no mana cost, and it’s a Zombie in addition to its other types. Activate only as a sorcery.").
+keyword_means("afflict", "N", "Whenever this creature becomes blocked, defending player loses N life.").
+keyword_means("jump", "-start", "You may cast this card from your graveyard if the resulting spell is an instant or sorcery spell by discarding a card as an additional cost to cast it").
+keyword_means("mentor", "", "Whenever this creature attacks, put a +1/+1 counter on target attacking creature with power less than this creature’s power.").
+keyword_means("afterlife", "N", "When this permanent is put into a graveyard from the battlefield, create N 1/1 white and black Spirit creature tokens with flying.").
+keyword_means("riot", "", "You may have this permanent enter with an additional +1/+1 counter on it. If you don’t, it gains haste.").
+keyword_means("spectacle", "[cost]", "You may pay [cost] rather than pay this spell’s mana cost if an opponent lost life this turn.").
+keyword_means("escape", "[cost]", "You may cast this card from your graveyard by paying [cost] rather than paying its mana cost.").
+keyword_means("this", "[This permanent] escapes with [one or more of a kind of counter]", "If this permanent escaped, it enters with [those counters]").
+keyword_means("this", "[This permanent] escapes with [ability]", "If this permanent escaped, it has [ability].").
+keyword_means("mutate", "[cost]", "You may pay [cost] rather than pay this spell’s mana cost. If you do, it becomes a mutating creature spell and targets a non-Human creature with the same owner as this spell.").
+keyword_means("encore", "[cost]", "[Cost], Exile this card from your graveyard: For each opponent, create a token that’s a copy of this card that attacks that opponent this turn if able. The tokens gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery.").
+keyword_means("boast", "— [Cost]: [Effect]", "[Cost]: [Effect]. Activate only if this creature attacked this turn and only once each turn.").
+keyword_means("demonstrate", "", "When you cast this spell, you may copy it and you may choose new targets for the copy. If you copy the spell, choose an opponent. That player copies the spell and may choose new targets for that copy.").
+keyword_means("daybound", "", "If it is night and this permanent is represented by a double-faced card, it enters transformed,").
+keyword_means("nightbound", "", "As it becomes day, if this permanent is back face up, transform it").
+keyword_means("disturb", "[cost]", "You may cast this card transformed from your graveyard by paying [cost] rather than its mana cost.").
+keyword_means("decayed", "", "This creature can’t block").
+keyword_means("cleave", "[cost]", "You may cast this spell by paying [cost] rather than paying its mana cost").
+keyword_means("training", "", "Whenever this creature and at least one other creature with power greater than this creature’s power attack, put a +1/+1 counter on this creature.").
+keyword_means("when", "this creature trains", "When a resolving training ability puts one or more +1/+1 counters on this creature.").
+keyword_means("blitz", "[cost]", "You may cast this card by paying [cost] rather than its mana cost,").
+keyword_means("read", "ahead", "Chapter abilities of this Saga can’t trigger the turn it entered the battlefield unless it has exactly the number of lore counters on it specified in the chapter symbol of that ability.").
+keyword_means("ravenous", "", "This permanent enters with X +1/+1 counters on it").
+keyword_means("squad", "[cost]", "As an additional cost to cast this spell, you may pay [cost] any number of times").
+keyword_means("visit", "— [Effect]", "Whenever you roll to visit your Attractions, if the result is equal to a number that is lit up on this Attraction, [effect].").
+keyword_means("living", "metal", "During your turn, this permanent is an artifact creature in addition to its other types.").
+keyword_means("more", "Than Meets the Eye [cost]", "You may cast this card converted by paying [cost] rather than its mana cost.").
+keyword_means("for", "Mirrodin!", "When this Equipment enters, create a 2/2 red Rebel creature token, then attach this Equipment to it.").
+keyword_means("backup", "N", "When this creature enters, put N +1/+1 counters on target creature. If that’s another creature, it also gains the non-backup abilities of this creature printed below this one until end of turn.").
+keyword_means("bargain", "", "As an additional cost to cast this spell, you may sacrifice an artifact, enchantment, or token.").
+keyword_means("disguise", "[cost]", "You may cast this card as a 2/2 face-down creature with ward {2}, no name, no subtypes, and no mana cost by paying {3} rather than paying its mana cost.").
+keyword_means("solved", "— [Ability text]", "As long as this Case is solved, [ability text].").
+keyword_means("solved", "— [Ability text]", "[Ability text]. This ability triggers only if this Case is solved.").
+keyword_means("solved", "— [Ability text]", "[Ability text]. Activate only if this Case is solved.").
+keyword_means("plot", "[cost]", "Any time you have priority during your main phase while the stack is empty, you may exile this card from your hand and pay [cost]. It becomes a plotted card.").
+keyword_means("saddle", "N", "Tap any number of other untapped creatures you control with total power N or greater: This permanent becomes saddled until end of turn. Activate only as a sorcery.").
+keyword_means("freerunning", "[cost]", "You may pay [cost] rather than pay this spell’s mana cost if a player was dealt combat damage this turn by a creature that, at the time it dealt that damage, was an Assassin creature or a commander under your control.").
+keyword_means("offspring", "[cost]", "You may pay an additional [cost] as you cast this spell").
+keyword_means("impending", "N—[cost]", "You may choose to pay [cost] rather than pay this spell’s mana cost,").
+keyword_means("exhaust", "— [Cost]: [Effect]", "[Cost]: [Effect]. Activate only once.").
+keyword_means("max", "speed — [Ability]", "As long as your speed is 4, this object has ‘[Ability].’").
+keyword_means("harmonize", "[cost]", "You may cast this card from your graveyard by paying [cost] and tapping up to one untapped creature you control rather than paying this spell’s mana cost,").
+keyword_means("mobilize", "N", "Whenever this creature attacks, create N 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.").
+keyword_means("job", "select", "When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this Equipment to it.").
+keyword_means("station", "", "Tap another untapped creature you control: Put a number of charge counters on this permanent equal to the tapped creature’s power. Activate only as a sorcery.").
+keyword_means("warp", "[cost]", "You may cast this card from your hand by paying [cost] rather than its mana cost").
+keyword_means("mayhem", "[cost]", "As long as you discarded this card this turn, you may cast it from your graveyard by paying [cost] rather than paying its mana cost.").
+keyword_means("web", "-slinging [cost]", "You may cast this spell by paying [cost] and returning a tapped creature you control to its owner’s hand rather than paying its mana cost.").
+keyword_means("firebending", "N", "Whenever this creature attacks, add N {R}. Until end of combat, you don’t lose this mana as steps and phases end.").
+keyword_means("sneak", "[cost]", "Any time you could cast an instant during your declare blockers step, you may cast this spell by paying [cost] and returning an unblocked creature you control to its owner’s hand rather than paying this spell’s mana cost.").
+keyword_means("increment", "", "Whenever you cast a spell, if this permanent is a creature and the amount of mana spent to cast that spell is greater than this creature’s power or this creature’s toughness, put a +1/+1 counter on this creature.").
+
+keyword_represents("buyback", 2, "static").
+keyword_represents("fading", 2, "unspecified").
+keyword_represents("flashback", 2, "static").
+keyword_represents("madness", 2, "unspecified").
+keyword_represents("epic", 2, "spell").
+keyword_represents("replicate", 2, "unspecified").
+keyword_represents("suspend", 3, "unspecified").
+keyword_represents("vanishing", 3, "unspecified").
+keyword_represents("champion", 2, "triggered").
+keyword_represents("evoke", 2, "unspecified").
+keyword_represents("conspire", 2, "unspecified").
+keyword_represents("soulbond", 2, "triggered").
+keyword_represents("overload", 2, "static").
+keyword_represents("unleash", 2, "static").
+keyword_represents("cipher", 2, "unspecified").
+keyword_represents("dash", 3, "unspecified").
+keyword_represents("awaken", 2, "unspecified").
+keyword_represents("emerge", 2, "static").
+keyword_represents("aftermath", 3, "static").
+keyword_represents("jump", 2, "static").
+keyword_represents("daybound", 3, "static").
+keyword_represents("nightbound", 2, "static").
+keyword_represents("cleave", 2, "static").
+keyword_represents("reconfigure", 2, "activated").
+keyword_represents("blitz", 3, "unspecified").
+keyword_represents("casualty", 2, "unspecified").
+keyword_represents("gift", 2, "unspecified").
+keyword_represents("offspring", 2, "unspecified").
+keyword_represents("impending", 4, "unspecified").
+keyword_represents("harmonize", 3, "static").
+keyword_represents("warp", 2, "static").
+keyword_represents("paradigm", 2, "spell").
+
+keyword_defined(K) :- keyword_means(K, _, _).
+
+.output keyword_means
+.output keyword_represents
+.output keyword_defined
+
+// conformance — spot-check keywords the rules define plainly (by presence, not the prose RHS)
+.decl expect_defined(keyword: symbol)
+.decl expect_repr(keyword: symbol, n: number, ability_type: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("defined", K, "-") :- expect_defined(K), !keyword_defined(K).
+conformance_fail("repr", K, "-") :- expect_repr(K, N, T), !keyword_represents(K, N, T).
+.output conformance_fail
+.printsize conformance_fail
+expect_defined("investigate").
+expect_defined("bolster").
+expect_defined("monstrosity").
+expect_repr("suspend", 3, "unspecified").
+expect_repr("epic", 2, "spell").

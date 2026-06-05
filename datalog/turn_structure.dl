@@ -1,0 +1,49 @@
+// turn_structure.dl — §500/§501/§506/§512 phases & steps EXTRACTED from rules.txt (lark).
+// Ordered facts the engine/driver advance through. GENERATED, not hand-written.
+
+.decl phase_seq(idx: number, phase: symbol)
+.decl phase_step(phase: symbol, idx: number, step: symbol)
+.decl turn_step(idx: number, phase: symbol, step: symbol)
+
+phase_seq(0, "beginning").
+phase_seq(1, "precombat_main").
+phase_seq(2, "combat").
+phase_seq(3, "postcombat_main").
+phase_seq(4, "ending").
+
+phase_step("beginning", 0, "untap").
+phase_step("beginning", 1, "upkeep").
+phase_step("beginning", 2, "draw").
+phase_step("combat", 0, "beginning_of_combat").
+phase_step("combat", 1, "declare_attackers").
+phase_step("combat", 2, "declare_blockers").
+phase_step("combat", 3, "combat_damage").
+phase_step("combat", 4, "end_of_combat").
+phase_step("ending", 0, "end").
+phase_step("ending", 1, "cleanup").
+
+// flattened turn order (12 steps)
+turn_step(0, "beginning", "untap").
+turn_step(1, "beginning", "upkeep").
+turn_step(2, "beginning", "draw").
+turn_step(3, "precombat_main", "precombat_main").
+turn_step(4, "combat", "beginning_of_combat").
+turn_step(5, "combat", "declare_attackers").
+turn_step(6, "combat", "declare_blockers").
+turn_step(7, "combat", "combat_damage").
+turn_step(8, "combat", "end_of_combat").
+turn_step(9, "postcombat_main", "postcombat_main").
+turn_step(10, "ending", "end").
+turn_step(11, "ending", "cleanup").
+
+.output turn_step
+
+// conformance — spot-check the order against the rules
+.decl expect_step(idx: number, step: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("step", S, "-") :- expect_step(I, S), !turn_step(I, _, S).
+.output conformance_fail
+.printsize conformance_fail
+expect_step(0, "untap").
+expect_step(7, "combat_damage").
+expect_step(11, "cleanup").

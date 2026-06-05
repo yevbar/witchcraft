@@ -1,0 +1,84 @@
+// prohibitions.dl — §702 prohibition/evasion family TRANSPILED from rules.txt by transpile.py
+// (preprocess -> spaCy dependency parse -> lark). Rule bodies are GENERATED, not hand-written.
+
+.decl has_keyword(c: symbol, kw: symbol)
+.decl blocks(b: symbol, a: symbol)
+.decl artifact(c: symbol)
+.decl black(c: symbol)
+.decl cant_attack(c: symbol)
+.decl cant_be_destroyed(c: symbol)
+.decl illegal_block(b: symbol, a: symbol)
+
+// n_blockers — counting helper the transpiled menace rule references
+.decl n_blockers(a: symbol, n: number)
+n_blockers(A, N) :- blocks(_, A), N = count : { blocks(_, A) }.
+
+// --- rules transpiled from the English text (one per matched §702 sentence) ---
+cant_attack(C) :- has_keyword(C, "defender").   // 702.3b
+illegal_block(B, A) :- blocks(B, A), has_keyword(A, "flying"), !has_keyword(B, "flying"), !has_keyword(B, "reach").   // 702.9b
+cant_be_destroyed(C) :- has_keyword(C, "indestructible").   // 702.12b
+illegal_block(B, A) :- blocks(B, A), has_keyword(A, "flying"), !has_keyword(B, "flying"), !has_keyword(B, "reach").   // 702.17b
+illegal_block(B, A) :- blocks(B, A), has_keyword(A, "horsemanship"), !has_keyword(B, "horsemanship").   // 702.31b
+illegal_block(B, A) :- blocks(B, A), has_keyword(A, "fear"), !artifact(B), !black(B).   // 702.36b
+illegal_block(B, A) :- blocks(B, A), has_keyword(A, "menace"), n_blockers(A, N), N < 2.   // 702.111b
+
+.output cant_attack
+.output cant_be_destroyed
+.output illegal_block
+
+// conformance
+.decl expect_cant_attack(c: symbol)
+.decl expect_can_attack(c: symbol)
+.decl expect_indestructible(c: symbol)
+.decl expect_destructible(c: symbol)
+.decl expect_illegal(b: symbol, a: symbol)
+.decl expect_legal(b: symbol, a: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("cant_attack", C, "-") :- expect_cant_attack(C), !cant_attack(C).
+conformance_fail("can_attack", C, "-") :- expect_can_attack(C), cant_attack(C).
+conformance_fail("indestructible", C, "-") :- expect_indestructible(C), !cant_be_destroyed(C).
+conformance_fail("destructible", C, "-") :- expect_destructible(C), cant_be_destroyed(C).
+conformance_fail("illegal", B, A) :- expect_illegal(B, A), !illegal_block(B, A).
+conformance_fail("legal", B, A) :- expect_legal(B, A), illegal_block(B, A).
+.output conformance_fail
+.printsize conformance_fail
+
+// scenario under test
+has_keyword("wall", "defender").
+expect_cant_attack("wall").
+expect_can_attack("bear").
+has_keyword("darksteel", "indestructible").
+expect_indestructible("darksteel").
+expect_destructible("goblin").
+has_keyword("drake", "flying").
+blocks("ground", "drake").
+expect_illegal("ground", "drake").
+has_keyword("hawk", "flying").
+blocks("spider", "hawk").
+has_keyword("spider", "reach").
+expect_legal("spider", "hawk").
+has_keyword("ogre", "menace").
+blocks("lone", "ogre").
+expect_illegal("lone", "ogre").
+has_keyword("troll", "menace").
+blocks("b1", "troll").
+blocks("b2", "troll").
+expect_legal("b1", "troll").
+has_keyword("cavalry", "horsemanship").
+blocks("footman", "cavalry").
+expect_illegal("footman", "cavalry").
+has_keyword("rider", "horsemanship").
+blocks("knight", "rider").
+has_keyword("knight", "horsemanship").
+expect_legal("knight", "rider").
+has_keyword("wraith", "fear").
+blocks("militia", "wraith").
+expect_illegal("militia", "wraith").
+has_keyword("wraith2", "fear").
+blocks("golem", "wraith2").
+artifact("golem").
+expect_legal("golem", "wraith2").
+has_keyword("wraith3", "fear").
+blocks("zombie", "wraith3").
+black("zombie").
+expect_legal("zombie", "wraith3").

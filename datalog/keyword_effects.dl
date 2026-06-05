@@ -1,0 +1,27 @@
+// keyword_effects.dl — structured effects of formulaic §701/§702 keyword definitions.
+// keyword_effect(keyword, effect, amount, target). GENERATED, not hand-written.
+
+.decl keyword_effect(keyword: symbol, effect: symbol, amount: symbol, target: symbol)
+
+keyword_effect("scry", "look_top", "N", "library").
+keyword_effect("surveil", "look_top", "N", "library").
+keyword_effect("fateseal", "look_top", "N", "library").
+keyword_effect("monstrosity", "add_counter", "N", "p1p1").
+keyword_effect("adapt", "add_counter", "N", "p1p1").
+keyword_effect("incubate", "create_token", "1", "incubator").
+keyword_effect("blight", "add_counter", "N", "m1m1").
+keyword_effect("gift_a_food", "create_token", "1", "food").
+keyword_effect("gift_a_card", "draw", "1", "card").
+keyword_effect("gift_a_treasure", "create_token", "1", "treasure").
+
+.output keyword_effect
+
+// conformance — spot-check effects the rules state plainly
+.decl expect_effect(keyword: symbol, effect: symbol, target: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("effect", K, E) :- expect_effect(K, E, T), !keyword_effect(K, E, _, T).
+.output conformance_fail
+.printsize conformance_fail
+expect_effect("monstrosity", "add_counter", "p1p1").
+expect_effect("blight", "add_counter", "m1m1").
+expect_effect("scry", "look_top", "library").

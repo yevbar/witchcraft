@@ -1,0 +1,36 @@
+// ontology.dl — taxonomic isa() facts TRANSPILED from rules.txt (spaCy genus-differentia).
+// GENERATED, not hand-written. isa(X, Y) = 'an X is a Y'.
+
+.decl isa(x: symbol, y: symbol)
+
+isa("player_game", "game").   // 100.1a
+isa("multiplayer_game", "game").   // 100.1b
+isa("treasure_token", "artifact").   // 111.10a
+isa("cursed_role", "enchantment").   // 111.10j
+isa("monster_role", "enchantment").   // 111.10k
+isa("royal_role", "enchantment").   // 111.10m
+isa("sorcerer_role", "enchantment").   // 111.10n
+isa("virtuous_role", "enchantment").   // 111.10p
+isa("wicked_role", "enchantment").   // 111.10q
+isa("token_map", "artifact").   // 111.10s
+isa("token_junk", "artifact").   // 111.10t
+isa("spell", "card").   // 112.1
+isa("copy", "spell").   // 112.1a
+isa("zone", "place").   // 400.1
+isa("sector_designation", "designation").   // 702.158b
+isa("level", "designation").   // 716.2b
+isa("subgame", "game").   // 729.1a
+isa("multiplayer_game", "game").   // 800.1
+isa("draft_game", "game").   // 905.3
+
+.output isa
+
+// conformance — spot-check definitions the rules state plainly
+.decl expect_isa(x: symbol, y: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("isa", X, Y) :- expect_isa(X, Y), !isa(X, Y).
+.output conformance_fail
+.printsize conformance_fail
+expect_isa("spell", "card").
+expect_isa("zone", "place").
+expect_isa("subgame", "game").

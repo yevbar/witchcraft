@@ -1,0 +1,38 @@
+// targets.dl — §115 targeting families, interpreted from rules.txt.
+// targeted_kind(kind); retarget_phrase(phrase); target_check_phrase(phrase). GENERATED.
+
+.decl targeted_kind(kind: symbol)
+.decl retarget_phrase(phrase: symbol)
+.decl target_check_phrase(phrase: symbol)
+
+targeted_kind("instant_or_sorcery").
+targeted_kind("aura").
+targeted_kind("activated").
+targeted_kind("triggered").
+
+retarget_phrase("change the target(s)").
+retarget_phrase("change a target").
+retarget_phrase("change any targets").
+retarget_phrase("choose new targets").
+
+target_check_phrase("[spell or ability] with [a number of] targets").
+target_check_phrase("[spell or ability] that targets [something]").
+target_check_phrase("[spell or ability] that targets only [something]").
+
+.output targeted_kind
+.output retarget_phrase
+.output target_check_phrase
+
+// conformance — spot-check the targeting families §115 states plainly
+.decl expect_kind(kind: symbol)
+.decl expect_retarget(phrase: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("kind", K, "-") :- expect_kind(K), !targeted_kind(K).
+conformance_fail("retarget", P, "-") :- expect_retarget(P), !retarget_phrase(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_kind("activated").
+expect_kind("triggered").
+expect_kind("aura").
+expect_retarget("change a target").
+expect_retarget("choose new targets").

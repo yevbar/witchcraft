@@ -1,0 +1,40 @@
+// casting.dl — §3 per-card-type casting timing + resolution zone, interpreted from rules.txt.
+// cast_permission(type, action, speed): how a card of each type gets onto the stack. GENERATED.
+// resolves_to(type, zone): where a resolving spell of each type goes. GENERATED.
+
+.decl cast_permission(type: symbol, action: symbol, speed: symbol)
+.decl resolves_to(type: symbol, zone: symbol)
+
+cast_permission("artifact", "cast", "sorcery").
+cast_permission("creature", "cast", "sorcery").
+cast_permission("enchantment", "cast", "sorcery").
+cast_permission("instant", "cast", "instant").
+cast_permission("land", "play", "sorcery").
+cast_permission("planeswalker", "cast", "sorcery").
+cast_permission("sorcery", "cast", "sorcery").
+cast_permission("battle", "cast", "sorcery").
+
+resolves_to("artifact", "battlefield").
+resolves_to("creature", "battlefield").
+resolves_to("enchantment", "battlefield").
+resolves_to("instant", "graveyard").
+resolves_to("planeswalker", "battlefield").
+resolves_to("sorcery", "graveyard").
+resolves_to("battle", "battlefield").
+
+.output cast_permission
+.output resolves_to
+
+// conformance — spot-check the timing/zone the rules state plainly
+.decl expect_perm(type: symbol, action: symbol, speed: symbol)
+.decl expect_zone(type: symbol, zone: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("perm", T, A) :- expect_perm(T, A, S), !cast_permission(T, A, S).
+conformance_fail("zone", T, Z) :- expect_zone(T, Z), !resolves_to(T, Z).
+.output conformance_fail
+.printsize conformance_fail
+expect_perm("creature", "cast", "sorcery").
+expect_perm("instant", "cast", "instant").
+expect_perm("land", "play", "sorcery").
+expect_zone("creature", "battlefield").
+expect_zone("instant", "graveyard").

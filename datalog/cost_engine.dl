@@ -1,0 +1,117 @@
+// cost_engine.dl — STATIC, hand-authored. The mana-cost rules (§106/118/202/107),
+// reviewed directly. datalog_gen.py assembles this + transpiled facts + cost_tests
+// into the GENERATED datalog/mana.dl.
+//
+// A cost is a sequence of symbols; each symbol offers one or more OPTIONS
+// (a hybrid {W/U} offers two). Payability (118.3) chooses one option per symbol
+// and matches the color/colorless/snow options to DISTINCT mana (faithful to
+// snow), pays generic from leftover mana, and life/energy from those resources.
+
+.decl cost(name: symbol)
+.decl nsym(cost: symbol, k: number)
+// sym_opt(cost, symidx, optidx, kind, arg, num):
+//   kind = color|colorless|snow (matched to a mana) | generic|life|energy (scalar)
+//   arg  = color letter for "color", else "";  num = count for generic/life/energy
+.decl sym_opt(cost: symbol, symidx: number, optidx: number, kind: symbol, arg: symbol, num: number)
+.decl xcost(cost: symbol, coeff: number)         // 107.3 {X} coefficient
+
+.decl match_kind(k: symbol)
+match_kind("color"). match_kind("colorless"). match_kind("snow").
+
+// observable resources
+.decl scenario(s: symbol)
+.decl pool_mana(s: symbol, id: number, color: symbol, snow: number)
+.decl pool_life(s: symbol, l: number)
+.decl pool_energy(s: symbol, e: number)
+.decl total_have(s: symbol, t: number)
+total_have(S, T) :- scenario(S), T = count : { pool_mana(S, _, _, _) }.
+
+// 106.3 / 107.4 — which mana satisfies which matched pip.
+.decl can_use(s: symbol, id: number, kind: symbol, arg: symbol)
+can_use(S, Id, "color", C)      :- pool_mana(S, Id, C, _).
+can_use(S, Id, "colorless", "") :- pool_mana(S, Id, "c", _).
+can_use(S, Id, "snow", "")      :- pool_mana(S, Id, _, 1).
+
+// 118.3 — explore choices symbol by symbol. reach(s,cost,i,mask,used,gen,life,energy):
+// symbols 0..i-1 are satisfiable, having consumed mana set `mask` (count `used`)
+// and accumulated `gen`/`life`/`energy` budgets.
+.decl reach(s: symbol, cost: symbol, i: number, mask: number, used: number, gen: number, life: number, energy: number)
+reach(S, C, 0, 0, 0, 0, 0, 0) :- scenario(S), cost(C).
+// a color/colorless/snow option consumes a distinct mana.
+reach(S, C, I1, M2, U1, Gen, Life, Energy) :-
+  reach(S, C, I, Mask, Used, Gen, Life, Energy), I1 = I + 1,
+  sym_opt(C, I, _, K, Arg, _), match_kind(K),
+  can_use(S, Id, K, Arg), (Mask band (1 bshl Id)) = 0,
+  M2 = Mask bor (1 bshl Id), U1 = Used + 1.
+// a generic / life / energy option adds to that budget (no mana consumed yet).
+reach(S, C, I1, Mask, Used, Gen + N, Life, Energy) :-
+  reach(S, C, I, Mask, Used, Gen, Life, Energy), I1 = I + 1, sym_opt(C, I, _, "generic", _, N).
+reach(S, C, I1, Mask, Used, Gen, Life + N, Energy) :-
+  reach(S, C, I, Mask, Used, Gen, Life, Energy), I1 = I + 1, sym_opt(C, I, _, "life", _, N).
+reach(S, C, I1, Mask, Used, Gen, Life, Energy + N) :-
+  reach(S, C, I, Mask, Used, Gen, Life, Energy), I1 = I + 1, sym_opt(C, I, _, "energy", _, N).
+
+// 601.2f — total generic = printed generic + increases - reductions (floor 0).
+.decl cost_inc(cost: symbol, n: number)
+.decl cost_red(cost: symbol, n: number)
+cost_inc(C, TI) :- cost(C), TI = sum N : { mod_inc(C, N) }.
+cost_red(C, TR) :- cost(C), TR = sum N : { mod_red(C, N) }.
+
+// 118.3 — payable: all symbols satisfied, enough leftover mana for generic, and
+// life/energy budgets met.
+.decl pay_ok(s: symbol, cost: symbol)
+pay_ok(S, C) :-
+  reach(S, C, NS, _, Used, Gen, Life, Energy), nsym(C, NS),
+  cost_inc(C, TI), cost_red(C, TR), EffGen = max(0, Gen + TI - TR),
+  total_have(S, T), T - Used >= EffGen,
+  pool_life(S, PL), PL >= Life, pool_energy(S, PE), PE >= Energy.
+.decl can_pay(s: symbol, cost: symbol)
+can_pay(S, C) :- pay_ok(S, C).
+
+// 107.3 — for {X} costs, the most X the player can pay (leftover / coeff).
+.decl x_cap(s: symbol, cost: symbol, cap: number)
+x_cap(S, C, Cap) :-
+  reach(S, C, NS, _, Used, Gen, Life, Energy), nsym(C, NS), xcost(C, Coeff), Coeff > 0,
+  total_have(S, T), pool_life(S, PL), PL >= Life, pool_energy(S, PE), PE >= Energy,
+  T - Used >= Gen, Cap = (T - Used - Gen) / Coeff.
+.decl max_x(s: symbol, cost: symbol, mx: number)
+max_x(S, C, MX) :- xcost(C, _), MX = max Cap : { x_cap(S, C, Cap) }.
+
+// 601.2f — a modified cost derives its symbols from a base + additional pips.
+.decl mod_of(total: symbol, base: symbol)
+.decl mod_inc(total: symbol, n: number)
+.decl mod_red(total: symbol, n: number)
+.decl mod_add_sym(total: symbol, addidx: number, kind: symbol, arg: symbol, num: number)
+cost(Total) :- mod_of(Total, _).
+sym_opt(Total, I, O, K, A, N) :- mod_of(Total, Base), sym_opt(Base, I, O, K, A, N).
+sym_opt(Total, I, 0, K, A, N) :- mod_of(Total, Base), nsym(Base, Nb), mod_add_sym(Total, AddI, K, A, N), I = Nb + AddI.
+nsym(Total, N) :- mod_of(Total, Base), nsym(Base, Nb), Cnt = count : { mod_add_sym(Total, _, _, _, _) }, N = Nb + Cnt.
+
+// 202.3 — mana value = sum of per-symbol values; a hybrid counts as its largest
+// option (202.3f). Only for printed (non-modified) costs.
+.decl opt_mv(cost: symbol, symidx: number, optidx: number, mv: number)
+opt_mv(C, S, O, N) :- sym_opt(C, S, O, "generic", _, N).
+opt_mv(C, S, O, 1) :- sym_opt(C, S, O, "color", _, _).
+opt_mv(C, S, O, 1) :- sym_opt(C, S, O, "colorless", _, _).
+opt_mv(C, S, O, 1) :- sym_opt(C, S, O, "snow", _, _).
+opt_mv(C, S, O, 0) :- sym_opt(C, S, O, "life", _, _).
+opt_mv(C, S, O, 0) :- sym_opt(C, S, O, "energy", _, _).
+.decl sym_mv(cost: symbol, symidx: number, mv: number)
+sym_mv(C, S, M) :- sym_opt(C, S, _, _, _, _), M = max V : { opt_mv(C, S, _, V) }.
+.decl mana_value(cost: symbol, v: number)
+mana_value(C, V) :- cost(C), !mod_of(C, _), V = sum M : { sym_mv(C, _, M) }.
+
+// --- conformance: Example: blocks the engine must reproduce -------------------
+.decl expect_pay(s: symbol, cost: symbol)
+.decl expect_no_pay(s: symbol, cost: symbol)
+.decl expect_max_x(s: symbol, cost: symbol, x: number)
+.decl conformance_fail(kind: symbol, s: symbol, cost: symbol)
+conformance_fail("should_pay", S, Co) :- expect_pay(S, Co), !can_pay(S, Co).
+conformance_fail("should_not_pay", S, Co) :- expect_no_pay(S, Co), can_pay(S, Co).
+conformance_fail("wrong_max_x", S, Co) :- expect_max_x(S, Co, X), !max_x(S, Co, X).
+
+.output can_pay
+.output mana_value
+.output max_x
+.output conformance_fail
+.printsize conformance_fail

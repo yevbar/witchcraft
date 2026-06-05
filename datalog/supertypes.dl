@@ -1,0 +1,23 @@
+// supertypes.dl — §205.4 supertype semantics, interpreted from rules.txt.
+// supertype_rule(supertype, subject, rule): what each supertype subjects its object to. GENERATED.
+
+.decl supertype_rule(supertype: symbol, subject: symbol, rule: symbol)
+
+supertype_rule("basic", "land", "basic_land").
+supertype_rule("legendary", "permanent", "legend_rule").
+supertype_rule("legendary", "spell", "legend_cast_restriction").
+supertype_rule("world", "permanent", "world_rule").
+supertype_rule("snow", "permanent", "snow_permanent").
+supertype_rule("ongoing", "scheme", "schemes_sba_exempt").
+
+.output supertype_rule
+
+// conformance — spot-check the supertype rules stated plainly
+.decl expect_sup(supertype: symbol, subject: symbol, rule: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("sup", S, U) :- expect_sup(S, U, R), !supertype_rule(S, U, R).
+.output conformance_fail
+.printsize conformance_fail
+expect_sup("legendary", "permanent", "legend_rule").
+expect_sup("world", "permanent", "world_rule").
+expect_sup("basic", "land", "basic_land").

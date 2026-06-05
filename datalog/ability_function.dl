@@ -1,0 +1,36 @@
+// ability_function.dl — §113 ability form + function zones, interpreted from rules.txt.
+// ability_form(form); ability_functions(kind, where). GENERATED.
+
+.decl ability_form(form: symbol)
+.decl ability_functions(kind: symbol, where: symbol)
+
+ability_form("characteristic").
+ability_form("player_modifier").
+ability_form("stack_object").
+
+ability_functions("cda", "everywhere").
+ability_functions("states_function_zones", "stated_zones").
+ability_functions("states_nonfunction_zones", "everywhere_except").
+ability_functions("alternative_cost", "on_stack").
+ability_functions("restricts_play", "playable_zones").
+ability_functions("restricts_play_zones", "everywhere").
+ability_functions("cant_be_countered_or_copied", "on_stack").
+ability_functions("modifies_entry", "as_entering").
+ability_functions("counters_prohibited", "as_entering").
+
+.output ability_form
+.output ability_functions
+
+// conformance — spot-check the ability rules §113 states plainly
+.decl expect_form(form: symbol)
+.decl expect_fn(kind: symbol, where: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("form", F, "-") :- expect_form(F), !ability_form(F).
+conformance_fail("fn", K, W) :- expect_fn(K, W), !ability_functions(K, W).
+.output conformance_fail
+.printsize conformance_fail
+expect_form("characteristic").
+expect_form("stack_object").
+expect_fn("cda", "everywhere").
+expect_fn("cant_be_countered_or_copied", "on_stack").
+expect_fn("modifies_entry", "as_entering").

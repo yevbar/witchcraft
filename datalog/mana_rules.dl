@@ -1,0 +1,21 @@
+// mana_rules.dl — §106 special-symbol mana-add rules, interpreted from rules.txt.
+// mana_add(symbol_type, result): what adding mana of a given symbol type produces. GENERATED.
+
+.decl mana_add(symbol_type: symbol, result: symbol)
+
+mana_add("hybrid", "player_chooses_color").
+mana_add("phyrexian", "symbol_color").
+mana_add("generic", "colorless").
+mana_add("snow", "colorless").
+
+.output mana_add
+
+// conformance — spot-check the mana-add rules §106 states plainly
+.decl expect_add(symbol_type: symbol, result: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("add", T, R) :- expect_add(T, R), !mana_add(T, R).
+.output conformance_fail
+.printsize conformance_fail
+expect_add("generic", "colorless").
+expect_add("hybrid", "player_chooses_color").
+expect_add("phyrexian", "symbol_color").

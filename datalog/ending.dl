@@ -1,0 +1,35 @@
+// ending.dl — §104 win/lose/draw conditions, interpreted from rules.txt.
+// game_end(outcome, subject, condition); loss_threshold(condition, n). GENERATED.
+
+.decl game_end(outcome: symbol, subject: symbol, condition: symbol)
+.decl loss_threshold(condition: symbol, n: number)
+
+game_end("win", "player", "opponents_left").
+game_end("win", "player", "effect").
+game_end("lose", "player", "concede").
+game_end("lose", "player", "life_zero").
+game_end("lose", "player", "deckout").
+game_end("lose", "player", "poison_ten").
+game_end("lose", "player", "effect").
+game_end("lose", "player", "win_and_lose").
+game_end("lose", "player", "commander_damage").
+game_end("draw", "player", "all_lose_simultaneous").
+game_end("draw", "player", "effect").
+game_end("draw", "team", "all_lose_simultaneous").
+
+loss_threshold("poison_ten", 10).
+loss_threshold("commander_damage", 21).
+
+.output game_end
+.output loss_threshold
+
+// conformance — spot-check the conditions §104 states plainly
+.decl expect_end(outcome: symbol, subject: symbol, condition: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("end", O, S) :- expect_end(O, S, C), !game_end(O, S, C).
+.output conformance_fail
+.printsize conformance_fail
+expect_end("lose", "player", "life_zero").
+expect_end("lose", "player", "deckout").
+expect_end("win", "player", "opponents_left").
+expect_end("draw", "player", "all_lose_simultaneous").

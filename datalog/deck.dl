@@ -1,0 +1,20 @@
+// deck.dl — §100 deck-construction limits, interpreted from rules.txt.
+// deck_limit(format, constraint, n). GENERATED.
+
+.decl deck_limit(format: symbol, constraint: symbol, n: number)
+
+deck_limit("constructed", "min_deck_size", 60).
+deck_limit("limited", "min_deck_size", 40).
+deck_limit("constructed", "max_sideboard", 15).
+
+.output deck_limit
+
+// conformance — spot-check the deck limits §100 states plainly
+.decl expect_limit(format: symbol, constraint: symbol, n: number)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("limit", F, C) :- expect_limit(F, C, N), !deck_limit(F, C, N).
+.output conformance_fail
+.printsize conformance_fail
+expect_limit("constructed", "min_deck_size", 60).
+expect_limit("limited", "min_deck_size", 40).
+expect_limit("constructed", "max_sideboard", 15).

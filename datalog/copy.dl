@@ -1,0 +1,34 @@
+// copy.dl — §707 copy taxonomy, interpreted from rules.txt.
+// copy_modification(kind); copyable_onto_stack(kind). GENERATED.
+
+.decl copy_modification(kind: symbol)
+.decl copyable_onto_stack(kind: symbol)
+
+copy_modification("gains_ability").
+copy_modification("modifies_characteristic").
+copy_modification("excludes_characteristic").
+copy_modification("excludes_characteristic").
+copy_modification("has_exception").
+copy_modification("conditional_exception").
+copy_modification("linked_trigger").
+
+copyable_onto_stack("spell").
+copyable_onto_stack("activated_ability").
+copyable_onto_stack("triggered_ability").
+
+.output copy_modification
+.output copyable_onto_stack
+
+// conformance — spot-check the copy rules §707 states plainly
+.decl expect_mod(kind: symbol)
+.decl expect_cp(kind: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("mod", K, "-") :- expect_mod(K), !copy_modification(K).
+conformance_fail("cp", K, "-") :- expect_cp(K), !copyable_onto_stack(K).
+.output conformance_fail
+.printsize conformance_fail
+expect_mod("gains_ability").
+expect_mod("excludes_characteristic").
+expect_cp("spell").
+expect_cp("activated_ability").
+expect_cp("triggered_ability").

@@ -1,0 +1,53 @@
+// === conformance tests =======================================================
+// 107.4e: "{G/W}{G/W} can be paid by spending {G}{G}, {G}{W}, or {W}{W}."
+cost("ex_GWGW"). nsym("ex_GWGW",2).
+sym_opt("ex_GWGW",0,0,"color","g",0). sym_opt("ex_GWGW",0,1,"color","w",0).
+sym_opt("ex_GWGW",1,0,"color","g",0). sym_opt("ex_GWGW",1,1,"color","w",0).
+scenario("p_GG"). pool_mana("p_GG",0,"g",0). pool_mana("p_GG",1,"g",0). pool_life("p_GG",0). pool_energy("p_GG",0).
+scenario("p_GW"). pool_mana("p_GW",0,"g",0). pool_mana("p_GW",1,"w",0). pool_life("p_GW",0). pool_energy("p_GW",0).
+scenario("p_WW"). pool_mana("p_WW",0,"w",0). pool_mana("p_WW",1,"w",0). pool_life("p_WW",0). pool_energy("p_WW",0).
+scenario("p_UU"). pool_mana("p_UU",0,"u",0). pool_mana("p_UU",1,"u",0). pool_life("p_UU",0). pool_energy("p_UU",0).
+scenario("p_G1"). pool_mana("p_G1",0,"g",0). pool_life("p_G1",0). pool_energy("p_G1",0).
+expect_pay("p_GG","ex_GWGW"). expect_pay("p_GW","ex_GWGW"). expect_pay("p_WW","ex_GWGW").
+expect_no_pay("p_UU","ex_GWGW"). expect_no_pay("p_G1","ex_GWGW").
+
+// SNOW: {W}{S} needs a white AND a (distinct) snow mana.
+cost("ex_WS"). nsym("ex_WS",2).
+sym_opt("ex_WS",0,0,"color","w",0). sym_opt("ex_WS",1,0,"snow","",0).
+scenario("p_snowW"). pool_mana("p_snowW",0,"w",1). pool_life("p_snowW",0). pool_energy("p_snowW",0).
+scenario("p_W_snowU"). pool_mana("p_W_snowU",0,"w",0). pool_mana("p_W_snowU",1,"u",1). pool_life("p_W_snowU",0). pool_energy("p_W_snowU",0).
+expect_no_pay("p_snowW","ex_WS"). expect_pay("p_W_snowU","ex_WS").
+
+// PHYREXIAN {W/P}: pay {W} or 2 life.
+cost("ex_WP"). nsym("ex_WP",1).
+sym_opt("ex_WP",0,0,"color","w",0). sym_opt("ex_WP",0,1,"life","",2).
+scenario("p_emptyL2"). pool_life("p_emptyL2",2). pool_energy("p_emptyL2",0).
+scenario("p_emptyL1"). pool_life("p_emptyL1",1). pool_energy("p_emptyL1",0).
+expect_pay("p_emptyL2","ex_WP"). expect_no_pay("p_emptyL1","ex_WP").
+
+// ENERGY {E}{E}: pay 2 energy.
+cost("ex_EE"). nsym("ex_EE",2).
+sym_opt("ex_EE",0,0,"energy","",1). sym_opt("ex_EE",1,0,"energy","",1).
+scenario("p_E2"). pool_life("p_E2",0). pool_energy("p_E2",2).
+scenario("p_E1"). pool_life("p_E1",0). pool_energy("p_E1",1).
+expect_pay("p_E2","ex_EE"). expect_no_pay("p_E1","ex_EE").
+
+// {X} (107.3): {X}{R} from {R,U,U} -> payable; max X = 2.
+cost("ex_XR"). nsym("ex_XR",1). sym_opt("ex_XR",0,0,"color","r",0). xcost("ex_XR",1).
+scenario("p_RUU"). pool_mana("p_RUU",0,"r",0). pool_mana("p_RUU",1,"u",0). pool_mana("p_RUU",2,"u",0). pool_life("p_RUU",0). pool_energy("p_RUU",0).
+expect_pay("p_RUU","ex_XR"). expect_max_x("p_RUU","ex_XR",2).
+
+// COST MOD (601.2f): {2}{R} reduced by 2 -> {R}; {1}{R}+{W}; {1}{R} increased by 1.
+cost("ex_2R"). nsym("ex_2R",2). sym_opt("ex_2R",0,0,"generic","",2). sym_opt("ex_2R",1,0,"color","r",0).
+mod_of("ex_red","ex_2R"). mod_red("ex_red",2).
+scenario("p_R"). pool_mana("p_R",0,"r",0). pool_life("p_R",0). pool_energy("p_R",0).
+scenario("p_none"). pool_life("p_none",0). pool_energy("p_none",0).
+expect_pay("p_R","ex_red"). expect_no_pay("p_none","ex_red").
+
+cost("ex_1R"). nsym("ex_1R",2). sym_opt("ex_1R",0,0,"generic","",1). sym_opt("ex_1R",1,0,"color","r",0).
+mod_of("ex_add","ex_1R"). mod_add_sym("ex_add",0,"color","w",0).
+scenario("p_RWU"). pool_mana("p_RWU",0,"r",0). pool_mana("p_RWU",1,"w",0). pool_mana("p_RWU",2,"u",0). pool_life("p_RWU",0). pool_energy("p_RWU",0).
+scenario("p_RW"). pool_mana("p_RW",0,"r",0). pool_mana("p_RW",1,"w",0). pool_life("p_RW",0). pool_energy("p_RW",0).
+expect_pay("p_RWU","ex_add"). expect_no_pay("p_RW","ex_add").
+mod_of("ex_inc","ex_1R"). mod_inc("ex_inc",1).
+expect_pay("p_RUU","ex_inc"). expect_no_pay("p_RW","ex_inc").

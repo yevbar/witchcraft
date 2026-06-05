@@ -1,0 +1,29 @@
+// damage.dl — §120.3 damage-result system TRANSPILED from rules.txt by transpile.py.
+// damage_result(recipient, source_quality, result). GENERATED, not hand-written.
+
+.decl damage_result(recipient: symbol, source_quality: symbol, result: symbol)
+
+damage_result("player", "any", "lose_life").   // 119.2
+damage_result("player", "no_infect", "lose_life").   // 120.3a
+damage_result("player", "infect", "poison").   // 120.3b
+damage_result("planeswalker", "any", "remove_loyalty").   // 120.3c
+damage_result("creature", "infect_or_wither", "m1m1").   // 120.3d
+damage_result("creature", "no_infect_or_wither", "marked").   // 120.3e
+damage_result("any", "lifelink", "gain_life").   // 120.3f
+damage_result("player", "toxic", "poison").   // 120.3g
+damage_result("battle", "any", "remove_defense").   // 120.3h
+damage_result("any", "lifelink", "gain_life").   // 702.15b
+damage_result("player", "toxic", "poison").   // 702.164c
+
+.output damage_result
+
+// conformance — spot-check the damage rules state plainly
+.decl expect_dmg(recipient: symbol, source_quality: symbol, result: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("dmg", R, Q) :- expect_dmg(R, Q, E), !damage_result(R, Q, E).
+.output conformance_fail
+.printsize conformance_fail
+expect_dmg("player", "no_infect", "lose_life").
+expect_dmg("planeswalker", "any", "remove_loyalty").
+expect_dmg("creature", "no_infect_or_wither", "marked").
+expect_dmg("battle", "any", "remove_defense").

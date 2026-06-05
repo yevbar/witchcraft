@@ -1,0 +1,28 @@
+// lookback.dl — §603.10 'look back in time' trigger events, interpreted from rules.txt.
+// looks_back_in_time(event): trigger events checked against the pre-event game state. GENERATED.
+
+.decl looks_back_in_time(event: symbol)
+
+looks_back_in_time("permanent leaves the battlefield").
+looks_back_in_time("player sacrifices a permanent").
+looks_back_in_time("card leaves a graveyard").
+looks_back_in_time("object that all players can see is put into a hand or library").
+looks_back_in_time("permanent phases out").
+looks_back_in_time("object becomes unattached").
+looks_back_in_time("player loses control of an object").
+looks_back_in_time("player's opponent gains control of an object from that player").
+looks_back_in_time("spell is countered").
+looks_back_in_time("player loses the game").
+looks_back_in_time("player planeswalks away from a plane").
+
+.output looks_back_in_time
+
+// conformance — spot-check the exceptions the rule lists plainly
+.decl expect_lb(event: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("lb", E, "-") :- expect_lb(E), !looks_back_in_time(E).
+.output conformance_fail
+.printsize conformance_fail
+expect_lb("spell is countered").
+expect_lb("permanent phases out").
+expect_lb("player loses the game").

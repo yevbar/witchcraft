@@ -1,0 +1,29 @@
+// zones.dl — §4 card-type zone restrictions, interpreted from rules.txt.
+// cant_enter(type, zone) / cant_leave(type, zone): types barred from crossing a zone edge. GENERATED.
+
+.decl cant_enter(type: symbol, zone: symbol)
+.decl cant_leave(type: symbol, zone: symbol)
+
+cant_enter("instant", "battlefield").
+cant_enter("sorcery", "battlefield").
+cant_leave("plane", "command").
+cant_leave("phenomenon", "command").
+cant_leave("vanguard", "command").
+cant_leave("scheme", "command").
+cant_leave("conspiracy", "command").
+
+.output cant_enter
+.output cant_leave
+
+// conformance — spot-check the restrictions the rules state plainly
+.decl expect_enter(type: symbol, zone: symbol)
+.decl expect_leave(type: symbol, zone: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("enter", T, Z) :- expect_enter(T, Z), !cant_enter(T, Z).
+conformance_fail("leave", T, Z) :- expect_leave(T, Z), !cant_leave(T, Z).
+.output conformance_fail
+.printsize conformance_fail
+expect_enter("instant", "battlefield").
+expect_enter("sorcery", "battlefield").
+expect_leave("conspiracy", "command").
+expect_leave("vanguard", "command").

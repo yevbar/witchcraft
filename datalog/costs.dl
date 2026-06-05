@@ -1,0 +1,31 @@
+// costs.dl — §118 cost definitions, interpreted from rules.txt.
+// cost_payment(resource, method); cost_type(name); cost_type_optional(name). GENERATED.
+
+.decl cost_payment(resource: symbol, method: symbol)
+.decl cost_type(name: symbol)
+.decl cost_type_optional(name: symbol)
+
+cost_payment("mana", "remove_from_mana_pool").
+cost_payment("life", "subtract_from_life_total").
+
+cost_type("additional").
+cost_type("alternative").
+cost_type_optional("additional").
+cost_type_optional("alternative").
+
+.output cost_payment
+.output cost_type
+.output cost_type_optional
+
+// conformance — spot-check the cost rules §118 states plainly
+.decl expect_pay(resource: symbol, method: symbol)
+.decl expect_type(name: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("pay", R, M) :- expect_pay(R, M), !cost_payment(R, M).
+conformance_fail("type", N, "-") :- expect_type(N), !cost_type(N).
+.output conformance_fail
+.printsize conformance_fail
+expect_pay("mana", "remove_from_mana_pool").
+expect_pay("life", "subtract_from_life_total").
+expect_type("additional").
+expect_type("alternative").

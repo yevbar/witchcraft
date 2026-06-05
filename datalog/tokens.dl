@@ -1,0 +1,20 @@
+// tokens.dl — §111 core token rules, interpreted from rules.txt.
+// token_rule(property): the general rules governing tokens. GENERATED.
+
+.decl token_rule(property: symbol)
+
+token_rule("owner_is_creator").
+token_rule("creator_sets_name_and_subtype").
+token_rule("ceases_off_battlefield").
+token_rule("cant_return").
+
+.output token_rule
+
+// conformance — spot-check the token rules §111 states plainly
+.decl expect_token(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("token", P, "-") :- expect_token(P), !token_rule(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_token("owner_is_creator").
+expect_token("ceases_off_battlefield").

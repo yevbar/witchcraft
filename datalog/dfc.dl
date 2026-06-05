@@ -1,0 +1,32 @@
+// dfc.dl — §712 Double-Faced Cards: meld pairs + default face, interpreted from rules.txt.
+// meld_pair(card_a, card_b, result); dfc_default_face(action, face). GENERATED.
+
+.decl meld_pair(card_a: symbol, card_b: symbol, result: symbol)
+.decl dfc_default_face(action: symbol, face: symbol)
+
+meld_pair("Midnight Scavengers", "Graf Rats", "Chittering Host").
+meld_pair("Hanweir Garrison", "Hanweir Battlements", "Hanweir, the Writhing Township").
+meld_pair("Bruna, the Fading Light", "Gisela, the Broken Blade", "Brisela, Voice of Nightmares").
+meld_pair("Phyrexian Dragon Engine", "Mishra, Claimed by Gix", "Mishra, Lost to Phyrexia").
+meld_pair("The Mightstone and Weakstone", "Urza, Lord Protector", "Urza, Planeswalker").
+meld_pair("Argoth, Sanctum of Nature", "Titania, Voice of Gaea", "Titania, Gaea Incarnate").
+meld_pair("Fang, Fearless l’Cie", "Vanille, Cheerful l’Cie", "Ragnarok, Divine Deliverance").
+
+dfc_default_face("cast", "front").
+dfc_default_face("enters", "front").
+
+.output meld_pair
+.output dfc_default_face
+
+// conformance — spot-check the meld pairs / default face §712 states plainly
+.decl expect_meld(card_a: symbol, card_b: symbol, result: symbol)
+.decl expect_face(action: symbol, face: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("meld", R, "-") :- expect_meld(A, B, R), !meld_pair(A, B, R).
+conformance_fail("face", Ac, F) :- expect_face(Ac, F), !dfc_default_face(Ac, F).
+.output conformance_fail
+.printsize conformance_fail
+expect_meld("Bruna, the Fading Light", "Gisela, the Broken Blade", "Brisela, Voice of Nightmares").
+expect_meld("The Mightstone and Weakstone", "Urza, Lord Protector", "Urza, Planeswalker").
+expect_face("cast", "front").
+expect_face("enters", "front").

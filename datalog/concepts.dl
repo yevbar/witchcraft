@@ -1,0 +1,49 @@
+// concepts.dl — §1 Game Concepts definitional families, interpreted from rules.txt.
+// player_may(action, object, timing); ability_category(name); counter_kind(kind, creates). GENERATED.
+
+.decl player_may(action: symbol, object: symbol, timing: symbol)
+.decl ability_category(name: symbol)
+.decl counter_kind(kind: symbol, creates: symbol)
+
+player_may("cast", "instant_spell", "priority").
+player_may("cast", "noninstant_spell", "sorcery").
+player_may("activate", "activated_ability", "priority").
+player_may("take", "special_actions", "priority").
+player_may("take", "special_actions", "sorcery").
+player_may("activate", "mana_ability", "priority").
+
+ability_category("spell").
+ability_category("activated").
+ability_category("triggered").
+ability_category("static").
+
+counter_kind("p_t", "modifies_pt").
+counter_kind("keyword", "keyword_grant").
+counter_kind("shield", "replacement_and_prevention").
+counter_kind("stun", "replacement").
+counter_kind("loyalty", "characteristic").
+counter_kind("defense", "characteristic").
+counter_kind("finality", "replacement").
+counter_kind("rad", "triggered_ability").
+
+.output player_may
+.output ability_category
+.output counter_kind
+
+// conformance — spot-check the definitions the rules state plainly
+.decl expect_may(action: symbol, object: symbol, timing: symbol)
+.decl expect_cat(name: symbol)
+.decl expect_ck(kind: symbol, creates: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("may", A, O) :- expect_may(A, O, T), !player_may(A, O, T).
+conformance_fail("cat", N, "-") :- expect_cat(N), !ability_category(N).
+conformance_fail("ck", K, C) :- expect_ck(K, C), !counter_kind(K, C).
+.output conformance_fail
+.printsize conformance_fail
+expect_may("cast", "instant_spell", "priority").
+expect_may("activate", "mana_ability", "priority").
+expect_cat("triggered").
+expect_cat("static").
+expect_ck("shield", "replacement_and_prevention").
+expect_ck("rad", "triggered_ability").
+expect_ck("keyword", "keyword_grant").

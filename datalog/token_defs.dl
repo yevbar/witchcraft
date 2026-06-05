@@ -1,0 +1,111 @@
+// token_defs.dl — §111.10 predefined token characteristics (lark; '2/2' typed as a PT terminal).
+// GENERATED, not hand-written.
+
+.decl token(name: symbol)
+.decl token_pt(name: symbol, power: number, toughness: number)
+.decl token_color(name: symbol, color: symbol)
+.decl token_card_type(name: symbol, type: symbol)
+.decl token_subtype(name: symbol, subtype: symbol)
+
+token("treasure").
+token_color("treasure", "colorless").
+token_card_type("treasure", "artifact").
+token_subtype("treasure", "treasure").
+token("food").
+token_color("food", "colorless").
+token_card_type("food", "artifact").
+token_subtype("food", "food").
+token("gold").
+token_color("gold", "colorless").
+token_card_type("gold", "artifact").
+token_subtype("gold", "gold").
+token("walker").
+token_pt("walker", 2, 2).
+token_color("walker", "black").
+token_card_type("walker", "creature").
+token_subtype("walker", "zombie").
+token("shard").
+token_color("shard", "colorless").
+token_card_type("shard", "enchantment").
+token_subtype("shard", "shard").
+token("clue").
+token_color("clue", "colorless").
+token_card_type("clue", "artifact").
+token_subtype("clue", "clue").
+token("blood").
+token_color("blood", "colorless").
+token_card_type("blood", "artifact").
+token_subtype("blood", "blood").
+token("powerstone").
+token_color("powerstone", "colorless").
+token_card_type("powerstone", "artifact").
+token_subtype("powerstone", "powerstone").
+token("cursed_role").
+token_color("cursed_role", "colorless").
+token_card_type("cursed_role", "enchantment").
+token_subtype("cursed_role", "aura").
+token_subtype("cursed_role", "role").
+token("monster_role").
+token_color("monster_role", "colorless").
+token_card_type("monster_role", "enchantment").
+token_subtype("monster_role", "aura").
+token_subtype("monster_role", "role").
+token("royal_role").
+token_color("royal_role", "colorless").
+token_card_type("royal_role", "enchantment").
+token_subtype("royal_role", "aura").
+token_subtype("royal_role", "role").
+token("sorcerer_role").
+token_color("sorcerer_role", "colorless").
+token_card_type("sorcerer_role", "enchantment").
+token_subtype("sorcerer_role", "aura").
+token_subtype("sorcerer_role", "role").
+token("virtuous_role").
+token_color("virtuous_role", "colorless").
+token_card_type("virtuous_role", "enchantment").
+token_subtype("virtuous_role", "aura").
+token_subtype("virtuous_role", "role").
+token("wicked_role").
+token_color("wicked_role", "colorless").
+token_card_type("wicked_role", "enchantment").
+token_subtype("wicked_role", "aura").
+token_subtype("wicked_role", "role").
+token("young_hero_role").
+token_color("young_hero_role", "colorless").
+token_card_type("young_hero_role", "enchantment").
+token_subtype("young_hero_role", "aura").
+token_subtype("young_hero_role", "role").
+token("map").
+token_color("map", "colorless").
+token_card_type("map", "artifact").
+token_subtype("map", "map").
+token("junk").
+token_color("junk", "colorless").
+token_card_type("junk", "artifact").
+token_subtype("junk", "junk").
+token("lander").
+token_color("lander", "colorless").
+token_card_type("lander", "artifact").
+token_subtype("lander", "lander").
+token("mutagen").
+token_color("mutagen", "colorless").
+token_card_type("mutagen", "artifact").
+token_subtype("mutagen", "mutagen").
+
+.output token
+.output token_pt
+.output token_color
+.output token_card_type
+.output token_subtype
+
+// conformance — spot-check the characteristics the rules state plainly
+.decl expect_pt(name: symbol, power: number, toughness: number)
+.decl expect_ct(name: symbol, type: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("pt", N, "-") :- expect_pt(N, P, T), !token_pt(N, P, T).
+conformance_fail("ct", N, T) :- expect_ct(N, T), !token_card_type(N, T).
+.output conformance_fail
+.printsize conformance_fail
+expect_pt("walker", 2, 2).
+expect_ct("treasure", "artifact").
+expect_ct("walker", "creature").

@@ -1,0 +1,104 @@
+// keyword_relations.dl — §701/§702 keyword dependency facts, grouped by verb semantics.
+// functions-in / modifies-step / variant-of. GENERATED, not hand-written.
+
+.decl keyword_functions_in(kw: symbol, zone: symbol)
+.decl keyword_modifies_step(kw: symbol, step: symbol)
+.decl keyword_variant_of(variant: symbol, base: symbol)
+
+// --- 51 functions-in (where the keyword's ability is active) ---
+keyword_functions_in("flash", "playable").
+keyword_functions_in("cycling", "hand").
+keyword_functions_in("kicker", "stack").
+keyword_functions_in("morph", "playable").
+keyword_functions_in("storm", "stack").
+keyword_functions_in("affinity", "stack").
+keyword_functions_in("entwine", "stack").
+keyword_functions_in("sunburst", "battlefield").
+keyword_functions_in("splice", "hand").
+keyword_functions_in("offering", "stack").
+keyword_functions_in("ninjutsu", "hand").
+keyword_functions_in("convoke", "stack").
+keyword_functions_in("dredge", "graveyard").
+keyword_functions_in("transmute", "hand").
+keyword_functions_in("recover", "graveyard").
+keyword_functions_in("ripple", "stack").
+keyword_functions_in("split_second", "stack").
+keyword_functions_in("delve", "stack").
+keyword_functions_in("gravestorm", "stack").
+keyword_functions_in("evoke", "battlefield").
+keyword_functions_in("prowl", "stack").
+keyword_functions_in("reinforce", "hand").
+keyword_functions_in("retrace", "graveyard").
+keyword_functions_in("unearth", "graveyard").
+keyword_functions_in("cascade", "stack").
+keyword_functions_in("overload", "stack").
+keyword_functions_in("scavenge", "graveyard").
+keyword_functions_in("bestow", "playable").
+keyword_functions_in("tribute", "battlefield").
+keyword_functions_in("dash", "stack").
+keyword_functions_in("surge", "stack").
+keyword_functions_in("emerge", "stack").
+keyword_functions_in("escalate", "stack").
+keyword_functions_in("undaunted", "stack").
+keyword_functions_in("improvise", "stack").
+keyword_functions_in("embalm", "graveyard").
+keyword_functions_in("eternalize", "graveyard").
+keyword_functions_in("spectacle", "stack").
+keyword_functions_in("escape", "graveyard").
+keyword_functions_in("encore", "graveyard").
+keyword_functions_in("foretell", "hand").
+keyword_functions_in("cleave", "stack").
+keyword_functions_in("blitz", "stack").
+keyword_functions_in("bargain", "stack").
+keyword_functions_in("disguise", "playable").
+keyword_functions_in("plot", "hand").
+keyword_functions_in("freerunning", "stack").
+keyword_functions_in("harmonize", "stack").
+keyword_functions_in("warp", "stack").
+keyword_functions_in("mayhem", "graveyard").
+keyword_functions_in("sneak", "stack").
+
+// --- 7 modifies-step (which turn step the keyword changes) ---
+keyword_modifies_step("double_strike", "combat_damage").
+keyword_modifies_step("first_strike", "combat_damage").
+keyword_modifies_step("trample", "combat_damage").
+keyword_modifies_step("trample_over_planeswalkers", "combat_damage").
+keyword_modifies_step("vigilance", "declare_attackers").
+keyword_modifies_step("banding", "combat").
+keyword_modifies_step("phasing", "untap").
+
+// --- 14 variant-of (keyword variant -> base keyword) ---
+keyword_variant_of("venture_into_quality", "venture_into_the_dungeon").
+keyword_variant_of("connive_n", "connive").
+keyword_variant_of("equip_planeswalker", "equip").
+keyword_variant_of("hexproof_from_quality", "hexproof").
+keyword_variant_of("protection_from_everything", "protection").
+keyword_variant_of("protection_from_a_player", "protection").
+keyword_variant_of("trample_over_planeswalkers", "trample").
+keyword_variant_of("typecycling", "cycling").
+keyword_variant_of("multikicker", "kicker").
+keyword_variant_of("megamorph", "morph").
+keyword_variant_of("commander_ninjutsu", "ninjutsu").
+keyword_variant_of("devour_quality", "devour").
+keyword_variant_of("double_agenda", "hidden_agenda").
+keyword_variant_of("emerge_from_quality", "emerge").
+
+.output keyword_functions_in
+.output keyword_modifies_step
+.output keyword_variant_of
+
+// conformance — spot-check the rules state plainly
+.decl expect_func(kw: symbol, zone: symbol)
+.decl expect_mod(kw: symbol, step: symbol)
+.decl expect_variant(variant: symbol, base: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("func", K, Z) :- expect_func(K, Z), !keyword_functions_in(K, Z).
+conformance_fail("mod", K, S) :- expect_mod(K, S), !keyword_modifies_step(K, S).
+conformance_fail("variant", V, B) :- expect_variant(V, B), !keyword_variant_of(V, B).
+.output conformance_fail
+.printsize conformance_fail
+expect_func("kicker", "stack").
+expect_func("flash", "playable").
+expect_mod("first_strike", "combat_damage").
+expect_mod("vigilance", "declare_attackers").
+expect_variant("commander_ninjutsu", "ninjutsu").

@@ -1,0 +1,34 @@
+// symbols.dl — §107 non-mana symbols + number rules, interpreted from rules.txt.
+// symbol_meaning(symbol, name); number_rule(property). GENERATED.
+
+.decl symbol_meaning(symbol: symbol, name: symbol)
+.decl number_rule(property: symbol)
+
+symbol_meaning("{T}", "tap").
+symbol_meaning("{Q}", "untap").
+symbol_meaning("{PW}", "planeswalker").
+symbol_meaning("{CHAOS}", "chaos").
+symbol_meaning("{E}", "energy").
+symbol_meaning("{TK}", "ticket").
+symbol_meaning("{P}", "pawprint").
+
+number_rule("integers_only").
+number_rule("no_fractional").
+number_rule("no_negative").
+
+.output symbol_meaning
+.output number_rule
+
+// conformance — spot-check the symbols/number rules §107 states plainly
+.decl expect_sym(symbol: symbol, name: symbol)
+.decl expect_num(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("sym", S, N) :- expect_sym(S, N), !symbol_meaning(S, N).
+conformance_fail("num", P, "-") :- expect_num(P), !number_rule(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_sym("{T}", "tap").
+expect_sym("{E}", "energy").
+expect_sym("{TK}", "ticket").
+expect_num("integers_only").
+expect_num("no_fractional").

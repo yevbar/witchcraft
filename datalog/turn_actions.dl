@@ -1,0 +1,52 @@
+// turn_actions.dl — §5 per-step turn-based actions + priority, interpreted from rules.txt.
+// turn_based_action(step, actor); grants_priority(step); no_priority(step). GENERATED.
+
+.decl turn_based_action(step: symbol, actor: symbol)
+.decl grants_priority(step: symbol)
+.decl no_priority(step: symbol)
+
+turn_based_action("untap", "active").
+turn_based_action("draw", "active").
+turn_based_action("precombat_main", "active").
+turn_based_action("beginning_of_combat", "active").
+turn_based_action("declare_attackers", "active").
+turn_based_action("declare_blockers", "defending").
+turn_based_action("combat_damage", "active").
+turn_based_action("combat_damage", "game").
+turn_based_action("cleanup", "active").
+turn_based_action("cleanup", "game").
+
+grants_priority("upkeep").
+grants_priority("draw").
+grants_priority("postcombat_main").
+grants_priority("precombat_main").
+grants_priority("beginning_of_combat").
+grants_priority("declare_attackers").
+grants_priority("declare_blockers").
+grants_priority("combat_damage").
+grants_priority("end_of_combat").
+grants_priority("end").
+
+no_priority("untap").
+no_priority("cleanup").
+
+.output turn_based_action
+.output grants_priority
+.output no_priority
+
+// conformance — spot-check the step actions/priority the rules state plainly
+.decl expect_tba(step: symbol, actor: symbol)
+.decl expect_grants(step: symbol)
+.decl expect_nopri(step: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("tba", S, A) :- expect_tba(S, A), !turn_based_action(S, A).
+conformance_fail("grants", S, "-") :- expect_grants(S), !grants_priority(S).
+conformance_fail("nopri", S, "-") :- expect_nopri(S), !no_priority(S).
+.output conformance_fail
+.printsize conformance_fail
+expect_tba("draw", "active").
+expect_tba("declare_blockers", "defending").
+expect_grants("upkeep").
+expect_grants("declare_attackers").
+expect_nopri("untap").
+expect_nopri("cleanup").

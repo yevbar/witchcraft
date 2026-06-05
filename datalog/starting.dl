@@ -1,0 +1,40 @@
+// starting.dl — §103 game-setup constants, interpreted from rules.txt.
+// starting_life(variant, total); starting_hand_size(variant, n); first_turn_draw_skip(variant, skip). GENERATED.
+
+.decl starting_life(variant: symbol, total: number)
+.decl starting_hand_size(variant: symbol, n: number)
+.decl first_turn_draw_skip(variant: symbol, skip: symbol)
+
+starting_life("default", 20).
+starting_life("two-headed_giant", 30).
+starting_life("vanguard", 20).
+starting_life("commander", 40).
+starting_life("brawl", 25).
+starting_life("archenemy", 40).
+
+starting_hand_size("default", 7).
+starting_hand_size("vanguard", 7).
+
+first_turn_draw_skip("two-player", "yes").
+first_turn_draw_skip("two-headed_giant", "yes").
+first_turn_draw_skip("default", "no").
+
+.output starting_life
+.output starting_hand_size
+.output first_turn_draw_skip
+
+// conformance — spot-check the setup constants §103 states plainly
+.decl expect_life(variant: symbol, total: number)
+.decl expect_hand(variant: symbol, n: number)
+.decl expect_skip(variant: symbol, skip: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("life", V, "-") :- expect_life(V, T), !starting_life(V, T).
+conformance_fail("hand", V, "-") :- expect_hand(V, N), !starting_hand_size(V, N).
+conformance_fail("skip", V, S) :- expect_skip(V, S), !first_turn_draw_skip(V, S).
+.output conformance_fail
+.printsize conformance_fail
+expect_life("default", 20).
+expect_life("commander", 40).
+expect_hand("default", 7).
+expect_skip("two-player", "yes").
+expect_skip("default", "no").

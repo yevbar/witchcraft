@@ -1,0 +1,216 @@
+// sba.dl — §704.5 state-based actions TRANSPILED from rules.txt by transpile.py
+// (preprocess -> spaCy dependency parse -> lark). Rule bodies are GENERATED, not hand-written.
+
+.decl creature_perm(o: symbol)
+.decl planeswalker_perm(o: symbol)
+.decl is_token(o: symbol)
+.decl is_copy(o: symbol)
+.decl is_aura(o: symbol)
+.decl is_equipment(o: symbol)
+.decl is_battle(o: symbol)
+.decl illegally_attached(o: symbol)
+.decl attached(o: symbol)
+.decl has_supertype(o: symbol, sup: symbol)
+.decl world_since(o: symbol, ts: number)
+.decl name(o: symbol, n: symbol)
+.decl controls(p: symbol, o: symbol)
+.decl commander(o: symbol)
+.decl dealt_combat_damage(src: symbol, p: symbol, n: number)
+.decl in_zone(o: symbol, z: symbol)
+.decl is_scheme(o: symbol)
+.decl face_up(o: symbol)
+.decl scheme_trigger_pending(marker: symbol)
+.decl toughness(o: symbol, v: number)
+.decl marked(o: symbol, v: number)
+.decl dealt_deathtouch_damage(o: symbol)
+.decl loyalty(o: symbol, v: number)
+.decl life(p: symbol, v: number)
+.decl poison(p: symbol, v: number)
+.decl sba_loses(p: symbol, rule: symbol)
+.decl sba_graveyard(o: symbol, rule: symbol)
+.decl sba_ceases(o: symbol)
+.decl sba_unattach(o: symbol, rule: symbol)
+.decl sba_legend_conflict(o: symbol)
+
+// §205.4 supertype semantics, INTERPRETED from rules.txt by build_supertypes.
+// legendary = a permanent whose supertype the rules subject to the legend rule (§704.5j).
+.decl supertype_rule(supertype: symbol, subject: symbol, rule: symbol)
+supertype_rule("basic", "land", "basic_land"). supertype_rule("legendary", "permanent", "legend_rule"). supertype_rule("legendary", "spell", "legend_cast_restriction"). supertype_rule("world", "permanent", "world_rule"). supertype_rule("snow", "permanent", "snow_permanent"). supertype_rule("ongoing", "scheme", "schemes_sba_exempt").
+// each supertype's consequence, derived the same way: read off the interpreted §205.4 rule.
+.decl legendary(o: symbol)
+legendary(O) :- has_supertype(O, Sup), supertype_rule(Sup, "permanent", "legend_rule").
+.decl world_perm(o: symbol)
+world_perm(O) :- has_supertype(O, Sup), supertype_rule(Sup, "permanent", "world_rule").
+.decl snow_permanent(o: symbol)
+snow_permanent(O) :- has_supertype(O, Sup), supertype_rule(Sup, "permanent", "snow_permanent").
+.decl basic_land(o: symbol)
+basic_land(O) :- has_supertype(O, Sup), supertype_rule(Sup, "land", "basic_land").
+.decl scheme_exempt(o: symbol)
+scheme_exempt(O) :- has_supertype(O, Sup), supertype_rule(Sup, "scheme", "schemes_sba_exempt").
+.decl sba_world_conflict(o: symbol)
+.decl sba_scheme_retire(o: symbol)
+
+// --- rules transpiled from the English text (one per matched §704.5 sentence) ---
+sba_loses(P, "704.5a") :- life(P, V), V <= 0.   // 704.5a
+sba_loses(P, "704.5c") :- poison(P, V), V >= 10.   // 704.5c
+sba_ceases(O) :- is_token(O), in_zone(O, Z), Z != "battlefield".   // 704.5d
+sba_ceases(O) :- is_copy(O), in_zone(O, Z), Z != "stack".   // 704.5e
+sba_graveyard(O, "704.5f") :- creature_perm(O), toughness(O, V), V <= 0.   // 704.5f
+sba_graveyard(O, "704.5g") :- creature_perm(O), toughness(O, T), T > 0, marked(O, D), D >= T.   // 704.5g
+sba_graveyard(O, "704.5h") :- creature_perm(O), toughness(O, T), T > 0, dealt_deathtouch_damage(O).   // 704.5h
+sba_graveyard(O, "704.5i") :- planeswalker_perm(O), loyalty(O, 0).   // 704.5i
+sba_legend_conflict(P) :- legendary(P), name(P, K1), controls(K2, P), N = count : { legendary(P2), name(P2, K1), controls(K2, P2) }, N >= 2.   // 704.5j
+sba_world_conflict(P) :- world_perm(P), C = count : { world_perm(_) }, C >= 2, Mx = max T : { world_perm(Q), world_since(Q, T) }, world_since(P, Ts), Ts < Mx.   // 704.5k (not the newest)
+sba_world_conflict(P) :- world_perm(P), C = count : { world_perm(_) }, C >= 2, Mx = max T : { world_perm(Q), world_since(Q, T) }, NC = count : { world_perm(R), world_since(R, Mx) }, NC >= 2.   // 704.5k (tie for newest)
+sba_graveyard(O, "704.5m") :- is_aura(O), illegally_attached(O).   // 704.5m
+sba_unattach(O, "704.5n") :- is_equipment(O), illegally_attached(O).   // 704.5n
+sba_unattach(O, "704.5p") :- is_battle(O), attached(O).   // 704.5p
+sba_loses(T, "704.6a") :- life(T, V), V <= 0.   // 704.6a
+sba_loses(T, "704.6b") :- poison(T, V), V >= 15.   // 704.6b
+sba_loses(P, "704.6c") :- commander(Src), dealt_combat_damage(Src, P, _), D = sum X : { dealt_combat_damage(Src, P, X) }, D >= 21.   // 704.6c
+sba_scheme_retire(O) :- is_scheme(O), face_up(O), in_zone(O, "command"), !scheme_exempt(O), !scheme_trigger_pending("yes").   // 704.6e
+
+.output sba_loses
+.output sba_graveyard
+.output sba_ceases
+.output sba_unattach
+.output sba_legend_conflict
+.output sba_world_conflict
+.output snow_permanent
+.output basic_land
+.output scheme_exempt
+.output sba_scheme_retire
+
+// conformance
+.decl expect_loses(p: symbol, rule: symbol)
+.decl expect_no_loses(p: symbol)
+.decl expect_graveyard(o: symbol, rule: symbol)
+.decl expect_no_graveyard(o: symbol)
+.decl expect_ceases(o: symbol)
+.decl expect_no_ceases(o: symbol)
+.decl expect_graveyard_attach(o: symbol, rule: symbol)
+.decl expect_unattach(o: symbol, rule: symbol)
+.decl expect_legend(o: symbol)
+.decl expect_no_legend(o: symbol)
+.decl expect_world(o: symbol)
+.decl expect_no_world(o: symbol)
+.decl expect_snow(o: symbol)
+.decl expect_basic(o: symbol)
+.decl expect_retire(o: symbol)
+.decl expect_no_retire(o: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("loses", P, R) :- expect_loses(P, R), !sba_loses(P, R).
+conformance_fail("no_loses", P, "-") :- expect_no_loses(P), sba_loses(P, _).
+conformance_fail("graveyard", O, R) :- expect_graveyard(O, R), !sba_graveyard(O, R).
+conformance_fail("no_graveyard", O, "-") :- expect_no_graveyard(O), sba_graveyard(O, _).
+conformance_fail("ceases", O, "-") :- expect_ceases(O), !sba_ceases(O).
+conformance_fail("no_ceases", O, "-") :- expect_no_ceases(O), sba_ceases(O).
+conformance_fail("gv_attach", O, R) :- expect_graveyard_attach(O, R), !sba_graveyard(O, R).
+conformance_fail("unattach", O, R) :- expect_unattach(O, R), !sba_unattach(O, R).
+conformance_fail("legend", O, "-") :- expect_legend(O), !sba_legend_conflict(O).
+conformance_fail("no_legend", O, "-") :- expect_no_legend(O), sba_legend_conflict(O).
+conformance_fail("world", O, "-") :- expect_world(O), !sba_world_conflict(O).
+conformance_fail("no_world", O, "-") :- expect_no_world(O), sba_world_conflict(O).
+conformance_fail("snow", O, "-") :- expect_snow(O), !snow_permanent(O).
+conformance_fail("basic", O, "-") :- expect_basic(O), !basic_land(O).
+conformance_fail("retire", O, "-") :- expect_retire(O), !sba_scheme_retire(O).
+conformance_fail("no_retire", O, "-") :- expect_no_retire(O), sba_scheme_retire(O).
+.output conformance_fail
+.printsize conformance_fail
+
+// scenario under test
+life("alice", 0).
+expect_loses("alice", "704.5a").
+life("bob", 5).
+expect_no_loses("bob").
+poison("carol", 10).
+expect_loses("carol", "704.5c").
+poison("dave", 9).
+expect_no_loses("dave").
+creature_perm("zerotough").
+toughness("zerotough", 0).
+expect_graveyard("zerotough", "704.5f").
+creature_perm("healthy").
+toughness("healthy", 3).
+expect_no_graveyard("healthy").
+creature_perm("lethaled").
+toughness("lethaled", 2).
+marked("lethaled", 3).
+expect_graveyard("lethaled", "704.5g").
+creature_perm("scratched").
+toughness("scratched", 3).
+marked("scratched", 1).
+expect_no_graveyard("scratched").
+creature_perm("touched").
+toughness("touched", 5).
+dealt_deathtouch_damage("touched").
+expect_graveyard("touched", "704.5h").
+planeswalker_perm("pw0").
+loyalty("pw0", 0).
+expect_graveyard("pw0", "704.5i").
+planeswalker_perm("pw5").
+loyalty("pw5", 5).
+expect_no_graveyard("pw5").
+is_token("tok_gy").
+in_zone("tok_gy", "graveyard").
+expect_ceases("tok_gy").
+is_token("tok_bf").
+in_zone("tok_bf", "battlefield").
+expect_no_ceases("tok_bf").
+is_copy("cp_gy").
+in_zone("cp_gy", "graveyard").
+expect_ceases("cp_gy").
+is_copy("cp_stack").
+in_zone("cp_stack", "stack").
+expect_no_ceases("cp_stack").
+life("team_dead", 0).
+expect_loses("team_dead", "704.6a").
+poison("team_toxic", 15).
+expect_loses("team_toxic", "704.6b").
+is_aura("bad_aura").
+illegally_attached("bad_aura").
+expect_graveyard_attach("bad_aura", "704.5m").
+is_equipment("bad_equip").
+illegally_attached("bad_equip").
+expect_unattach("bad_equip", "704.5n").
+is_battle("attached_battle").
+attached("attached_battle").
+expect_unattach("attached_battle", "704.5p").
+has_supertype("goyf1", "legendary").
+name("goyf1", "Tarmogoyf").
+controls("alice", "goyf1").
+has_supertype("goyf2", "legendary").
+name("goyf2", "Tarmogoyf").
+controls("alice", "goyf2").
+expect_legend("goyf1").
+expect_legend("goyf2").
+has_supertype("solo", "legendary").
+name("solo", "Jace").
+controls("alice", "solo").
+expect_no_legend("solo").
+has_supertype("nether", "world").
+world_since("nether", 1).
+expect_world("nether").
+has_supertype("arena", "world").
+world_since("arena", 3).
+expect_no_world("arena").
+has_supertype("rime", "snow").
+expect_snow("rime").
+has_supertype("tundra", "basic").
+expect_basic("tundra").
+is_scheme("plot").
+face_up("plot").
+in_zone("plot", "command").
+expect_retire("plot").
+is_scheme("eternal").
+face_up("eternal").
+in_zone("eternal", "command").
+has_supertype("eternal", "ongoing").
+expect_no_retire("eternal").
+commander("voltron").
+dealt_combat_damage("voltron", "victim", 13).
+dealt_combat_damage("voltron", "victim", 8).
+expect_loses("victim", "704.6c").
+commander("smallcmd").
+dealt_combat_damage("smallcmd", "safe", 10).
+expect_no_loses("safe").

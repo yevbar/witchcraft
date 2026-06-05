@@ -1,0 +1,27 @@
+// mana_symbols.dl — §107.4 mana symbol -> color, interpreted from rules.txt.
+// symbol_color(glyph, color). The glyph is recovered from the preprocess legend. GENERATED.
+
+.decl symbol_color(glyph: symbol, color: symbol)
+
+symbol_color("{W}", "white").
+symbol_color("{U}", "blue").
+symbol_color("{B}", "black").
+symbol_color("{R}", "red").
+symbol_color("{G}", "green").
+symbol_color("{W/P}", "white").
+symbol_color("{U/P}", "blue").
+symbol_color("{B/P}", "black").
+symbol_color("{R/P}", "red").
+symbol_color("{G/P}", "green").
+
+.output symbol_color
+
+// conformance — spot-check the color the rules state plainly
+.decl expect_color(glyph: symbol, color: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("color", G, C) :- expect_color(G, C), !symbol_color(G, C).
+.output conformance_fail
+.printsize conformance_fail
+expect_color("{W}", "white").
+expect_color("{G}", "green").
+expect_color("{B/P}", "black").

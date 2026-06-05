@@ -1,0 +1,15 @@
+# MTGJSON card database (525MB) — downloaded separately, used only by bridge_cards.py
+AllPrintings.json
+# derived, unreferenced card export
+cards.jsonl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Soufflé / scratch output
+*.csv
+/tmp/

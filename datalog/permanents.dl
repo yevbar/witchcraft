@@ -1,0 +1,21 @@
+// permanents.dl — §110 permanent status, interpreted from rules.txt.
+// permanent_default_status(status): the status a permanent has on entry. GENERATED.
+
+.decl permanent_default_status(status: symbol)
+
+permanent_default_status("untapped").
+permanent_default_status("unflipped").
+permanent_default_status("face_up").
+permanent_default_status("phased_in").
+
+.output permanent_default_status
+
+// conformance — spot-check the default statuses §110.5b states plainly
+.decl expect_status(status: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("status", S, "-") :- expect_status(S), !permanent_default_status(S).
+.output conformance_fail
+.printsize conformance_fail
+expect_status("untapped").
+expect_status("face_up").
+expect_status("phased_in").
