@@ -1,0 +1,35 @@
+// face_down.dl — §708 Face-Down Spells and Permanents, interpreted from rules.txt.
+// face_down_default(characteristic, value); face_down_rule(property). GENERATED.
+
+.decl face_down_default(characteristic: symbol, value: symbol)
+.decl face_down_rule(property: symbol)
+
+face_down_default("power", "2").
+face_down_default("toughness", "2").
+face_down_default("card_type", "creature").
+face_down_default("text", "none").
+face_down_default("name", "none").
+face_down_default("subtype", "none").
+face_down_default("mana_cost", "none").
+
+face_down_rule("cant_be_turned_face_down").
+face_down_rule("controller_may_look").
+face_down_rule("spells_cant_turn_face_up").
+face_down_rule("reveal_on_leaving_battlefield").
+
+.output face_down_default
+.output face_down_rule
+
+// conformance — spot-check the §708 facts the rules state plainly
+.decl expect_default(characteristic: symbol, value: symbol)
+.decl expect_rule(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("default", C, V) :- expect_default(C, V), !face_down_default(C, V).
+conformance_fail("rule", P, "-") :- expect_rule(P), !face_down_rule(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_default("power", "2").
+expect_default("card_type", "creature").
+expect_default("mana_cost", "none").
+expect_rule("controller_may_look").
+expect_rule("spells_cant_turn_face_up").
