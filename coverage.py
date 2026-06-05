@@ -47,6 +47,7 @@ import build_keyword_action_index
 import build_keyword_ability_index
 import build_battle
 import build_name
+import build_ability_kinds
 import build_keyword_definitions
 import build_enumerations
 import build_keyword_defs
@@ -138,6 +139,9 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_battle.battle_subtypes()}
                     | {r[0] for r in build_battle.battle_properties()}
                     | {r[0] for r in build_name.name_rules()}
+                    | {r[0] for r in build_ability_kinds.mana_ability_criteria()}
+                    | {r[0] for r in build_ability_kinds.mana_ability_rules()}
+                    | {r[0] for r in build_ability_kinds.loyalty_ability_rules()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))

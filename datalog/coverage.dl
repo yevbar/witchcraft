@@ -265,7 +265,16 @@ interpreted("603.10d").
 interpreted("603.10e").
 interpreted("603.10f").
 interpreted("603.10g").
+interpreted("605.1a").
+interpreted("605.1b").
+interpreted("605.2").
+interpreted("605.3b").
+interpreted("605.3c").
+interpreted("605.4a").
 interpreted("605.5b").
+interpreted("606.2").
+interpreted("606.3").
+interpreted("606.4").
 interpreted("613.1a").
 interpreted("613.1b").
 interpreted("613.1c").

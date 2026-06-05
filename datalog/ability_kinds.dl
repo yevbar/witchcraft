@@ -1,0 +1,41 @@
+// ability_kinds.dl — §605 mana abilities + §606 loyalty abilities, interpreted from rules.txt.
+// mana_ability_criterion(kind, criterion); mana_ability_rule(property); loyalty_ability_rule(property). GENERATED.
+
+.decl mana_ability_criterion(kind: symbol, criterion: symbol)
+.decl mana_ability_rule(property: symbol)
+.decl loyalty_ability_rule(property: symbol)
+
+mana_ability_criterion("activated", "no_target").
+mana_ability_criterion("activated", "could_add_mana").
+mana_ability_criterion("activated", "not_loyalty").
+mana_ability_criterion("triggered", "no_target").
+mana_ability_criterion("triggered", "triggers_from_mana").
+mana_ability_criterion("triggered", "could_add_mana").
+
+mana_ability_rule("remains_if_cannot_produce").
+mana_ability_rule("activated_skips_stack").
+mana_ability_rule("no_reactivate_until_resolved").
+mana_ability_rule("triggered_skips_stack").
+loyalty_ability_rule("loyalty_symbol_in_cost").
+loyalty_ability_rule("once_per_permanent_per_turn").
+loyalty_ability_rule("cost_is_loyalty_counters").
+
+.output mana_ability_criterion
+.output mana_ability_rule
+.output loyalty_ability_rule
+
+// conformance — spot-check the §605/§606 ability rules stated plainly
+.decl expect_crit(kind: symbol, criterion: symbol)
+.decl expect_mana(property: symbol)
+.decl expect_loy(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("crit", K, C) :- expect_crit(K, C), !mana_ability_criterion(K, C).
+conformance_fail("mana", P, "-") :- expect_mana(P), !mana_ability_rule(P).
+conformance_fail("loy", P, "-") :- expect_loy(P), !loyalty_ability_rule(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_crit("activated", "could_add_mana").
+expect_crit("activated", "not_loyalty").
+expect_mana("activated_skips_stack").
+expect_mana("triggered_skips_stack").
+expect_loy("cost_is_loyalty_counters").
