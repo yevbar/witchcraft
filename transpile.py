@@ -836,8 +836,8 @@ def _conditional(rule, doc):
     the restriction pattern captures a prohibition's qualifier. kind classifies the trigger:
     replacement ("would … instead"), trigger ("When/Whenever …"), or condition ("If …")."""
     root = _root(doc)
-    if root is None or root.pos_ != "VERB":
-        return None
+    if root is None or (root.pos_ != "VERB" and root.lemma_ != "be"):
+        return None                                        # allow a copula root ("…, the game IS a draw")
     trig = None                                            # the if/when adverbial clause
     for c in root.children:
         if c.dep_ in ("advcl", "ccomp"):
