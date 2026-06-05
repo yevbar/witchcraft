@@ -204,14 +204,21 @@ interpreted("405.6e").
 interpreted("405.6f").
 interpreted("406.3").
 interpreted("500.1").
+interpreted("500.5").
 interpreted("501.1").
 interpreted("502.1").
+interpreted("502.2").
+interpreted("502.2a").
+interpreted("502.3").
 interpreted("502.4").
 interpreted("503.1").
 interpreted("504.1").
 interpreted("504.2").
 interpreted("505.3").
+interpreted("505.4").
+interpreted("505.5").
 interpreted("505.6").
+interpreted("505.6b").
 interpreted("506.1").
 interpreted("507.1").
 interpreted("507.2").
@@ -254,6 +261,7 @@ interpreted("700.4").
 interpreted("700.6").
 interpreted("701.13a").
 interpreted("701.16a").
+interpreted("701.18a").
 interpreted("701.19a").
 interpreted("701.19b").
 interpreted("701.21a").
@@ -268,6 +276,7 @@ interpreted("701.30b").
 interpreted("701.37a").
 interpreted("701.39a").
 interpreted("701.40a").
+interpreted("701.40b").
 interpreted("701.46a").
 interpreted("701.48a").
 interpreted("701.49d").
@@ -277,6 +286,7 @@ interpreted("701.53a").
 interpreted("701.55a").
 interpreted("701.57a").
 interpreted("701.58a").
+interpreted("701.58b").
 interpreted("701.62a").
 interpreted("701.64a").
 interpreted("701.66a").
@@ -355,6 +365,7 @@ interpreted("702.142").
 interpreted("702.142a").
 interpreted("702.143").
 interpreted("702.143a").
+interpreted("702.143b").
 interpreted("702.144a").
 interpreted("702.145").
 interpreted("702.145b").
@@ -399,6 +410,7 @@ interpreted("702.165a").
 interpreted("702.166a").
 interpreted("702.167").
 interpreted("702.168a").
+interpreted("702.168d").
 interpreted("702.169a").
 interpreted("702.169b").
 interpreted("702.169c").
@@ -407,6 +419,7 @@ interpreted("702.16a").
 interpreted("702.16j").
 interpreted("702.16k").
 interpreted("702.170a").
+interpreted("702.170b").
 interpreted("702.171a").
 interpreted("702.172a").
 interpreted("702.173a").
@@ -481,6 +494,7 @@ interpreted("702.36a").
 interpreted("702.36b").
 interpreted("702.37a").
 interpreted("702.37b").
+interpreted("702.37e").
 interpreted("702.38").
 interpreted("702.38a").
 interpreted("702.39a").
@@ -641,11 +655,14 @@ interpreted("714.3c").
 interpreted("714.4").
 interpreted("716.2").
 interpreted("716.2b").
+interpreted("717.4").
 interpreted("729.1a").
 interpreted("800.1").
 interpreted("810.8d").
+interpreted("901.9").
 interpreted("903.10a").
 interpreted("904.10").
+interpreted("904.9").
 interpreted("905.3").
 
 .decl uncovered(number: symbol, grp: symbol)

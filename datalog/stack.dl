@@ -1,0 +1,50 @@
+// stack.dl — actions that DON'T use the stack, interpreted from rules.txt.
+// skips_stack(rule, kind); kind = turn_based_action | special_action | state_based_action | action. GENERATED.
+
+.decl skips_stack(rule: symbol, kind: symbol)
+
+skips_stack("122.1g", "state_based_action").
+skips_stack("305.1", "special_action").
+skips_stack("500.5", "turn_based_action").
+skips_stack("502.1", "turn_based_action").
+skips_stack("502.2", "turn_based_action").
+skips_stack("502.2a", "turn_based_action").
+skips_stack("502.3", "turn_based_action").
+skips_stack("504.1", "turn_based_action").
+skips_stack("505.3", "turn_based_action").
+skips_stack("505.4", "turn_based_action").
+skips_stack("505.5", "turn_based_action").
+skips_stack("505.6b", "action").
+skips_stack("507.1", "turn_based_action").
+skips_stack("508.1", "turn_based_action").
+skips_stack("509.1", "turn_based_action").
+skips_stack("510.1", "turn_based_action").
+skips_stack("510.2", "turn_based_action").
+skips_stack("514.1", "turn_based_action").
+skips_stack("514.2", "turn_based_action").
+skips_stack("701.18a", "special_action").
+skips_stack("701.40b", "special_action").
+skips_stack("701.58b", "special_action").
+skips_stack("702.37e", "special_action").
+skips_stack("702.62a", "action").
+skips_stack("702.139a", "special_action").
+skips_stack("702.143b", "special_action").
+skips_stack("702.168d", "special_action").
+skips_stack("702.170b", "special_action").
+skips_stack("714.3c", "turn_based_action").
+skips_stack("714.4", "state_based_action").
+skips_stack("717.4", "turn_based_action").
+skips_stack("901.9", "special_action").
+skips_stack("904.9", "turn_based_action").
+
+.output skips_stack
+
+// conformance — spot-check the stack-skipping actions the rules state plainly
+.decl expect_skips(rule: symbol, kind: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("skips", R, K) :- expect_skips(R, K), !skips_stack(R, K).
+.output conformance_fail
+.printsize conformance_fail
+expect_skips("502.2", "turn_based_action").
+expect_skips("701.18a", "special_action").
+expect_skips("505.6b", "action").
