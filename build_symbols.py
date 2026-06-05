@@ -59,14 +59,40 @@ def number_rule() -> list[tuple[str, str]]:
     return rows
 
 
+# (rule, anchor phrase, situation, value) — §107 number-handling conventions/defaults.
+_DEFAULTS = [
+    ("107.1c", "may choose any positive number or zero", "any_number", "zero_or_positive"),
+    ("107.2", "it uses 0 instead", "undeterminable", "0"),
+    ("107.3", "X as a placeholder for a number", "x", "placeholder"),
+]
+
+
+def number_default() -> list[tuple[str, str, str]]:
+    """(rule, situation, value) for the §107.1c/2/3 number conventions: choosing 'any number'
+    is zero-or-positive (107.1c), an undeterminable number is 0 (107.2), and X is a placeholder
+    for a number to be determined (107.3). Read by fixed anchor phrases, abstaining otherwise."""
+    rows = []
+    for s in _doc().sections:
+        for g in s.groups:
+            if g.number != "107":
+                continue
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    for num, phrase, sit, val in _DEFAULTS:
+                        if sr.number == num and phrase in sr.text:
+                            rows.append((num, sit, val))
+    return rows
+
+
 def build() -> tuple[str, dict]:
-    syms, nums = symbol_meaning(), number_rule()
+    syms, nums, defs = symbol_meaning(), number_rule(), number_default()
     p = Program()
     p.comment("symbols.dl — §107 non-mana symbols + number rules, interpreted from rules.txt.")
-    p.comment("symbol_meaning(symbol, name); number_rule(property). GENERATED.")
+    p.comment("symbol_meaning(symbol, name); number_rule(property); number_default(situation, value). GENERATED.")
     p.blank()
     p.decl("symbol_meaning", [("symbol", "symbol"), ("name", "symbol")])
     p.decl("number_rule", [("property", "symbol")])
+    p.decl("number_default", [("situation", "symbol"), ("value", "symbol")])
     p.blank()
     for _n, sym, name in syms:
         p.fact(f'symbol_meaning("{sym}", "{name}")')
@@ -74,27 +100,36 @@ def build() -> tuple[str, dict]:
     for _n, prop in nums:
         p.fact(f'number_rule("{prop}")')
     p.blank()
+    for _n, sit, val in defs:
+        p.fact(f'number_default("{sit}", "{val}")')
+    p.blank()
     p.output("symbol_meaning")
     p.output("number_rule")
+    p.output("number_default")
     p.blank()
     p.comment("conformance — spot-check the symbols/number rules §107 states plainly")
     p.conformance(
-        [("expect_sym", [("symbol", "symbol"), ("name", "symbol")]), ("expect_num", [("property", "symbol")])],
+        [("expect_sym", [("symbol", "symbol"), ("name", "symbol")]), ("expect_num", [("property", "symbol")]),
+         ("expect_default", [("situation", "symbol"), ("value", "symbol")])],
         [("sym", "expect_sym(S, N)", "miss", "symbol_meaning(S, N)"),
-         ("num", "expect_num(P)", "miss", "number_rule(P)")],
+         ("num", "expect_num(P)", "miss", "number_rule(P)"),
+         ("default", "expect_default(Si, V)", "miss", "number_default(Si, V)")],
     )
     for atom in ['expect_sym("{T}", "tap")', 'expect_sym("{E}", "energy")', 'expect_sym("{TK}", "ticket")']:
         p.fact(atom)
     for atom in ['expect_num("integers_only")', 'expect_num("no_fractional")']:
         p.fact(atom)
-    return p.text(), {"symbols": len(syms), "numbers": len(nums)}
+    for atom in ['expect_default("undeterminable", "0")', 'expect_default("any_number", "zero_or_positive")']:
+        p.fact(atom)
+    return p.text(), {"symbols": len(syms), "numbers": len(nums), "defaults": len(defs)}
 
 
 def main() -> None:
     Path("datalog").mkdir(exist_ok=True)
     source, report = build()
     Path("datalog/symbols.dl").write_text(source, encoding="utf-8")
-    print(f"wrote datalog/symbols.dl ({report['symbols']} symbol_meaning, {report['numbers']} number_rule)")
+    print(f"wrote datalog/symbols.dl ({report['symbols']} symbol_meaning, {report['numbers']} number_rule, "
+          f"{report['defaults']} number_default)")
 
 
 if __name__ == "__main__":

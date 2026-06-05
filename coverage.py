@@ -97,6 +97,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_deck.extract()}
                     | {r[0] for r in build_symbols.symbol_meaning()}
                     | {r[0] for r in build_symbols.number_rule()}
+                    | {r[0] for r in build_symbols.number_default()}
                     | {r[0] for r in build_objects.object_kinds()}
                     | {r[0] for r in build_objects.characteristics()}
                     | {r[0] for r in build_objects.description_words()}

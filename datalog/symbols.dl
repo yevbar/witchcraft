@@ -1,8 +1,9 @@
 // symbols.dl — §107 non-mana symbols + number rules, interpreted from rules.txt.
-// symbol_meaning(symbol, name); number_rule(property). GENERATED.
+// symbol_meaning(symbol, name); number_rule(property); number_default(situation, value). GENERATED.
 
 .decl symbol_meaning(symbol: symbol, name: symbol)
 .decl number_rule(property: symbol)
+.decl number_default(situation: symbol, value: symbol)
 
 symbol_meaning("{T}", "tap").
 symbol_meaning("{Q}", "untap").
@@ -16,15 +17,22 @@ number_rule("integers_only").
 number_rule("no_fractional").
 number_rule("no_negative").
 
+number_default("any_number", "zero_or_positive").
+number_default("undeterminable", "0").
+number_default("x", "placeholder").
+
 .output symbol_meaning
 .output number_rule
+.output number_default
 
 // conformance — spot-check the symbols/number rules §107 states plainly
 .decl expect_sym(symbol: symbol, name: symbol)
 .decl expect_num(property: symbol)
+.decl expect_default(situation: symbol, value: symbol)
 .decl conformance_fail(kind: symbol, a: symbol, b: symbol)
 conformance_fail("sym", S, N) :- expect_sym(S, N), !symbol_meaning(S, N).
 conformance_fail("num", P, "-") :- expect_num(P), !number_rule(P).
+conformance_fail("default", Si, V) :- expect_default(Si, V), !number_default(Si, V).
 .output conformance_fail
 .printsize conformance_fail
 expect_sym("{T}", "tap").
@@ -32,3 +40,5 @@ expect_sym("{E}", "energy").
 expect_sym("{TK}", "ticket").
 expect_num("integers_only").
 expect_num("no_fractional").
+expect_default("undeterminable", "0").
+expect_default("any_number", "zero_or_positive").
