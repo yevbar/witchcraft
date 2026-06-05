@@ -5,6 +5,8 @@
 .decl planeswalker_loyalty(context: symbol, value: symbol)
 .decl planeswalker_property(property: symbol)
 .decl dungeon_property(property: symbol)
+.decl card_type_property(card_type: symbol, property: symbol)
+.decl vanguard_modifier(kind: symbol, location: symbol)
 
 subtype_single_word("artifact").
 subtype_single_word("enchantment").
@@ -26,10 +28,30 @@ dungeon_property("cant_be_cast").
 dungeon_property("stays_in_command_zone").
 dungeon_property("one_at_a_time").
 
+card_type_property("dungeon", "nontraditional").
+card_type_property("plane", "nontraditional").
+card_type_property("plane", "may_have_any_abilities").
+card_type_property("plane", "face_down_new_object").
+card_type_property("phenomenon", "nontraditional").
+card_type_property("phenomenon", "no_subtypes").
+card_type_property("phenomenon", "face_down_new_object").
+card_type_property("vanguard", "nontraditional").
+card_type_property("vanguard", "no_subtypes").
+card_type_property("vanguard", "may_have_any_abilities").
+card_type_property("scheme", "nontraditional").
+card_type_property("scheme", "no_subtypes").
+card_type_property("scheme", "may_have_any_abilities").
+card_type_property("conspiracy", "no_subtypes").
+card_type_property("conspiracy", "may_have_any_abilities").
+vanguard_modifier("hand", "lower_left").
+vanguard_modifier("life", "lower_right").
+
 .output subtype_single_word
 .output planeswalker_loyalty
 .output planeswalker_property
 .output dungeon_property
+.output card_type_property
+.output vanguard_modifier
 
 // conformance — spot-check the §3 card-type facts the rules state plainly
 .decl expect_sub(card_type: symbol)

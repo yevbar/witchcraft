@@ -159,6 +159,8 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_card_types.planeswalker_loyalty()}
                     | {r[0] for r in build_card_types.planeswalker_properties()}
                     | {r[0] for r in build_card_types.dungeon_properties()}
+                    | {r[0] for r in build_card_types.card_type_property()}
+                    | {r[0] for r in build_card_types.vanguard_modifier()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))

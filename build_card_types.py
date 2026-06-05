@@ -22,6 +22,28 @@ from rules_parser import split
 
 _SUBTYPE_ANCHOR = "subtypes are always a single word and are listed after a long dash"
 
+# §3 group number -> the card type it defines (singular, handling irregular plurals).
+_GROUP_TYPE = {
+    "301": "artifact", "302": "creature", "303": "enchantment", "304": "instant",
+    "305": "land", "306": "planeswalker", "307": "sorcery", "308": "kindred",
+    "309": "dungeon", "310": "battle", "311": "plane", "312": "phenomenon",
+    "313": "vanguard", "314": "scheme", "315": "conspiracy",
+}
+
+# (anchor phrase, property) — recurring per-type clauses -> card_type_property(card_type, property).
+_TYPE_PROPS = [
+    ("is a card type seen only on nontraditional Magic cards", "nontraditional"),
+    ("cards have no subtypes", "no_subtypes"),
+    ("any number of static", "may_have_any_abilities"),
+    ("turned face down becomes a new object", "face_down_new_object"),
+]
+
+# (rule, anchor phrase, kind, location) — §313 vanguard modifiers.
+_VANGUARD = [
+    ("313.6", "hand modifier printed in its lower left corner", "hand", "lower_left"),
+    ("313.7", "life modifier printed in its lower right corner", "life", "lower_right"),
+]
+
 # (rule, anchor phrase, context, value) — §306.5a/c planeswalker loyalty source.
 _LOYALTY = [
     ("306.5a", "number printed in its lower right corner", "not_on_battlefield", "printed"),
@@ -59,6 +81,40 @@ def _section3_texts() -> dict[str, str]:
     return out
 
 
+def _section3_by_group() -> list[tuple[str, str, str]]:
+    """(group_number, rule_number, text) for every rule/subrule in section 3."""
+    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
+    out = []
+    for s in doc.sections:
+        if s.number != "3":
+            continue
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    out.append((g.number, sr.number, sr.text))
+    return out
+
+
+def card_type_property() -> list[tuple[str, str, str]]:
+    """(rule, card_type, property) — recurring per-type clauses (nontraditional, no subtypes,
+    may have any abilities, face-down becomes a new object); card_type from the §3 group."""
+    rows = []
+    for gnum, num, text in _section3_by_group():
+        ct = _GROUP_TYPE.get(gnum)
+        if not ct:
+            continue
+        for phrase, prop in _TYPE_PROPS:
+            if phrase in text:
+                rows.append((num, ct, prop))
+    return rows
+
+
+def vanguard_modifier() -> list[tuple[str, str, str]]:
+    """(rule, kind, location) — §313.6/7 vanguard hand/life modifiers."""
+    t = _section3_texts()
+    return [(n, kind, loc) for n, phrase, kind, loc in _VANGUARD if phrase in t.get(n, "")]
+
+
 def subtype_single_word() -> list[tuple[str, str]]:
     """(rule, card_type) for the cross-cutting "[Type] subtypes are always a single word" rule."""
     rows = []
@@ -91,6 +147,8 @@ def build() -> tuple[str, dict]:
     loy = planeswalker_loyalty()
     pw = planeswalker_properties()
     dun = dungeon_properties()
+    tprops = card_type_property()
+    van = vanguard_modifier()
 
     p = Program()
     p.comment("card_types.dl — §3 card-type rules, interpreted from rules.txt.")
@@ -101,6 +159,8 @@ def build() -> tuple[str, dict]:
     p.decl("planeswalker_loyalty", [("context", "symbol"), ("value", "symbol")])
     p.decl("planeswalker_property", [("property", "symbol")])
     p.decl("dungeon_property", [("property", "symbol")])
+    p.decl("card_type_property", [("card_type", "symbol"), ("property", "symbol")])
+    p.decl("vanguard_modifier", [("kind", "symbol"), ("location", "symbol")])
     p.blank()
     for _n, ct in sub:
         p.fact(f'subtype_single_word("{ct}")')
@@ -113,7 +173,17 @@ def build() -> tuple[str, dict]:
     for _n, prop in dun:
         p.fact(f'dungeon_property("{prop}")')
     p.blank()
+    seen_tp = set()
+    for _n, ct, prop in tprops:                          # several rules can state the same per-type clause
+        if (ct, prop) in seen_tp:
+            continue
+        seen_tp.add((ct, prop))
+        p.fact(f'card_type_property("{ct}", "{prop}")')
+    for _n, kind, loc in van:
+        p.fact(f'vanguard_modifier("{kind}", "{loc}")')
+    p.blank()
     p.output("subtype_single_word", "planeswalker_loyalty", "planeswalker_property", "dungeon_property")
+    p.output("card_type_property", "vanguard_modifier")
     p.blank()
     p.comment("conformance — spot-check the §3 card-type facts the rules state plainly")
     p.conformance(
@@ -131,7 +201,8 @@ def build() -> tuple[str, dict]:
     p.fact('expect_loy("on_battlefield", "loyalty_counters")')
     p.fact('expect_pw("loyalty_is_characteristic")')
     p.fact('expect_dun("not_permanent")')
-    return p.text(), {"sub": len(sub), "loy": len(loy), "pw": len(pw), "dun": len(dun)}
+    return p.text(), {"sub": len(sub), "loy": len(loy), "pw": len(pw), "dun": len(dun),
+                      "tprops": len(tprops), "van": len(van)}
 
 
 def main() -> None:
@@ -140,7 +211,8 @@ def main() -> None:
     Path("datalog/card_types.dl").write_text(source, encoding="utf-8")
     print(f"wrote datalog/card_types.dl ({report['sub']} subtype_single_word, "
           f"{report['loy']} planeswalker_loyalty, {report['pw']} planeswalker_property, "
-          f"{report['dun']} dungeon_property)")
+          f"{report['dun']} dungeon_property, {report['tprops']} card_type_property, "
+          f"{report['van']} vanguard_modifier)")
 
 
 if __name__ == "__main__":
