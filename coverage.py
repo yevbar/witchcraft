@@ -34,6 +34,8 @@ import build_permanents
 import build_ability_function
 import build_copy
 import build_tokens
+import build_tba
+import build_terms
 import build_keyword_definitions
 import build_enumerations
 import build_keyword_defs
@@ -93,6 +95,8 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_copy.modifications()}
                     | {r[0] for r in build_copy.copyable()}
                     | {r[0] for r in build_tokens.extract()}
+                    | {r[0] for r in build_tba.extract()}
+                    | {r[0] for r in build_terms.extract()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))

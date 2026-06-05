@@ -1,0 +1,27 @@
+// tba.dl — §703.4 turn-based-action steps, interpreted from rules.txt.
+// turn_based_action_step(step): steps that auto-perform a turn-based action. GENERATED.
+
+.decl turn_based_action_step(step: symbol)
+
+turn_based_action_step("untap").
+turn_based_action_step("draw").
+turn_based_action_step("precombat_main").
+turn_based_action_step("beginning_of_combat").
+turn_based_action_step("declare_attackers").
+turn_based_action_step("declare_blockers").
+turn_based_action_step("combat_damage").
+turn_based_action_step("cleanup").
+turn_based_action_step("step_end").
+
+.output turn_based_action_step
+
+// conformance — spot-check the steps §703.4 lists plainly
+.decl expect_tbas(step: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("tbas", S, "-") :- expect_tbas(S), !turn_based_action_step(S).
+.output conformance_fail
+.printsize conformance_fail
+expect_tbas("untap").
+expect_tbas("draw").
+expect_tbas("declare_attackers").
+expect_tbas("cleanup").

@@ -1,0 +1,22 @@
+// terms.dl — §700 defined terms, interpreted from rules.txt.
+// term_definition(term, meaning). GENERATED.
+
+.decl term_definition(term: symbol, meaning: symbol)
+
+term_definition("dies", "is put into a graveyard from the battlefield").
+term_definition("historic", "an object that has the legendary supertype, the artifact card type, or the Saga subtype").
+term_definition("outlaw", "an object that has the Assassin, Mercenary, Pirate, Rogue, and/or Warlock creature types").
+
+.output term_definition
+
+// conformance — spot-check the terms §700 defines plainly (by presence of the term)
+.decl term_defined(term: symbol)
+term_defined(T) :- term_definition(T, _).
+.output term_defined
+.decl expect_term(term: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("term", T, "-") :- expect_term(T), !term_defined(T).
+.output conformance_fail
+.printsize conformance_fail
+expect_term("dies").
+expect_term("historic").
