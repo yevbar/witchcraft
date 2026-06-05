@@ -66,6 +66,7 @@ import build_restrictions
 import build_conditionals
 import build_possessions
 import build_permissions
+import build_derivations
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -104,6 +105,7 @@ GENERATED = [
     "datalog/ability_kinds.dl", "datalog/variants.dl", "datalog/card_types.dl",
     "datalog/action_kinds.dl", "datalog/protection.dl", "datalog/restrictions.dl",
     "datalog/conditionals.dl", "datalog/possessions.dl", "datalog/permissions.dl",
+    "datalog/derivations.dl",
 ]
 
 
@@ -171,6 +173,7 @@ def regenerate() -> None:
     build_conditionals.main()
     build_possessions.main()
     build_permissions.main()
+    build_derivations.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()

@@ -1,0 +1,130 @@
+// derivations.dl — passive 'X is VERBed [by/as]' derivations, TRANSPILED by transpile.py
+// (spaCy dependency parse). derived(subject, action, complement_kind, complement). GENERATED.
+
+.decl derived(subject: symbol, action: symbol, complement_kind: symbol, complement: symbol)
+
+// --- one per matched passive sentence; the complement (by/as/...) is recorded ---
+derived("card", "assign", "scope", "play").
+derived("card", "intend", "scope", "play").
+derived("part", "ignore", "absolute", "-").
+derived("mana", "produce", "by", "effect").
+derived("controller", "consider", "scope", "game").
+derived("controller", "determine", "by", "rule").
+derived("controller", "determine", "condition", "-").
+derived("ability", "control", "by", "player").
+derived("emblem", "control", "by", "player").
+derived("card", "control", "by", "player").
+derived("card", "control", "by", "owner").
+derived("term", "use", "absolute", "-").
+derived("ability", "write", "as", "statement").
+derived("effect", "write", "absolute", "-").
+derived("spell", "target", "absolute", "-").
+derived("set", "evaluate", "condition", "-").
+derived("kind", "generate", "absolute", "-").
+derived("cost", "represent", "by", "-").
+derived("ability", "write", "absolute", "-").
+derived("damage", "process", "scope", "sequence").
+derived("damage", "process", "condition", "-").
+derived("sticker", "retain", "condition", "-").
+derived("name", "print", "scope", "corner").
+derived("card", "treat", "condition", "-").
+derived("cost", "indicate", "by", "symbol").
+derived("value", "calculate", "condition", "-").
+derived("value", "determine", "scope", "cost").
+derived("x", "treat", "as", "0").
+derived("illustration", "print", "scope", "half").
+derived("indicator", "print", "scope", "left").
+derived("line", "print", "scope", "illustration").
+derived("subtype", "call", "absolute", "-").
+derived("box", "print", "scope", "half").
+derived("text", "italicize", "absolute", "-").
+derived("rarity", "indicate", "scope", "letter").
+derived("code", "separate", "by", "point").
+derived("creature", "call", "absolute", "-").
+derived("spell", "cast", "scope", "spell").
+derived("object", "attach", "scope", "-").
+derived("action", "follow", "condition", "-").
+derived("subtype", "list", "scope", "dash").
+derived("card", "use", "scope", "play").
+derived("card", "put", "condition", "-").
+derived("creature", "declare", "as", "creature").
+derived("ability", "declare", "as", "attacker").
+derived("creature", "affect", "by", "requirement").
+derived("creature", "declare", "as", "attacker").
+derived("damage", "deal", "absolute", "-").
+derived("creature", "remove", "scope", "combat").
+derived("event", "call", "absolute", "-").
+derived("ability", "create", "as", "result").
+derived("ability", "consider", "absolute", "-").
+derived("ability", "link", "absolute", "-").
+derived("ability", "link", "scope", "ability").
+derived("spell", "put", "as", "part").
+derived("step", "complete", "absolute", "-").
+derived("subtype", "define", "by", "spell").
+derived("value", "determine", "scope", "-").
+derived("layer", "apply", "absolute", "-").
+derived("effect", "apply", "absolute", "-").
+derived("7b", "apply", "absolute", "-").
+derived("effect", "say", "absolute", "-").
+derived("order", "reevaluate", "condition", "-").
+derived("effect", "turn", "absolute", "-").
+derived("effect", "call", "absolute", "-").
+derived("effect", "apply", "scope", "event").
+derived("process", "repeat", "condition", "-").
+derived("devotion", "calculate", "scope", "-").
+derived("counter", "share", "by", "team").
+derived("amount", "consider", "absolute", "-").
+derived("damage", "prevent", "absolute", "-").
+derived("bonus", "calculate", "condition", "-").
+derived("card", "print", "scope", "cost").
+derived("card", "print", "scope", "ability").
+derived("agenda", "link", "absolute", "-").
+derived("daybound", "find", "scope", "face").
+derived("ability", "grant", "by", "ability").
+derived("ability", "trigger", "absolute", "-").
+derived("damage", "deal", "condition", "-").
+derived("action", "check", "scope", "game").
+derived("effect", "link", "condition", "-").
+derived("copy", "cast", "absolute", "-").
+derived("object", "turn", "condition", "-").
+derived("half", "evaluate", "absolute", "-").
+derived("ability", "treat", "absolute", "-").
+derived("face", "mark", "by", "symbol").
+derived("face", "use", "absolute", "-").
+derived("face", "evaluate", "absolute", "-").
+derived("card", "consider", "scope", "purpose").
+derived("characteristic", "evaluate", "condition", "-").
+derived("frame", "call", "absolute", "-").
+derived("set", "create", "condition", "-").
+derived("object", "consider", "scope", "subgame").
+derived("card", "turn", "scope", "end").
+derived("shortcut", "take", "condition", "-").
+derived("order", "determine", "by", "method").
+derived("player", "determine", "condition", "-").
+derived("restriction", "evaluate", "scope", "-").
+derived("damage", "assign", "scope", "order").
+derived("method", "use", "absolute", "-").
+derived("process", "alter", "absolute", "-").
+derived("option", "determine", "condition", "-").
+derived("range", "use", "scope", "game").
+derived("option", "decide", "condition", "-").
+derived("option", "use", "absolute", "-").
+derived("player", "seat", "scope", "-").
+derived("range", "limit", "scope", "2").
+derived("game", "play", "scope", "team").
+derived("player", "seat", "condition", "-").
+derived("deck", "lead", "by", "creature").
+derived("identity", "establish", "condition", "-").
+derived("text", "ignore", "condition", "-").
+derived("face", "include", "condition", "-").
+derived("pack", "pass", "scope", "round").
+
+.output derived
+
+// conformance — spot-check derivations the rules state plainly
+.decl expect_derived(subject: symbol, action: symbol, complement_kind: symbol, complement: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("derived", S, A) :- expect_derived(S, A, K, C), !derived(S, A, K, C).
+.output conformance_fail
+.printsize conformance_fail
+expect_derived("mana", "produce", "by", "effect").

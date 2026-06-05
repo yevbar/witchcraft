@@ -420,6 +420,48 @@ def _pobj_head(prep):
     return pobj.lemma_.lower() if pobj is not None else "-"
 
 
+def _masked(tok):
+    """True if `tok` is a preprocess placeholder for a masked formal fragment (a mana symbol, etc.),
+    so it must not be emitted as a subject/object — its text is a random legend key, not a word."""
+    return tok.text in _LEGEND
+
+
+def _passive(rule, doc):
+    """Bare passive "[subject] is/are [verb]ed [by/as] …" -> derived(subject, action, complement_kind,
+    complement). The derivation family: how a value/object is determined, treated, produced, chosen.
+    The complement is classified like a modal qualifier, plus 'as' (treated AS X). Modal passives
+    ('can't/may be …') belong to restriction/permission and are excluded; SBA/damage passives are
+    caught earlier. Subjects/complements that are masked placeholders are dropped."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if not any(c.dep_ == "auxpass" and c.lemma_ == "be" for c in kids):
+        return None
+    if any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubjpass"), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
+        return None
+    agent = next((c for c in kids if c.dep_ == "agent"), None)
+    asp = next((c for c in kids if c.dep_ == "prep" and c.lemma_ == "as"), None)
+    prep = next((c for c in kids if c.dep_ == "prep"), None)
+    if agent is not None:
+        kind, comp = "by", _pobj_head(agent)
+    elif asp is not None:
+        kind, comp = "as", _pobj_head(asp)
+    elif any(c.dep_ == "advcl" for c in kids):
+        kind, comp = "condition", "-"
+    elif prep is not None:
+        kind, comp = "scope", _pobj_head(prep)
+    else:
+        kind, comp = "absolute", "-"
+    if comp in _LEGEND:                                   # complement is a masked placeholder -> drop the value
+        comp = "-"
+    return Out(rule, f'derived("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{kind}", "{comp}").   // {rule}',
+               "passive")
+
+
 def _classify_qualifier(root, doc):
     """The qualifier KIND + head of a modal clause, shared by _restriction and _permission.
     kind = except | by | condition | qualified | scope | frequency | absolute; the head is the
@@ -672,7 +714,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 
