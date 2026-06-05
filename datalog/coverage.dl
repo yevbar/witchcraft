@@ -182,6 +182,17 @@ interpreted("315.3").
 interpreted("400.1").
 interpreted("400.4a").
 interpreted("400.4b").
+interpreted("400.5").
+interpreted("401.2").
+interpreted("402.2").
+interpreted("404.2").
+interpreted("405.6a").
+interpreted("405.6b").
+interpreted("405.6c").
+interpreted("405.6d").
+interpreted("405.6e").
+interpreted("405.6f").
+interpreted("406.3").
 interpreted("500.1").
 interpreted("501.1").
 interpreted("502.1").

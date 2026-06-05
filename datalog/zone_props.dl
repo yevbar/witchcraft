@@ -1,0 +1,46 @@
+// zone_props.dl — §4 per-zone properties, interpreted from rules.txt.
+// zone_facing(zone, facing); zone_ordered(zone); max_hand_size(n). GENERATED.
+
+.decl zone_facing(zone: symbol, facing: symbol)
+.decl zone_ordered(zone: symbol)
+.decl max_hand_size(n: number)
+.decl doesnt_use_stack(thing: symbol)
+
+zone_facing("library", "face_down").
+zone_facing("graveyard", "face_up").
+zone_facing("exile", "face_up").
+
+zone_ordered("library").
+zone_ordered("graveyard").
+zone_ordered("stack").
+
+max_hand_size(7).
+
+doesnt_use_stack("effect").
+doesnt_use_stack("static_ability").
+doesnt_use_stack("mana_ability").
+doesnt_use_stack("special_action").
+doesnt_use_stack("turn_based_action").
+doesnt_use_stack("state_based_action").
+
+.output zone_facing
+.output zone_ordered
+.output max_hand_size
+.output doesnt_use_stack
+
+// conformance — spot-check the zone properties §4 states plainly
+.decl expect_facing(zone: symbol, facing: symbol)
+.decl expect_ordered(zone: symbol)
+.decl expect_nostack(thing: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("facing", Z, F) :- expect_facing(Z, F), !zone_facing(Z, F).
+conformance_fail("ordered", Z, "-") :- expect_ordered(Z), !zone_ordered(Z).
+conformance_fail("nostack", T, "-") :- expect_nostack(T), !doesnt_use_stack(T).
+.output conformance_fail
+.printsize conformance_fail
+expect_facing("library", "face_down").
+expect_facing("graveyard", "face_up").
+expect_ordered("library").
+expect_ordered("stack").
+expect_nostack("mana_ability").
+expect_nostack("state_based_action").

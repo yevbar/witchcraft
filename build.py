@@ -46,6 +46,7 @@ import build_copy
 import build_tokens
 import build_tba
 import build_terms
+import build_zone_props
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -77,7 +78,7 @@ GENERATED = [
     "datalog/rules_index.dl", "datalog/ontology.dl", "datalog/xref.dl",
     "datalog/token_defs.dl", "datalog/mana.dl", "datalog/casting.dl", "datalog/zones.dl", "datalog/turn_actions.dl", "datalog/lookback.dl", "datalog/supertypes.dl", "datalog/concepts.dl", "datalog/keyword_definitions.dl", "datalog/ending.dl", "datalog/starting.dl", "datalog/costs.dl", "datalog/dfc.dl", "datalog/targets.dl", "datalog/deck.dl", "datalog/symbols.dl", "datalog/objects.dl", "datalog/mana_rules.dl", "datalog/permanents.dl",
     "datalog/ability_function.dl", "datalog/copy.dl", "datalog/tokens.dl",
-    "datalog/tba.dl", "datalog/terms.dl",
+    "datalog/tba.dl", "datalog/terms.dl", "datalog/zone_props.dl",
 ]
 
 
@@ -125,6 +126,7 @@ def regenerate() -> None:
     build_tokens.main()
     build_tba.main()
     build_terms.main()
+    build_zone_props.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()
