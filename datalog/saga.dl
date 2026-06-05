@@ -1,0 +1,41 @@
+// saga.dl — §714 Saga Cards, interpreted from rules.txt.
+// saga_numeral(numeral, value); saga_final_chapter(condition, value); saga_lore_counter(trigger, n); saga_property(property). GENERATED.
+
+.decl saga_numeral(numeral: symbol, value: symbol)
+.decl saga_final_chapter(condition: symbol, value: symbol)
+.decl saga_lore_counter(trigger: symbol, n: number)
+.decl saga_property(property: symbol)
+
+saga_numeral("I", "1").
+saga_numeral("II", "2").
+saga_numeral("III", "3").
+
+saga_final_chapter("has_chapters", "greatest").
+saga_final_chapter("no_chapters", "0").
+saga_lore_counter("enters", 1).
+saga_lore_counter("precombat_main_begins", 1).
+
+saga_property("lore_counter_action_skips_stack").
+saga_property("sacrifice_at_final_chapter").
+saga_property("sacrifice_action_skips_stack").
+
+.output saga_numeral
+.output saga_final_chapter
+.output saga_lore_counter
+.output saga_property
+
+// conformance — spot-check the §714 facts the rules state plainly
+.decl expect_numeral(numeral: symbol, value: symbol)
+.decl expect_final(condition: symbol, value: symbol)
+.decl expect_property(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("numeral", N, V) :- expect_numeral(N, V), !saga_numeral(N, V).
+conformance_fail("final", C, V) :- expect_final(C, V), !saga_final_chapter(C, V).
+conformance_fail("property", P, "-") :- expect_property(P), !saga_property(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_numeral("I", "1").
+expect_numeral("III", "3").
+expect_final("has_chapters", "greatest").
+expect_final("no_chapters", "0").
+expect_property("sacrifice_at_final_chapter").

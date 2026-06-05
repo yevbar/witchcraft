@@ -634,6 +634,11 @@ interpreted("712.5e").
 interpreted("712.5f").
 interpreted("712.5g").
 interpreted("714.2").
+interpreted("714.2a").
+interpreted("714.2d").
+interpreted("714.3a").
+interpreted("714.3c").
+interpreted("714.4").
 interpreted("716.2").
 interpreted("716.2b").
 interpreted("729.1a").

@@ -50,6 +50,7 @@ import build_zone_props
 import build_split
 import build_color
 import build_face_down
+import build_saga
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -82,7 +83,7 @@ GENERATED = [
     "datalog/token_defs.dl", "datalog/mana.dl", "datalog/casting.dl", "datalog/zones.dl", "datalog/turn_actions.dl", "datalog/lookback.dl", "datalog/supertypes.dl", "datalog/concepts.dl", "datalog/keyword_definitions.dl", "datalog/ending.dl", "datalog/starting.dl", "datalog/costs.dl", "datalog/dfc.dl", "datalog/targets.dl", "datalog/deck.dl", "datalog/symbols.dl", "datalog/objects.dl", "datalog/mana_rules.dl", "datalog/permanents.dl",
     "datalog/ability_function.dl", "datalog/copy.dl", "datalog/tokens.dl",
     "datalog/tba.dl", "datalog/terms.dl", "datalog/zone_props.dl", "datalog/split.dl",
-    "datalog/color.dl", "datalog/face_down.dl",
+    "datalog/color.dl", "datalog/face_down.dl", "datalog/saga.dl",
 ]
 
 
@@ -134,6 +135,7 @@ def regenerate() -> None:
     build_split.main()
     build_color.main()
     build_face_down.main()
+    build_saga.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()
