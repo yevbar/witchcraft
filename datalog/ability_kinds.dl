@@ -9,8 +9,8 @@ mana_ability_criterion("activated", "no_target").
 mana_ability_criterion("activated", "could_add_mana").
 mana_ability_criterion("activated", "not_loyalty").
 mana_ability_criterion("triggered", "no_target").
-mana_ability_criterion("triggered", "triggers_from_mana").
 mana_ability_criterion("triggered", "could_add_mana").
+mana_ability_criterion("triggered", "triggers_from_mana").
 
 mana_ability_rule("remains_if_cannot_produce").
 mana_ability_rule("activated_skips_stack").

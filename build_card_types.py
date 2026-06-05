@@ -17,18 +17,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
-from rules_parser import split
 
 _SUBTYPE_ANCHOR = "subtypes are always a single word and are listed after a long dash"
-
-# §3 group number -> the card type it defines (singular, handling irregular plurals).
-_GROUP_TYPE = {
-    "301": "artifact", "302": "creature", "303": "enchantment", "304": "instant",
-    "305": "land", "306": "planeswalker", "307": "sorcery", "308": "kindred",
-    "309": "dungeon", "310": "battle", "311": "plane", "312": "phenomenon",
-    "313": "vanguard", "314": "scheme", "315": "conspiracy",
-}
 
 # (anchor phrase, property) — recurring per-type clauses -> card_type_property(card_type, property).
 _TYPE_PROPS = [
@@ -38,108 +30,95 @@ _TYPE_PROPS = [
     ("turned face down becomes a new object", "face_down_new_object"),
 ]
 
-# (rule, anchor phrase, kind, location) — §313 vanguard modifiers.
+# (anchor phrase, kind, location) — §313 vanguard modifiers (scoped to the Vanguard group).
 _VANGUARD = [
-    ("313.6", "hand modifier printed in its lower left corner", "hand", "lower_left"),
-    ("313.7", "life modifier printed in its lower right corner", "life", "lower_right"),
+    ("hand modifier printed in its lower left corner", "hand", "lower_left"),
+    ("life modifier printed in its lower right corner", "life", "lower_right"),
 ]
 
-# (rule, anchor phrase, context, value) — §306.5a/c planeswalker loyalty source.
+
+def _type_of_title(title: str) -> str:
+    """The card type a §3 group defines, from its (plural) title — content, not a rule number."""
+    t = title.strip()
+    irregular = {"Phenomena": "phenomenon", "Conspiracies": "conspiracy", "Kindreds": "kindred"}
+    if t in irregular:
+        return irregular[t]
+    if t.endswith("ies"):
+        return (t[:-3] + "y").lower()
+    return (t[:-1] if t.endswith("s") else t).lower()
+
+# (anchor phrase, context, value) — planeswalker loyalty source (scoped to the Planeswalker group;
+# "printed in its lower right corner" is shared with Battle defense, hence the scope).
 _LOYALTY = [
-    ("306.5a", "number printed in its lower right corner", "not_on_battlefield", "printed"),
-    ("306.5c", "number of loyalty counters on it", "on_battlefield", "loyalty_counters"),
+    ("number printed in its lower right corner", "not_on_battlefield", "printed"),
+    ("equal to the number of loyalty counters on it", "on_battlefield", "loyalty_counters"),
 ]
 
-# (rule, anchor phrase, property) — §306 planeswalker properties.
+# (anchor phrase, property) — planeswalker properties (scoped to the Planeswalker group).
 _PW_PROPS = [
-    ("306.5", "Loyalty is a characteristic only planeswalkers have", "loyalty_is_characteristic"),
-    ("306.5b", "enters with a number of loyalty counters", "enters_with_loyalty_counters"),
-    ("306.6", "Planeswalkers can be attacked", "can_be_attacked"),
+    ("Loyalty is a characteristic only planeswalkers have", "loyalty_is_characteristic"),
+    ("enters with a number of loyalty counters", "enters_with_loyalty_counters"),
+    ("Planeswalkers can be attacked", "can_be_attacked"),
 ]
 
-# (rule, anchor phrase, property) — §309 dungeon properties.
+# (anchor phrase, property) — dungeon properties (scoped to the Dungeon group).
 _DUNGEON = [
-    ("309.2", "begin outside the game", "begins_outside_game"),
-    ("309.2c", "are not permanents", "not_permanent"),
-    ("309.2c", "be cast", "cant_be_cast"),
-    ("309.2c", "leave the command zone except", "stays_in_command_zone"),
-    ("309.3", "only one dungeon card in the command zone at a time", "one_at_a_time"),
+    ("begin outside the game", "begins_outside_game"),
+    ("are not permanents", "not_permanent"),
+    ("be cast", "cant_be_cast"),
+    ("leave the command zone except", "stays_in_command_zone"),
+    ("only one dungeon card in the command zone at a time", "one_at_a_time"),
 ]
-
-
-def _section3_texts() -> dict[str, str]:
-    """{number: text} for every rule/subrule in section 3 (Card Types)."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    out: dict[str, str] = {}
-    for s in doc.sections:
-        if s.number != "3":
-            continue
-        for g in s.groups:
-            for r in g.rules:
-                for sr in [r] + r.subrules:
-                    out[sr.number] = sr.text
-    return out
-
-
-def _section3_by_group() -> list[tuple[str, str, str]]:
-    """(group_number, rule_number, text) for every rule/subrule in section 3."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    out = []
-    for s in doc.sections:
-        if s.number != "3":
-            continue
-        for g in s.groups:
-            for r in g.rules:
-                for sr in [r] + r.subrules:
-                    out.append((g.number, sr.number, sr.text))
-    return out
 
 
 def card_type_property() -> list[tuple[str, str, str]]:
-    """(rule, card_type, property) — recurring per-type clauses (nontraditional, no subtypes,
-    may have any abilities, face-down becomes a new object); card_type from the §3 group."""
+    """(rule, card_type, property) — recurring per-type clauses across the nontraditional card
+    types; card_type comes from the §3 group TITLE (content), the rule number from the parse."""
     rows = []
-    for gnum, num, text in _section3_by_group():
-        ct = _GROUP_TYPE.get(gnum)
-        if not ct:
+    for s in rulescan._doc().sections:
+        if "card types" not in s.title.lower():
             continue
-        for phrase, prop in _TYPE_PROPS:
-            if phrase in text:
-                rows.append((num, ct, prop))
+        for g in s.groups:
+            ct = _type_of_title(g.title)
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    for phrase, prop in _TYPE_PROPS:
+                        if phrase in sr.text:
+                            rows.append((sr.number, ct, prop))
     return rows
 
 
 def vanguard_modifier() -> list[tuple[str, str, str]]:
-    """(rule, kind, location) — §313.6/7 vanguard hand/life modifiers."""
-    t = _section3_texts()
-    return [(n, kind, loc) for n, phrase, kind, loc in _VANGUARD if phrase in t.get(n, "")]
+    """(rule, kind, location) — vanguard hand/life modifiers (Vanguard group)."""
+    return rulescan.find(_VANGUARD, group_title="Vanguard")
 
 
 def subtype_single_word() -> list[tuple[str, str]]:
-    """(rule, card_type) for the cross-cutting "[Type] subtypes are always a single word" rule."""
+    """(rule, card_type) for the cross-cutting "[Type] subtypes are always a single word" rule;
+    the card type is the rule's leading word (content), the number from the parse."""
     rows = []
-    for num, text in _section3_texts().items():
-        if _SUBTYPE_ANCHOR in text:
-            rows.append((num, text.split()[0].lower()))
+    for s in rulescan._doc().sections:
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    if _SUBTYPE_ANCHOR in sr.text:
+                        rows.append((sr.number, sr.text.split()[0].lower()))
     return rows
 
 
 def planeswalker_loyalty() -> list[tuple[str, str, str]]:
-    """(rule, context, value) — §306.5a/c."""
-    t = _section3_texts()
-    return [(n, ctx, val) for n, phrase, ctx, val in _LOYALTY if phrase in t.get(n, "")]
+    """(rule, context, value) — planeswalker loyalty source (Planeswalker group)."""
+    return rulescan.find(_LOYALTY, group_title="Planeswalker")
 
 
 def planeswalker_properties() -> list[tuple[str, str]]:
-    """(rule, property) — §306 planeswalker properties."""
-    t = _section3_texts()
-    return [(n, prop) for n, phrase, prop in _PW_PROPS if phrase in t.get(n, "")]
+    """(rule, property) — planeswalker properties (Planeswalker group)."""
+    return rulescan.find(_PW_PROPS, group_title="Planeswalker")
 
 
 def dungeon_properties() -> list[tuple[str, str]]:
-    """(rule, property) — §309 dungeon properties."""
-    t = _section3_texts()
-    return [(n, prop) for n, phrase, prop in _DUNGEON if phrase in t.get(n, "")]
+    """(rule, property) — dungeon properties (Dungeon group)."""
+    return rulescan.find(_DUNGEON, group_title="Dungeon")
 
 
 def build() -> tuple[str, dict]:

@@ -127,6 +127,12 @@ interpreted("118.8").
 interpreted("118.8b").
 interpreted("118.9").
 interpreted("118.9b").
+interpreted("119.1").
+interpreted("119.1a").
+interpreted("119.1b").
+interpreted("119.1c").
+interpreted("119.1d").
+interpreted("119.1e").
 interpreted("119.2").
 interpreted("119.6").
 interpreted("120.3a").
@@ -151,6 +157,7 @@ interpreted("201.2").
 interpreted("201.2a").
 interpreted("201.2b").
 interpreted("201.3a").
+interpreted("201.3b").
 interpreted("201.4").
 interpreted("201.5").
 interpreted("202.2").

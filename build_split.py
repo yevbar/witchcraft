@@ -15,50 +15,35 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
-from rules_parser import split
 
-# (rule prefix, phrase to find, (characteristic, mode))
+# (anchor phrase, characteristic, mode) — §709.4 split-card characteristic combination (Split Cards group).
 _CHARS = [
-    ("709.4a", "two names", ("name", "two")),
-    ("709.4b", "combined mana cost", ("mana_cost", "combined")),
-    ("709.4b", "colors and mana value are determined from its combined", ("color", "combined")),
-    ("709.4b", "colors and mana value are determined from its combined", ("mana_value", "combined")),
-    ("709.4c", "each card type specified on either", ("card_type", "union")),
-    ("709.4c", "each ability in the text box of each half", ("ability", "union")),
+    ("two names", "name", "two"),
+    ("combined mana cost", "mana_cost", "combined"),
+    ("colors and mana value are determined from its combined", "color", "combined"),
+    ("colors and mana value are determined from its combined", "mana_value", "combined"),
+    ("each card type specified on either", "card_type", "union"),
+    ("each ability in the text box of each half", "ability", "union"),
 ]
 _ROOM = re.compile(r"to (unlock|lock) half of a permanent", re.I)
 
 
-def _doc():
-    return split(Path("rules.txt").read_text(encoding="utf-8"))
-
-
 def split_characteristics() -> list[tuple[str, str, str]]:
-    """(rule, characteristic, mode) for the §709.4 split-card characteristic combination."""
-    texts = {}
-    for s in _doc().sections:
-        for g in s.groups:
-            if g.number == "709":
-                for r in g.rules:
-                    for sr in r.subrules:
-                        texts[sr.number] = sr.text.lower()
-    rows = []
-    for num, phrase, (char, mode) in _CHARS:
-        if phrase in texts.get(num, ""):
-            rows.append((num, char, mode))
-    return rows
+    """(rule, characteristic, mode) — split-card characteristic combination (Split Cards group)."""
+    return rulescan.find(_CHARS, group_title="Split Cards")
 
 
 def room_actions() -> list[tuple[str, str]]:
-    """(rule, action) — §709.5f/g lock/unlock a permanent's half."""
+    """(rule, action) — §709 lock/unlock a permanent's half (already content-driven via regex)."""
     rows, seen = [], set()
-    for s in _doc().sections:
+    for s in rulescan._doc().sections:
         for g in s.groups:
-            if g.number != "709":
+            if "Split Cards" not in g.title:
                 continue
             for r in g.rules:
-                for sr in r.subrules:
+                for sr in [r] + r.subrules:
                     m = _ROOM.search(sr.text)
                     if m and m.group(1).lower() not in seen:
                         seen.add(m.group(1).lower())

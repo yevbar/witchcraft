@@ -18,9 +18,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from dlgen import Program
-from rules_parser import split
+import rulescan
 
-# §708.2a default characteristics, keyed to the single anchor phrase that states them.
+# The default characteristics §708 gives a face-down permanent, keyed to the single anchor
+# phrase that states them (scoped to the Face-Down group).
 _DEFAULT_ANCHOR = "2/2 face-down creature with no text, no name, no subtypes, and no mana cost"
 _DEFAULTS = [
     ("power", "2"),
@@ -32,40 +33,30 @@ _DEFAULTS = [
     ("mana_cost", "none"),
 ]
 
-# (rule, anchor phrase, property) — boolean properties stated plainly.
+# (anchor phrase, property) — boolean properties stated plainly (Face-Down group).
 _RULES = [
-    ("708.2b", "turned face-down", "cant_be_turned_face_down"),
-    ("708.5", "may look at a face-down spell you control", "controller_may_look"),
-    ("708.7", "Spells normally", "spells_cant_turn_face_up"),
-    ("708.9", "owner must reveal it to all players", "reveal_on_leaving_battlefield"),
+    ("turned face-down", "cant_be_turned_face_down"),
+    ("may look at a face-down spell you control", "controller_may_look"),
+    ("Spells normally", "spells_cant_turn_face_up"),
+    ("owner must reveal it to all players", "reveal_on_leaving_battlefield"),
 ]
 
-
-def _subrules() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §708."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    texts: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number == "708":
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        texts[sr.number] = sr.text
-    return texts
+_FD = "Face-Down"
 
 
 def default_characteristics() -> list[tuple[str, str, str]]:
-    """(rule, characteristic, value) — §708.2a defaults, only if the anchor phrase is present."""
-    t = _subrules()
-    if _DEFAULT_ANCHOR not in t.get("708.2a", ""):
+    """(rule, characteristic, value) — the default face-down characteristics, attached to whatever
+    rule states them (number from the parse, not hardcoded)."""
+    hits = rulescan.find([(_DEFAULT_ANCHOR,)], group_title=_FD)
+    if not hits:
         return []
-    return [("708.2a", char, val) for char, val in _DEFAULTS]
+    num = hits[0][0]
+    return [(num, char, val) for char, val in _DEFAULTS]
 
 
 def face_down_rules() -> list[tuple[str, str]]:
-    """(rule, property) — §708 boolean properties."""
-    t = _subrules()
-    return [(n, prop) for n, phrase, prop in _RULES if phrase in t.get(n, "")]
+    """(rule, property) — §708 boolean properties (Face-Down group)."""
+    return rulescan.find(_RULES, group_title=_FD)
 
 
 def build() -> tuple[str, dict]:

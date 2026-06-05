@@ -17,38 +17,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
-from rules_parser import split
 
-# (rule, anchor phrase, property) — §201 name-comparison rules stated plainly.
+# (anchor phrase, property) — name-comparison rules stated plainly (scoped to the Name group).
 _RULES = [
-    ("201.2", "considered to be the English version", "english_name_canonical"),
-    ("201.2a", "same name if they have at least one name in common", "same_if_shared_name"),
-    ("201.2a", "the same name as any other object", "nameless_never_matches"),
-    ("201.2b", "different names only if each of them has at least one name", "different_if_each_named_no_shared"),
-    ("201.3a", "interchangeable names have the same name", "interchangeable_same_name"),
-    ("201.4", "name of a card in the Oracle card reference", "choose_name_from_oracle"),
-    ("201.5", "means just that particular object", "self_reference_is_specific"),
+    ("considered to be the English version", "english_name_canonical"),
+    ("same name if they have at least one name in common", "same_if_shared_name"),
+    ("the same name as any other object", "nameless_never_matches"),
+    ("different names only if each of them has at least one name", "different_if_each_named_no_shared"),
+    ("interchangeable names have the same name", "interchangeable_same_name"),
+    ("name of a card in the Oracle card reference", "choose_name_from_oracle"),
+    ("means just that particular object", "self_reference_is_specific"),
 ]
 
 
-def _subrules() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §201."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    texts: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number == "201":
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        texts[sr.number] = sr.text
-    return texts
-
-
 def name_rules() -> list[tuple[str, str]]:
-    """(rule, property) for the §201 name-comparison rules."""
-    t = _subrules()
-    return [(n, prop) for n, phrase, prop in _RULES if phrase in t.get(n, "")]
+    """(rule, property) for the §201 name-comparison rules (Name group)."""
+    return rulescan.find(_RULES, group_title="Name")
 
 
 def build() -> tuple[str, dict]:
@@ -59,7 +45,11 @@ def build() -> tuple[str, dict]:
     p.blank()
     p.decl("name_rule", [("property", "symbol")])
     p.blank()
-    for _n, prop in rules:
+    seen = set()
+    for _n, prop in rules:                               # several rules can state the same name rule
+        if prop in seen:
+            continue
+        seen.add(prop)
         p.fact(f'name_rule("{prop}")')
     p.blank()
     p.output("name_rule")

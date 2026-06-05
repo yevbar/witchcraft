@@ -22,62 +22,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
-from rules_parser import split
 
-# (rule, anchor phrase, context, value) — §310.4a/c defense source.
+# (anchor phrase, context, value) — battle defense source (scoped to the Battle group; the printed
+# anchor is shared with planeswalker loyalty, and the on-battlefield anchor is tightened so it
+# doesn't also match the "enters with … defense counters" rule).
 _DEFENSE = [
-    ("310.4a", "number printed in its lower right corner", "not_on_battlefield", "printed"),
-    ("310.4c", "number of defense counters on it", "on_battlefield", "defense_counters"),
+    ("number printed in its lower right corner", "not_on_battlefield", "printed"),
+    ("equal to the number of defense counters on it", "on_battlefield", "defense_counters"),
 ]
 
-# (rule, anchor phrase, name) — §310.11 battle subtype.
+# (anchor phrase, name) — battle subtype.
 _SUBTYPE = [
-    ("310.11", "the subtype Siege", "Siege"),
+    ("the subtype Siege", "Siege"),
 ]
 
-# (rule, anchor phrase, property) — §310 structural properties stated plainly.
+# (anchor phrase, property) — §310 structural properties stated plainly.
 _PROPS = [
-    ("310.4", "Defense is a characteristic that battles have", "defense_is_a_characteristic"),
-    ("310.4b", "enters with a number of defense counters", "enters_with_defense_counters"),
-    ("310.6", "defense counters being removed", "damage_removes_defense_counters"),
-    ("310.7", "defense is 0", "graveyard_at_zero_defense"),
-    ("310.8", "designated as its protector", "has_protector"),
-    ("310.8f", "only one protector at a time", "single_protector"),
-    ("310.9", "be attached to players or permanents", "cant_be_attached"),
-    ("310.11a", "choose its protector from among their opponents", "siege_protector_from_opponents"),
+    ("Defense is a characteristic that battles have", "defense_is_a_characteristic"),
+    ("enters with a number of defense counters", "enters_with_defense_counters"),
+    ("defense counters being removed", "damage_removes_defense_counters"),
+    ("defense is 0", "graveyard_at_zero_defense"),
+    ("Each battle has a player designated as its protector", "has_protector"),
+    ("only one protector at a time", "single_protector"),
+    ("be attached to players or permanents", "cant_be_attached"),
+    ("choose its protector from among their opponents", "siege_protector_from_opponents"),
 ]
-
-
-def _subrules() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §310."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    texts: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number == "310":
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        texts[sr.number] = sr.text
-    return texts
 
 
 def battle_defense() -> list[tuple[str, str, str]]:
-    """(rule, context, value) — §310.4a/c."""
-    t = _subrules()
-    return [(n, ctx, val) for n, phrase, ctx, val in _DEFENSE if phrase in t.get(n, "")]
+    """(rule, context, value) — battle defense source (Battle group)."""
+    return rulescan.find(_DEFENSE, group_title="Battle")
 
 
 def battle_subtypes() -> list[tuple[str, str]]:
-    """(rule, name) — §310.11."""
-    t = _subrules()
-    return [(n, name) for n, phrase, name in _SUBTYPE if phrase in t.get(n, "")]
+    """(rule, name) — battle subtype (Battle group)."""
+    return rulescan.find(_SUBTYPE, group_title="Battle")
 
 
 def battle_properties() -> list[tuple[str, str]]:
-    """(rule, property) — §310 structural properties."""
-    t = _subrules()
-    return [(n, prop) for n, phrase, prop in _PROPS if phrase in t.get(n, "")]
+    """(rule, property) — §310 structural properties (Battle group)."""
+    return rulescan.find(_PROPS, group_title="Battle")
 
 
 def build() -> tuple[str, dict]:

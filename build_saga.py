@@ -23,69 +23,57 @@ from __future__ import annotations
 from pathlib import Path
 
 from dlgen import Program
-from rules_parser import split
+import rulescan
 
-# §714.2a numeral map, keyed to the single anchor phrase that states it.
+# All scoped to the "Saga Cards" group (§714).
+# the numeral map, keyed to the single anchor phrase that states it.
 _NUMERAL_ANCHOR = "The numeral I represents 1, II represents 2, III represents 3"
 _NUMERALS = [("I", "1"), ("II", "2"), ("III", "3")]
 
-# (rule, anchor phrase, condition, value) — §714.2d final chapter number.
+# (anchor phrase, condition, value) — final chapter number.
 _FINAL_CHAPTER = [
-    ("714.2d", "greatest value among chapter abilities", "has_chapters", "greatest"),
-    ("714.2d", "final chapter number is 0", "no_chapters", "0"),
+    ("greatest value among chapter abilities", "has_chapters", "greatest"),
+    ("final chapter number is 0", "no_chapters", "0"),
 ]
 
-# (rule, anchor phrase, trigger, n) — §714.3a/c lore-counter placement.
+# (anchor phrase, trigger, n) — lore-counter placement.
 _LORE = [
-    ("714.3a", "This Saga enters with a lore counter on it", "enters", 1),
-    ("714.3c", "puts a lore counter on each Saga", "precombat_main_begins", 1),
+    ("This Saga enters with a lore counter on it", "enters", 1),
+    ("puts a lore counter on each Saga", "precombat_main_begins", 1),
 ]
 
-# (rule, anchor phrase, property) — §714.3c/4 structural properties.
+# (anchor phrase, property) — structural properties.
 _PROPS = [
-    ("714.3c", "turn-based action", "lore_counter_action_skips_stack"),
-    ("714.4", "controller sacrifices it", "sacrifice_at_final_chapter"),
-    ("714.4", "state-based action", "sacrifice_action_skips_stack"),
+    ("turn-based action", "lore_counter_action_skips_stack"),
+    ("controller sacrifices it", "sacrifice_at_final_chapter"),
+    ("state-based action", "sacrifice_action_skips_stack"),
 ]
 
-
-def _subrules() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §714."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    texts: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number == "714":
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        texts[sr.number] = sr.text
-    return texts
+_SAGA = "Saga Cards"
 
 
 def saga_numerals() -> list[tuple[str, str, str]]:
-    """(rule, numeral, value) — §714.2a, only if the anchor phrase is present."""
-    t = _subrules()
-    if _NUMERAL_ANCHOR not in t.get("714.2a", ""):
+    """(rule, numeral, value) — the Roman numeral map, attached to whatever rule states it."""
+    hits = rulescan.find([(_NUMERAL_ANCHOR,)], group_title=_SAGA)
+    if not hits:
         return []
-    return [("714.2a", num, val) for num, val in _NUMERALS]
+    num = hits[0][0]
+    return [(num, n, val) for n, val in _NUMERALS]
 
 
 def saga_final_chapter() -> list[tuple[str, str, str]]:
-    """(rule, condition, value) — §714.2d."""
-    t = _subrules()
-    return [(n, cond, val) for n, phrase, cond, val in _FINAL_CHAPTER if phrase in t.get(n, "")]
+    """(rule, condition, value) — final chapter number (Saga group)."""
+    return rulescan.find(_FINAL_CHAPTER, group_title=_SAGA)
 
 
 def saga_lore_counter() -> list[tuple[str, str, int]]:
-    """(rule, trigger, n) — §714.3a/c."""
-    t = _subrules()
-    return [(num, trig, cnt) for num, phrase, trig, cnt in _LORE if phrase in t.get(num, "")]
+    """(rule, trigger, n) — lore-counter placement (Saga group)."""
+    return rulescan.find(_LORE, group_title=_SAGA)
 
 
 def saga_properties() -> list[tuple[str, str]]:
-    """(rule, property) — §714.3c/4."""
-    t = _subrules()
-    return [(n, prop) for n, phrase, prop in _PROPS if phrase in t.get(n, "")]
+    """(rule, property) — structural properties (Saga group)."""
+    return rulescan.find(_PROPS, group_title=_SAGA)
 
 
 def build() -> tuple[str, dict]:

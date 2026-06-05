@@ -22,64 +22,65 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
-from rules_parser import split
 
-# (rule, kind, anchor phrase, criterion) — §605.1a/b mana-ability membership criteria.
-_CRITERIA = [
-    ("605.1a", "activated", "require a target", "no_target"),
-    ("605.1a", "activated", "could add mana to a player", "could_add_mana"),
-    ("605.1a", "activated", "not a loyalty ability", "not_loyalty"),
-    ("605.1b", "triggered", "require a target", "no_target"),
-    ("605.1b", "triggered", "triggers from the activation or resolution", "triggers_from_mana"),
-    ("605.1b", "triggered", "could add mana to a player", "could_add_mana"),
+# (anchor phrase, criterion) — mana-ability membership criteria; the KIND (activated/triggered)
+# is read from the rule's own text, so neither the rule number nor the kind is hardcoded.
+_CRIT_PHRASES = [
+    ("require a target", "no_target"),
+    ("could add mana to a player", "could_add_mana"),
+    ("not a loyalty ability", "not_loyalty"),
+    ("triggers from the activation or resolution", "triggers_from_mana"),
 ]
 
-# (rule, anchor phrase, property) — §605 special rules.
+# (anchor phrase, property) — §605 special rules (scoped to Mana Abilities; the activated/triggered
+# skips-stack anchors name the ability kind so they don't both match each other's rule).
 _MANA_RULES = [
-    ("605.2", "remains a mana ability even if", "remains_if_cannot_produce"),
-    ("605.3b", "go on the stack", "activated_skips_stack"),
-    ("605.3c", "until it has resolved", "no_reactivate_until_resolved"),
-    ("605.4a", "go on the stack", "triggered_skips_stack"),
+    ("remains a mana ability even if", "remains_if_cannot_produce"),
+    ("An activated mana ability", "activated_skips_stack"),
+    ("until it has resolved", "no_reactivate_until_resolved"),
+    ("A triggered mana ability", "triggered_skips_stack"),
 ]
 
-# (rule, anchor phrase, property) — §606 loyalty-ability rules.
+# (anchor phrase, property) — §606 loyalty-ability rules (scoped to Loyalty Abilities).
 _LOYALTY = [
-    ("606.2", "loyalty symbol in its cost is a loyalty ability", "loyalty_symbol_in_cost"),
-    ("606.3", "previously activated a loyalty ability", "once_per_permanent_per_turn"),
-    ("606.4", "number of loyalty counters", "cost_is_loyalty_counters"),
+    ("loyalty symbol in its cost is a loyalty ability", "loyalty_symbol_in_cost"),
+    ("previously activated a loyalty ability", "once_per_permanent_per_turn"),
+    ("number of loyalty counters", "cost_is_loyalty_counters"),
 ]
-
-
-def _texts() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §605 and §606."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    out: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number in ("605", "606"):
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        out[sr.number] = sr.text
-    return out
 
 
 def mana_ability_criteria() -> list[tuple[str, str, str]]:
-    """(rule, kind, criterion) — §605.1a/b."""
-    t = _texts()
-    return [(n, kind, crit) for n, kind, phrase, crit in _CRITERIA if phrase in t.get(n, "")]
+    """(rule, kind, criterion) — §605.1a/b membership criteria; the kind is derived from the
+    rule's own "An activated/triggered ability is a mana ability if" lead."""
+    rows = []
+    for s in rulescan._doc().sections:
+        for g in s.groups:
+            if "mana abilities" not in g.title.lower():
+                continue
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    if "activated ability is a mana ability if" in sr.text:
+                        kind = "activated"
+                    elif "triggered ability is a mana ability if" in sr.text:
+                        kind = "triggered"
+                    else:
+                        continue
+                    for phrase, crit in _CRIT_PHRASES:
+                        if phrase in sr.text:
+                            rows.append((sr.number, kind, crit))
+    return rows
 
 
 def mana_ability_rules() -> list[tuple[str, str]]:
-    """(rule, property) — §605 special rules."""
-    t = _texts()
-    return [(n, prop) for n, phrase, prop in _MANA_RULES if phrase in t.get(n, "")]
+    """(rule, property) — §605 special rules (Mana Abilities group)."""
+    return rulescan.find(_MANA_RULES, group_title="Mana Abilities")
 
 
 def loyalty_ability_rules() -> list[tuple[str, str]]:
-    """(rule, property) — §606 loyalty-ability rules."""
-    t = _texts()
-    return [(n, prop) for n, phrase, prop in _LOYALTY if phrase in t.get(n, "")]
+    """(rule, property) — §606 loyalty-ability rules (Loyalty Abilities group)."""
+    return rulescan.find(_LOYALTY, group_title="Loyalty Abilities")
 
 
 def build() -> tuple[str, dict]:

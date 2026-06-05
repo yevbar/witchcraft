@@ -27,82 +27,66 @@ from __future__ import annotations
 from pathlib import Path
 
 from dlgen import Program
-from rules_parser import split
+import rulescan
 
-# (rule, anchor phrase, source) — where an object's color is read from.
+# All scoped to the "Mana Cost and Color" group (§202).
+# (anchor phrase, source) — where an object's color is read from.
 _COLOR_SOURCE = [
-    ("202.2", "color or colors of the mana symbols in its mana cost", "mana_cost"),
-    ("202.2e", "each color denoted by that color indicator", "color_indicator"),
+    ("color or colors of the mana symbols in its mana cost", "mana_cost"),
+    ("each color denoted by that color indicator", "color_indicator"),
 ]
 
-# (rule, anchor phrase, kind) — how multiple/special symbols combine into color.
+# (anchor phrase, kind) — how multiple/special symbols combine into color.
 _COLOR_COMBINATION = [
-    ("202.2c", "two or more different colored mana symbols", "multicolored"),
-    ("202.2d", "hybrid mana symbols and/or Phyrexian mana symbols", "hybrid_adds_color"),
+    ("two or more different colored mana symbols", "multicolored"),
+    ("hybrid mana symbols and/or Phyrexian mana symbols", "hybrid_adds_color"),
 ]
 
-# (rule, anchor phrase) — colorless when no colored symbols.
+# (anchor phrase,) — colorless when no colored symbols.
 _COLORLESS = [
-    ("202.2b", "no colored mana symbols"),
+    ("no colored mana symbols",),
 ]
 
-# (rule, anchor phrase) — the base mana-value definition.
+# (anchor phrase,) — the base mana-value definition.
 _MV_DEF = [
-    ("202.3", "total amount of mana in its mana cost"),
+    ("total amount of mana in its mana cost",),
 ]
 
-# (rule, anchor phrase, symbol_kind, context, value) — enumerated mana-value treatments.
+# (anchor phrase, symbol_kind, context, value) — enumerated mana-value treatments.
 _MV_SPECIAL = [
-    ("202.3a", "object with no mana cost is 0", "none", "-", "0"),
-    ("202.3e", "treated as 0 while the object is not on the stack", "x", "off_stack", "0"),
-    ("202.3e", "number chosen for it while the object is on the stack", "x", "on_stack", "chosen"),
-    ("202.3f", "largest component of each hybrid symbol", "hybrid", "-", "largest_component"),
-    ("202.3g", "contributes 1 to its mana value", "phyrexian", "-", "one"),
+    ("object with no mana cost is 0", "none", "-", "0"),
+    ("treated as 0 while the object is not on the stack", "x", "off_stack", "0"),
+    ("number chosen for it while the object is on the stack", "x", "on_stack", "chosen"),
+    ("largest component of each hybrid symbol", "hybrid", "-", "largest_component"),
+    ("contributes 1 to its mana value", "phyrexian", "-", "one"),
 ]
 
-
-def _subrules() -> dict[str, str]:
-    """{number: text} for every rule/subrule in §202."""
-    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    texts: dict[str, str] = {}
-    for s in doc.sections:
-        for g in s.groups:
-            if g.number == "202":
-                for r in g.rules:
-                    for sr in [r] + r.subrules:
-                        texts[sr.number] = sr.text
-    return texts
+_COLOR = "Mana Cost and Color"
 
 
 def color_sources() -> list[tuple[str, str]]:
-    """(rule, source) for §202.2 / 202.2e."""
-    t = _subrules()
-    return [(n, src) for n, phrase, src in _COLOR_SOURCE if phrase in t.get(n, "")]
+    """(rule, source) — object color source (Mana Cost and Color group)."""
+    return rulescan.find(_COLOR_SOURCE, group_title=_COLOR)
 
 
 def color_combinations() -> list[tuple[str, str]]:
-    """(rule, kind) for §202.2c / 202.2d."""
-    t = _subrules()
-    return [(n, kind) for n, phrase, kind in _COLOR_COMBINATION if phrase in t.get(n, "")]
+    """(rule, kind) — color combination of multiple/special symbols."""
+    return rulescan.find(_COLOR_COMBINATION, group_title=_COLOR)
 
 
 def colorless_rules() -> list[tuple[str]]:
-    """(rule,) for §202.2b."""
-    t = _subrules()
-    return [(n,) for n, phrase in _COLORLESS if phrase in t.get(n, "")]
+    """(rule,) — colorless when no colored symbols."""
+    return rulescan.find(_COLORLESS, group_title=_COLOR)
 
 
 def mana_value_def() -> list[tuple[str]]:
-    """(rule,) for §202.3."""
-    t = _subrules()
-    return [(n,) for n, phrase in _MV_DEF if phrase in t.get(n, "")]
+    """(rule,) — the base mana-value definition."""
+    return rulescan.find(_MV_DEF, group_title=_COLOR)
 
 
 def mana_value_special() -> list[tuple[str, str, str, str]]:
-    """(rule, symbol_kind, context, value) for the §202.3 enumerated treatments."""
-    t = _subrules()
-    return [(n, kind, ctx, val) for n, phrase, kind, ctx, val in _MV_SPECIAL
-            if phrase in t.get(n, "")]
+    """(rule, symbol_kind, context, value) — the §202.3 enumerated mana-value treatments."""
+    return rulescan.find(_MV_SPECIAL, group_title=_COLOR)
 
 
 def build() -> tuple[str, dict]:

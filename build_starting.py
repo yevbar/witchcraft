@@ -37,14 +37,16 @@ def _doc():
 
 
 def starting_life() -> list[tuple[str, str, int]]:
+    """(rule, variant, total) — the §103.4 setup statement AND the identical §119.1 restatement
+    in the Life rules; the same per-variant formula appears in both groups."""
     rows = []
     for s in _doc().sections:
         for g in s.groups:
-            if g.number != "103":
+            if g.number not in ("103", "119"):
                 continue
             for r in g.rules:
                 for sr in [r] + r.subrules:
-                    if not sr.number.startswith("103.4"):
+                    if not (sr.number.startswith("103.4") or sr.number.startswith("119.1")):
                         continue
                     m = _LIFE.search(sr.text)
                     if m:
@@ -96,7 +98,11 @@ def build() -> tuple[str, dict]:
     p.decl("starting_hand_size", [("variant", "symbol"), ("n", "number")])
     p.decl("first_turn_draw_skip", [("variant", "symbol"), ("skip", "symbol")])
     p.blank()
-    for _n, v, total in life:
+    seen = set()
+    for _n, v, total in life:                            # §103.4 and §119.1 state the same per-variant life
+        if (v, total) in seen:
+            continue
+        seen.add((v, total))
         p.fact(f'starting_life("{v}", {total})')
     p.blank()
     for _n, v, n in hand:

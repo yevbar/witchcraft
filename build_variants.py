@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import rulescan
 from dlgen import Program
 from rules_parser import split
 
@@ -42,22 +43,26 @@ _PROPS = [
 
 _DECK = re.compile(r"exactly (\d+) cards, including its commander")
 
-# §801 — (rule, subject, action, anchor) what can't reach outside a player's range of influence.
+# (anchor, subject, action) — what can't reach outside a range of influence (Limited Range group).
 _ROI_RESTRICT = [
-    ("801.3", "creature", "attack", "Creatures can attack only"),
-    ("801.4", "spell_or_ability", "target", "be the targets of spells or abilities"),
-    ("801.6", "player", "activate_ability", "activate the activated abilities"),
-    ("801.8", "aura", "enchant", "enchant an object or player outside"),
-    ("801.9", "equipment", "equip", "equip an object outside"),
-    ("801.10", "spell_or_ability", "affect", "affect objects or players outside"),
+    ("Creatures can attack only", "creature", "attack"),
+    ("be the targets of spells or abilities", "spell_or_ability", "target"),
+    ("activate the activated abilities", "player", "activate_ability"),
+    ("enchant an object or player outside", "aura", "enchant"),
+    ("equip an object outside", "equipment", "equip"),
+    ("affect objects or players outside", "spell_or_ability", "affect"),
 ]
 
-# §901.9a/b/c — (rule, face, anchor, effect) planar-die roll outcomes.
+# (anchor, face, effect) — planar-die roll outcomes (Planechase group); the "If the die roll is …"
+# lead is distinctive so "planeswalking ability" (which recurs throughout §901) isn't over-matched.
 _DIE_OUTCOME = [
-    ("901.9a", "blank", "nothing happens", "nothing_happens"),
-    ("901.9b", "chaos", "chaos ensues", "chaos_ensues"),
-    ("901.9c", "planeswalker", "planeswalking ability", "planeswalking_ability"),
+    ("If the die roll is a blank face", "blank", "nothing_happens"),
+    ("If the die roll is the chaos symbol", "chaos", "chaos_ensues"),
+    ("If the die roll is the Planeswalker symbol", "planeswalker", "planeswalking_ability"),
 ]
+
+# canonical deck size -> which Commander-family variant requires it (value is content, not a number).
+_DECK_VARIANT = {100: "commander", 60: "brawl"}
 
 
 def _slug(s: str) -> str:
@@ -140,18 +145,11 @@ def variant_range_of_influence() -> list[tuple[str, str, int]]:
 
 
 def attack_direction() -> list[tuple[str, str, str]]:
-    """(rule, option, direction) — §803.1a/b the attack-left / attack-right options."""
-    rows = []
-    for g, _name, _kind in _variant_groups():
-        if g.number != "803":
-            continue
-        for r in g.rules:
-            for sr in [r] + r.subrules:
-                if "attack left option is used" in sr.text:
-                    rows.append((sr.number, "attack_left", "left"))
-                elif "attack right option is used" in sr.text:
-                    rows.append((sr.number, "attack_right", "right"))
-    return rows
+    """(rule, option, direction) — the attack-left / attack-right options (Attack Left/Right group)."""
+    return rulescan.find(
+        [("attack left option is used", "attack_left", "left"),
+         ("attack right option is used", "attack_right", "right")],
+        group_title="Attack Left and Attack Right")
 
 
 def option_used() -> list[tuple[str, str, str, str]]:
@@ -172,53 +170,39 @@ def option_used() -> list[tuple[str, str, str, str]]:
 
 
 def roi_restriction() -> list[tuple[str, str, str]]:
-    """(rule, subject, action) — §801 what can't reach outside a controller's range of influence."""
-    texts = {}
-    for g, _name, _kind in _variant_groups():
-        if g.number == "801":
-            for r in g.rules:
-                for sr in [r] + r.subrules:
-                    texts[sr.number] = sr.text
-    return [(n, subj, act) for n, subj, act, anchor in _ROI_RESTRICT if anchor in texts.get(n, "")]
+    """(rule, subject, action) — what can't reach outside a range of influence (Limited Range group)."""
+    return rulescan.find(_ROI_RESTRICT, group_title="Limited Range of Influence")
 
 
 def variant_deck_size() -> list[tuple[str, str, int]]:
-    """(rule, variant, n) — §903 'exactly N cards, including its commander' (Commander 100, Brawl 60)."""
+    """(rule, variant, n) — 'exactly N cards, including its commander' (Commander group); the variant
+    is keyed off the canonical size (100 Commander, 60 Brawl), not the rule number."""
     rows = []
     for g, _name, _kind in _variant_groups():
-        if g.number != "903":
+        if "Commander" not in g.title:
             continue
         for r in g.rules:
             for sr in [r] + r.subrules:
                 m = _DECK.search(sr.text)
                 if m:
-                    var = "brawl" if sr.number.startswith("903.12") else "commander"
-                    rows.append((sr.number, var, int(m.group(1))))
+                    n = int(m.group(1))
+                    rows.append((sr.number, _DECK_VARIANT.get(n, "commander"), n))
     return rows
 
 
-def _planechase_texts() -> dict[str, str]:
-    out = {}
-    for g, _name, _kind in _variant_groups():
-        if g.number == "901":
-            for r in g.rules:
-                for sr in [r] + r.subrules:
-                    out[sr.number] = sr.text
-    return out
-
-
 def planar_die_faces() -> list[tuple[str, str, int]]:
-    """(rule, face, n) — §901.3a the planar die's faces (six-sided: 1 Planeswalker, 1 chaos, 4 blank)."""
-    t = _planechase_texts()
-    if "six-sided die" not in t.get("901.3a", ""):
+    """(rule, face, n) — the planar die's faces (six-sided: 1 Planeswalker, 1 chaos, 4 blank),
+    attached to whatever rule introduces the die."""
+    hits = rulescan.find([("six-sided die",)], group_title="Planechase")
+    if not hits:
         return []
-    return [("901.3a", "planeswalker", 1), ("901.3a", "chaos", 1), ("901.3a", "blank", 4)]
+    num = hits[0][0]
+    return [(num, "planeswalker", 1), (num, "chaos", 1), (num, "blank", 4)]
 
 
 def planar_die_outcomes() -> list[tuple[str, str, str]]:
-    """(rule, face, effect) — §901.9a/b/c what each planar-die roll does."""
-    t = _planechase_texts()
-    return [(n, face, eff) for n, face, anchor, eff in _DIE_OUTCOME if anchor in t.get(n, "")]
+    """(rule, face, effect) — what each planar-die roll does (Planechase group)."""
+    return rulescan.find(_DIE_OUTCOME, group_title="Planechase")
 
 
 def build() -> tuple[str, dict]:
