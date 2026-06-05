@@ -22,7 +22,8 @@ def extract() -> list[tuple[str, str]]:
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
-                    if " is " not in sr.text.split(". ")[0]:
+                    first = sr.text.split(". ")[0]
+                    if " is " not in first and " are " not in first:
                         continue                                # cheap pre-filter: skip the spaCy parse unless it's a copula
                     o = transpile_rule(sr.number, sr.text)
                     if o and o.pattern == "isa":

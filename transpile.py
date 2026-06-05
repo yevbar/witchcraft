@@ -716,7 +716,7 @@ def _isa(rule, doc):
         return None
     if any(c.dep_ in ("conj", "cc") for c in attr.children) or any(c.dep_ in ("conj", "cc") for c in subj.children):
         return None
-    if "a" not in {c.lemma_ for c in subj.children if c.dep_ == "det"}:
+    if subj.pos_ not in ("NOUN", "PROPN") or _masked(subj) or _masked(attr):    # any noun subject (definite/bare/indefinite)
         return None
     pre = [c.text.lower() for c in subj.children if c.dep_ in ("amod", "compound")]
     name = "_".join(pre + [subj.lemma_.lower()])
