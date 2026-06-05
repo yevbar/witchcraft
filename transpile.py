@@ -411,6 +411,63 @@ def _passive_prohibition(rule, doc):
     return Out(rule, f'{PASSIVE_PROHIBIT[root.lemma_]}(C) :- has_keyword(C, "{kw.lemma_}").   // {rule}', "passive_prohibition")
 
 
+_QUAL_CONDITION = (" unless ", " if ", " while ", " until ", " once ", " as long as ")
+
+
+def _pobj_head(prep):
+    """The head noun of a prep/agent phrase ('by creatures …' -> 'creature'), or '-'."""
+    pobj = _child(prep, "pobj") or _child(prep, "obj")
+    return pobj.lemma_.lower() if pobj is not None else "-"
+
+
+def _restriction(rule, doc):
+    """Any "[subject] can't [verb]" prohibition, CLASSIFIED by its qualifier rather than abstained.
+
+    The qualified prohibitions cluster by part of speech, so we record the qualifier instead of
+    flattening (which would be lossy) -> restriction(subject, action, qualifier_kind, qualifier):
+      except clause  -> kind=except     (evasion: "can't be blocked except by creatures with …")
+      agent (by X)   -> kind=by         ("can't be targeted by spells with …")
+      if/unless/while-> kind=condition
+      relative clause-> kind=qualified  ("can't … an object THAT'S not a creature")
+      prep phrase    -> kind=scope       ("can't enchant an object OUTSIDE its range")
+      adverb         -> kind=frequency   ("can't be chosen MULTIPLE times")
+      none           -> kind=absolute
+    The 4th field is the head of the qualifying phrase when it's a content noun, else '-'."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if not any(c.lemma_ in ("can", "could") and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    if not any(c.dep_ == "neg" for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN"):    # need a concrete noun subject
+        return None
+    action = ("be_" if any(c.dep_ == "auxpass" for c in kids) else "") + root.lemma_.lower()
+    low = doc.text.lower()
+    agent = next((c for c in kids if c.dep_ == "agent"), None) or \
+        next((c for c in kids if c.dep_ == "prep" and c.lemma_ == "by"), None)
+    kind, qual = "absolute", "-"
+    if "except" in low:
+        kind, qual = "except", (_pobj_head(agent) if agent is not None else "-")
+    elif agent is not None:
+        kind, qual = "by", _pobj_head(agent)
+    elif any(c.dep_ == "advcl" for c in kids) or any(w in low for w in _QUAL_CONDITION):
+        kind = "condition"
+    elif any(t.dep_ in ("relcl", "acl") for t in doc):
+        kind = "qualified"
+    elif (prep := next((c for c in kids if c.dep_ == "prep"), None)) is not None:
+        kind, qual = "scope", _pobj_head(prep)
+    elif any(c.dep_ in ("advmod", "npadvmod") for c in kids):
+        kind = "frequency"
+    if kind == "absolute" and any(w in low for w in        # a comparative/quantifier still qualifies it
+                                  (" greater", " more ", " fewer", " less ", " than ", "certain", "normally", "specific")):
+        kind = "qualified"
+    return Out(rule, f'restriction("{subj.lemma_.lower()}", "{action}", "{kind}", "{qual}").   // {rule}',
+               "restriction")
+
+
 def _qual_list(q, doc, root):
     """A quality head + its conjuncts ("flying and/or reach"), but only if every
     one is a clean single keyword. Rejects comparatives like "greater power"
@@ -518,7 +575,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

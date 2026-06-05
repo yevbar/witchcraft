@@ -62,6 +62,7 @@ import build_variants
 import build_card_types
 import build_action_kinds
 import build_protection
+import build_restrictions
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -98,7 +99,7 @@ GENERATED = [
     "datalog/redundancy.dl", "datalog/keyword_action_index.dl",
     "datalog/keyword_ability_index.dl", "datalog/battle.dl", "datalog/name.dl",
     "datalog/ability_kinds.dl", "datalog/variants.dl", "datalog/card_types.dl",
-    "datalog/action_kinds.dl", "datalog/protection.dl",
+    "datalog/action_kinds.dl", "datalog/protection.dl", "datalog/restrictions.dl",
 ]
 
 
@@ -162,6 +163,7 @@ def regenerate() -> None:
     build_card_types.main()
     build_action_kinds.main()
     build_protection.main()
+    build_restrictions.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()

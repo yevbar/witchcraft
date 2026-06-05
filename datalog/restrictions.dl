@@ -1,0 +1,60 @@
+// restrictions.dl — prohibitions classified by qualifier, TRANSPILED from rules.txt by transpile.py
+// (spaCy dependency parse). restriction(subject, action, qualifier_kind, qualifier). GENERATED.
+
+.decl restriction(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+
+// --- one per matched "X can't VERB" sentence; the qualifier is recorded, never dropped ---
+restriction("card", "start", "scope", "zone").
+restriction("token", "move", "qualified", "-").
+restriction("target", "be_choose", "scope", "instance").
+restriction("player", "pay", "scope", "-").
+restriction("damage", "be_deal", "qualified", "-").
+restriction("player", "put", "qualified", "-").
+restriction("object", "gain", "qualified", "-").
+restriction("equipment", "equip", "condition", "-").
+restriction("ability", "be_activate", "condition", "-").
+restriction("aura", "enchant", "absolute", "-").
+restriction("instant", "enter", "absolute", "-").
+restriction("player", "play", "condition", "-").
+restriction("sorcery", "enter", "absolute", "-").
+restriction("battle", "be_attach", "condition", "-").
+restriction("card", "enter", "qualified", "-").
+restriction("order", "be_change", "except", "-").
+restriction("card", "be_affect", "except", "spell").
+restriction("player", "begin", "qualified", "-").
+restriction("ability", "use", "scope", "spell").
+restriction("object", "be_choose", "condition", "-").
+restriction("player", "choose", "condition", "-").
+restriction("player", "mill", "qualified", "-").
+restriction("object", "be_exert", "qualified", "-").
+restriction("creature", "be_block", "except", "-").
+restriction("creature", "be_block", "condition", "-").
+restriction("creature", "be_block", "by", "creature").
+restriction("player", "cast", "condition", "-").
+restriction("creature", "have", "condition", "-").
+restriction("down", "be_turn", "absolute", "-").
+restriction("permanent", "transform", "condition", "-").
+restriction("permanent", "be_turn", "absolute", "-").
+restriction("card", "be_cast", "qualified", "-").
+restriction("controller", "make", "qualified", "-").
+restriction("controller", "make", "absolute", "-").
+restriction("component", "be_turn", "frequency", "-").
+restriction("player", "activate", "scope", "-").
+restriction("equipment", "equip", "absolute", "-").
+restriction("spell", "affect", "absolute", "-").
+restriction("creature", "attack", "absolute", "-").
+restriction("player", "begin", "condition", "-").
+restriction("player", "exchange", "scope", "teammate").
+restriction("player", "attack", "qualified", "-").
+restriction("player", "bring", "condition", "-").
+
+.output restriction
+
+// conformance — spot-check classifications the rules state plainly
+.decl expect_restriction(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("restriction", S, A) :- expect_restriction(S, A, K, Q), !restriction(S, A, K, Q).
+.output conformance_fail
+.printsize conformance_fail
+expect_restriction("aura", "enchant", "absolute", "-").
+expect_restriction("instant", "enter", "absolute", "-").
