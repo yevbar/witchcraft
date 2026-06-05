@@ -1,0 +1,86 @@
+// action_kinds.dl — how the rules classify actions, interpreted from rules.txt.
+// action_kind(rule, kind); kind = special | turn_based | state_based. GENERATED.
+
+.decl action_kind(rule: symbol, kind: symbol)
+
+action_kind("104.3b", "state_based").
+action_kind("104.3c", "state_based").
+action_kind("104.3d", "state_based").
+action_kind("104.3j", "state_based").
+action_kind("111.7", "state_based").
+action_kind("116.2a", "special").
+action_kind("116.2b", "special").
+action_kind("116.2c", "special").
+action_kind("116.2d", "special").
+action_kind("116.2e", "special").
+action_kind("116.2f", "special").
+action_kind("116.2g", "special").
+action_kind("116.2h", "special").
+action_kind("116.2i", "special").
+action_kind("116.2j", "special").
+action_kind("116.2k", "special").
+action_kind("121.4", "state_based").
+action_kind("122.1g", "state_based").
+action_kind("301.5c", "state_based").
+action_kind("303.4c", "state_based").
+action_kind("303.7a", "state_based").
+action_kind("305.1", "special").
+action_kind("306.9", "state_based").
+action_kind("309.6", "state_based").
+action_kind("310.7", "state_based").
+action_kind("310.9", "state_based").
+action_kind("310.10", "state_based").
+action_kind("312.7", "state_based").
+action_kind("314.6", "state_based").
+action_kind("500.5", "turn_based").
+action_kind("502.1", "turn_based").
+action_kind("502.2", "turn_based").
+action_kind("502.2a", "turn_based").
+action_kind("502.3", "turn_based").
+action_kind("504.1", "turn_based").
+action_kind("505.3", "turn_based").
+action_kind("505.4", "turn_based").
+action_kind("505.5", "turn_based").
+action_kind("507.1", "turn_based").
+action_kind("508.1", "turn_based").
+action_kind("509.1", "turn_based").
+action_kind("510.1", "turn_based").
+action_kind("510.2", "turn_based").
+action_kind("514.1", "turn_based").
+action_kind("514.2", "turn_based").
+action_kind("701.18a", "special").
+action_kind("701.40b", "special").
+action_kind("701.58b", "special").
+action_kind("702.37e", "special").
+action_kind("702.106c", "special").
+action_kind("702.139a", "special").
+action_kind("702.143b", "special").
+action_kind("702.158c", "state_based").
+action_kind("702.168d", "special").
+action_kind("702.170b", "special").
+action_kind("702.179a", "state_based").
+action_kind("709.5e", "special").
+action_kind("714.3c", "turn_based").
+action_kind("714.4", "state_based").
+action_kind("717.4", "turn_based").
+action_kind("801.9", "state_based").
+action_kind("810.8c", "state_based").
+action_kind("810.8d", "state_based").
+action_kind("901.9", "special").
+action_kind("903.9a", "state_based").
+action_kind("903.10a", "state_based").
+action_kind("904.9", "turn_based").
+action_kind("904.10", "state_based").
+action_kind("904.13c", "state_based").
+
+.output action_kind
+
+// conformance — spot-check action classifications the rules state plainly
+.decl expect_kind(rule: symbol, kind: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("kind", R, K) :- expect_kind(R, K), !action_kind(R, K).
+.output conformance_fail
+.printsize conformance_fail
+expect_kind("116.2a", "special").
+expect_kind("502.2", "turn_based").
+expect_kind("306.9", "state_based").
