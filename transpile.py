@@ -462,6 +462,73 @@ def _passive(rule, doc):
                "passive")
 
 
+def _existential(rule, doc):
+    """"There is/are [N] [noun]" -> count_of(noun, n). The count subset of existentials (the rest —
+    'several ways', 'no restrictions', 'different kinds' — have no number and are abstained)."""
+    if doc[0].lemma_.lower() != "there" or doc[0].dep_ != "expl":
+        return None
+    root = _root(doc)
+    if root is None or root.lemma_ != "be":
+        return None
+    head = next((c for c in root.children if c.dep_ in ("attr", "nsubj") and c.pos_ in ("NOUN", "PROPN")), None)
+    if head is None or _masked(head):
+        return None
+    num = next((c for c in head.children if c.dep_ == "nummod"), None)
+    if num is None:
+        return None
+    n = int(num.text) if num.text.isdigit() else _WORDS.get(num.lemma_.lower())
+    if n is None:
+        return None
+    pre = [c.text.lower() for c in head.children if c.dep_ in ("amod", "compound")]
+    name = "_".join(pre + [head.lemma_.lower()])
+    return Out(rule, f'count_of("{name}", {n}).   // {rule}', "existential")
+
+
+_CAP_VERBS = {"instruct", "allow", "require", "permit", "force", "enable", "cause"}
+
+
+def _capability(rule, doc):
+    """"[subject] instructs/allows/requires a player TO [verb]" -> grants(subject, modal_verb,
+    granted_action). The effect-capability family: the meaningful object is the INFINITIVE the
+    player is told/allowed to do (instruct->create, allow->take), captured from the to-complement."""
+    root = _root(doc)
+    if root is None or root.lemma_ not in _CAP_VERBS or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if any(c.dep_ in ("aux", "auxpass", "neg") for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
+        return None
+    act = next((c for c in kids if c.dep_ in ("xcomp", "advcl", "ccomp", "acl") and c.pos_ == "VERB"
+                and any(g.lemma_ == "to" and g.dep_ == "aux" for g in c.children)), None)
+    if act is None:
+        return None
+    return Out(rule, f'grants("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{act.lemma_.lower()}").   // {rule}',
+               "capability")
+
+
+def _obligation(rule, doc):
+    """"[subject] must [verb]" requirement, classified by qualifier — the obligation mirror of
+    _permission/_restriction -> requirement(subject, action, qualifier_kind, qualifier). 'must not'
+    is negated (a prohibition) and excluded."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if not any(c.lemma_ == "must" and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    if any(c.dep_ == "neg" for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN"):
+        return None
+    action = ("be_" if any(c.dep_ == "auxpass" for c in kids) else "") + root.lemma_.lower()
+    kind, qual = _classify_qualifier(root, doc)
+    return Out(rule, f'requirement("{subj.lemma_.lower()}", "{action}", "{kind}", "{qual}").   // {rule}',
+               "obligation")
+
+
 _REL_VERBS = {"refer", "mean", "represent", "include", "contain", "consist", "comprise", "cause", "affect"}
 
 
@@ -768,7 +835,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _relation]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

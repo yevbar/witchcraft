@@ -1,0 +1,52 @@
+// capabilities.dl — what an effect lets/makes a player do, TRANSPILED by transpile.py
+// (spaCy dependency parse). grants(subject, modal_verb, granted_action). GENERATED.
+
+.decl grants(subject: symbol, modal_verb: symbol, granted_action: symbol)
+
+grants("format", "allow", "use").
+grants("card", "allow", "take").
+grants("card", "cause", "lose").
+grants("spell", "allow", "take").
+grants("effect", "instruct", "create").
+grants("spell", "require", "choose").
+grants("effect", "allow", "change").
+grants("effect", "allow", "take").
+grants("counter", "cause", "gain").
+grants("venture", "allow", "move").
+grants("effect", "instruct", "do").
+grants("spell", "allow", "cast").
+grants("card", "allow", "reselect").
+grants("effect", "allow", "cast").
+grants("card", "instruct", "exchange").
+grants("effect", "cause", "skip").
+grants("effect", "cause", "group").
+grants("card", "instruct", "choose").
+grants("effect", "allow", "choose").
+grants("effect", "instruct", "look").
+grants("effect", "cause", "search").
+grants("spell", "instruct", "vote").
+grants("spell", "instruct", "suspect").
+grants("spell", "instruct", "airbend").
+grants("spell", "cause", "plot").
+grants("effect", "cause", "gain").
+grants("card", "instruct", "create").
+grants("card", "instruct", "note").
+grants("card", "allow", "face").
+grants("spell", "instruct", "unlock").
+grants("card", "allow", "control").
+grants("card", "allow", "play").
+grants("card", "require", "make").
+grants("game", "allow", "attack").
+grants("variant", "allow", "take").
+grants("card", "instruct", "reveal").
+grants("card", "instruct", "draft").
+
+.output grants
+
+// conformance
+.decl expect_grants(subject: symbol, modal_verb: symbol, granted_action: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("grants", S, M) :- expect_grants(S, M, A), !grants(S, M, A).
+.output conformance_fail
+.printsize conformance_fail
+expect_grants("effect", "instruct", "create").

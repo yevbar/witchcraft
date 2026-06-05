@@ -1,0 +1,25 @@
+// existentials.dl — 'There are N X' counts, TRANSPILED by transpile.py (spaCy). GENERATED.
+
+.decl count_of(thing: symbol, n: number)
+
+count_of("white_color", 5).
+count_of("white_type", 6).
+count_of("primary_colored_mana_symbol", 5).
+count_of("permanent_type", 6).
+count_of("general_category", 4).
+count_of("special_action", 12).
+count_of("main_phase", 2).
+count_of("specific_meld_pair", 7).
+count_of("inherent_triggered_ability", 2).
+count_of("inherent_triggered_ability", 3).
+count_of("turn_marker", 1).
+
+.output count_of
+
+// conformance
+.decl expect_count(thing: symbol, n: number)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("count", T, "-") :- expect_count(T, N), !count_of(T, N).
+.output conformance_fail
+.printsize conformance_fail
+expect_count("special_action", 12).

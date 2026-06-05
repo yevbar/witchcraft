@@ -1,0 +1,26 @@
+// obligations.dl — what an entity MUST do, TRANSPILED by transpile.py
+// (spaCy dependency parse). requirement(subject, action, qualifier_kind, qualifier). GENERATED.
+
+.decl requirement(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+
+requirement("player", "start", "qualified", "-").
+requirement("controller", "choose", "condition", "-").
+requirement("library", "be_keep", "scope", "pile").
+requirement("ability", "follow", "condition", "-").
+requirement("creature", "attack", "absolute", "-").
+requirement("deck", "contain", "absolute", "-").
+requirement("owner", "reveal", "condition", "-").
+requirement("player", "ensure", "absolute", "-").
+requirement("card", "indicate", "qualified", "-").
+requirement("deck", "contain", "scope", "play").
+requirement("card", "have", "frequency", "-").
+
+.output requirement
+
+// conformance
+.decl expect_requirement(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("requirement", S, A) :- expect_requirement(S, A, K, Q), !requirement(S, A, K, Q).
+.output conformance_fail
+.printsize conformance_fail
+expect_requirement("creature", "attack", "absolute", "-").

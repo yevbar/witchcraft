@@ -69,6 +69,9 @@ import build_permissions
 import build_derivations
 import build_effects
 import build_relations
+import build_capabilities
+import build_obligations
+import build_existentials
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -108,6 +111,7 @@ GENERATED = [
     "datalog/action_kinds.dl", "datalog/protection.dl", "datalog/restrictions.dl",
     "datalog/conditionals.dl", "datalog/possessions.dl", "datalog/permissions.dl",
     "datalog/derivations.dl", "datalog/effects.dl", "datalog/relations.dl",
+    "datalog/capabilities.dl", "datalog/obligations.dl", "datalog/existentials.dl",
 ]
 
 
@@ -178,6 +182,9 @@ def regenerate() -> None:
     build_derivations.main()
     build_effects.main()
     build_relations.main()
+    build_capabilities.main()
+    build_obligations.main()
+    build_existentials.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()
