@@ -761,6 +761,28 @@ def _permission(rule, doc):
                "permission")
 
 
+def _ability(rule, doc):
+    """"[subject] can [verb]" capability, CLASSIFIED by its qualifier — the positive "can/could"
+    mirror of _permission ("may") and _restriction ("can't") -> ability(subject, action,
+    qualifier_kind, qualifier). Negated "can't" is a restriction and excluded; "may" stays with
+    _permission. Same parse and qualifier kinds as its siblings."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if not any(c.lemma_ in ("can", "could") and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    if any(c.dep_ == "neg" for c in kids):                 # "can't" is a restriction, not an ability
+        return None
+    subj = next((c for c in kids if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN"):
+        return None
+    action = ("be_" if any(c.dep_ == "auxpass" for c in kids) else "") + root.lemma_.lower()
+    kind, qual = _classify_qualifier(root, doc)
+    return Out(rule, f'ability("{subj.lemma_.lower()}", "{action}", "{kind}", "{qual}").   // {rule}',
+               "ability")
+
+
 _MODALS = {"may", "must", "can", "could", "will", "shall", "would", "should"}
 
 
@@ -979,7 +1001,7 @@ def _symbol_means(rule, doc):
     return Out(rule, f'symbol_means("{g}", "{meaning}").   // {rule}', "symbol_means")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _action]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

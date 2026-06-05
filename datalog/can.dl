@@ -1,0 +1,71 @@
+// can.dl — what an entity CAN do, TRANSPILED from rules.txt by transpile.py
+// (spaCy dependency parse). ability(subject, action, qualifier_kind, qualifier). GENERATED.
+
+.decl ability(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+
+// --- one per matched "X can VERB" sentence; the qualifier is recorded, never dropped ---
+ability("player", "use", "scope", "-").
+ability("player", "concede", "scope", "time").
+ability("ability", "affect", "qualified", "-").
+ability("ability", "generate", "absolute", "-").
+ability("effect", "add", "absolute", "-").
+ability("effect", "stop", "scope", "-").
+ability("spell", "affect", "absolute", "-").
+ability("ability", "trigger", "condition", "-").
+ability("player", "pay", "condition", "-").
+ability("object", "deal", "absolute", "-").
+ability("instruction", "be_modify", "by", "effect").
+ability("card", "have", "qualified", "-").
+ability("object", "have", "qualified", "-").
+ability("list", "be_find", "scope", "section").
+ability("object", "be_play", "qualified", "-").
+ability("creature", "attack", "absolute", "-").
+ability("planeswalker", "be_attack", "absolute", "-").
+ability("player", "own", "condition", "-").
+ability("battle", "be_attack", "absolute", "-").
+ability("battle", "have", "scope", "time").
+ability("ability", "find", "condition", "-").
+ability("effect", "give", "absolute", "-").
+ability("effect", "add", "scope", "turn").
+ability("effect", "add", "scope", "phase").
+ability("effect", "cause", "absolute", "-").
+ability("event", "occur", "scope", "step").
+ability("spell", "be_cast", "frequency", "-").
+ability("effect", "override", "absolute", "-").
+ability("effect", "become", "qualified", "-").
+ability("pile", "contain", "qualified", "-").
+ability("spell", "goad", "qualified", "-").
+ability("creature", "be_goad", "by", "player").
+ability("effect", "find", "condition", "-").
+ability("spell", "detain", "qualified", "-").
+ability("card", "be_meld", "qualified", "-").
+ability("aura", "target", "qualified", "-").
+ability("sunburst", "be_use", "frequency", "-").
+ability("ability", "prevent", "scope", "time").
+ability("creature", "be_pair", "scope", "creature").
+ability("card", "enter", "scope", "-").
+ability("permanent", "transform", "qualified", "-").
+ability("card", "represent", "absolute", "-").
+ability("controller", "use", "absolute", "-").
+ability("player", "have", "scope", "time").
+ability("effect", "bring", "scope", "game").
+ability("subgame", "be_create", "scope", "subgame").
+ability("loop", "be_fragment", "condition", "-").
+ability("player", "be_force", "qualified", "-").
+ability("game", "continue", "scope", "game").
+ability("creature", "attack", "qualified", "-").
+ability("player", "block", "qualified", "-").
+ability("player", "attack", "qualified", "-").
+ability("variant", "be_play", "scope", "number").
+ability("variant", "be_play", "scope", "team").
+ability("player", "look", "scope", "draft").
+
+.output ability
+
+// conformance — spot-check a capability the rules state plainly
+.decl expect_ability(subject: symbol, action: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("ability", S, A) :- expect_ability(S, A), !ability(S, A, _, _).
+.output conformance_fail
+.printsize conformance_fail
+expect_ability("player", "concede").
