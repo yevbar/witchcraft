@@ -1,0 +1,32 @@
+// split.dl — §709 Split Cards mechanics, interpreted from rules.txt.
+// split_characteristic(characteristic, mode); room_action(action). GENERATED.
+
+.decl split_characteristic(characteristic: symbol, mode: symbol)
+.decl room_action(action: symbol)
+
+split_characteristic("name", "two").
+split_characteristic("mana_cost", "combined").
+split_characteristic("color", "combined").
+split_characteristic("mana_value", "combined").
+split_characteristic("card_type", "union").
+split_characteristic("ability", "union").
+
+room_action("unlock").
+room_action("lock").
+
+.output split_characteristic
+.output room_action
+
+// conformance — spot-check the split-card rules §709 states plainly
+.decl expect_split(characteristic: symbol, mode: symbol)
+.decl expect_room(action: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("split", C, M) :- expect_split(C, M), !split_characteristic(C, M).
+conformance_fail("room", A, "-") :- expect_room(A), !room_action(A).
+.output conformance_fail
+.printsize conformance_fail
+expect_split("name", "two").
+expect_split("mana_cost", "combined").
+expect_split("card_type", "union").
+expect_room("lock").
+expect_room("unlock").
