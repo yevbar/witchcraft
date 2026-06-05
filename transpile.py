@@ -468,6 +468,36 @@ def _restriction(rule, doc):
                "restriction")
 
 
+_MODALS = {"may", "must", "can", "could", "will", "shall", "would", "should"}
+
+
+def _possession(rule, doc):
+    """Bare declarative "[subject] has/have [no] [characteristic]" -> has_property(subject, property, present).
+
+    The possessive family: an entity's characteristics. Faithful by capturing POLARITY (present =
+    yes | no), so "a colorless object has no color" never becomes a false has(object, color). Only a
+    main-verb 'have' counts — perfect-tense ('has been …'), 'has to', modal possession ('may/must
+    have …', left to the permission/obligation patterns), and clausal 'have X choose' are excluded."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "have" or root.pos_ not in ("VERB", "AUX"):
+        return None
+    kids = list(root.children)
+    if any(c.dep_ == "aux" and (c.lemma_ == "to" or c.lemma_ in _MODALS) for c in kids):
+        return None                                        # 'has to', 'may/must have'
+    if any(c.dep_ in ("xcomp", "ccomp") for c in kids):    # 'have each player choose …'
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN"):
+        return None
+    dobj = next((c for c in kids if c.dep_ in ("dobj", "obj", "attr")), None)
+    if dobj is None or dobj.pos_ not in ("NOUN", "PROPN"):
+        return None
+    neg = any(c.dep_ == "neg" for c in kids) or any(c.lemma_ == "no" for c in dobj.children if c.dep_ == "det")
+    present = "no" if neg else "yes"
+    return Out(rule, f'has_property("{subj.lemma_.lower()}", "{dobj.lemma_.lower()}", "{present}").   // {rule}',
+               "possession")
+
+
 _TRIGGER_MARKS = ("if", "when", "whenever")
 
 
@@ -612,7 +642,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

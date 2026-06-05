@@ -1,0 +1,99 @@
+// possessions.dl — entity->characteristic possession, TRANSPILED from rules.txt by transpile.py
+// (spaCy dependency parse). has_property(subject, characteristic, present); present = yes | no. GENERATED.
+
+.decl has_property(subject: symbol, characteristic: symbol, present: symbol)
+
+// --- one per matched "X has [no] Y" sentence; polarity recorded so 'has no' isn't a false has ---
+has_property("deck", "size", "yes").
+has_property("tournament", "rule", "yes").
+has_property("object", "color", "no").
+has_property("instance", "value", "yes").
+has_property("ability", "symbol", "yes").
+has_property("object", "controller", "yes").
+has_property("permanent", "status", "yes").
+has_property("ability", "cost", "yes").
+has_property("ability", "condition", "yes").
+has_property("emblem", "characteristic", "no").
+has_property("card", "ability", "yes").
+has_property("player", "priority", "yes").
+has_property("object", "cost", "no").
+has_property("spell", "cost", "yes").
+has_property("player", "access", "yes").
+has_property("sticker", "effect", "no").
+has_property("card", "name", "yes").
+has_property("object", "type", "yes").
+has_property("tokens", "type", "yes").
+has_property("battle", "subtype", "yes").
+has_property("card", "subtype", "no").
+has_property("card", "icon", "yes").
+has_property("card", "set", "yes").
+has_property("card", "number", "yes").
+has_property("card", "power", "yes").
+has_property("card", "modifier", "yes").
+has_property("card", "type", "yes").
+has_property("artifact", "characteristic", "no").
+has_property("artifact", "equipment", "yes").
+has_property("artifact", "subtype", "yes").
+has_property("artifact", "vehicle", "yes").
+has_property("vehicle", "power", "yes").
+has_property("enchantment", "subtype", "yes").
+has_property("enchantment", "saga", "yes").
+has_property("planeswalker", "ability", "yes").
+has_property("planeswalker", "number", "yes").
+has_property("card", "series", "yes").
+has_property("room", "name", "yes").
+has_property("room", "ability", "yes").
+has_property("battle", "ability", "yes").
+has_property("siege", "ability", "yes").
+has_property("card", "characteristic", "no").
+has_property("player", "size", "yes").
+has_property("spell", "characteristic", "yes").
+has_property("card", "text", "yes").
+has_property("step", "action", "no").
+has_property("phase", "step", "yes").
+has_property("end", "action", "no").
+has_property("permanent", "text", "yes").
+has_property("object", "ability", "yes").
+has_property("auras", "ability", "yes").
+has_property("effect", "duration", "yes").
+has_property("effect", "timestamp", "yes").
+has_property("spell", "mode", "yes").
+has_property("spell", "symbol", "yes").
+has_property("player", "effect", "no").
+has_property("spell", "text", "yes").
+has_property("enchantment", "ability", "yes").
+has_property("vehicles", "ability", "yes").
+has_property("creature", "ability", "yes").
+has_property("saga", "ability", "yes").
+has_property("player", "speed", "no").
+has_property("copy", "source", "yes").
+has_property("spell", "characteristic", "no").
+has_property("card", "face", "yes").
+has_property("card", "frame", "yes").
+has_property("card", "characteristic", "yes").
+has_property("card", "box", "yes").
+has_property("striation", "significance", "no").
+has_property("face", "power", "yes").
+has_property("face", "set", "yes").
+has_property("spell", "face", "yes").
+has_property("object", "characteristic", "yes").
+has_property("frame", "rule", "no").
+has_property("card", "power", "no").
+has_property("effect", "meaning", "yes").
+has_property("team", "player", "yes").
+has_property("player", "range", "yes").
+has_property("team", "total", "yes").
+has_property("game", "ability", "yes").
+has_property("player", "deck", "yes").
+has_property("deck", "card", "yes").
+
+.output has_property
+
+// conformance — spot-check possessions the rules state plainly
+.decl expect_has(subject: symbol, characteristic: symbol, present: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("has", S, C) :- expect_has(S, C, P), !has_property(S, C, P).
+.output conformance_fail
+.printsize conformance_fail
+expect_has("permanent", "status", "yes").
+expect_has("object", "color", "no").
