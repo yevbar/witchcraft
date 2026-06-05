@@ -14,8 +14,10 @@ game_end("lose", "player", "effect").
 game_end("lose", "player", "win_and_lose").
 game_end("lose", "player", "commander_damage").
 game_end("draw", "player", "all_lose_simultaneous").
+game_end("draw", "player", "mandatory_loop").
 game_end("draw", "player", "effect").
 game_end("draw", "team", "all_lose_simultaneous").
+game_end("draw", "player", "intentional").
 
 loss_threshold("life_zero", 0).
 loss_threshold("poison_ten", 10).
@@ -34,3 +36,4 @@ expect_end("lose", "player", "life_zero").
 expect_end("lose", "player", "deckout").
 expect_end("win", "player", "opponents_left").
 expect_end("draw", "player", "all_lose_simultaneous").
+expect_end("draw", "player", "mandatory_loop").

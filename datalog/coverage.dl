@@ -27,8 +27,11 @@ interpreted("104.3e").
 interpreted("104.3f").
 interpreted("104.3j").
 interpreted("104.4a").
+interpreted("104.4b").
 interpreted("104.4c").
 interpreted("104.4d").
+interpreted("104.4f").
+interpreted("104.4i").
 interpreted("105.1").
 interpreted("106.10").
 interpreted("106.11").

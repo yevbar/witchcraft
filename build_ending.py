@@ -10,7 +10,8 @@
 
 The outcome and subject (player / team) are read off fixed phrases; the condition is
 classified by a keyword lexicon into a canonical tag (life_zero, deckout, poison_ten,
-commander_damage, opponents_left, concede, win_and_lose, all_lose_simultaneous, effect).
+commander_damage, opponents_left, concede, win_and_lose, all_lose_simultaneous,
+mandatory_loop [§104.4b/f — the §732.4 loop-of-mandatory-actions combo outcome], intentional, effect).
 A rule whose condition doesn't match the lexicon — section headers ("There are several
 ways…"), team/Emperor/tournament variants — is abstained on rather than mislabeled. These
 are the rules basis for the engine's loses_game SBAs (life_zero / poison_ten already enforced).
@@ -30,7 +31,7 @@ def _outcome(low: str) -> str | None:
         return "win"
     if "loses the game" in low or "lose the game" in low:
         return "lose"
-    if "is a draw" in low or "be a draw" in low:
+    if "is a draw" in low or "be a draw" in low or "intentional draw" in low:
         return "draw"
     return None
 
@@ -56,6 +57,10 @@ def _condition(low: str) -> str | None:
         return "win_and_lose"
     if "remaining" in low and "lose" in low and "simultaneously" in low:
         return "all_lose_simultaneous"
+    if "loop" in low and "mandatory actions" in low:
+        return "mandatory_loop"
+    if "agree to an intentional draw" in low:
+        return "intentional"
     if "effect may state" in low:
         return "effect"
     return None
@@ -128,7 +133,11 @@ def build() -> tuple[str, dict]:
     p.decl("game_end", [("outcome", "symbol"), ("subject", "symbol"), ("condition", "symbol")])
     p.decl("loss_threshold", [("condition", "symbol"), ("n", "number")])
     p.blank()
-    for _n, outcome, subj, cond in rows:
+    seen = set()
+    for _n, outcome, subj, cond in rows:                 # several rules can state the same end (e.g. 104.4b/f mandatory_loop)
+        if (outcome, subj, cond) in seen:
+            continue
+        seen.add((outcome, subj, cond))
         p.fact(f'game_end("{outcome}", "{subj}", "{cond}")')
     p.blank()
     for _n, cond, n in thr:
@@ -145,7 +154,8 @@ def build() -> tuple[str, dict]:
     for atom in ['expect_end("lose", "player", "life_zero")',
                  'expect_end("lose", "player", "deckout")',
                  'expect_end("win", "player", "opponents_left")',
-                 'expect_end("draw", "player", "all_lose_simultaneous")']:
+                 'expect_end("draw", "player", "all_lose_simultaneous")',
+                 'expect_end("draw", "player", "mandatory_loop")']:
         p.fact(atom)
     return p.text(), {"count": len(rows)}
 
