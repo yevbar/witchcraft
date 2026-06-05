@@ -130,6 +130,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_stack.skips_stack()}
                     | {r[0] for r in build_redundancy.instance_stacking()}
                     | {r[0] for r in build_keyword_action_index.roster()}
+                    | {r[0] for r in build_keyword_action_index.definitions()}
                     | {r[0] for r in build_keyword_ability_index.roster()}
                     | {r[0] for r in build_battle.battle_defense()}
                     | {r[0] for r in build_battle.battle_subtypes()}

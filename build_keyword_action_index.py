@@ -43,36 +43,67 @@ def roster() -> list[tuple[str, str]]:
     return out
 
 
+def definitions() -> list[tuple[str, str]]:
+    """(rule, name_slug) for the subrule that DEFINES each §701 keyword action — its first
+    subrule (701.Na). The roster maps the HEADING (701.N) to the name; this maps the DEFINITION
+    text to it, the rule<->definition link a later card-text phase needs. Kept only when that
+    first subrule actually names the action (its leading word appears there), else abstained."""
+    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
+    out = []
+    for s in doc.sections:
+        for g in s.groups:
+            if g.number != "701":
+                continue
+            for r in g.rules:
+                if r.number == "701.1" or not _is_heading(r.text) or not r.subrules:
+                    continue
+                sub = r.subrules[0]
+                lead = _slug(r.text).split("_")[0]            # first word of the action name
+                if lead in sub.text.lower():
+                    out.append((sub.number, _slug(r.text)))
+    return out
+
+
 def build() -> tuple[str, dict]:
     rows = roster()
+    defs = definitions()
     p = Program()
-    p.comment("keyword_action_index.dl — complete §701 keyword-action roster, interpreted from rules.txt.")
-    p.comment("keyword_action_index(rule, name). GENERATED.")
+    p.comment("keyword_action_index.dl — complete §701 keyword-action roster + definitions, interpreted from rules.txt.")
+    p.comment("keyword_action_index(rule, name); keyword_action_definition(rule, name). GENERATED.")
     p.blank()
     p.decl("keyword_action_index", [("rule", "symbol"), ("name", "symbol")])
+    p.decl("keyword_action_definition", [("rule", "symbol"), ("name", "symbol")])
     p.blank()
     for rule, name in rows:
         p.fact(f'keyword_action_index("{rule}", "{name}")')
     p.blank()
-    p.output("keyword_action_index")
+    for rule, name in defs:
+        p.fact(f'keyword_action_definition("{rule}", "{name}")')
+    p.blank()
+    p.output("keyword_action_index", "keyword_action_definition")
     p.blank()
     p.comment("conformance — spot-check keyword actions §701 names plainly")
     p.conformance(
-        [("expect_action", [("rule", "symbol"), ("name", "symbol")])],
-        [("action", "expect_action(R, N)", "miss", "keyword_action_index(R, N)")],
+        [("expect_action", [("rule", "symbol"), ("name", "symbol")]),
+         ("expect_def", [("rule", "symbol"), ("name", "symbol")])],
+        [("action", "expect_action(R, N)", "miss", "keyword_action_index(R, N)"),
+         ("definition", "expect_def(R, N)", "miss", "keyword_action_definition(R, N)")],
     )
     for atom in ['expect_action("701.3", "attach")',
                  'expect_action("701.34", "proliferate")',
                  'expect_action("701.26", "tap_and_untap")']:
         p.fact(atom)
-    return p.text(), {"total": len(rows)}
+    for atom in ['expect_def("701.34a", "proliferate")', 'expect_def("701.3a", "attach")']:
+        p.fact(atom)
+    return p.text(), {"total": len(rows), "defs": len(defs)}
 
 
 def main() -> None:
     Path("datalog").mkdir(exist_ok=True)
     source, report = build()
     Path("datalog/keyword_action_index.dl").write_text(source, encoding="utf-8")
-    print(f"wrote datalog/keyword_action_index.dl ({report['total']} keyword_action_index)")
+    print(f"wrote datalog/keyword_action_index.dl ({report['total']} keyword_action_index, "
+          f"{report['defs']} keyword_action_definition)")
 
 
 if __name__ == "__main__":

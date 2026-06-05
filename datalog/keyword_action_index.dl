@@ -1,7 +1,8 @@
-// keyword_action_index.dl — complete §701 keyword-action roster, interpreted from rules.txt.
-// keyword_action_index(rule, name). GENERATED.
+// keyword_action_index.dl — complete §701 keyword-action roster + definitions, interpreted from rules.txt.
+// keyword_action_index(rule, name); keyword_action_definition(rule, name). GENERATED.
 
 .decl keyword_action_index(rule: symbol, name: symbol)
+.decl keyword_action_definition(rule: symbol, name: symbol)
 
 keyword_action_index("701.2", "activate").
 keyword_action_index("701.3", "attach").
@@ -71,14 +72,85 @@ keyword_action_index("701.66", "earthbend").
 keyword_action_index("701.67", "waterbend").
 keyword_action_index("701.68", "blight").
 
+keyword_action_definition("701.2a", "activate").
+keyword_action_definition("701.3a", "attach").
+keyword_action_definition("701.4a", "behold").
+keyword_action_definition("701.5a", "cast").
+keyword_action_definition("701.6a", "counter").
+keyword_action_definition("701.7a", "create").
+keyword_action_definition("701.8a", "destroy").
+keyword_action_definition("701.9a", "discard").
+keyword_action_definition("701.12a", "exchange").
+keyword_action_definition("701.13a", "exile").
+keyword_action_definition("701.14a", "fight").
+keyword_action_definition("701.15a", "goad").
+keyword_action_definition("701.16a", "investigate").
+keyword_action_definition("701.17a", "mill").
+keyword_action_definition("701.18a", "play").
+keyword_action_definition("701.19a", "regenerate").
+keyword_action_definition("701.20a", "reveal").
+keyword_action_definition("701.21a", "sacrifice").
+keyword_action_definition("701.22a", "scry").
+keyword_action_definition("701.23a", "search").
+keyword_action_definition("701.24a", "shuffle").
+keyword_action_definition("701.25a", "surveil").
+keyword_action_definition("701.26a", "tap_and_untap").
+keyword_action_definition("701.27a", "transform").
+keyword_action_definition("701.28a", "convert").
+keyword_action_definition("701.29a", "fateseal").
+keyword_action_definition("701.30a", "clash").
+keyword_action_definition("701.31a", "planeswalk").
+keyword_action_definition("701.32a", "set_in_motion").
+keyword_action_definition("701.33a", "abandon").
+keyword_action_definition("701.34a", "proliferate").
+keyword_action_definition("701.35a", "detain").
+keyword_action_definition("701.36a", "populate").
+keyword_action_definition("701.37a", "monstrosity").
+keyword_action_definition("701.38a", "vote").
+keyword_action_definition("701.39a", "bolster").
+keyword_action_definition("701.40a", "manifest").
+keyword_action_definition("701.41a", "support").
+keyword_action_definition("701.42a", "meld").
+keyword_action_definition("701.43a", "exert").
+keyword_action_definition("701.44a", "explore").
+keyword_action_definition("701.45a", "assemble").
+keyword_action_definition("701.46a", "adapt").
+keyword_action_definition("701.47a", "amass").
+keyword_action_definition("701.48a", "learn").
+keyword_action_definition("701.49a", "venture_into_the_dungeon").
+keyword_action_definition("701.50a", "connive").
+keyword_action_definition("701.51a", "open_an_attraction").
+keyword_action_definition("701.52a", "roll_to_visit_your_attractions").
+keyword_action_definition("701.53a", "incubate").
+keyword_action_definition("701.54a", "the_ring_tempts_you").
+keyword_action_definition("701.55a", "face_a_villainous_choice").
+keyword_action_definition("701.56a", "time_travel").
+keyword_action_definition("701.57a", "discover").
+keyword_action_definition("701.58a", "cloak").
+keyword_action_definition("701.59a", "collect_evidence").
+keyword_action_definition("701.60a", "suspect").
+keyword_action_definition("701.61a", "forage").
+keyword_action_definition("701.62a", "manifest_dread").
+keyword_action_definition("701.63a", "endure").
+keyword_action_definition("701.64a", "harness").
+keyword_action_definition("701.65a", "airbend").
+keyword_action_definition("701.66a", "earthbend").
+keyword_action_definition("701.67a", "waterbend").
+keyword_action_definition("701.68a", "blight").
+
 .output keyword_action_index
+.output keyword_action_definition
 
 // conformance — spot-check keyword actions §701 names plainly
 .decl expect_action(rule: symbol, name: symbol)
+.decl expect_def(rule: symbol, name: symbol)
 .decl conformance_fail(kind: symbol, a: symbol, b: symbol)
 conformance_fail("action", R, N) :- expect_action(R, N), !keyword_action_index(R, N).
+conformance_fail("definition", R, N) :- expect_def(R, N), !keyword_action_definition(R, N).
 .output conformance_fail
 .printsize conformance_fail
 expect_action("701.3", "attach").
 expect_action("701.34", "proliferate").
 expect_action("701.26", "tap_and_untap").
+expect_def("701.34a", "proliferate").
+expect_def("701.3a", "attach").
