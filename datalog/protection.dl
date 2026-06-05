@@ -1,0 +1,22 @@
+// protection.dl — §702.16 protection (the DEBT rule), interpreted from rules.txt.
+// protection_prevents(action); action = damage | enchant | equip | block | target. GENERATED.
+
+.decl protection_prevents(action: symbol)
+
+protection_prevents("target").
+protection_prevents("enchant").
+protection_prevents("equip").
+protection_prevents("damage").
+protection_prevents("block").
+
+.output protection_prevents
+
+// conformance — spot-check the protection DEBT actions the rules state plainly
+.decl expect_prevents(action: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("prevents", A, "-") :- expect_prevents(A), !protection_prevents(A).
+.output conformance_fail
+.printsize conformance_fail
+expect_prevents("damage").
+expect_prevents("block").
+expect_prevents("target").
