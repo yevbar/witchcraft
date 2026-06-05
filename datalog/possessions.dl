@@ -60,6 +60,7 @@ has_property("effect", "timestamp", "yes").
 has_property("spell", "mode", "yes").
 has_property("spell", "symbol", "yes").
 has_property("spell", "text", "yes").
+has_property("permanent", "menace", "yes").
 has_property("enchantment", "ability", "yes").
 has_property("vehicles", "ability", "yes").
 has_property("creature", "ability", "yes").

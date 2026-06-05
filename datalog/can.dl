@@ -39,6 +39,7 @@ ability("creature", "be_goad", "by", "player").
 ability("effect", "find", "condition", "-").
 ability("spell", "detain", "qualified", "-").
 ability("card", "be_meld", "qualified", "-").
+ability("permanent", "be_suspect", "frequency", "-").
 ability("aura", "target", "qualified", "-").
 ability("sunburst", "be_use", "frequency", "-").
 ability("ability", "prevent", "scope", "time").

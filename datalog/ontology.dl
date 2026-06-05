@@ -10,6 +10,9 @@ isa("only_number", "integer").   // 107.1
 isa("owner", "player").   // 108.3
 isa("status", "state").   // 110.5
 isa("player", "owner").   // 111.2
+isa("treasure_token", "artifact").   // 111.10a
+isa("walker_token", "creature").   // 111.10d
+isa("shard_token", "enchantment").   // 111.10e
 isa("cursed_role", "enchantment").   // 111.10j
 isa("monster_role", "enchantment").   // 111.10k
 isa("royal_role", "enchantment").   // 111.10m

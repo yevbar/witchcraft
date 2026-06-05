@@ -90,6 +90,7 @@ action("effect", "expire", "-").
 action("phase", "begin", "-").
 action("game", "turn", "-").
 action("attack", "step", "-").
+action("spell", "state", "-").
 action("player", "declare", "attacker").
 action("player", "check", "creature").
 action("player", "tap", "creature").
@@ -132,7 +133,6 @@ action("sticker", "receive", "timestamp").
 action("effect", "wait", "-").
 action("effect", "replace", "card").
 action("effect", "modify", "battlefield").
-action("effect", "cause", "-").
 action("effect", "state", "-").
 action("effect", "prevent", "damage").
 action("controller", "choose", "mode(s").
@@ -147,14 +147,14 @@ action("investigate", "mean", "-").
 action("player", "put", "card").
 action("spell", "mill", "card").
 action("effect", "instruct", "-").
-action("spell", "refer", "-").
 action("player", "reveal", "card").
 action("n", "mean", "-").
-action("spell", "instruct", "-").
+action("spell", "instruct", "permanent").
 action("learn", "mean", "-").
+action("spell", "instruct", "-").
 action("b", "mean", "-").
 action("dread", "mean", "-").
-action("ability", "instruct", "-").
+action("ability", "instruct", "permanent").
 action("ability", "describe", "-").
 action("rule", "function", "-").
 action("hexproof", "mean", "-").
@@ -185,7 +185,7 @@ action("octopus", "mean", "-").
 action("effect", "happen", "-").
 action("step", "begin", "permanent").
 action("action", "pay", "attention").
-action("player", "control", "-").
+action("player", "control", "permanent").
 action("table", "appear", "-").
 action("copy", "acquire", "value").
 action("effect", "copy", "spell").
@@ -204,7 +204,6 @@ action("controller", "exile", "-").
 action("phrase", "mean", "-").
 action("characteristic", "remain", "-").
 action("controller", "shuffle", "-").
-action("spell", "cause", "-").
 action("controller", "create", "copy").
 action("effect", "overwrite", "-").
 action("player", "continue", "-").

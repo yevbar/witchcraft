@@ -1024,6 +1024,24 @@ def _normalize(s: str) -> str:
     return _ASIDE.sub("", s).strip()
 
 
+# Core game-object nouns spaCy systematically MIS-TAGS — they're lexically nouns AND adjectives/verbs
+# ("a permanent" / "permanent object"; "a token" / "token creature"; "a trigger" / "it triggers"), so
+# in the rules' terse style the tagger often calls the noun an ADJ/VERB. That makes every noun-subject
+# guard (_clause_subject, _isa, _action, …) reject the rule. Retagging these lemmas to NOUN — ONLY when
+# they sit in a nominal-head dependency role (subject/object/predicate), never as a modifier — fixes the
+# subject for ALL patterns at once. "permanent" alone accounts for ~30 stranded rules.
+_GAME_NOUNS = {"permanent", "spell", "token", "copy", "trigger", "counter", "emblem"}
+_NOMINAL_DEPS = {"nsubj", "nsubjpass", "dobj", "obj", "pobj", "attr", "appos", "conj"}
+
+
+def _retag_game_nouns(doc) -> None:
+    """In-place: promote a mis-tagged game-object lemma to NOUN when it heads a nominal phrase."""
+    for tok in doc:
+        if (tok.pos_ in ("ADJ", "VERB") and tok.dep_ in _NOMINAL_DEPS
+                and tok.lemma_.lower() in _GAME_NOUNS and tok.text not in _LEGEND):
+            tok.pos_ = "NOUN"
+
+
 def transpile_rule(rule: str, text: str) -> Out | None:
     """Try each pattern on the first sentence; return the Datalog or None."""
     global _LEGEND
@@ -1031,6 +1049,7 @@ def transpile_rule(rule: str, text: str) -> Out | None:
     masked = preprocess(sent)                    # mask formal fragments for a clean parse
     _LEGEND = masked.legend                      # patterns (e.g. _symbol_def) may resolve masked tokens
     doc = _NLP(masked.text)
+    _retag_game_nouns(doc)                        # fix mis-tagged game-object subjects before matching
     for fn in _PATTERNS:
         out = fn(rule, doc)
         if out is not None:

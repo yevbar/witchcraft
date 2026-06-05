@@ -26,9 +26,13 @@ restriction("ability", "use", "scope", "spell").
 restriction("object", "be_choose", "condition", "-").
 restriction("player", "choose", "condition", "-").
 restriction("player", "mill", "qualified", "-").
+restriction("permanent", "convert", "condition", "-").
 restriction("object", "be_exert", "qualified", "-").
 restriction("creature", "be_block", "except", "-").
 restriction("creature", "be_block", "condition", "-").
+restriction("permanent", "be_target", "by", "spell").
+restriction("permanent", "be_enchant", "by", "auras").
+restriction("permanent", "be_equip", "by", "equipment").
 restriction("creature", "be_block", "by", "creature").
 restriction("player", "cast", "condition", "-").
 restriction("creature", "have", "condition", "-").

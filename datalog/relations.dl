@@ -32,6 +32,7 @@ relation("spell", "include", "action").
 relation("spell", "contain", "variable").
 relation("effect", "affect", "player").
 relation("effect", "affect", "rule").
+relation("effect", "cause", "permanent").
 relation("effect", "include", "effect").
 relation("effect", "refer", "amount").
 relation("effect", "refer", "time").
@@ -39,6 +40,7 @@ relation("term", "refer", "object").
 relation("card", "refer", "party").
 relation("outlaw", "refer", "object").
 relation("card", "refer", "outlaws").
+relation("spell", "refer", "permanent").
 relation("travel", "mean", "time").
 relation("n", "mean", "card").
 relation("ability", "include", "x").
@@ -78,6 +80,7 @@ relation("half", "contain", "name").
 relation("face", "include", "bar").
 relation("card", "represent", "card").
 relation("symbol", "represent", "ability").
+relation("spell", "cause", "permanent").
 relation("card", "refer", "life").
 relation("keyword", "cause", "object").
 relation("loop", "contain", "effect").
