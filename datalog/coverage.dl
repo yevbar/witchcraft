@@ -963,11 +963,32 @@ interpreted("716.2b").
 interpreted("717.4").
 interpreted("729.1a").
 interpreted("800.1").
+interpreted("801.1").
+interpreted("802.1").
+interpreted("803.1").
+interpreted("804.1").
+interpreted("805.1").
+interpreted("806.1").
+interpreted("806.2").
+interpreted("807.1").
+interpreted("807.2").
+interpreted("808.1").
+interpreted("808.3").
+interpreted("809.1").
+interpreted("810.1").
+interpreted("810.2").
 interpreted("810.8d").
+interpreted("811.1").
+interpreted("811.2").
+interpreted("901.1").
 interpreted("901.9").
+interpreted("902.1").
+interpreted("903.1").
 interpreted("903.10a").
+interpreted("904.1").
 interpreted("904.10").
 interpreted("904.9").
+interpreted("905.1").
 interpreted("905.3").
 
 .decl uncovered(number: symbol, grp: symbol)

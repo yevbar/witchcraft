@@ -1,0 +1,53 @@
+// variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.
+// multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); variant_property(variant, property). GENERATED.
+
+.decl multiplayer_construct(name: symbol, kind: symbol)
+.decl variant_uses(variant: symbol, option: symbol)
+.decl variant_teams(variant: symbol, n: number)
+.decl variant_property(variant: symbol, property: symbol)
+
+multiplayer_construct("limited_range_of_influence", "option").
+multiplayer_construct("attack_multiple_players", "option").
+multiplayer_construct("attack_left_and_attack_right", "option").
+multiplayer_construct("deploy_creatures", "option").
+multiplayer_construct("shared_team_turns", "option").
+multiplayer_construct("free_for_all", "variant").
+multiplayer_construct("grand_melee", "variant").
+multiplayer_construct("team_vs_team", "variant").
+multiplayer_construct("emperor", "variant").
+multiplayer_construct("two_headed_giant", "variant").
+multiplayer_construct("alternating_teams", "variant").
+multiplayer_construct("planechase", "variant").
+multiplayer_construct("vanguard", "variant").
+multiplayer_construct("commander", "variant").
+multiplayer_construct("archenemy", "variant").
+multiplayer_construct("conspiracy_draft", "variant").
+
+variant_uses("emperor", "deploy_creatures").
+variant_uses("two_headed_giant", "shared_team_turns").
+variant_teams("emperor", 3).
+variant_teams("two_headed_giant", 2).
+variant_property("free_for_all", "options_set_before_play").
+variant_property("grand_melee", "options_set_before_play").
+variant_property("team_vs_team", "options_set_before_play").
+variant_property("alternating_teams", "options_set_before_play").
+
+.output multiplayer_construct
+.output variant_uses
+.output variant_teams
+.output variant_property
+
+// conformance — spot-check the §8/§9 facts the rules state plainly
+.decl expect_construct(name: symbol, kind: symbol)
+.decl expect_uses(variant: symbol, option: symbol)
+.decl expect_teams(variant: symbol, n: number)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("construct", N, K) :- expect_construct(N, K), !multiplayer_construct(N, K).
+conformance_fail("uses", V, O) :- expect_uses(V, O), !variant_uses(V, O).
+conformance_fail("teams", V, "-") :- expect_teams(V, N), !variant_teams(V, N).
+.output conformance_fail
+.printsize conformance_fail
+expect_construct("commander", "variant").
+expect_construct("shared_team_turns", "option").
+expect_uses("two_headed_giant", "shared_team_turns").
+expect_teams("two_headed_giant", 2).
