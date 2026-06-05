@@ -1,0 +1,60 @@
+// copula_extras.dl — comparison / predicate-property / negation, TRANSPILED by transpile.py
+// (spaCy dependency parse). comparison(subject, relation, object); is_property(subject, adjective); negation(subject, verb, object). GENERATED.
+
+.decl comparison(subject: symbol, relation: symbol, object: symbol)
+.decl is_property(subject: symbol, adjective: symbol)
+.decl negation(subject: symbol, verb: symbol, object: symbol)
+
+// --- comparison: X is the same as / different from / greater than Y ---
+comparison("value", "same", "value").
+comparison("characteristic", "same", "-").
+comparison("owner", "same", "owner").
+comparison("effect", "different", "ability").
+comparison("value", "equal", "amount").
+comparison("loyalty", "equal", "number").
+comparison("defense", "equal", "number").
+comparison("protector", "different", "controller").
+comparison("remainder", "identical", "process").
+comparison("source", "same", "source").
+comparison("devotion", "equal", "number").
+
+// --- is_property: X is exempt / optional / independent (predicate adjective) ---
+is_property("deck", "subject").
+is_property("token", "subject").
+is_property("cost", "optional").
+is_property("object", "colorless").
+is_property("supertype", "independent").
+is_property("planeswalker", "subject").
+is_property("spell", "modal").
+is_property("connive", "complete").
+is_property("instance", "redundant").
+is_property("ability", "distinct").
+is_property("rule", "informal").
+is_property("effect", "exempt").
+
+// --- negation: X doesn't count / cause / include Y ---
+negation("card", "include", "-").
+negation("mulligan", "count", "-").
+negation("word", "indicate", "target").
+negation("thing", "use", "stack").
+negation("ability", "go", "-").
+negation("ability", "cancel", "one").
+negation("attacking", "cause", "creature").
+negation("ability", "trigger", "-").
+negation("ability", "include", "table").
+negation("card", "begin", "game").
+negation("player", "skip", "step").
+negation("game", "use", "sideboard").
+negation("game", "use", "action").
+
+.output comparison
+.output is_property
+.output negation
+
+// conformance
+.decl expect_property(subject: symbol, adjective: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("property", S, A) :- expect_property(S, A), !is_property(S, A).
+.output conformance_fail
+.printsize conformance_fail
+expect_property("cost", "optional").

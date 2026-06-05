@@ -426,6 +426,87 @@ def _masked(tok):
     return tok.text in _LEGEND
 
 
+def _clean(tok):
+    """A usable noun argument: NOUN/PROPN, not masked, no mask-residue symbols."""
+    return (tok is not None and tok.pos_ in ("NOUN", "PROPN") and not _masked(tok)
+            and not any(ch in tok.text for ch in "—[]{}"))
+
+
+_COMPARE_ADJ = {"same", "different", "greater", "less", "fewer", "equal", "identical", "similar"}
+
+
+def _comparison(rule, doc):
+    """Copula comparison "[subject] is the same as / different from / greater than [object]" ->
+    comparison(subject, relation, object). The equivalence/ordering family; relation is the
+    comparative adjective, object the head of the as/from/than/to complement (or '-')."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "be" or any(c.dep_ == "neg" for c in root.children):
+        return None
+    subj = next((c for c in root.children if c.dep_ == "nsubj"), None)
+    if not _clean(subj):
+        return None
+    adj = None                                            # the comparative adjective (acomp/attr, or amod of attr)
+    for c in root.children:
+        if c.dep_ in ("acomp", "attr"):
+            if c.lemma_.lower() in _COMPARE_ADJ:
+                adj = c
+                break
+            am = next((g for g in c.children if g.dep_ == "amod" and g.lemma_.lower() in _COMPARE_ADJ), None)
+            if am:
+                adj = am
+                break
+    if adj is None:
+        return None
+    prep = None
+    for src in (adj, adj.head, root):
+        prep = next((c for c in src.children if c.dep_ == "prep" and c.lemma_ in ("as", "from", "than", "to")), None)
+        if prep:
+            break
+    obj = next((c for c in prep.children if c.dep_ == "pobj"), None) if prep else None
+    o = obj.lemma_.lower() if _clean(obj) else "-"
+    return Out(rule, f'comparison("{subj.lemma_.lower()}", "{adj.lemma_.lower()}", "{o}").   // {rule}',
+               "comparison")
+
+
+def _is_property(rule, doc):
+    """Copula predicate-adjective "[subject] is exempt / optional / independent" -> is_property(subject,
+    adjective). The adjectival twin of _isa (which takes a noun predicate); comparative adjectives go
+    to _comparison."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
+        return None
+    if any(c.dep_ == "neg" for c in root.children):
+        return None
+    subj = next((c for c in root.children if c.dep_ == "nsubj"), None)
+    if not _clean(subj):
+        return None
+    adj = next((c for c in root.children if c.dep_ == "acomp" and c.pos_ == "ADJ"
+                and c.lemma_.lower() not in _COMPARE_ADJ and not _masked(c)), None)
+    if adj is None or any(c.dep_ in ("conj", "cc") for c in adj.children):
+        return None
+    return Out(rule, f'is_property("{subj.lemma_.lower()}", "{adj.lemma_.lower()}").   // {rule}', "property")
+
+
+def _negation(rule, doc):
+    """Negated active declarative "[subject] doesn't [verb] [object]" -> negation(subject, verb,
+    object). The negative-polarity declaratives not already captured as a polarity field by
+    _effect/_possession; modal negation ('can't/may not') and copula 'is not' are excluded."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB" or root.lemma_ == "be":
+        return None
+    kids = list(root.children)
+    if not any(c.dep_ == "neg" for c in kids):
+        return None
+    if any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if not _clean(subj):
+        return None
+    obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
+    o = obj.lemma_.lower() if _clean(obj) else "-"
+    return Out(rule, f'negation("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{o}").   // {rule}', "negation")
+
+
 def _passive(rule, doc):
     """Bare passive "[subject] is/are [verb]ed [by/as] …" -> derived(subject, action, complement_kind,
     complement). The derivation family: how a value/object is determined, treated, produced, chosen.
@@ -842,7 +923,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

@@ -72,6 +72,7 @@ import build_relations
 import build_capabilities
 import build_obligations
 import build_existentials
+import build_copula_extras
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -112,6 +113,7 @@ GENERATED = [
     "datalog/conditionals.dl", "datalog/possessions.dl", "datalog/permissions.dl",
     "datalog/derivations.dl", "datalog/effects.dl", "datalog/relations.dl",
     "datalog/capabilities.dl", "datalog/obligations.dl", "datalog/existentials.dl",
+    "datalog/copula_extras.dl",
 ]
 
 
@@ -185,6 +187,7 @@ def regenerate() -> None:
     build_capabilities.main()
     build_obligations.main()
     build_existentials.main()
+    build_copula_extras.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()
