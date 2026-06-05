@@ -1,0 +1,33 @@
+// action_defs.dl — formal 'To X is to/means Y' action definitions, interpreted from rules.txt.
+// action_definition(action). GENERATED.
+
+.decl action_definition(action: symbol)
+
+action_definition("exile").
+action_definition("ante").
+action_definition("cast").
+action_definition("propose").
+action_definition("activate").
+action_definition("attach").
+action_definition("counter").
+action_definition("play").
+action_definition("planeswalk").
+action_definition("proliferate").
+action_definition("populate").
+action_definition("amass").
+action_definition("time").
+action_definition("forage").
+action_definition("store").
+action_definition("copy").
+
+.output action_definition
+
+// conformance — spot-check actions the rules define plainly
+.decl expect_action_def(action: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("action_def", A, "-") :- expect_action_def(A), !action_definition(A).
+.output conformance_fail
+.printsize conformance_fail
+expect_action_def("cast").
+expect_action_def("activate").
+expect_action_def("exile").

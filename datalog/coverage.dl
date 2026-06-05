@@ -639,6 +639,7 @@ interpreted("405.6f").
 interpreted("405.6g").
 interpreted("405.6h").
 interpreted("406.1").
+interpreted("406.2").
 interpreted("406.3").
 interpreted("406.3a").
 interpreted("406.3b").
@@ -648,6 +649,7 @@ interpreted("406.8").
 interpreted("407.1").
 interpreted("407.2").
 interpreted("407.3").
+interpreted("407.4").
 interpreted("408.2").
 interpreted("500.1").
 interpreted("500.10").
@@ -739,6 +741,8 @@ interpreted("514.2").
 interpreted("514.3").
 interpreted("514.3a").
 interpreted("601.1").
+interpreted("601.2").
+interpreted("601.2a").
 interpreted("601.2b").
 interpreted("601.2d").
 interpreted("601.2e").
@@ -756,6 +760,7 @@ interpreted("601.6a").
 interpreted("602.1").
 interpreted("602.1d").
 interpreted("602.1e").
+interpreted("602.2").
 interpreted("602.2b").
 interpreted("602.3").
 interpreted("602.3a").
@@ -980,6 +985,7 @@ interpreted("701.17a").
 interpreted("701.17b").
 interpreted("701.18").
 interpreted("701.18a").
+interpreted("701.18b").
 interpreted("701.18d").
 interpreted("701.18e").
 interpreted("701.19").
@@ -1039,6 +1045,7 @@ interpreted("701.30b").
 interpreted("701.30d").
 interpreted("701.31").
 interpreted("701.31a").
+interpreted("701.31b").
 interpreted("701.31c").
 interpreted("701.31d").
 interpreted("701.32").
@@ -1141,6 +1148,7 @@ interpreted("701.59a").
 interpreted("701.59b").
 interpreted("701.59c").
 interpreted("701.5a").
+interpreted("701.5b").
 interpreted("701.6").
 interpreted("701.60").
 interpreted("701.60a").
@@ -1877,6 +1885,7 @@ interpreted("706.4").
 interpreted("706.5").
 interpreted("706.6").
 interpreted("706.8").
+interpreted("706.8a").
 interpreted("706.8c").
 interpreted("707.1").
 interpreted("707.10").
@@ -2331,9 +2340,295 @@ interpreted("905.4a").
 interpreted("905.5").
 interpreted("905.6").
 
+// structural scaffolding (headers / list-intros) — not interpretable facts,
+// excluded from the coverage denominator; the list ITEMS in the subrules remain.
+.decl structural(number: symbol, kind: symbol)
+structural("109.4", "list_intro").
+structural("113.1", "list_intro").
+structural("113.3", "list_intro").
+structural("113.6", "list_intro").
+structural("116.2", "list_intro").
+structural("117.3", "list_intro").
+structural("205.2", "section_header").
+structural("205.3", "section_header").
+structural("205.4", "section_header").
+structural("510.1", "list_intro").
+structural("514.3", "list_intro").
+structural("603.10", "list_intro").
+structural("605.3", "list_intro").
+structural("605.4", "list_intro").
+structural("613.1", "list_intro").
+structural("701.10", "section_header").
+structural("701.11", "section_header").
+structural("701.12", "section_header").
+structural("701.13", "section_header").
+structural("701.14", "section_header").
+structural("701.15", "section_header").
+structural("701.16", "section_header").
+structural("701.17", "section_header").
+structural("701.18", "section_header").
+structural("701.19", "section_header").
+structural("701.2", "section_header").
+structural("701.20", "section_header").
+structural("701.21", "section_header").
+structural("701.22", "section_header").
+structural("701.23", "section_header").
+structural("701.24", "section_header").
+structural("701.25", "section_header").
+structural("701.26", "section_header").
+structural("701.27", "section_header").
+structural("701.28", "section_header").
+structural("701.29", "section_header").
+structural("701.3", "section_header").
+structural("701.30", "section_header").
+structural("701.31", "section_header").
+structural("701.32", "section_header").
+structural("701.33", "section_header").
+structural("701.34", "section_header").
+structural("701.35", "section_header").
+structural("701.36", "section_header").
+structural("701.37", "section_header").
+structural("701.38", "section_header").
+structural("701.39", "section_header").
+structural("701.4", "section_header").
+structural("701.40", "section_header").
+structural("701.41", "section_header").
+structural("701.42", "section_header").
+structural("701.43", "section_header").
+structural("701.44", "section_header").
+structural("701.45", "section_header").
+structural("701.46", "section_header").
+structural("701.47", "section_header").
+structural("701.48", "section_header").
+structural("701.49", "section_header").
+structural("701.5", "section_header").
+structural("701.50", "section_header").
+structural("701.51", "section_header").
+structural("701.52", "section_header").
+structural("701.53", "section_header").
+structural("701.54", "section_header").
+structural("701.55", "section_header").
+structural("701.56", "section_header").
+structural("701.57", "section_header").
+structural("701.58", "section_header").
+structural("701.59", "section_header").
+structural("701.6", "section_header").
+structural("701.60", "section_header").
+structural("701.61", "section_header").
+structural("701.62", "section_header").
+structural("701.63", "section_header").
+structural("701.64", "section_header").
+structural("701.65", "section_header").
+structural("701.66", "section_header").
+structural("701.67", "section_header").
+structural("701.68", "section_header").
+structural("701.7", "section_header").
+structural("701.8", "section_header").
+structural("701.9", "section_header").
+structural("702.10", "section_header").
+structural("702.100", "section_header").
+structural("702.101", "section_header").
+structural("702.102", "section_header").
+structural("702.103", "section_header").
+structural("702.104", "section_header").
+structural("702.105", "section_header").
+structural("702.106", "section_header").
+structural("702.107", "section_header").
+structural("702.108", "section_header").
+structural("702.109", "section_header").
+structural("702.11", "section_header").
+structural("702.110", "section_header").
+structural("702.111", "section_header").
+structural("702.112", "section_header").
+structural("702.113", "section_header").
+structural("702.114", "section_header").
+structural("702.115", "section_header").
+structural("702.116", "section_header").
+structural("702.117", "section_header").
+structural("702.118", "section_header").
+structural("702.119", "section_header").
+structural("702.12", "section_header").
+structural("702.120", "section_header").
+structural("702.121", "section_header").
+structural("702.122", "section_header").
+structural("702.123", "section_header").
+structural("702.124", "section_header").
+structural("702.125", "section_header").
+structural("702.126", "section_header").
+structural("702.127", "section_header").
+structural("702.128", "section_header").
+structural("702.129", "section_header").
+structural("702.13", "section_header").
+structural("702.130", "section_header").
+structural("702.131", "section_header").
+structural("702.132", "section_header").
+structural("702.133", "section_header").
+structural("702.134", "section_header").
+structural("702.135", "section_header").
+structural("702.136", "section_header").
+structural("702.137", "section_header").
+structural("702.138", "section_header").
+structural("702.139", "section_header").
+structural("702.14", "section_header").
+structural("702.140", "section_header").
+structural("702.141", "section_header").
+structural("702.142", "section_header").
+structural("702.143", "section_header").
+structural("702.144", "section_header").
+structural("702.145", "section_header").
+structural("702.146", "section_header").
+structural("702.147", "section_header").
+structural("702.148", "section_header").
+structural("702.149", "section_header").
+structural("702.15", "section_header").
+structural("702.150", "section_header").
+structural("702.151", "section_header").
+structural("702.152", "section_header").
+structural("702.153", "section_header").
+structural("702.154", "section_header").
+structural("702.155", "section_header").
+structural("702.156", "section_header").
+structural("702.157", "section_header").
+structural("702.158", "section_header").
+structural("702.159", "section_header").
+structural("702.16", "section_header").
+structural("702.160", "section_header").
+structural("702.161", "section_header").
+structural("702.162", "section_header").
+structural("702.163", "section_header").
+structural("702.164", "section_header").
+structural("702.165", "section_header").
+structural("702.166", "section_header").
+structural("702.167", "section_header").
+structural("702.168", "section_header").
+structural("702.169", "section_header").
+structural("702.17", "section_header").
+structural("702.170", "section_header").
+structural("702.171", "section_header").
+structural("702.172", "section_header").
+structural("702.173", "section_header").
+structural("702.174", "section_header").
+structural("702.175", "section_header").
+structural("702.176", "section_header").
+structural("702.177", "section_header").
+structural("702.178", "section_header").
+structural("702.179", "section_header").
+structural("702.18", "section_header").
+structural("702.180", "section_header").
+structural("702.181", "section_header").
+structural("702.182", "section_header").
+structural("702.183", "section_header").
+structural("702.184", "section_header").
+structural("702.185", "section_header").
+structural("702.187", "section_header").
+structural("702.188", "section_header").
+structural("702.189", "section_header").
+structural("702.19", "section_header").
+structural("702.190", "section_header").
+structural("702.191", "section_header").
+structural("702.192", "section_header").
+structural("702.2", "section_header").
+structural("702.20", "section_header").
+structural("702.21", "section_header").
+structural("702.22", "section_header").
+structural("702.23", "section_header").
+structural("702.24", "section_header").
+structural("702.25", "section_header").
+structural("702.26", "section_header").
+structural("702.27", "section_header").
+structural("702.28", "section_header").
+structural("702.29", "section_header").
+structural("702.3", "section_header").
+structural("702.30", "section_header").
+structural("702.31", "section_header").
+structural("702.32", "section_header").
+structural("702.33", "section_header").
+structural("702.34", "section_header").
+structural("702.35", "section_header").
+structural("702.36", "section_header").
+structural("702.37", "section_header").
+structural("702.38", "section_header").
+structural("702.39", "section_header").
+structural("702.4", "section_header").
+structural("702.40", "section_header").
+structural("702.41", "section_header").
+structural("702.42", "section_header").
+structural("702.43", "section_header").
+structural("702.44", "section_header").
+structural("702.45", "section_header").
+structural("702.46", "section_header").
+structural("702.47", "section_header").
+structural("702.48", "section_header").
+structural("702.49", "section_header").
+structural("702.5", "section_header").
+structural("702.50", "section_header").
+structural("702.51", "section_header").
+structural("702.52", "section_header").
+structural("702.53", "section_header").
+structural("702.54", "section_header").
+structural("702.55", "section_header").
+structural("702.56", "section_header").
+structural("702.57", "section_header").
+structural("702.58", "section_header").
+structural("702.59", "section_header").
+structural("702.6", "section_header").
+structural("702.60", "section_header").
+structural("702.61", "section_header").
+structural("702.62", "section_header").
+structural("702.63", "section_header").
+structural("702.64", "section_header").
+structural("702.65", "section_header").
+structural("702.66", "section_header").
+structural("702.67", "section_header").
+structural("702.68", "section_header").
+structural("702.69", "section_header").
+structural("702.7", "section_header").
+structural("702.70", "section_header").
+structural("702.71", "section_header").
+structural("702.72", "section_header").
+structural("702.73", "section_header").
+structural("702.74", "section_header").
+structural("702.75", "section_header").
+structural("702.76", "section_header").
+structural("702.77", "section_header").
+structural("702.78", "section_header").
+structural("702.79", "section_header").
+structural("702.8", "section_header").
+structural("702.80", "section_header").
+structural("702.81", "section_header").
+structural("702.82", "section_header").
+structural("702.83", "section_header").
+structural("702.84", "section_header").
+structural("702.85", "section_header").
+structural("702.86", "section_header").
+structural("702.87", "section_header").
+structural("702.88", "section_header").
+structural("702.89", "section_header").
+structural("702.9", "section_header").
+structural("702.90", "section_header").
+structural("702.91", "section_header").
+structural("702.92", "section_header").
+structural("702.93", "section_header").
+structural("702.94", "section_header").
+structural("702.95", "section_header").
+structural("702.96", "section_header").
+structural("702.97", "section_header").
+structural("702.98", "section_header").
+structural("702.99", "section_header").
+structural("703.4", "list_intro").
+structural("704.5", "list_intro").
+structural("704.6", "list_intro").
+structural("727.1", "list_intro").
+structural("901.15", "section_header").
+structural("903.12", "section_header").
+structural("903.13", "section_header").
+structural("904.12", "section_header").
+structural("904.13", "section_header").
+
 .decl uncovered(number: symbol, grp: symbol)
-uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N).
+uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N), !structural(N, _).
 .decl n_interpreted(n: number)
 n_interpreted(N) :- N = count : { interpreted(_) }.
 .output n_interpreted
+.output structural
 .output uncovered

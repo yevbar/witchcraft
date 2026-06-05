@@ -51,6 +51,7 @@ import build_ability_kinds
 import build_variants
 import build_card_types
 import build_action_kinds
+import build_action_defs
 import build_protection
 import build_keyword_definitions
 import build_enumerations
@@ -162,12 +163,27 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_card_types.planeswalker_properties()}
                     | {r[0] for r in build_card_types.dungeon_properties()}
                     | {r[0] for r in build_action_kinds.action_kinds()}
+                    | {r[0] for r in build_action_defs.action_definitions()}
                     | {r[0] for r in build_protection.protection_prevents()}
                     | {r[0] for r in build_card_types.card_type_property()}
                     | {r[0] for r in build_card_types.vanguard_modifier()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))
+
+
+def structural_kind(text: str) -> str | None:
+    """Classify a STRUCTURAL, non-semantic unit — not an interpretable fact, so excluded from the
+    coverage denominator (and numerator). Two kinds: a list intro ('The state-based actions are as
+    follows:' — the facts live in the subrules) and a heading label (a section sub-group header
+    'Card Types'/'Subtypes', or a keyword/keyword-action name 'Flying'/'Attach'). These are the
+    rulebook's scaffolding; counting them as interpreted via the name rosters inflates the %."""
+    t = text.strip()
+    if t.endswith(":"):
+        return "list_intro"
+    if t and len(t) <= 42 and "." not in t.rstrip(".") and t[:1].isupper() and not t.endswith((".", ";")):
+        return "section_header"
+    return None
 
 
 def interpreted_units() -> tuple[set, dict]:
@@ -188,13 +204,21 @@ def interpreted_units() -> tuple[set, dict]:
 def main() -> None:
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
     interp, per_pattern = interpreted_units()
-    # per-section tally
+    # per-section tally — structural units (headers / list-intros) are excluded from BOTH the
+    # numerator and the denominator: they aren't interpretable facts, so counting them (e.g. the
+    # keyword-name rosters at 100%) would mis-state semantic coverage. The list ITEMS in the
+    # subrules remain real, interpretable units.
+    structural = {sr.number: sk
+                  for s in doc.sections for g in s.groups for r in g.rules for sr in [r] + r.subrules
+                  if (sk := structural_kind(sr.text))}
     rows, tot_units, tot_cov = [], 0, 0
     for s in doc.sections:
         units = cov = 0
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
+                    if sr.number in structural:
+                        continue
                     units += 1
                     cov += sr.number in interp
         rows.append((s.number, s.title, units, cov))
@@ -207,7 +231,11 @@ def main() -> None:
         pct = 100 * cov / units if units else 0
         print(f"{num:>2}  {title[:32]:32} {units:6d} {cov:7d} {pct:5.1f}%")
     print("-" * 58)
-    print(f"    {'TOTAL (semantic)':32} {tot_units:6d} {tot_cov:7d} {100*tot_cov/tot_units:5.1f}%")
+    print(f"    {'TOTAL (semantic body)':32} {tot_units:6d} {tot_cov:7d} {100*tot_cov/tot_units:5.1f}%")
+    from collections import Counter as _C
+    sc = _C(structural.values())
+    print(f"    (+ {len(structural)} structural units excluded — not interpretable facts: "
+          + ", ".join(f"{k}={v}" for k, v in sorted(sc.items())) + ")")
     print("\nby pattern: " + ", ".join(f"{k}={v}" for k, v in sorted(per_pattern.items(), key=lambda x: -x[1])))
     import build_xref
     pairs, _ = build_xref.extract()
@@ -217,13 +245,18 @@ def main() -> None:
     # write queryable coverage.dl (joins the rules_index scaffold)
     lines = ['#include "rules_index.dl"', "", ".decl interpreted(number: symbol)"]
     lines += [f'interpreted("{n}").' for n in sorted(interp)]
+    lines += ["", "// structural scaffolding (headers / list-intros) — not interpretable facts,",
+              "// excluded from the coverage denominator; the list ITEMS in the subrules remain.",
+              ".decl structural(number: symbol, kind: symbol)"]
+    lines += [f'structural("{n}", "{k}").' for n, k in sorted(structural.items())]
     lines += ["", ".decl uncovered(number: symbol, grp: symbol)",
-              "uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N).",
+              "uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N), !structural(N, _).",
               ".decl n_interpreted(n: number)",
               "n_interpreted(N) :- N = count : { interpreted(_) }.",
-              ".output n_interpreted", ".output uncovered"]
+              ".output n_interpreted", ".output structural", ".output uncovered"]
     Path("datalog/coverage.dl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"\nwrote datalog/coverage.dl ({len(interp)} interpreted units; query `uncovered`)")
+    print(f"\nwrote datalog/coverage.dl ({len(interp)} interpreted units; "
+          f"{len(structural)} structural; query `uncovered`)")
 
 
 if __name__ == "__main__":
