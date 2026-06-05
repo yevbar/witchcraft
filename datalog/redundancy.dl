@@ -1,0 +1,47 @@
+// redundancy.dl — keyword instance-stacking (§702), interpreted from rules.txt.
+// instance_stacking(keyword, scope, result); result = redundant | independent. GENERATED.
+
+.decl instance_stacking(keyword: symbol, scope: symbol, result: symbol)
+
+instance_stacking("deathtouch", "object", "redundant").
+instance_stacking("defender", "creature", "redundant").
+instance_stacking("double_strike", "creature", "redundant").
+instance_stacking("first_strike", "creature", "redundant").
+instance_stacking("flash", "object", "redundant").
+instance_stacking("flying", "creature", "redundant").
+instance_stacking("haste", "creature", "redundant").
+instance_stacking("indestructible", "permanent", "redundant").
+instance_stacking("intimidate", "creature", "redundant").
+instance_stacking("lifelink", "object", "redundant").
+instance_stacking("reach", "creature", "redundant").
+instance_stacking("shroud", "permanent_or_player", "redundant").
+instance_stacking("trample", "creature", "redundant").
+instance_stacking("vigilance", "creature", "redundant").
+instance_stacking("banding", "creature", "redundant").
+instance_stacking("phasing", "permanent", "redundant").
+instance_stacking("shadow", "creature", "redundant").
+instance_stacking("horsemanship", "creature", "redundant").
+instance_stacking("fear", "creature", "redundant").
+instance_stacking("convoke", "spell", "redundant").
+instance_stacking("split_second", "spell", "redundant").
+instance_stacking("delve", "spell", "redundant").
+instance_stacking("wither", "object", "redundant").
+instance_stacking("rebound", "spell", "redundant").
+instance_stacking("infect", "object", "redundant").
+instance_stacking("menace", "creature", "redundant").
+instance_stacking("skulk", "creature", "redundant").
+instance_stacking("improvise", "spell", "redundant").
+instance_stacking("enlist", "creature", "independent").
+instance_stacking("read_ahead", "object", "redundant").
+
+.output instance_stacking
+
+// conformance — spot-check the redundancy outcomes the rules state plainly
+.decl expect_stacking(keyword: symbol, scope: symbol, result: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("stacking", K, S) :- expect_stacking(K, S, R), !instance_stacking(K, S, R).
+.output conformance_fail
+.printsize conformance_fail
+expect_stacking("flying", "creature", "redundant").
+expect_stacking("lifelink", "object", "redundant").
+expect_stacking("enlist", "creature", "independent").
