@@ -462,6 +462,33 @@ def _passive(rule, doc):
                "passive")
 
 
+_REL_VERBS = {"refer", "mean", "represent", "include", "contain", "consist", "comprise", "cause", "affect"}
+
+
+def _relation(rule, doc):
+    """Declarative relational SVO "[subject] refers to / means / represents / contains [object]" ->
+    relation(subject, verb, object). The reference/composition family — semantic links the sweep
+    missed. Handles 'refers TO' / 'consists OF' (prep object). Requires a clean noun subject AND
+    object (the relation needs both ends); passive/modal/negated forms are excluded as lossy."""
+    root = _root(doc)
+    if root is None or root.lemma_ not in _REL_VERBS or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if any(c.dep_ in ("aux", "auxpass") for c in kids) or any(c.dep_ == "neg" for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
+        return None
+    obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
+    if obj is None:                                        # 'refers TO x', 'consists OF x'
+        prep = next((c for c in kids if c.dep_ == "prep"), None)
+        obj = next((c for c in prep.children if c.dep_ == "pobj"), None) if prep is not None else None
+    if obj is None or obj.pos_ not in ("NOUN", "PROPN") or _masked(obj):
+        return None
+    return Out(rule, f'relation("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{obj.lemma_.lower()}").   // {rule}',
+               "relation")
+
+
 _EFFECT_VERBS = {"become", "get", "gain", "lose", "set", "change", "switch", "remove", "add"}
 
 
@@ -741,7 +768,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _relation]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

@@ -1,0 +1,107 @@
+// relations.dl — declarative relational SVO (refer/mean/represent/contain), TRANSPILED by transpile.py
+// (spaCy dependency parse). relation(subject, verb, object). GENERATED.
+
+.decl relation(subject: symbol, verb: symbol, object: symbol)
+
+// --- one per matched 'X <verb> Y' sentence; the verb is the link type ---
+relation("tournament", "consist", "series").
+relation("symbol", "represent", "mana").
+relation("box", "contain", "symbol").
+relation("box", "contain", "bar").
+relation("symbol", "represent", "cost").
+relation("ability", "affect", "game").
+relation("effect", "affect", "component").
+relation("cost", "contain", "symbol").
+relation("counter", "cause", "ability").
+relation("spell", "refer", "counter").
+relation("rule", "refer", "object").
+relation("sticker", "consist", "word").
+relation("effect", "refer", "number").
+relation("effect", "refer", "value").
+relation("spell", "refer", "object").
+relation("text", "mean", "object").
+relation("ability", "refer", "object").
+relation("text", "refer", "card").
+relation("card", "refer", "permanent").
+relation("effect", "refer", "power").
+relation("card", "include", "information").
+relation("turn", "consist", "phase").
+relation("phase", "consist", "step").
+relation("rule", "refer", "game").
+relation("spell", "include", "action").
+relation("effect", "cause", "object").
+relation("spell", "contain", "variable").
+relation("effect", "affect", "player").
+relation("effect", "affect", "rule").
+relation("effect", "include", "effect").
+relation("effect", "refer", "amount").
+relation("effect", "refer", "time").
+relation("term", "refer", "object").
+relation("card", "refer", "party").
+relation("outlaw", "refer", "object").
+relation("card", "refer", "outlaws").
+relation("travel", "mean", "time").
+relation("n", "mean", "card").
+relation("source", "cause", "event").
+relation("ability", "include", "x").
+relation("phrase", "mean", "thing").
+relation("modular", "represent", "ability").
+relation("epic", "represent", "ability").
+relation("graft", "represent", "ability").
+relation("champion", "represent", "ability").
+relation("evoke", "represent", "ability").
+relation("cost", "include", "cost").
+relation("bestow", "represent", "ability").
+relation("dash", "represent", "ability").
+relation("emerge", "represent", "ability").
+relation("rule", "refer", "identity").
+relation("partner", "represent", "ability").
+relation("escape", "represent", "ability").
+relation("decayed", "represent", "ability").
+relation("reconfigure", "represent", "ability").
+relation("blitz", "represent", "ability").
+relation("enlist", "represent", "ability").
+relation("ability", "represent", "cost").
+relation("ability", "include", "instruction").
+relation("eye", "represent", "ability").
+relation("rule", "refer", "value").
+relation("craft", "represent", "ability").
+relation("spell", "cause", "addition").
+relation("offspring", "represent", "ability").
+relation("effect", "refer", "speed").
+relation("harmonize", "represent", "ability").
+relation("warp", "represent", "ability").
+relation("effect", "refer", "card").
+relation("paradigm", "represent", "ability").
+relation("game", "include", "action").
+relation("ability", "include", "table").
+relation("effect", "include", "text").
+relation("effect", "include", "exception").
+relation("card", "refer", "door").
+relation("half", "contain", "name").
+relation("face", "include", "bar").
+relation("card", "represent", "card").
+relation("cost", "represent", "characteristic").
+relation("symbol", "represent", "ability").
+relation("card", "refer", "life").
+relation("keyword", "cause", "object").
+relation("loop", "contain", "effect").
+relation("rule", "consist", "series").
+relation("rule", "refer", "player").
+relation("ability", "refer", "player").
+relation("game", "contain", "stack").
+relation("variant", "include", "specification").
+relation("section", "contain", "rule").
+relation("draft", "consist", "round").
+relation("team", "consist", "number").
+relation("variant", "consist", "draft").
+
+.output relation
+
+// conformance — spot-check relations the rules state plainly
+.decl expect_relation(subject: symbol, verb: symbol, object: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("relation", S, V) :- expect_relation(S, V, O), !relation(S, V, O).
+.output conformance_fail
+.printsize conformance_fail
+expect_relation("symbol", "represent", "mana").
