@@ -420,6 +420,33 @@ def _pobj_head(prep):
     return pobj.lemma_.lower() if pobj is not None else "-"
 
 
+def _classify_qualifier(root, doc):
+    """The qualifier KIND + head of a modal clause, shared by _restriction and _permission.
+    kind = except | by | condition | qualified | scope | frequency | absolute; the head is the
+    content noun of the qualifying phrase, else '-'. Comparatives/quantifiers demote 'absolute'."""
+    kids = list(root.children)
+    low = doc.text.lower()
+    agent = next((c for c in kids if c.dep_ == "agent"), None) or \
+        next((c for c in kids if c.dep_ == "prep" and c.lemma_ == "by"), None)
+    kind, qual = "absolute", "-"
+    if "except" in low:
+        kind, qual = "except", (_pobj_head(agent) if agent is not None else "-")
+    elif agent is not None:
+        kind, qual = "by", _pobj_head(agent)
+    elif any(c.dep_ == "advcl" for c in kids) or any(w in low for w in _QUAL_CONDITION):
+        kind = "condition"
+    elif any(t.dep_ in ("relcl", "acl") for t in doc):
+        kind = "qualified"
+    elif (prep := next((c for c in kids if c.dep_ == "prep"), None)) is not None:
+        kind, qual = "scope", _pobj_head(prep)
+    elif any(c.dep_ in ("advmod", "npadvmod") for c in kids):
+        kind = "frequency"
+    if kind == "absolute" and any(w in low for w in
+                                  (" greater", " more ", " fewer", " less ", " than ", "certain", "normally", "specific")):
+        kind = "qualified"
+    return kind, qual
+
+
 def _restriction(rule, doc):
     """Any "[subject] can't [verb]" prohibition, CLASSIFIED by its qualifier rather than abstained.
 
@@ -445,27 +472,30 @@ def _restriction(rule, doc):
     if subj is None or subj.pos_ not in ("NOUN", "PROPN"):    # need a concrete noun subject
         return None
     action = ("be_" if any(c.dep_ == "auxpass" for c in kids) else "") + root.lemma_.lower()
-    low = doc.text.lower()
-    agent = next((c for c in kids if c.dep_ == "agent"), None) or \
-        next((c for c in kids if c.dep_ == "prep" and c.lemma_ == "by"), None)
-    kind, qual = "absolute", "-"
-    if "except" in low:
-        kind, qual = "except", (_pobj_head(agent) if agent is not None else "-")
-    elif agent is not None:
-        kind, qual = "by", _pobj_head(agent)
-    elif any(c.dep_ == "advcl" for c in kids) or any(w in low for w in _QUAL_CONDITION):
-        kind = "condition"
-    elif any(t.dep_ in ("relcl", "acl") for t in doc):
-        kind = "qualified"
-    elif (prep := next((c for c in kids if c.dep_ == "prep"), None)) is not None:
-        kind, qual = "scope", _pobj_head(prep)
-    elif any(c.dep_ in ("advmod", "npadvmod") for c in kids):
-        kind = "frequency"
-    if kind == "absolute" and any(w in low for w in        # a comparative/quantifier still qualifies it
-                                  (" greater", " more ", " fewer", " less ", " than ", "certain", "normally", "specific")):
-        kind = "qualified"
+    kind, qual = _classify_qualifier(root, doc)
     return Out(rule, f'restriction("{subj.lemma_.lower()}", "{action}", "{kind}", "{qual}").   // {rule}',
                "restriction")
+
+
+def _permission(rule, doc):
+    """"[subject] may [verb]" permission, CLASSIFIED by its qualifier — the positive mirror of
+    _restriction (same parse and qualifier kinds) -> permission(subject, action, qualifier_kind,
+    qualifier). 'may not …' is negated (a prohibition), so it's left out."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB":
+        return None
+    kids = list(root.children)
+    if not any(c.lemma_ == "may" and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    if any(c.dep_ == "neg" for c in kids):                 # "may not" is a prohibition, not a permission
+        return None
+    subj = next((c for c in kids if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None or subj.pos_ not in ("NOUN", "PROPN"):
+        return None
+    action = ("be_" if any(c.dep_ == "auxpass" for c in kids) else "") + root.lemma_.lower()
+    kind, qual = _classify_qualifier(root, doc)
+    return Out(rule, f'permission("{subj.lemma_.lower()}", "{action}", "{kind}", "{qual}").   // {rule}',
+               "permission")
 
 
 _MODALS = {"may", "must", "can", "could", "will", "shall", "would", "should"}
@@ -642,7 +672,7 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

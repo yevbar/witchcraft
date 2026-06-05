@@ -1,0 +1,117 @@
+// permissions.dl — what an entity MAY do, TRANSPILED from rules.txt by transpile.py
+// (spaCy dependency parse). permission(subject, action, qualifier_kind, qualifier). GENERATED.
+
+.decl permission(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+
+// --- one per matched "X may VERB" sentence; the qualifier is recorded, never dropped ---
+permission("player", "have", "qualified", "-").
+permission("sideboard", "contain", "scope", "play").
+permission("spell", "use", "qualified", "-").
+permission("player", "take", "qualified", "-").
+permission("effect", "state", "absolute", "-").
+permission("player", "lose", "qualified", "-").
+permission("player", "agree", "scope", "tournament").
+permission("effect", "change", "absolute", "-").
+permission("spell", "define", "qualified", "-").
+permission("object", "have", "absolute", "-").
+permission("effect", "include", "qualified", "-").
+permission("spell", "allow", "qualified", "-").
+permission("spell", "divide", "qualified", "-").
+permission("spell", "have", "absolute", "-").
+permission("player", "exile", "qualified", "-").
+permission("player", "pay", "condition", "-").
+permission("player", "pay", "qualified", "-").
+permission("player", "cast", "qualified", "-").
+permission("player", "activate", "qualified", "-").
+permission("player", "activate", "condition", "-").
+permission("number", "be_apply", "condition", "-").
+permission("action", "be_modify", "by", "effect").
+permission("damage", "be_deal", "scope", "result").
+permission("damage", "be_deal", "scope", "effect").
+permission("card", "be_draw", "scope", "time").
+permission("sticker", "have", "qualified", "-").
+permission("text", "change", "qualified", "-").
+permission("object", "have", "qualified", "-").
+permission("box", "contain", "qualified", "-").
+permission("card", "have", "qualified", "-").
+permission("effect", "refer", "qualified", "-").
+permission("player", "cast", "condition", "-").
+permission("player", "play", "condition", "-").
+permission("effect", "increase", "frequency", "-").
+permission("effect", "allow", "frequency", "-").
+permission("protector", "block", "qualified", "-").
+permission("card", "have", "absolute", "-").
+permission("player", "put", "condition", "-").
+permission("ability", "affect", "absolute", "-").
+permission("player", "count", "qualified", "-").
+permission("player", "arrange", "scope", "fashion").
+permission("player", "concede", "scope", "time").
+permission("emblem", "be_create", "scope", "zone").
+permission("ability", "include", "qualified", "-").
+permission("ability", "have", "qualified", "-").
+permission("ability", "state", "absolute", "-").
+permission("ability", "have", "condition", "-").
+permission("ability", "read", "condition", "-").
+permission("effect", "create", "qualified", "-").
+permission("ability", "create", "qualified", "-").
+permission("spell", "allow", "except", "-").
+permission("object", "have", "condition", "-").
+permission("effect", "be_generate", "by", "resolution").
+permission("effect", "be_generate", "by", "ability").
+permission("effect", "allow", "qualified", "-").
+permission("effect", "cause", "condition", "-").
+permission("replacement", "apply", "condition", "-").
+permission("spell", "instruct", "absolute", "-").
+permission("spell", "instruct", "qualified", "-").
+permission("card", "be_reveal", "qualified", "-").
+permission("effect", "instruct", "condition", "-").
+permission("player", "planeswalk", "scope", "game").
+permission("player", "planeswalk", "condition", "-").
+permission("card", "be_set", "scope", "motion").
+permission("scheme", "be_set", "scope", "motion").
+permission("card", "be_abandon", "scope", "game").
+permission("player", "open", "qualified", "-").
+permission("player", "choose", "condition", "-").
+permission("effect", "replace", "qualified", "-").
+permission("spell", "have", "qualified", "-").
+permission("effect", "define", "qualified", "-").
+permission("ability", "restrict", "frequency", "-").
+permission("effect", "expire", "condition", "-").
+permission("rule", "cause", "condition", "-").
+permission("ability", "be_activate", "condition", "-").
+permission("effect", "refer", "condition", "-").
+permission("ability", "refer", "qualified", "-").
+permission("owner", "cast", "condition", "-").
+permission("effect", "allow", "condition", "-").
+permission("rule", "refer", "condition", "-").
+permission("ability", "modify", "by", "-").
+permission("effect", "state", "qualified", "-").
+permission("player", "agree", "condition", "-").
+permission("effect", "include", "except", "-").
+permission("ability", "allow", "qualified", "-").
+permission("effect", "create", "absolute", "-").
+permission("player", "look", "qualified", "-").
+permission("ability", "cause", "condition", "-").
+permission("rule", "cause", "absolute", "-").
+permission("effect", "restrict", "qualified", "-").
+permission("effect", "give", "absolute", "-").
+permission("effect", "exempt", "qualified", "-").
+permission("player", "suggest", "by", "-").
+permission("player", "accept", "condition", "-").
+permission("player", "play", "scope", "each").
+permission("player", "cast", "absolute", "-").
+permission("player", "roll", "qualified", "-").
+permission("card", "be_face", "scope", "game").
+permission("game", "be_play", "scope", "option").
+permission("commander", "return", "scope", "zone").
+permission("player", "play", "qualified", "-").
+
+.output permission
+
+// conformance — spot-check permissions the rules state plainly
+.decl expect_permission(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("permission", S, A) :- expect_permission(S, A, K, Q), !permission(S, A, K, Q).
+.output conformance_fail
+.printsize conformance_fail
+expect_permission("player", "look", "qualified", "-").
