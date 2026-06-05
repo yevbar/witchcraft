@@ -4,12 +4,10 @@
 .decl requirement(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
 
 requirement("player", "start", "qualified", "-").
-requirement("controller", "choose", "condition", "-").
 requirement("library", "be_keep", "scope", "pile").
 requirement("ability", "follow", "condition", "-").
 requirement("creature", "attack", "absolute", "-").
 requirement("deck", "contain", "absolute", "-").
-requirement("owner", "reveal", "condition", "-").
 requirement("player", "ensure", "absolute", "-").
 requirement("card", "indicate", "qualified", "-").
 requirement("deck", "contain", "scope", "play").

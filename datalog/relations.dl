@@ -29,7 +29,6 @@ relation("turn", "consist", "phase").
 relation("phase", "consist", "step").
 relation("rule", "refer", "game").
 relation("spell", "include", "action").
-relation("effect", "cause", "object").
 relation("spell", "contain", "variable").
 relation("effect", "affect", "player").
 relation("effect", "affect", "rule").
@@ -66,10 +65,8 @@ relation("ability", "include", "instruction").
 relation("eye", "represent", "ability").
 relation("rule", "refer", "value").
 relation("craft", "represent", "ability").
-relation("spell", "cause", "addition").
 relation("offspring", "represent", "ability").
 relation("effect", "refer", "speed").
-relation("harmonize", "represent", "ability").
 relation("warp", "represent", "ability").
 relation("effect", "refer", "card").
 relation("paradigm", "represent", "ability").
@@ -81,7 +78,6 @@ relation("card", "refer", "door").
 relation("half", "contain", "name").
 relation("face", "include", "bar").
 relation("card", "represent", "card").
-relation("cost", "represent", "characteristic").
 relation("symbol", "represent", "ability").
 relation("card", "refer", "life").
 relation("keyword", "cause", "object").

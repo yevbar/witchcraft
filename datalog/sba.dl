@@ -52,6 +52,7 @@ scheme_exempt(O) :- has_supertype(O, Sup), supertype_rule(Sup, "scheme", "scheme
 
 // --- rules transpiled from the English text (one per matched §704.5 sentence) ---
 sba_loses(P, "704.5a") :- life(P, V), V <= 0.   // 704.5a
+conditional("player", "attempt", "player", "lose", "condition").   // 704.5b
 sba_loses(P, "704.5c") :- poison(P, V), V >= 10.   // 704.5c
 sba_ceases(O) :- is_token(O), in_zone(O, Z), Z != "battlefield".   // 704.5d
 sba_ceases(O) :- is_copy(O), in_zone(O, Z), Z != "stack".   // 704.5e
@@ -65,9 +66,15 @@ sba_world_conflict(P) :- world_perm(P), C = count : { world_perm(_) }, C >= 2, M
 sba_graveyard(O, "704.5m") :- is_aura(O), illegally_attached(O).   // 704.5m
 sba_unattach(O, "704.5n") :- is_equipment(O), illegally_attached(O).   // 704.5n
 sba_unattach(O, "704.5p") :- is_battle(O), attached(O).   // 704.5p
+conditional("-", "have", "counter", "remove", "condition").   // 704.5q
+conditional("marker", "be", "owner", "remove", "condition").   // 704.5t
+conditional("-", "be", "player", "choose", "condition").   // 704.5u
+conditional("player", "attack", "controller", "choose", "condition").   // 704.5w
+conditional("controller", "be", "player", "choose", "condition").   // 704.5x
 sba_loses(T, "704.6a") :- life(T, V), V <= 0.   // 704.6a
 sba_loses(T, "704.6b") :- poison(T, V), V >= 15.   // 704.6b
 sba_loses(P, "704.6c") :- commander(Src), dealt_combat_damage(Src, P, _), D = sum X : { dealt_combat_damage(Src, P, X) }, D >= 21.   // 704.6c
+conditional("commander", "be", "owner", "put", "condition").   // 704.6d
 sba_scheme_retire(O) :- is_scheme(O), face_up(O), in_zone(O, "command"), !scheme_exempt(O), !scheme_trigger_pending("yes").   // 704.6e
 
 .output sba_loses

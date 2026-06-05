@@ -4,7 +4,6 @@
 .decl effect(subject: symbol, verb: symbol, object: symbol, polarity: symbol)
 
 // --- one per matched effect-verb sentence; the verb is the direction, polarity the negation ---
-effect("copy", "become", "token", "yes").
 effect("effect", "remove", "instance", "yes").
 effect("cost", "change", "cost", "no").
 effect("player", "lose", "game", "yes").
@@ -26,16 +25,13 @@ effect("creature", "get", "-", "yes").
 effect("player", "gain", "-", "yes").
 effect("player", "add", "amount", "yes").
 effect("status", "change", "-", "yes").
-effect("spell", "lose", "change", "yes").
 effect("creature", "become", "-", "yes").
 effect("object", "become", "-", "yes").
-effect("value", "become", "information", "yes").
 effect("phrase", "become", "night", "yes").
 effect("game", "get", "-", "yes").
 effect("player", "get", "marker", "yes").
 effect("card", "add", "ability", "yes").
 effect("face", "become", "object", "yes").
-effect("player", "set", "life", "yes").
 effect("card", "become", "pool", "yes").
 
 .output effect

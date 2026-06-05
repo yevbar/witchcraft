@@ -38,7 +38,6 @@ grants("card", "allow", "play").
 grants("card", "require", "make").
 grants("game", "allow", "attack").
 grants("variant", "allow", "take").
-grants("card", "instruct", "reveal").
 grants("card", "instruct", "draft").
 
 .output grants

@@ -691,7 +691,14 @@ def _possession(rule, doc):
                "possession")
 
 
-_TRIGGER_MARKS = ("if", "when", "whenever")
+# Subordinate-clause marks that introduce a trigger/condition clause — the cross-cutting two-clause
+# family. Beyond if/when (condition/event), the temporal (as/before/after/during/while/once/until)
+# and causal (because/since) marks give the same trigger->outcome structure across the rulebook.
+_TRIGGER_MARKS = ("if", "when", "whenever", "as", "before", "after", "during",
+                  "while", "once", "until", "unless", "because", "since")
+_MARK_KIND = {"when": "trigger", "whenever": "trigger", "as": "temporal", "before": "temporal",
+              "after": "temporal", "during": "temporal", "while": "temporal", "once": "temporal",
+              "until": "temporal", "because": "causal", "since": "causal"}
 
 
 def _clause_subject(verb):
@@ -723,7 +730,7 @@ def _conditional(rule, doc):
     sub = " ".join(t.text.lower() for t in trig.subtree)
     mark = next((t.lemma_.lower() for t in trig.subtree if t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS), "if")
     kind = ("replacement" if "would" in sub and "instead" in doc.text.lower()
-            else "trigger" if mark in ("when", "whenever") else "condition")
+            else _MARK_KIND.get(mark, "condition"))
     return Out(rule, f'conditional("{ts}", "{trig.lemma_.lower()}", "{os_}", '
                      f'"{root.lemma_.lower()}", "{kind}").   // {rule}', "conditional")
 

@@ -59,13 +59,11 @@ has_property("effect", "duration", "yes").
 has_property("effect", "timestamp", "yes").
 has_property("spell", "mode", "yes").
 has_property("spell", "symbol", "yes").
-has_property("player", "effect", "no").
 has_property("spell", "text", "yes").
 has_property("enchantment", "ability", "yes").
 has_property("vehicles", "ability", "yes").
 has_property("creature", "ability", "yes").
 has_property("saga", "ability", "yes").
-has_property("player", "speed", "no").
 has_property("copy", "source", "yes").
 has_property("spell", "characteristic", "no").
 has_property("card", "face", "yes").
@@ -76,7 +74,6 @@ has_property("striation", "significance", "no").
 has_property("face", "power", "yes").
 has_property("face", "set", "yes").
 has_property("spell", "face", "yes").
-has_property("object", "characteristic", "yes").
 has_property("frame", "rule", "no").
 has_property("card", "power", "no").
 has_property("effect", "meaning", "yes").

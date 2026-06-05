@@ -21,7 +21,7 @@ from dlgen import Program
 from rules_parser import split
 from transpile import transpile_rule
 
-_IFWHEN = re.compile(r"^\s*(if|when|whenever)\b", re.I)
+_IFWHEN = re.compile(r"\b(if|when|whenever|as|before|after|during|while|once|until|unless|because|since)\b", re.I)
 
 
 def conditionals() -> list[tuple[str, str]]:
