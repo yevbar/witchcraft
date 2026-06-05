@@ -1,8 +1,11 @@
 // dfc.dl — §712 Double-Faced Cards: meld pairs + default face, interpreted from rules.txt.
-// meld_pair(card_a, card_b, result); dfc_default_face(action, face). GENERATED.
+// meld_pair(card_a, card_b, result); dfc_default_face(action, face); dfc_kind(kind); dfc_active_face(context, face); dfc_transform(subject, allowed). GENERATED.
 
 .decl meld_pair(card_a: symbol, card_b: symbol, result: symbol)
 .decl dfc_default_face(action: symbol, face: symbol)
+.decl dfc_kind(kind: symbol)
+.decl dfc_active_face(context: symbol, face: symbol)
+.decl dfc_transform(subject: symbol, allowed: symbol)
 
 meld_pair("Midnight Scavengers", "Graf Rats", "Chittering Host").
 meld_pair("Hanweir Garrison", "Hanweir Battlements", "Hanweir, the Writhing Township").
@@ -15,18 +18,44 @@ meld_pair("Fang, Fearless l’Cie", "Vanille, Cheerful l’Cie", "Ragnarok, Divi
 dfc_default_face("cast", "front").
 dfc_default_face("enters", "front").
 
+dfc_kind("nonmodal").
+dfc_kind("modal").
+dfc_kind("meld").
+dfc_active_face("other_zone", "front").
+dfc_active_face("meld_on_stack", "front").
+dfc_active_face("front_up", "front").
+dfc_active_face("back_up", "back").
+dfc_transform("meld", "no").
+dfc_transform("nonmeld", "yes").
+
 .output meld_pair
 .output dfc_default_face
+.output dfc_kind
+.output dfc_active_face
+.output dfc_transform
 
 // conformance — spot-check the meld pairs / default face §712 states plainly
 .decl expect_meld(card_a: symbol, card_b: symbol, result: symbol)
 .decl expect_face(action: symbol, face: symbol)
+.decl expect_kind(kind: symbol)
+.decl expect_active(context: symbol, face: symbol)
+.decl expect_transform(subject: symbol, allowed: symbol)
 .decl conformance_fail(kind: symbol, a: symbol, b: symbol)
 conformance_fail("meld", R, "-") :- expect_meld(A, B, R), !meld_pair(A, B, R).
 conformance_fail("face", Ac, F) :- expect_face(Ac, F), !dfc_default_face(Ac, F).
+conformance_fail("kind", K, "-") :- expect_kind(K), !dfc_kind(K).
+conformance_fail("active", C, F) :- expect_active(C, F), !dfc_active_face(C, F).
+conformance_fail("transform", S, A) :- expect_transform(S, A), !dfc_transform(S, A).
 .output conformance_fail
 .printsize conformance_fail
 expect_meld("Bruna, the Fading Light", "Gisela, the Broken Blade", "Brisela, Voice of Nightmares").
 expect_meld("The Mightstone and Weakstone", "Urza, Lord Protector", "Urza, Planeswalker").
 expect_face("cast", "front").
 expect_face("enters", "front").
+expect_kind("nonmodal").
+expect_kind("modal").
+expect_kind("meld").
+expect_active("back_up", "back").
+expect_active("meld_on_stack", "front").
+expect_transform("meld", "no").
+expect_transform("nonmeld", "yes").

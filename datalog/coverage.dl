@@ -878,6 +878,10 @@ interpreted("709.5g").
 interpreted("711.2").
 interpreted("712.11").
 interpreted("712.14").
+interpreted("712.2").
+interpreted("712.3").
+interpreted("712.4").
+interpreted("712.4c").
 interpreted("712.5a").
 interpreted("712.5b").
 interpreted("712.5c").
@@ -885,6 +889,11 @@ interpreted("712.5d").
 interpreted("712.5e").
 interpreted("712.5f").
 interpreted("712.5g").
+interpreted("712.8a").
+interpreted("712.8b").
+interpreted("712.8d").
+interpreted("712.8e").
+interpreted("712.9").
 interpreted("714.2").
 interpreted("714.2a").
 interpreted("714.2d").

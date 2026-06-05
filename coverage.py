@@ -88,6 +88,9 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for grp in build_costs.cost_types() for r in grp}
                     | {r[0] for r in build_dfc.meld_pairs()}
                     | {r[0] for r in build_dfc.default_face()}
+                    | {r[0] for r in build_dfc.dfc_kinds()}
+                    | {r[0] for r in build_dfc.dfc_active_face()}
+                    | {r[0] for r in build_dfc.dfc_transform()}
                     | {r[0] for r in build_targets.targeted_kinds()}
                     | {r[0] for r in build_targets.retarget_phrases()}
                     | {r[0] for r in build_targets.target_check_phrases()}
