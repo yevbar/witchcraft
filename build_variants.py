@@ -42,6 +42,16 @@ _PROPS = [
 
 _DECK = re.compile(r"exactly (\d+) cards, including its commander")
 
+# §801 — (rule, subject, action, anchor) what can't reach outside a player's range of influence.
+_ROI_RESTRICT = [
+    ("801.3", "creature", "attack", "Creatures can attack only"),
+    ("801.4", "spell_or_ability", "target", "be the targets of spells or abilities"),
+    ("801.6", "player", "activate_ability", "activate the activated abilities"),
+    ("801.8", "aura", "enchant", "enchant an object or player outside"),
+    ("801.9", "equipment", "equip", "equip an object outside"),
+    ("801.10", "spell_or_ability", "affect", "affect objects or players outside"),
+]
+
 # §901.9a/b/c — (rule, face, anchor, effect) planar-die roll outcomes.
 _DIE_OUTCOME = [
     ("901.9a", "blank", "nothing happens", "nothing_happens"),
@@ -161,6 +171,17 @@ def option_used() -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def roi_restriction() -> list[tuple[str, str, str]]:
+    """(rule, subject, action) — §801 what can't reach outside a controller's range of influence."""
+    texts = {}
+    for g, _name, _kind in _variant_groups():
+        if g.number == "801":
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    texts[sr.number] = sr.text
+    return [(n, subj, act) for n, subj, act, anchor in _ROI_RESTRICT if anchor in texts.get(n, "")]
+
+
 def variant_deck_size() -> list[tuple[str, str, int]]:
     """(rule, variant, n) — §903 'exactly N cards, including its commander' (Commander 100, Brawl 60)."""
     rows = []
@@ -204,6 +225,7 @@ def build() -> tuple[str, dict]:
     cons, uses, teams = constructs(), variant_uses(), variant_teams()
     props, roi, adir, opt = variant_properties(), variant_range_of_influence(), attack_direction(), option_used()
     deck, faces, outcomes = variant_deck_size(), planar_die_faces(), planar_die_outcomes()
+    roi_r = roi_restriction()
     p = Program()
     p.comment("variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.")
     p.comment("multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); "
@@ -220,6 +242,7 @@ def build() -> tuple[str, dict]:
     p.decl("variant_deck_size", [("variant", "symbol"), ("n", "number")])
     p.decl("planar_die_face", [("face", "symbol"), ("n", "number")])
     p.decl("planar_die_outcome", [("face", "symbol"), ("effect", "symbol")])
+    p.decl("roi_restriction", [("subject", "symbol"), ("action", "symbol")])
     p.blank()
     for _n, name, kind in cons:
         p.fact(f'multiplayer_construct("{name}", "{kind}")')
@@ -246,10 +269,12 @@ def build() -> tuple[str, dict]:
         p.fact(f'planar_die_face("{face}", {n})')
     for _n, face, eff in outcomes:
         p.fact(f'planar_die_outcome("{face}", "{eff}")')
+    for _n, subj, act in roi_r:
+        p.fact(f'roi_restriction("{subj}", "{act}")')
     p.blank()
     p.output("multiplayer_construct", "variant_uses", "variant_teams", "variant_property")
     p.output("variant_range_of_influence", "attack_direction", "option_used")
-    p.output("variant_deck_size", "planar_die_face", "planar_die_outcome")
+    p.output("variant_deck_size", "planar_die_face", "planar_die_outcome", "roi_restriction")
     p.blank()
     p.comment("conformance — spot-check the §8/§9 facts the rules state plainly")
     p.conformance(
@@ -273,7 +298,8 @@ def build() -> tuple[str, dict]:
     p.fact('expect_dir("attack_left", "left")')
     return p.text(), {"constructs": len(cons), "uses": len(uses), "teams": len(teams),
                       "props": len(props), "roi": len(roi), "adir": len(adir), "opt": len(opt),
-                      "deck": len(deck), "faces": len(faces), "outcomes": len(outcomes)}
+                      "deck": len(deck), "faces": len(faces), "outcomes": len(outcomes),
+                      "roi_r": len(roi_r)}
 
 
 def main() -> None:
@@ -283,7 +309,8 @@ def main() -> None:
     print(f"wrote datalog/variants.dl ({report['constructs']} construct, {report['uses']} uses, "
           f"{report['teams']} teams, {report['props']} property, {report['roi']} roi, "
           f"{report['adir']} attack_direction, {report['opt']} option_used, {report['deck']} deck_size, "
-          f"{report['faces']} planar_die_face, {report['outcomes']} planar_die_outcome)")
+          f"{report['faces']} planar_die_face, {report['outcomes']} planar_die_outcome, "
+          f"{report['roi_r']} roi_restriction)")
 
 
 if __name__ == "__main__":

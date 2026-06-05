@@ -153,6 +153,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_variants.variant_deck_size()}
                     | {r[0] for r in build_variants.planar_die_faces()}
                     | {r[0] for r in build_variants.planar_die_outcomes()}
+                    | {r[0] for r in build_variants.roi_restriction()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))

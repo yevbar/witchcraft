@@ -11,6 +11,7 @@
 .decl variant_deck_size(variant: symbol, n: number)
 .decl planar_die_face(face: symbol, n: number)
 .decl planar_die_outcome(face: symbol, effect: symbol)
+.decl roi_restriction(subject: symbol, action: symbol)
 
 multiplayer_construct("limited_range_of_influence", "option").
 multiplayer_construct("attack_multiple_players", "option").
@@ -67,6 +68,12 @@ planar_die_face("blank", 4).
 planar_die_outcome("blank", "nothing_happens").
 planar_die_outcome("chaos", "chaos_ensues").
 planar_die_outcome("planeswalker", "planeswalking_ability").
+roi_restriction("creature", "attack").
+roi_restriction("spell_or_ability", "target").
+roi_restriction("player", "activate_ability").
+roi_restriction("aura", "enchant").
+roi_restriction("equipment", "equip").
+roi_restriction("spell_or_ability", "affect").
 
 .output multiplayer_construct
 .output variant_uses
@@ -78,6 +85,7 @@ planar_die_outcome("planeswalker", "planeswalking_ability").
 .output variant_deck_size
 .output planar_die_face
 .output planar_die_outcome
+.output roi_restriction
 
 // conformance — spot-check the §8/§9 facts the rules state plainly
 .decl expect_construct(name: symbol, kind: symbol)

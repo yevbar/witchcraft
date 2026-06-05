@@ -964,6 +964,12 @@ interpreted("717.4").
 interpreted("729.1a").
 interpreted("800.1").
 interpreted("801.1").
+interpreted("801.10").
+interpreted("801.3").
+interpreted("801.4").
+interpreted("801.6").
+interpreted("801.8").
+interpreted("801.9").
 interpreted("802.1").
 interpreted("803.1").
 interpreted("803.1a").
