@@ -41,7 +41,6 @@ relation("outlaw", "refer", "object").
 relation("card", "refer", "outlaws").
 relation("travel", "mean", "time").
 relation("n", "mean", "card").
-relation("source", "cause", "event").
 relation("ability", "include", "x").
 relation("phrase", "mean", "thing").
 relation("modular", "represent", "ability").

@@ -432,6 +432,25 @@ def _clean(tok):
             and not any(ch in tok.text for ch in "—[]{}"))
 
 
+def _action(rule, doc):
+    """Generic active-declarative SVO "[subject] [verb] [object]" -> action(subject, verb, object).
+    The coarse catch-all (runs LAST) for declaratives whose verb no specific pattern claims; object
+    is '-' when there's no clean noun object. Copula/possession (be/have), passive, modal and
+    negated forms are excluded — those belong to the structured patterns ahead of this one."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB" or root.lemma_ in ("be", "have"):
+        return None
+    kids = list(root.children)
+    if any(c.dep_ in ("aux", "auxpass", "neg") for c in kids):
+        return None
+    subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if not _clean(subj):
+        return None
+    obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
+    o = obj.lemma_.lower() if _clean(obj) else "-"
+    return Out(rule, f'action("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{o}").   // {rule}', "action")
+
+
 _COMPARE_ADJ = {"same", "different", "greater", "less", "fewer", "equal", "identical", "similar"}
 
 
@@ -923,15 +942,64 @@ def _symbol_def(rule, doc):
     return Out(rule, f'symbol("{name}", "{glyph[0]}").   // {rule}', "symbol_def")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation]
+_MEANING_VERBS = {"represent", "mean"}
+
+
+def _symbol_means(rule, doc):
+    """§107.4c/d/g/h — "[The …] symbol {glyph} represents / means [meaning]" (also passive
+    "is used to represent [meaning]") -> symbol_means(glyph, meaning). The masked glyph is the
+    nsubj, recovered from the legend; the meaning is the WHOLE object noun phrase (kept intact so
+    the fact isn't lossy — {0} -> "zero mana", not just "mana"). The copula form "X symbol is
+    {glyph}" stays with _symbol_def; relational SVO with a non-masked subject stays with _relation."""
+    root = _root(doc)
+    if root is None:
+        return None
+    subj = next((c for c in root.children if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None or subj.text not in _LEGEND:
+        return None
+    glyph = _LEGEND[subj.text]
+    g = glyph[0] if isinstance(glyph, (list, tuple)) else glyph
+    if not (isinstance(g, str) and g.startswith("{")):        # subject must be a masked symbol glyph
+        return None
+    if root.lemma_ in _MEANING_VERBS:                         # active "{glyph} represents/means X"
+        mverb = root
+    elif root.lemma_ == "use":                                # passive "is used to represent X"
+        mverb = next((c for c in root.children if c.dep_ == "xcomp" and c.lemma_ in _MEANING_VERBS), None)
+    else:
+        return None
+    if mverb is None:
+        return None
+    obj = next((c for c in mverb.children if c.dep_ in ("dobj", "obj")), None)
+    if obj is None:
+        return None
+    meaning = " ".join(t.text.lower() for t in obj.subtree
+                       if t.is_alpha and t.pos_ != "DET" and not _masked(t))
+    if not meaning:
+        return None
+    return Out(rule, f'symbol_means("{g}", "{meaning}").   // {rule}', "symbol_means")
+
+
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 
 
+import re as _re
+
+# Aside parentheticals — cross-references and illustrative lists that spaCy otherwise mis-attaches
+# as the sentence ROOT ("see rule N" -> root "see"), stranding the real clause's subject. Stripping
+# them before the parse is the leading-scope-recovery fix: it rescues the main clause for every
+# pattern, not just one. Only asides that START with one of these markers are removed (a "(see …)"
+# is always a reference; a bare "(…)" might carry content, so it's left in place).
+_ASIDE = _re.compile(r"\s*\((?:see |such as |for example|e\.g\.|i\.e\.|including )[^()]*\)", _re.I)
+
+
 def _normalize(s: str) -> str:
-    """Normalize curly quotes/apostrophes to ASCII so spaCy tokenizes/parses
-    deterministically (e.g. curly "can’t" otherwise breaks the dependency parse)."""
-    return s.replace("’", "'").replace("“", '"').replace("”", '"')
+    """Normalize curly quotes/apostrophes to ASCII so spaCy tokenizes/parses deterministically
+    (e.g. curly "can’t" otherwise breaks the dependency parse), and drop "(see rule N)"-style aside
+    parentheticals that would otherwise hijack the dependency ROOT."""
+    s = s.replace("’", "'").replace("“", '"').replace("”", '"')
+    return _ASIDE.sub("", s).strip()
 
 
 def transpile_rule(rule: str, text: str) -> Out | None:

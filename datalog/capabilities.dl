@@ -5,6 +5,7 @@
 
 grants("format", "allow", "use").
 grants("card", "allow", "take").
+grants("effect", "cause", "lose").
 grants("card", "cause", "lose").
 grants("spell", "allow", "take").
 grants("effect", "instruct", "create").

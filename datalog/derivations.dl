@@ -7,6 +7,7 @@
 derived("card", "assign", "scope", "play").
 derived("card", "intend", "scope", "play").
 derived("part", "ignore", "absolute", "-").
+derived("mana", "represent", "by", "symbol").
 derived("mana", "produce", "by", "effect").
 derived("controller", "consider", "scope", "game").
 derived("emblem", "control", "by", "player").

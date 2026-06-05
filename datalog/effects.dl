@@ -32,6 +32,7 @@ effect("game", "get", "-", "yes").
 effect("player", "get", "marker", "yes").
 effect("card", "add", "ability", "yes").
 effect("face", "become", "object", "yes").
+effect("player", "set", "plane", "yes").
 effect("card", "become", "pool", "yes").
 
 .output effect

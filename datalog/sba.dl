@@ -71,6 +71,7 @@ conditional("marker", "be", "owner", "remove", "condition").   // 704.5t
 conditional("-", "be", "player", "choose", "condition").   // 704.5u
 conditional("player", "attack", "controller", "choose", "condition").   // 704.5w
 conditional("controller", "be", "player", "choose", "condition").   // 704.5x
+action("player", "control", "-").   // 704.5z
 sba_loses(T, "704.6a") :- life(T, V), V <= 0.   // 704.6a
 sba_loses(T, "704.6b") :- poison(T, V), V >= 15.   // 704.6b
 sba_loses(P, "704.6c") :- commander(Src), dealt_combat_damage(Src, P, _), D = sum X : { dealt_combat_damage(Src, P, X) }, D >= 21.   // 704.6c

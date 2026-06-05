@@ -13,3 +13,4 @@ venv/
 # Soufflé / scratch output
 *.csv
 /tmp/
+.claude/
