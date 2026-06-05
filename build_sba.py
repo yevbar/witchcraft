@@ -127,7 +127,14 @@ def transpile_704_5() -> tuple[list, list]:
                         if not sr.number.startswith(("704.5", "704.6")):   # 704.5 player SBAs + 704.6 team/variant SBAs
                             continue
                         out = transpile_rule(sr.number, sr.text)
-                        (transpiled.append((sr.number, out.datalog)) if out else skipped.append(sr.number))
+                        # Keep ONLY genuine SBA outputs (sba_* head). The generic cross-cutting
+                        # patterns (conditional/relation/…) now also match some §704.5/6 subrules,
+                        # but those facts belong in their own .dl — emitting them here would inject
+                        # relations sba.dl never declares (e.g. conditional), breaking compilation.
+                        if out and out.datalog.lstrip().startswith("sba_"):
+                            transpiled.append((sr.number, out.datalog))
+                        else:
+                            skipped.append(sr.number)
     return transpiled, skipped
 
 

@@ -11,8 +11,38 @@ output, so "entirely deterministic" is verified, not merely claimed.
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+# Static #include partials — not standalone programs (they declare relations a parent file fills),
+# so souffle can't compile them alone. Every other datalog/*.dl must compile on its own.
+COMPILE_SKIP = {"datalog/cost_engine.dl", "datalog/cost_tests.dl"}
+
+
+def compile_check() -> bool:
+    """Run `souffle <file>` on every standalone datalog/*.dl and fail if any won't compile.
+    Determinism alone doesn't catch a byte-stable but INVALID .dl (e.g. a fact referencing an
+    undeclared relation) — this turns 'valid souffle' into a verified build invariant."""
+    souffle = shutil.which("souffle")
+    if souffle is None:
+        print("WARNING: souffle not found — skipping compile gate")
+        return True
+    ok = True
+    with tempfile.TemporaryDirectory() as out:
+        for f in sorted(str(p) for p in Path("datalog").glob("*.dl")):
+            if f in COMPILE_SKIP:
+                continue
+            r = subprocess.run([souffle, f, "-D", out], capture_output=True, text=True)
+            if r.returncode != 0:
+                ok = ok and False
+                err = next((ln for ln in r.stderr.splitlines() if "Error" in ln), r.stderr.strip()[:120])
+                print(f"  COMPILE FAIL  {f}  ::  {err}")
+    print("OK — every standalone Datalog artifact compiles in souffle" if ok
+          else "FAIL — some Datalog artifact does not compile")
+    return ok
 
 import build_abilities
 import build_actions
@@ -75,6 +105,7 @@ import build_existentials
 import build_copula_extras
 import build_action_defs
 import build_svo
+import build_can
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -115,7 +146,7 @@ GENERATED = [
     "datalog/conditionals.dl", "datalog/possessions.dl", "datalog/permissions.dl",
     "datalog/derivations.dl", "datalog/effects.dl", "datalog/relations.dl",
     "datalog/capabilities.dl", "datalog/obligations.dl", "datalog/existentials.dl",
-    "datalog/copula_extras.dl", "datalog/action_defs.dl", "datalog/svo.dl",
+    "datalog/copula_extras.dl", "datalog/action_defs.dl", "datalog/svo.dl", "datalog/can.dl",
 ]
 
 
@@ -192,6 +223,7 @@ def regenerate() -> None:
     build_copula_extras.main()
     build_action_defs.main()
     build_svo.main()
+    build_can.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()
@@ -214,7 +246,8 @@ def main() -> int:
         print(f"  {f:24} {'deterministic' if deterministic else 'NON-DETERMINISTIC'}  sha256={digest}")
     print("OK — generated Datalog is byte-identical across runs" if ok
           else "FAIL — generation is non-deterministic")
-    return 0 if ok else 1
+    compiles = compile_check()
+    return 0 if (ok and compiles) else 1
 
 
 if __name__ == "__main__":
