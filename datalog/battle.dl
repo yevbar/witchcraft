@@ -1,0 +1,39 @@
+// battle.dl — §310 Battles, interpreted from rules.txt.
+// battle_defense(context, value); battle_subtype(name); battle_property(property). GENERATED.
+
+.decl battle_defense(context: symbol, value: symbol)
+.decl battle_subtype(name: symbol)
+.decl battle_property(property: symbol)
+
+battle_defense("not_on_battlefield", "printed").
+battle_defense("on_battlefield", "defense_counters").
+battle_subtype("Siege").
+
+battle_property("defense_is_a_characteristic").
+battle_property("enters_with_defense_counters").
+battle_property("damage_removes_defense_counters").
+battle_property("graveyard_at_zero_defense").
+battle_property("has_protector").
+battle_property("single_protector").
+battle_property("cant_be_attached").
+battle_property("siege_protector_from_opponents").
+
+.output battle_defense
+.output battle_subtype
+.output battle_property
+
+// conformance — spot-check the §310 battle facts the rules state plainly
+.decl expect_defense(context: symbol, value: symbol)
+.decl expect_subtype(name: symbol)
+.decl expect_property(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("defense", C, V) :- expect_defense(C, V), !battle_defense(C, V).
+conformance_fail("subtype", N, "-") :- expect_subtype(N), !battle_subtype(N).
+conformance_fail("property", P, "-") :- expect_property(P), !battle_property(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_defense("on_battlefield", "defense_counters").
+expect_defense("not_on_battlefield", "printed").
+expect_subtype("Siege").
+expect_property("graveyard_at_zero_defense").
+expect_property("enters_with_defense_counters").
