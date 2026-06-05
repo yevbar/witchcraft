@@ -111,6 +111,13 @@ def _default_starting_life() -> int:
     return int(re.search(r'starting_life\("default", (\d+)\)', text).group(1))
 
 
+def _life_loss_threshold() -> int:
+    """The life total at or below which a player loses (§104.3b / §704.5a), interpreted into
+    ending.dl — the same loss_threshold the engine reads, not a hardcoded 0."""
+    text = Path("datalog/ending.dl").read_text()
+    return int(re.search(r'loss_threshold\("life_zero", (-?\d+)\)', text).group(1))
+
+
 def _load_keyword_abilities() -> frozenset:
     """The defined §702 keyword abilities (flying, trample, …), interpreted into
     keyword_ability_index.dl — the canonical keyword vocabulary. The engine's build-time
@@ -137,6 +144,7 @@ def assert_known_keywords(state: dict) -> None:
 
 DRAW_SKIP_VARIANTS = _load_draw_skip_variants()        # {"two-player", "two-headed_giant"}
 DEFAULT_LIFE = _default_starting_life()                # 20
+LIFE_LOSS_THRESHOLD = _life_loss_threshold()           # 0 (§104.3b)
 # §110.5b — permanents enter untapped/unflipped/face up/phased in; the driver never taps an
 # entering permanent unless a §614 replacement (enters_tapped) says so, matching that default.
 
@@ -246,7 +254,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     for (p, n) in out["player_damage"]:                          # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
     _apply_effects(state, out["pending"])                        # §603 -> §608 triggered effects
-    dead = sorted(p for (p, v) in state["life"] if v <= 0)
+    dead = sorted(p for (p, v) in state["life"] if v <= LIFE_LOSS_THRESHOLD)
     if out["loses_game"] or dead:                                # §704.5a / triggered-effect death
         loser = sorted(out["loses_game"])[0][0] if out["loses_game"] else dead[0]
         print(f"  ** {loser} loses the game **")

@@ -220,10 +220,10 @@ dies(C) :- creature(C), eff_toughness(C, T), T > 0, marked(C, D), D >= T, !cant_
 dies(C) :- creature(C), deals(S, C, N), N >= 1, has_keyword(S, "deathtouch"), !cant_be_destroyed(C).
 // §104 numeric loss thresholds, INTERPRETED from rules.txt by build_ending (not hardcoded).
 .decl loss_threshold(condition: symbol, n: number)
-loss_threshold("poison_ten", 10). loss_threshold("commander_damage", 21).
+loss_threshold("life_zero", 0). loss_threshold("poison_ten", 10). loss_threshold("commander_damage", 21).
 .decl loses_game(p: symbol)
-// §704.5a
-loses_game(P) :- remaining_life(P, L), L <= 0.
+// §704.5a — threshold interpreted into ending.dl
+loses_game(P) :- remaining_life(P, L), loss_threshold("life_zero", T), L <= T.
 // §704.5c
 loses_game(P) :- total_poison(P, N), loss_threshold("poison_ten", T), N >= T.
 

@@ -88,8 +88,9 @@ _NUMWORD = {"ten": 10, "twenty-one": 21, "twenty one": 21}
 
 
 def thresholds() -> list[tuple[str, str, int]]:
-    """(rule, condition, n) — the numeric loss thresholds §104 states ("ten or more poison
-    counters" -> 10, "21 or more combat damage" -> 21). The engine depends on these."""
+    """(rule, condition, n) — the numeric loss thresholds §104 states ("0 or less life" -> 0,
+    "ten or more poison counters" -> 10, "21 or more combat damage" -> 21). The engine and
+    driver depend on these instead of hardcoding the cutoffs."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
     rows = []
     for s in doc.sections:
@@ -102,7 +103,11 @@ def thresholds() -> list[tuple[str, str, int]]:
                 for sr in [r] + r.subrules:
                     low = sr.text.strip().lower()
                     cond = _condition(low)
-                    if cond == "poison_ten":
+                    if cond == "life_zero":
+                        m = re.search(r"(\d+) or less", low)
+                        if m:
+                            rows.append((sr.number, cond, int(m.group(1))))
+                    elif cond == "poison_ten":
                         m = re.search(r"(ten|\d+) or more poison", low)
                         if m:
                             rows.append((sr.number, cond, _NUMWORD.get(m.group(1), int(m.group(1)) if m.group(1).isdigit() else 0)))

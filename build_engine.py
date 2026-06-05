@@ -458,7 +458,7 @@ def _rules(p: Program) -> None:
     p.decl("loss_threshold", [("condition", "symbol"), ("n", "number")])
     p.facts([f'loss_threshold("{c}", {n})' for _r, c, n in _loss_thresholds()])
     p.decl("loses_game", [("p", "symbol")])
-    p.rule("loses_game(P)", ["remaining_life(P, L)", "L <= 0"], note="§704.5a")
+    p.rule("loses_game(P)", ["remaining_life(P, L)", 'loss_threshold("life_zero", T)', "L <= T"], note="§704.5a — threshold interpreted into ending.dl")
     p.rule("loses_game(P)", ["total_poison(P, N)", 'loss_threshold("poison_ten", T)', "N >= T"], note="§704.5c")
     p.blank()
     p.comment("§701.8a zone movement — TRANSPILED. A creature put into the graveyard by")

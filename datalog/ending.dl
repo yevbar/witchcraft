@@ -17,6 +17,7 @@ game_end("draw", "player", "all_lose_simultaneous").
 game_end("draw", "player", "effect").
 game_end("draw", "team", "all_lose_simultaneous").
 
+loss_threshold("life_zero", 0).
 loss_threshold("poison_ten", 10).
 loss_threshold("commander_damage", 21).
 
