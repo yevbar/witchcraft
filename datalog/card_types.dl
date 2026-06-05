@@ -1,0 +1,50 @@
+// card_types.dl — §3 card-type rules, interpreted from rules.txt.
+// subtype_single_word(card_type); planeswalker_loyalty(context, value); planeswalker_property(property); dungeon_property(property). GENERATED.
+
+.decl subtype_single_word(card_type: symbol)
+.decl planeswalker_loyalty(context: symbol, value: symbol)
+.decl planeswalker_property(property: symbol)
+.decl dungeon_property(property: symbol)
+
+subtype_single_word("artifact").
+subtype_single_word("enchantment").
+subtype_single_word("instant").
+subtype_single_word("land").
+subtype_single_word("planeswalker").
+subtype_single_word("sorcery").
+subtype_single_word("battle").
+
+planeswalker_loyalty("not_on_battlefield", "printed").
+planeswalker_loyalty("on_battlefield", "loyalty_counters").
+planeswalker_property("loyalty_is_characteristic").
+planeswalker_property("enters_with_loyalty_counters").
+planeswalker_property("can_be_attacked").
+
+dungeon_property("begins_outside_game").
+dungeon_property("not_permanent").
+dungeon_property("cant_be_cast").
+dungeon_property("stays_in_command_zone").
+dungeon_property("one_at_a_time").
+
+.output subtype_single_word
+.output planeswalker_loyalty
+.output planeswalker_property
+.output dungeon_property
+
+// conformance — spot-check the §3 card-type facts the rules state plainly
+.decl expect_sub(card_type: symbol)
+.decl expect_loy(context: symbol, value: symbol)
+.decl expect_pw(property: symbol)
+.decl expect_dun(property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("sub", C, "-") :- expect_sub(C), !subtype_single_word(C).
+conformance_fail("loy", C, V) :- expect_loy(C, V), !planeswalker_loyalty(C, V).
+conformance_fail("pw", P, "-") :- expect_pw(P), !planeswalker_property(P).
+conformance_fail("dun", P, "-") :- expect_dun(P), !dungeon_property(P).
+.output conformance_fail
+.printsize conformance_fail
+expect_sub("land").
+expect_sub("planeswalker").
+expect_loy("on_battlefield", "loyalty_counters").
+expect_pw("loyalty_is_characteristic").
+expect_dun("not_permanent").
