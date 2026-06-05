@@ -1,0 +1,44 @@
+// color.dl — §202 Mana Cost and Color, interpreted from rules.txt.
+// color_source(source); color_combination(kind); colorless_rule(); mana_value_def(); mana_value_special(kind, context, value). GENERATED.
+
+.decl color_source(source: symbol)
+.decl color_combination(kind: symbol)
+.decl colorless_rule(present: symbol)
+.decl mana_value_def(present: symbol)
+.decl mana_value_special(kind: symbol, context: symbol, value: symbol)
+
+color_source("mana_cost").
+color_source("color_indicator").
+color_combination("multicolored").
+color_combination("hybrid_adds_color").
+colorless_rule("yes").
+mana_value_def("yes").
+
+mana_value_special("none", "-", "0").
+mana_value_special("x", "off_stack", "0").
+mana_value_special("x", "on_stack", "chosen").
+mana_value_special("hybrid", "-", "largest_component").
+mana_value_special("phyrexian", "-", "one").
+
+.output color_source
+.output color_combination
+.output colorless_rule
+.output mana_value_def
+.output mana_value_special
+
+// conformance — spot-check the §202 facts the rules state plainly
+.decl expect_source(source: symbol)
+.decl expect_combination(kind: symbol)
+.decl expect_special(kind: symbol, context: symbol, value: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("source", S, "-") :- expect_source(S), !color_source(S).
+conformance_fail("combo", K, "-") :- expect_combination(K), !color_combination(K).
+conformance_fail("special", K, V) :- expect_special(K, C, V), !mana_value_special(K, C, V).
+.output conformance_fail
+.printsize conformance_fail
+expect_source("mana_cost").
+expect_source("color_indicator").
+expect_combination("multicolored").
+expect_special("x", "off_stack", "0").
+expect_special("phyrexian", "-", "one").
+expect_special("hybrid", "-", "largest_component").

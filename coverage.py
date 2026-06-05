@@ -38,6 +38,7 @@ import build_tba
 import build_terms
 import build_zone_props
 import build_split
+import build_color
 import build_keyword_definitions
 import build_enumerations
 import build_keyword_defs
@@ -105,6 +106,11 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_zone_props.doesnt_use_stack()}
                     | {r[0] for r in build_split.split_characteristics()}
                     | {r[0] for r in build_split.room_actions()}
+                    | {r[0] for r in build_color.color_sources()}
+                    | {r[0] for r in build_color.color_combinations()}
+                    | {r[0] for r in build_color.colorless_rules()}
+                    | {r[0] for r in build_color.mana_value_def()}
+                    | {r[0] for r in build_color.mana_value_special()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))
