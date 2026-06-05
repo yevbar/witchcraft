@@ -23,7 +23,20 @@ from rules_parser import split
 _WORD = {"two": 2, "three": 3, "four": 4, "five": 5}
 _USES = re.compile(r"The (.+?) variant (?:always )?uses the ([\w\- ]+?) option", re.I)
 _TEAMS = re.compile(r"teams of (\w+) players each", re.I)
-_BEFORE = re.compile(r"options used are (?:determined|decided) before play begins", re.I)
+_ROI = re.compile(r"range of influence[^.\d]{0,25}(\d+)", re.I)
+_OPTION_USED = re.compile(r"[Tt]he ([a-z][\w ]+?) option (is|isn['’]?t)(?: normally| usually)? used")
+
+# (anchor phrase, property) — recurring clean clauses across §8/§9 -> variant_property(variant, property).
+_PROPS = [
+    ("options used are determined before play begins", "options_set_before_play"),
+    ("options used are decided before play begins", "options_set_before_play"),
+    ("resources (cards in hand, mana, and so on) are not shared", "resources_not_shared"),
+    ("Each team sits together on one side of the table", "team_sits_together"),
+    ("randomly seated around the table", "random_seating"),
+    ("players are seated at random", "random_seating"),
+    ("shared life total", "shared_life_total"),
+    ("skips the draw step of its first turn", "first_turn_skips_draw"),
+]
 
 
 def _slug(s: str) -> str:
@@ -80,65 +93,134 @@ def variant_teams() -> list[tuple[str, str, int]]:
 
 
 def variant_properties() -> list[tuple[str, str, str]]:
-    """(rule, variant, property) — the recurring 'options set before play begins' clause."""
+    """(rule, variant, property) — recurring clean clauses (resources not shared, team sits
+    together, random seating, shared life, first-turn draw skip, options set before play)."""
+    rows, seen = [], set()
+    for g, name, _kind in _variant_groups():
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                for phrase, prop in _PROPS:
+                    if phrase in sr.text and (sr.number, prop) not in seen:
+                        seen.add((sr.number, prop))
+                        rows.append((sr.number, name, prop))
+    return rows
+
+
+def variant_range_of_influence() -> list[tuple[str, str, int]]:
+    """(rule, variant, n) — a variant's range of influence ('range of influence of/is N')."""
     rows = []
     for g, name, _kind in _variant_groups():
         for r in g.rules:
             for sr in [r] + r.subrules:
-                if _BEFORE.search(sr.text):
-                    rows.append((sr.number, name, "options_set_before_play"))
+                m = _ROI.search(sr.text)
+                if m:
+                    rows.append((sr.number, name, int(m.group(1))))
+    return rows
+
+
+def attack_direction() -> list[tuple[str, str, str]]:
+    """(rule, option, direction) — §803.1a/b the attack-left / attack-right options."""
+    rows = []
+    for g, _name, _kind in _variant_groups():
+        if g.number != "803":
+            continue
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                if "attack left option is used" in sr.text:
+                    rows.append((sr.number, "attack_left", "left"))
+                elif "attack right option is used" in sr.text:
+                    rows.append((sr.number, "attack_right", "right"))
+    return rows
+
+
+def option_used() -> list[tuple[str, str, str, str]]:
+    """(rule, variant, option, used) — 'The <option> option is/isn't used' in a variant group,
+    option validated against the interpreted option roster (multi-option list clauses abstained)."""
+    options = {name for _n, name, kind in constructs() if kind == "option"}
+    rows = []
+    for g, name, kind in _variant_groups():
+        if kind != "variant":
+            continue
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                m = _OPTION_USED.search(sr.text)
+                if m and _slug(m.group(1)) in options:
+                    used = "yes" if m.group(2).lower() == "is" else "no"
+                    rows.append((sr.number, name, _slug(m.group(1)), used))
     return rows
 
 
 def build() -> tuple[str, dict]:
-    cons, uses, teams, props = constructs(), variant_uses(), variant_teams(), variant_properties()
+    cons, uses, teams = constructs(), variant_uses(), variant_teams()
+    props, roi, adir, opt = variant_properties(), variant_range_of_influence(), attack_direction(), option_used()
     p = Program()
     p.comment("variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.")
-    p.comment("multiplayer_construct(name, kind); variant_uses(variant, option); "
-              "variant_teams(variant, n); variant_property(variant, property). GENERATED.")
+    p.comment("multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); "
+              "variant_property(variant, property); variant_range_of_influence(variant, n); "
+              "attack_direction(option, direction); option_used(variant, option, used). GENERATED.")
     p.blank()
     p.decl("multiplayer_construct", [("name", "symbol"), ("kind", "symbol")])
     p.decl("variant_uses", [("variant", "symbol"), ("option", "symbol")])
     p.decl("variant_teams", [("variant", "symbol"), ("n", "number")])
     p.decl("variant_property", [("variant", "symbol"), ("property", "symbol")])
+    p.decl("variant_range_of_influence", [("variant", "symbol"), ("n", "number")])
+    p.decl("attack_direction", [("option", "symbol"), ("direction", "symbol")])
+    p.decl("option_used", [("variant", "symbol"), ("option", "symbol"), ("used", "symbol")])
     p.blank()
     for _n, name, kind in cons:
         p.fact(f'multiplayer_construct("{name}", "{kind}")')
     p.blank()
-    for _n, var, opt in uses:
-        p.fact(f'variant_uses("{var}", "{opt}")')
+    for _n, var, o in uses:
+        p.fact(f'variant_uses("{var}", "{o}")')
     for _n, var, n in teams:
         p.fact(f'variant_teams("{var}", {n})')
-    for _n, var, prop in props:
+    seen_prop = set()
+    for _n, var, prop in props:                          # several rules can state the same property
+        if (var, prop) in seen_prop:
+            continue
+        seen_prop.add((var, prop))
         p.fact(f'variant_property("{var}", "{prop}")')
+    for _n, var, n in roi:
+        p.fact(f'variant_range_of_influence("{var}", {n})')
+    for _n, o, d in adir:
+        p.fact(f'attack_direction("{o}", "{d}")')
+    for _n, var, o, used in opt:
+        p.fact(f'option_used("{var}", "{o}", "{used}")')
     p.blank()
     p.output("multiplayer_construct", "variant_uses", "variant_teams", "variant_property")
+    p.output("variant_range_of_influence", "attack_direction", "option_used")
     p.blank()
     p.comment("conformance — spot-check the §8/§9 facts the rules state plainly")
     p.conformance(
         [("expect_construct", [("name", "symbol"), ("kind", "symbol")]),
          ("expect_uses", [("variant", "symbol"), ("option", "symbol")]),
-         ("expect_teams", [("variant", "symbol"), ("n", "number")])],
+         ("expect_teams", [("variant", "symbol"), ("n", "number")]),
+         ("expect_property", [("variant", "symbol"), ("property", "symbol")]),
+         ("expect_dir", [("option", "symbol"), ("direction", "symbol")])],
         [("construct", "expect_construct(N, K)", "miss", "multiplayer_construct(N, K)"),
          ("uses", "expect_uses(V, O)", "miss", "variant_uses(V, O)"),
-         ("teams", "expect_teams(V, N)", "miss", "variant_teams(V, N)", "V", '"-"')],
+         ("teams", "expect_teams(V, N)", "miss", "variant_teams(V, N)", "V", '"-"'),
+         ("property", "expect_property(V, P)", "miss", "variant_property(V, P)"),
+         ("dir", "expect_dir(O, D)", "miss", "attack_direction(O, D)")],
     )
     for atom in ['expect_construct("commander", "variant")',
                  'expect_construct("shared_team_turns", "option")']:
         p.fact(atom)
     p.fact('expect_uses("two_headed_giant", "shared_team_turns")')
     p.fact('expect_teams("two_headed_giant", 2)')
-    return p.text(), {"constructs": len(cons), "uses": len(uses),
-                      "teams": len(teams), "props": len(props)}
+    p.fact('expect_property("two_headed_giant", "team_sits_together")')
+    p.fact('expect_dir("attack_left", "left")')
+    return p.text(), {"constructs": len(cons), "uses": len(uses), "teams": len(teams),
+                      "props": len(props), "roi": len(roi), "adir": len(adir), "opt": len(opt)}
 
 
 def main() -> None:
     Path("datalog").mkdir(exist_ok=True)
     source, report = build()
     Path("datalog/variants.dl").write_text(source, encoding="utf-8")
-    print(f"wrote datalog/variants.dl ({report['constructs']} multiplayer_construct, "
-          f"{report['uses']} variant_uses, {report['teams']} variant_teams, "
-          f"{report['props']} variant_property)")
+    print(f"wrote datalog/variants.dl ({report['constructs']} construct, {report['uses']} uses, "
+          f"{report['teams']} teams, {report['props']} property, {report['roi']} roi, "
+          f"{report['adir']} attack_direction, {report['opt']} option_used)")
 
 
 if __name__ == "__main__":

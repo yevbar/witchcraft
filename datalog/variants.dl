@@ -1,10 +1,13 @@
 // variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.
-// multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); variant_property(variant, property). GENERATED.
+// multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); variant_property(variant, property); variant_range_of_influence(variant, n); attack_direction(option, direction); option_used(variant, option, used). GENERATED.
 
 .decl multiplayer_construct(name: symbol, kind: symbol)
 .decl variant_uses(variant: symbol, option: symbol)
 .decl variant_teams(variant: symbol, n: number)
 .decl variant_property(variant: symbol, property: symbol)
+.decl variant_range_of_influence(variant: symbol, n: number)
+.decl attack_direction(option: symbol, direction: symbol)
+.decl option_used(variant: symbol, option: symbol, used: symbol)
 
 multiplayer_construct("limited_range_of_influence", "option").
 multiplayer_construct("attack_multiple_players", "option").
@@ -28,26 +31,55 @@ variant_uses("two_headed_giant", "shared_team_turns").
 variant_teams("emperor", 3).
 variant_teams("two_headed_giant", 2).
 variant_property("free_for_all", "options_set_before_play").
+variant_property("free_for_all", "random_seating").
 variant_property("grand_melee", "options_set_before_play").
+variant_property("grand_melee", "random_seating").
+variant_property("team_vs_team", "team_sits_together").
 variant_property("team_vs_team", "options_set_before_play").
+variant_property("team_vs_team", "resources_not_shared").
+variant_property("emperor", "team_sits_together").
+variant_property("emperor", "resources_not_shared").
+variant_property("two_headed_giant", "team_sits_together").
+variant_property("two_headed_giant", "shared_life_total").
+variant_property("two_headed_giant", "resources_not_shared").
+variant_property("two_headed_giant", "first_turn_skips_draw").
 variant_property("alternating_teams", "options_set_before_play").
+variant_property("alternating_teams", "resources_not_shared").
+variant_property("archenemy", "shared_life_total").
+variant_range_of_influence("grand_melee", 1).
+variant_range_of_influence("emperor", 2).
+variant_range_of_influence("alternating_teams", 2).
+attack_direction("attack_left", "left").
+attack_direction("attack_right", "right").
+option_used("free_for_all", "deploy_creatures", "no").
+option_used("team_vs_team", "attack_multiple_players", "yes").
+option_used("alternating_teams", "deploy_creatures", "no").
 
 .output multiplayer_construct
 .output variant_uses
 .output variant_teams
 .output variant_property
+.output variant_range_of_influence
+.output attack_direction
+.output option_used
 
 // conformance — spot-check the §8/§9 facts the rules state plainly
 .decl expect_construct(name: symbol, kind: symbol)
 .decl expect_uses(variant: symbol, option: symbol)
 .decl expect_teams(variant: symbol, n: number)
+.decl expect_property(variant: symbol, property: symbol)
+.decl expect_dir(option: symbol, direction: symbol)
 .decl conformance_fail(kind: symbol, a: symbol, b: symbol)
 conformance_fail("construct", N, K) :- expect_construct(N, K), !multiplayer_construct(N, K).
 conformance_fail("uses", V, O) :- expect_uses(V, O), !variant_uses(V, O).
 conformance_fail("teams", V, "-") :- expect_teams(V, N), !variant_teams(V, N).
+conformance_fail("property", V, P) :- expect_property(V, P), !variant_property(V, P).
+conformance_fail("dir", O, D) :- expect_dir(O, D), !attack_direction(O, D).
 .output conformance_fail
 .printsize conformance_fail
 expect_construct("commander", "variant").
 expect_construct("shared_team_turns", "option").
 expect_uses("two_headed_giant", "shared_team_turns").
 expect_teams("two_headed_giant", 2).
+expect_property("two_headed_giant", "team_sits_together").
+expect_dir("attack_left", "left").

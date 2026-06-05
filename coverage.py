@@ -147,6 +147,9 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_variants.variant_uses()}
                     | {r[0] for r in build_variants.variant_teams()}
                     | {r[0] for r in build_variants.variant_properties()}
+                    | {r[0] for r in build_variants.variant_range_of_influence()}
+                    | {r[0] for r in build_variants.attack_direction()}
+                    | {r[0] for r in build_variants.option_used()}
                     | (lambda cov: {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[0]}
                        | {n for n,_,_ in build_keyword_taxonomy.supplementary(cov)[1]})
                       ({re.match(r'(702\.\d+)', n).group(1) for n,_ in build_keyword_taxonomy.transpile_taxonomy()}))
