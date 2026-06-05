@@ -8,6 +8,9 @@
 .decl variant_range_of_influence(variant: symbol, n: number)
 .decl attack_direction(option: symbol, direction: symbol)
 .decl option_used(variant: symbol, option: symbol, used: symbol)
+.decl variant_deck_size(variant: symbol, n: number)
+.decl planar_die_face(face: symbol, n: number)
+.decl planar_die_outcome(face: symbol, effect: symbol)
 
 multiplayer_construct("limited_range_of_influence", "option").
 multiplayer_construct("attack_multiple_players", "option").
@@ -45,6 +48,8 @@ variant_property("two_headed_giant", "resources_not_shared").
 variant_property("two_headed_giant", "first_turn_skips_draw").
 variant_property("alternating_teams", "options_set_before_play").
 variant_property("alternating_teams", "resources_not_shared").
+variant_property("commander", "uses_color_identity").
+variant_property("commander", "no_sideboard").
 variant_property("archenemy", "shared_life_total").
 variant_range_of_influence("grand_melee", 1).
 variant_range_of_influence("emperor", 2).
@@ -54,6 +59,14 @@ attack_direction("attack_right", "right").
 option_used("free_for_all", "deploy_creatures", "no").
 option_used("team_vs_team", "attack_multiple_players", "yes").
 option_used("alternating_teams", "deploy_creatures", "no").
+variant_deck_size("commander", 100).
+variant_deck_size("brawl", 60).
+planar_die_face("planeswalker", 1).
+planar_die_face("chaos", 1).
+planar_die_face("blank", 4).
+planar_die_outcome("blank", "nothing_happens").
+planar_die_outcome("chaos", "chaos_ensues").
+planar_die_outcome("planeswalker", "planeswalking_ability").
 
 .output multiplayer_construct
 .output variant_uses
@@ -62,6 +75,9 @@ option_used("alternating_teams", "deploy_creatures", "no").
 .output variant_range_of_influence
 .output attack_direction
 .output option_used
+.output variant_deck_size
+.output planar_die_face
+.output planar_die_outcome
 
 // conformance — spot-check the §8/§9 facts the rules state plainly
 .decl expect_construct(name: symbol, kind: symbol)

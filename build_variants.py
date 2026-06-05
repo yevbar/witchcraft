@@ -36,6 +36,17 @@ _PROPS = [
     ("players are seated at random", "random_seating"),
     ("shared life total", "shared_life_total"),
     ("skips the draw step of its first turn", "first_turn_skips_draw"),
+    ("uses color identity to determine", "uses_color_identity"),
+    ("do not use sideboards", "no_sideboard"),
+]
+
+_DECK = re.compile(r"exactly (\d+) cards, including its commander")
+
+# §901.9a/b/c — (rule, face, anchor, effect) planar-die roll outcomes.
+_DIE_OUTCOME = [
+    ("901.9a", "blank", "nothing happens", "nothing_happens"),
+    ("901.9b", "chaos", "chaos ensues", "chaos_ensues"),
+    ("901.9c", "planeswalker", "planeswalking ability", "planeswalking_ability"),
 ]
 
 
@@ -150,9 +161,49 @@ def option_used() -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def variant_deck_size() -> list[tuple[str, str, int]]:
+    """(rule, variant, n) — §903 'exactly N cards, including its commander' (Commander 100, Brawl 60)."""
+    rows = []
+    for g, _name, _kind in _variant_groups():
+        if g.number != "903":
+            continue
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                m = _DECK.search(sr.text)
+                if m:
+                    var = "brawl" if sr.number.startswith("903.12") else "commander"
+                    rows.append((sr.number, var, int(m.group(1))))
+    return rows
+
+
+def _planechase_texts() -> dict[str, str]:
+    out = {}
+    for g, _name, _kind in _variant_groups():
+        if g.number == "901":
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    out[sr.number] = sr.text
+    return out
+
+
+def planar_die_faces() -> list[tuple[str, str, int]]:
+    """(rule, face, n) — §901.3a the planar die's faces (six-sided: 1 Planeswalker, 1 chaos, 4 blank)."""
+    t = _planechase_texts()
+    if "six-sided die" not in t.get("901.3a", ""):
+        return []
+    return [("901.3a", "planeswalker", 1), ("901.3a", "chaos", 1), ("901.3a", "blank", 4)]
+
+
+def planar_die_outcomes() -> list[tuple[str, str, str]]:
+    """(rule, face, effect) — §901.9a/b/c what each planar-die roll does."""
+    t = _planechase_texts()
+    return [(n, face, eff) for n, face, anchor, eff in _DIE_OUTCOME if anchor in t.get(n, "")]
+
+
 def build() -> tuple[str, dict]:
     cons, uses, teams = constructs(), variant_uses(), variant_teams()
     props, roi, adir, opt = variant_properties(), variant_range_of_influence(), attack_direction(), option_used()
+    deck, faces, outcomes = variant_deck_size(), planar_die_faces(), planar_die_outcomes()
     p = Program()
     p.comment("variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.")
     p.comment("multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); "
@@ -166,6 +217,9 @@ def build() -> tuple[str, dict]:
     p.decl("variant_range_of_influence", [("variant", "symbol"), ("n", "number")])
     p.decl("attack_direction", [("option", "symbol"), ("direction", "symbol")])
     p.decl("option_used", [("variant", "symbol"), ("option", "symbol"), ("used", "symbol")])
+    p.decl("variant_deck_size", [("variant", "symbol"), ("n", "number")])
+    p.decl("planar_die_face", [("face", "symbol"), ("n", "number")])
+    p.decl("planar_die_outcome", [("face", "symbol"), ("effect", "symbol")])
     p.blank()
     for _n, name, kind in cons:
         p.fact(f'multiplayer_construct("{name}", "{kind}")')
@@ -186,9 +240,16 @@ def build() -> tuple[str, dict]:
         p.fact(f'attack_direction("{o}", "{d}")')
     for _n, var, o, used in opt:
         p.fact(f'option_used("{var}", "{o}", "{used}")')
+    for _n, var, n in deck:
+        p.fact(f'variant_deck_size("{var}", {n})')
+    for _n, face, n in faces:
+        p.fact(f'planar_die_face("{face}", {n})')
+    for _n, face, eff in outcomes:
+        p.fact(f'planar_die_outcome("{face}", "{eff}")')
     p.blank()
     p.output("multiplayer_construct", "variant_uses", "variant_teams", "variant_property")
     p.output("variant_range_of_influence", "attack_direction", "option_used")
+    p.output("variant_deck_size", "planar_die_face", "planar_die_outcome")
     p.blank()
     p.comment("conformance — spot-check the §8/§9 facts the rules state plainly")
     p.conformance(
@@ -211,7 +272,8 @@ def build() -> tuple[str, dict]:
     p.fact('expect_property("two_headed_giant", "team_sits_together")')
     p.fact('expect_dir("attack_left", "left")')
     return p.text(), {"constructs": len(cons), "uses": len(uses), "teams": len(teams),
-                      "props": len(props), "roi": len(roi), "adir": len(adir), "opt": len(opt)}
+                      "props": len(props), "roi": len(roi), "adir": len(adir), "opt": len(opt),
+                      "deck": len(deck), "faces": len(faces), "outcomes": len(outcomes)}
 
 
 def main() -> None:
@@ -220,7 +282,8 @@ def main() -> None:
     Path("datalog/variants.dl").write_text(source, encoding="utf-8")
     print(f"wrote datalog/variants.dl ({report['constructs']} construct, {report['uses']} uses, "
           f"{report['teams']} teams, {report['props']} property, {report['roi']} roi, "
-          f"{report['adir']} attack_direction, {report['opt']} option_used)")
+          f"{report['adir']} attack_direction, {report['opt']} option_used, {report['deck']} deck_size, "
+          f"{report['faces']} planar_die_face, {report['outcomes']} planar_die_outcome)")
 
 
 if __name__ == "__main__":
