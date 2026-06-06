@@ -923,6 +923,32 @@ ISA_BAD_PRED = {"kind", "number", "part", "set", "type", "group", "amount", "mem
                 "thing", "way", "result", "example", "exception", "object", "ability", "symbol"}
 ISA_SKIP_START = {"if", "in", "when", "whenever", "while", "as", "because", "unless", "instead",
                   "any", "each", "some", "all"}
+ISA_PARTITIVE = {"kind", "type", "sort", "form"}                # "a kind of X" -> the genus is X
+ISA_FUNC_MOD = {"only", "other", "same", "such", "certain", "single", "given", "specific", "first",
+                "last", "new", "original", "following", "particular", "equal"}   # not type-specifying modifiers
+
+
+def _np_name(tok) -> str:
+    """A noun phrase's name: its content modifiers (amod/compound) + head lemma, joined with '_'."""
+    return "_".join([c.text.lower() for c in tok.children if c.dep_ in ("amod", "compound")] + [tok.lemma_.lower()])
+
+
+def _isa_genus(attr):
+    """The category (genus) named by a copula predicate, or None to abstain. A specific predicate is
+    its own NP name; a 'kind/type of Y' partitive resolves to Y; a BARE generic head (ability, object,
+    type, …) with no type-specifying modifier is too weak to assert -> None. This recovers faithful
+    definitions the flat blocklist used to drop ('… is a loyalty ability', '… is a kind of ability')."""
+    if attr.lemma_ in ISA_PARTITIVE:                            # "a (special) kind of activated ability" -> the genus is Y
+        of = next((c for c in attr.children if c.dep_ == "prep" and c.lemma_ == "of"), None)
+        pobj = _child(of, "pobj") if of else None
+        if pobj is None or pobj.pos_ not in ("NOUN", "PROPN") or _masked(pobj):
+            return None
+        return _isa_genus(pobj)                                 # recurse: "kind of ability" (bare) still abstains
+    if attr.lemma_ in ISA_BAD_PRED:                             # generic head: keep only if a type modifier makes it specific
+        mods = [c.text.lower() for c in attr.children
+                if c.dep_ in ("amod", "compound") and c.is_alpha and c.text.lower() not in ISA_FUNC_MOD]
+        return "_".join(mods + [attr.lemma_.lower()]) if mods else None
+    return attr.lemma_.lower()                                  # specific head: unchanged (head-only, additive)
 
 
 def _isa(rule, doc):
@@ -938,11 +964,13 @@ def _isa(rule, doc):
     if any(c.dep_ == "neg" for c in root.children) or any(t.lemma_ in ("not", "neither", "nor") for t in doc):
         return None
     subj, attr = _child(root, "nsubj"), _child(root, "attr")
-    if subj is None or attr is None or attr.pos_ not in ("NOUN", "PROPN") or attr.lemma_ in ISA_BAD_PRED:
+    if subj is None or attr is None or attr.pos_ not in ("NOUN", "PROPN"):
         return None
     if any(c.dep_ in ("conj", "cc") for c in attr.children) or _masked(attr):   # disjunctive predicate -> enumeration
         return None
-    cat = attr.lemma_.lower()
+    cat = _isa_genus(attr)                                                       # the real category (genus)
+    if cat is None:                                                             # bare generic head -> abstain
+        return None
     subjects = [subj] + [c for c in subj.children if c.dep_ == "conj"]          # head + coordinated conjuncts
     if len(subjects) > 1:
         # "and" + a SINGULAR copula is noun-phrase-internal coordination ("a power and toughness

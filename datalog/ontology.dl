@@ -7,6 +7,8 @@ isa("player_game", "game").   // 100.1a
 isa("multiplayer_game", "game").   // 100.1b
 isa("mana", "resource").   // 106.1
 isa("only_number", "integer").   // 107.1
+isa("hybrid_mana_symbol", "colored_mana_symbol").   // 107.4e
+isa("color_indicator", "circular_symbol").   // 107.13
 isa("owner", "player").   // 108.3
 isa("status", "state").   // 110.5
 isa("player", "owner").   // 111.2
@@ -33,6 +35,7 @@ isa("word", "series").   // 123.6a
 isa("ability_sticker", "sticker").   // 123.7
 isa("object", "color").   // 204.2
 isa("subtype", "word").   // 205.3b
+isa("activated_ability", "loyalty_ability").   // 209.2
 isa("artifact_subtype", "word").   // 301.3
 isa("power", "characteristic").   // 302.4
 isa("toughness", "characteristic").
@@ -52,6 +55,7 @@ isa("graveyard", "pile").   // 404.1
 isa("exile_zone", "area").   // 406.1
 isa("first_main_phase", "phase").   // 505.1a
 isa("active_player", "player").   // 506.2
+isa("activated_ability", "loyalty_ability").   // 606.2
 isa("second_object", "source").   // 607.1d
 isa("characteristic", "value").   // 613.2c
 isa("regeneration", "effect").   // 614.8
@@ -71,13 +75,13 @@ isa("protection", "shorthand").   // 702.16i
 isa("protection", "variant").   // 702.16j
 isa("protection", "variant").   // 702.16k
 isa("trample", "variant").   // 702.19c
-isa("band", "form").   // 702.22b
 isa("multikicker", "variant").   // 702.33c
 isa("madness", "keyword").   // 702.35a
 isa("megamorph", "variant").   // 702.37b
 isa("commander_ninjutsu", "variant").   // 702.49d
-isa("bloodthirst_x", "form").   // 702.54b
+isa("bloodthirst_x", "bloodthirst").   // 702.54b
 isa("replicate", "keyword").   // 702.56a
+isa("forecast_ability", "activated_ability").   // 702.57a
 isa("suspend", "keyword").   // 702.62a
 isa("conspire", "keyword").   // 702.78a
 isa("devour", "variant").   // 702.82c
@@ -85,7 +89,9 @@ isa("soulbond", "keyword").   // 702.95a
 isa("overload", "keyword").   // 702.96a
 isa("unleash", "keyword").   // 702.98a
 isa("double_agenda", "variant").   // 702.106f
+isa("partner_ability", "keyword_ability").   // 702.124a
 isa("blessing", "designation").   // 702.131c
+isa("boast_ability", "activated_ability").   // 702.142a
 isa("foretell", "keyword").   // 702.143a
 isa("cleave", "keyword").   // 702.148a
 isa("second_ability", "effect").   // 702.148b
@@ -95,12 +101,15 @@ isa("squad", "keyword").   // 702.157a
 isa("sector_designation", "designation").   // 702.158b
 isa("gift", "keyword").   // 702.174a
 isa("impending", "keyword").   // 702.176a
+isa("exhaust_ability", "activated_ability").   // 702.177a
+isa("speed_ability", "static_ability").   // 702.178a
 isa("based_action", "action").   // 703.1
 isa("based_action", "action").   // 704.1
 isa("split_card", "card").   // 709.2
 isa("mana_cost", "cost").   // 709.4b
 isa("substitute_card", "supplement").   // 713.1
 isa("final_chapter_number", "value").   // 714.2d
+isa("final_chapter_ability", "chapter_ability").   // 714.2e
 isa("adventurer_card", "card").   // 715.2c
 isa("level", "designation").   // 716.2b
 isa("attraction", "subtype").   // 717.1
@@ -110,6 +119,7 @@ isa("preparation_card", "card").   // 722.2c
 isa("monarch", "designation").   // 725.1
 isa("initiative", "designation").   // 726.1
 isa("starting_player", "player").   // 727.1a
+isa("rad_counter", "counter").   // 728.1
 isa("subgame", "game").   // 729.1a
 isa("day", "designation").   // 731.1
 isa("night", "designation").

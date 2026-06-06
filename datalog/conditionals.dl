@@ -48,7 +48,6 @@ conditional("object", "gain", "value", "be", "condition").
 conditional("ability", "have", "value", "be", "condition").
 conditional("ability", "refer", "value", "be", "condition").
 conditional("x", "define", "value", "be", "condition").
-conditional("-", "be", "symbol", "be", "condition").
 conditional("counter", "put", "-", "mean", "condition").
 conditional("card", "have", "controller", "determine", "condition").
 conditional("spell", "use", "-", "mean", "condition").
