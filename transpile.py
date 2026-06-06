@@ -802,8 +802,13 @@ def _possession(rule, doc):
     kids = list(root.children)
     if any(c.dep_ == "aux" and (c.lemma_ == "to" or c.lemma_ in _MODALS) for c in kids):
         return None                                        # 'has to', 'may/must have'
-    if any(c.dep_ in ("xcomp", "ccomp") for c in kids):    # 'have each player choose …'
+    if any(c.dep_ == "xcomp" for c in kids):               # raising / 'have to be …'
         return None
+    for c in kids:                                         # causative 'have each player choose …' — the ccomp's
+        if c.dep_ == "ccomp":                              # subject is a concrete CAUSEE. A relative clause
+            csub = next((g for g in c.children if g.dep_ in ("nsubj", "nsubjpass")), None)   # ('abilities THAT
+            if csub is None or csub.lemma_.lower() not in ("that", "which", "who"):          # represent it') has a
+                return None                                # relativizer subject — that's a modifier, keep it.
     subj = next((c for c in kids if c.dep_ == "nsubj"), None)
     if subj is None or subj.pos_ not in ("NOUN", "PROPN"):
         return None

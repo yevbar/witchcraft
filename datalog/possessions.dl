@@ -64,6 +64,7 @@ has_property("spell", "text", "yes").
 has_property("permanent", "menace", "yes").
 has_property("enchantment", "ability", "yes").
 has_property("vehicles", "ability", "yes").
+has_property("permanent", "ability", "yes").
 has_property("creature", "ability", "yes").
 has_property("saga", "ability", "yes").
 has_property("copy", "source", "yes").
