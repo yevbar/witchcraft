@@ -599,9 +599,12 @@ def _existential(rule, doc):
     if head is None or _masked(head):
         return None
     num = next((c for c in head.children if c.dep_ == "nummod"), None)
-    if num is None:
-        return None
-    n = int(num.text) if num.text.isdigit() else _WORDS.get(num.lemma_.lower())
+    if num is not None:
+        n = int(num.text) if num.text.isdigit() else _WORDS.get(num.lemma_.lower())
+    elif any(c.dep_ == "det" and c.lemma_.lower() in ("a", "an") for c in head.children):
+        n = 1                                              # "There is AN inherent triggered ability" -> exactly one
+    else:
+        n = None
     if n is None:
         return None
     pre = [c.text.lower() for c in head.children if c.dep_ in ("amod", "compound")]
@@ -1250,10 +1253,14 @@ _NOMINAL_DEPS = {"nsubj", "nsubjpass", "dobj", "obj", "pobj", "attr", "appos", "
 
 
 def _retag_game_nouns(doc) -> None:
-    """In-place: promote a mis-tagged game-object lemma to NOUN when it heads a nominal phrase."""
+    """In-place: promote a mis-tagged game-object lemma to NOUN when it heads a nominal phrase; and an
+    '-ing' word in SUBJECT position is a gerund (a noun: "Banding doesn't cause …"), so promote it too."""
     for tok in doc:
         if (tok.pos_ in ("ADJ", "VERB") and tok.dep_ in _NOMINAL_DEPS
                 and tok.lemma_.lower() in _GAME_NOUNS and tok.text not in _LEGEND):
+            tok.pos_ = "NOUN"
+        elif (tok.pos_ in ("ADJ", "VERB") and tok.dep_ in ("nsubj", "nsubjpass")
+              and tok.text.lower().endswith("ing") and tok.text not in _LEGEND):
             tok.pos_ = "NOUN"
 
 

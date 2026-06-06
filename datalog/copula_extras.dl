@@ -39,6 +39,7 @@ negation("creature", "remove", "-").
 negation("ability", "go", "-").
 negation("ability", "cancel", "one").
 negation("attacking", "cause", "creature").
+negation("banding", "cause", "-").
 negation("ability", "trigger", "-").
 negation("player", "count", "-").
 negation("action", "control", "-").

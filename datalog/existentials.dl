@@ -9,6 +9,7 @@ count_of("permanent_type", 6).
 count_of("general_category", 4).
 count_of("special_action", 12).
 count_of("main_phase", 2).
+count_of("inherent_triggered_ability", 1).
 count_of("specific_meld_pair", 7).
 count_of("inherent_triggered_ability", 2).
 count_of("inherent_triggered_ability", 3).

@@ -80,6 +80,8 @@ isa("protection", "shorthand").   // 702.16i
 isa("protection", "variant").   // 702.16j
 isa("protection", "variant").   // 702.16k
 isa("trample", "variant").   // 702.19c
+isa("typecycle", "variant").   // 702.29e
+isa("fade", "keyword").   // 702.32a
 isa("multikicker", "variant").   // 702.33c
 isa("madness", "keyword").   // 702.35a
 isa("megamorph", "variant").   // 702.37b
@@ -88,6 +90,7 @@ isa("bloodthirst_x", "bloodthirst").   // 702.54b
 isa("replicate", "keyword").   // 702.56a
 isa("forecast_ability", "activated_ability").   // 702.57a
 isa("suspend", "keyword").   // 702.62a
+isa("vanish", "keyword").   // 702.63a
 isa("conspire", "keyword").   // 702.78a
 isa("devour", "variant").   // 702.82c
 isa("soulbond", "keyword").   // 702.95a

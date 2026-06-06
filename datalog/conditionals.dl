@@ -465,7 +465,6 @@ conditional("object", "have", "-", "apply", "condition").
 conditional("spell", "have", "-", "pay", "condition").
 conditional("permanent", "have", "one", "work", "condition").
 conditional("-", "be", "card", "suspend", "condition").
-conditional("-", "remove", "n", "mean", "condition").
 conditional("permanent", "have", "-", "work", "condition").
 conditional("half", "complete", "ability", "have", "condition").
 conditional("fortification", "have", "-", "use", "condition").
@@ -509,7 +508,6 @@ conditional("controller", "declare", "gift", "promise", "condition").
 conditional("player", "take", "effect", "allow", "temporal").
 conditional("rule", "set", "player", "have", "temporal").
 conditional("player", "have", "speed", "become", "condition").
-conditional("-", "increase", "ability", "be", "condition").
 conditional("spell", "be", "harmonize", "represent", "temporal").
 conditional("-", "have", "ability", "mean", "temporal").
 conditional("player", "cast", "mayhem", "mean", "temporal").

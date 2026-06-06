@@ -44,7 +44,6 @@ relation("spell", "refer", "permanent").
 relation("travel", "mean", "time").
 relation("n", "mean", "card").
 relation("ability", "include", "x").
-relation("n", "mean", "enter").
 relation("phrase", "mean", "thing").
 relation("modular", "represent", "ability").
 relation("epic", "represent", "ability").
