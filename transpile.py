@@ -462,8 +462,10 @@ def _action(rule, doc):
     if root is None or root.pos_ != "VERB" or root.lemma_ in ("be", "have"):
         return None
     kids = list(root.children)
-    if any(c.dep_ in ("aux", "auxpass", "neg") for c in kids):
+    if any(c.dep_ == "neg" for c in kids) or any(c.dep_ == "auxpass" for c in kids):
         return None
+    if any(c.dep_ == "aux" and c.lemma_ not in ("will", "shall") for c in kids):
+        return None                                        # only a future-tense aux ('X will cause Y' = 'X causes Y')
     subj = next((c for c in kids if c.dep_ == "nsubj"), None)
     if not _clean(subj):
         return None
@@ -652,7 +654,8 @@ def _obligation(rule, doc):
                "obligation")
 
 
-_REL_VERBS = {"refer", "mean", "represent", "include", "contain", "consist", "comprise", "cause", "affect"}
+_REL_VERBS = {"refer", "mean", "represent", "include", "contain", "consist", "comprise", "cause",
+              "affect", "describe", "denote", "indicate", "involve"}
 
 
 def _relation(rule, doc):

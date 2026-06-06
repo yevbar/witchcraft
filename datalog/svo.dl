@@ -64,12 +64,12 @@ action("player", "draw", "card").
 action("effect", "replace", "draw").
 action("effect", "result", "-").
 action("number", "indicate", "-").
+action("effect", "continue", "-").
 action("version", "feature", "bar").
 action("cost", "represent", "-").
 action("player", "use", "component").
 action("symbol", "contribute", "-").
 action("symbol", "indicate", "-").
-action("color", "indicate", "rarity").
 action("spell", "check", "-").
 action("word", "appear", "-").
 action("symbol", "appear", "-").
@@ -83,7 +83,6 @@ action("player", "compare", "number").
 action("card", "begin", "-").
 action("card", "remain", "-").
 action("effect", "trigger", "ability").
-action("effect", "continue", "-").
 action("effect", "bring", "card").
 action("effect", "tell", "player").
 action("permanent", "exist", "-").
@@ -184,12 +183,14 @@ action("ability", "instruct", "permanent").
 action("ability", "describe", "-").
 action("rule", "function", "-").
 action("hexproof", "mean", "-").
+action("effect", "cause", "-").
 action("source", "cause", "-").
 action("auras", "give", "protection").
 action("aura", "give", "protection").
 action("controller", "assign", "damage").
 action("permanent", "leave", "game").
 action("buyback", "appear", "-").
+action("card", "trigger", "-").
 action("flashback", "appear", "-").
 action("player", "choose", "target").
 action("mana", "reduce", "mana").
@@ -221,6 +222,7 @@ action("spell", "enter", "-").
 action("step", "begin", "permanent").
 action("action", "pay", "attention").
 action("player", "control", "permanent").
+action("effect", "specify", "-").
 action("table", "appear", "-").
 action("copy", "acquire", "value").
 action("player", "use", "value").
@@ -263,7 +265,6 @@ action("creature", "attack", "team").
 action("group", "compete", "-").
 action("team", "sit", "-").
 action("player", "choose", "team").
-action("variant", "involve", "team").
 action("game", "use", "option").
 action("variant", "use", "team").
 action("variant", "use", "rule").

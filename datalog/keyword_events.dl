@@ -31,6 +31,8 @@ keyword_class_ctx("ascend", "permanent", "static").
 keyword_class_ctx("compleated", "planeswalker", "static").
 keyword_class_ctx("visit", "attraction", "keyword").
 keyword_class_ctx("solved", "case", "keyword").
+keyword_class_ctx("spree", "modal", "static").
+keyword_class_ctx("tiered", "modal", "static").
 
 // --- keyword_cost_choice: paying a keyword cost asks you to choose an object to act on ---
 keyword_cost_choice("emerge", "permanent", "sacrifice").

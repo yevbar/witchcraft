@@ -36,7 +36,7 @@ _Q = "[“”\"]"
 _EVENT = re.compile(rf"^(?:An?|The|Each) [\w ]+? {_Q}([^“”\"]+){_Q}\s+(?:[\w ]+? )?(?:if|when|as|after|whenever)\s+(.+)$", re.I)
 # "K on [context] represents a [kind] ability/spell"  /  "K is a [kind] ability found on [context]"
 _REPR = re.compile(rf"^([A-Z][a-z]+) on (?:an? )?(.+?) represents an? (\w+) (?:ability|spell)\b", re.I)
-_FOUND = re.compile(r"^([A-Z][a-z]+) is an? (\w+) ability found on (?:some )?(.+?) cards?\b", re.I)
+_FOUND = re.compile(r"^([A-Z][a-z]+) is an? (\w+) ability found on (?:some )?(.+?) (?:cards?|spells?)\b", re.I)
 # "You choose which [object] to [action] as you choose to pay a spell's [keyword] cost"
 _COST = re.compile(r"^You choose which (\w+) to (\w+) as you .*?pay a spell.s (\w+) cost", re.I)
 
