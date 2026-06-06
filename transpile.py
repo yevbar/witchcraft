@@ -1355,9 +1355,16 @@ def _retag_root_verb(doc) -> None:
     root = next((t for t in doc if t.dep_ == "ROOT"), None)
     if root is None or root.pos_ != "NOUN" or root.text in _LEGEND:
         return
-    if (any(c.dep_ in ("nsubj", "nsubjpass") for c in root.children)
-            and any(c.dep_ in ("dobj", "obj", "dative", "oprd", "ccomp", "xcomp") for c in root.children)):
+    kids = list(root.children)
+    has_obj = any(c.dep_ in ("dobj", "obj", "dative", "oprd", "ccomp", "xcomp") for c in kids)
+    has_subj = any(c.dep_ in ("nsubj", "nsubjpass") for c in kids)
+    if has_subj and has_obj:
         root.pos_ = "VERB"
+    # sentence-initial NOUN with a direct object but NO subject and NO determiner of its own is a
+    # mis-tagged IMPERATIVE verb ("Exile every object on the stack" — 724.1b), not a noun head.
+    elif (root.i == 0 and has_obj and not has_subj
+          and not any(c.dep_ in ("det", "poss", "amod", "compound", "nmod") for c in kids)):
+        root.pos_, root.tag_ = "VERB", "VB"
 
 
 # --- truthiness guards for interpreting a rule beyond its opening sentence --------------------

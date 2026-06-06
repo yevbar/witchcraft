@@ -3,8 +3,16 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**93.6%** — 2667 / 2849 interpretable rules. ~182 primary misses remain.
+**93.7%** — 2669 / 2849 interpretable rules. ~180 primary misses remain.
 Per-section floor: §4 Zones 88.5%, §6 Spells/Abilities 91.7%, §5 Turn 91.8%.
+
+## STATUS: safe automated gains essentially EXHAUSTED at ~93.7% (truthful ceiling)
+Both lenses swept — topic builders AND grammatical buckets. Remaining ~180 misses are
+irreducible within en_core_web_sm: NP-head mis-roots (buried main verb, ~36), pronoun/
+quantifier subjects (it/nothing/anything/one), negations, disjunctive predicates (over-claim),
+and genuinely-vague sentences. Capturing them needs a BETTER PARSER, not more patterns.
+DO NOT inflate % with lossy facts. Next real lever (needs human approval — changes every parse,
+re-validate all facts, may break byte-identical determinism): swap en_core_web_sm -> en_core_web_trf.
 
 ## Prime directive (never violate)
 **A wrong fact is worse than no fact.** Abstain rather than emit a lossy/over-claimed fact.

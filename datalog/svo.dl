@@ -245,6 +245,7 @@ action("controller", "create", "copy").
 action("effect", "overwrite", "-").
 action("player", "continue", "-").
 action("card", "end", "turn").
+action("player", "exile", "object").
 action("player", "check", "action").
 action("phase", "end", "-").
 action("card", "end", "phase").
