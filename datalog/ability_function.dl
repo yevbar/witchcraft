@@ -3,6 +3,7 @@
 
 .decl ability_form(form: symbol)
 .decl ability_functions(kind: symbol, where: symbol)
+.decl command_zone_ability(object_class: symbol)
 
 ability_form("characteristic").
 ability_form("player_modifier").
@@ -17,9 +18,20 @@ ability_functions("restricts_play_zones", "everywhere").
 ability_functions("cant_be_countered_or_copied", "on_stack").
 ability_functions("modifies_entry", "as_entering").
 ability_functions("counters_prohibited", "as_entering").
+ability_functions("cost_unpayable_on_battlefield", "payable_zones").
+ability_functions("trigger_cant_from_battlefield", "triggerable_zones").
+ability_functions("moves_object_out_of_zone", "originating_zone").
+ability_functions("modifies_deck_construction", "before_game").
+
+command_zone_ability("emblem").
+command_zone_ability("plane_card").
+command_zone_ability("vanguard_card").
+command_zone_ability("scheme_card").
+command_zone_ability("conspiracy_card").
 
 .output ability_form
 .output ability_functions
+.output command_zone_ability
 
 // conformance — spot-check the ability rules §113 states plainly
 .decl expect_form(form: symbol)

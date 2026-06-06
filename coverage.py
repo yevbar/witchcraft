@@ -32,6 +32,7 @@ import build_objects
 import build_mana_rules
 import build_permanents
 import build_ability_function
+import build_combat_triggers
 import build_copy
 import build_tokens
 import build_tba
@@ -118,6 +119,8 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | {r[0] for r in build_permanents.extract()}
                     | {r[0] for r in build_ability_function.ability_form()}
                     | {r[0] for r in build_ability_function.ability_functions()}
+                    | {r[0] for r in build_ability_function.command_zone_abilities()}
+                    | {r[0] for r in build_combat_triggers.templates()}
                     | {r[0] for r in build_copy.modifications()}
                     | {r[0] for r in build_copy.copyable()}
                     | {r[0] for r in build_tokens.extract()}

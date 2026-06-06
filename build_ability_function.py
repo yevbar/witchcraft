@@ -45,6 +45,14 @@ def _where(low: str) -> str | None:
         return "stated_zones"
     if "any zone" in low and ("could be played" in low or "could be cast" in low):
         return "playable_zones"
+    if "zone in which its cost can be paid" in low:
+        return "payable_zones"                              # §113.6j
+    if "all zones it can trigger from" in low:
+        return "triggerable_zones"                          # §113.6k
+    if "only in that zone" in low:
+        return "originating_zone"                           # §113.6m
+    if "before the game begins" in low:
+        return "before_game"                                # §113.6n
     if "on the stack" in low:
         return "on_stack"
     return None
@@ -69,6 +77,14 @@ def _kind(low: str) -> str | None:
         return "restricts_play_zones"
     if "alternative cost" in low:
         return "alternative_cost"
+    if "paid while the object is on the battlefield" in low:
+        return "cost_unpayable_on_battlefield"              # §113.6j
+    if "trigger from the battlefield" in low:
+        return "trigger_cant_from_battlefield"              # §113.6k
+    if "out of a particular zone" in low:
+        return "moves_object_out_of_zone"                   # §113.6m
+    if "rules for deck construction" in low:
+        return "modifies_deck_construction"                 # §113.6n
     return None
 
 
@@ -105,14 +121,45 @@ def ability_functions() -> list[tuple[str, str, str]]:
     return rows
 
 
+import re
+
+_CZ = re.compile(r"Abilities of (.+?) function in the command zone", re.I)
+
+
+def command_zone_abilities() -> list[tuple[str, str]]:
+    """(rule, object_class) for 'Abilities of <object classes> function in the command zone' (§113.6p,
+    §114.4) — one fact per class. A different shape from 'An ability that <kind> functions <where>':
+    here the function zone is fixed (command zone) and the subject is an object CLASS, so it gets its
+    own relation rather than being forced into ability_functions."""
+    rows, seen = [], set()
+    for s in _doc().sections:
+        for g in s.groups:
+            if g.number not in ("113", "114"):
+                continue
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    m = _CZ.search(sr.text)
+                    if not m:
+                        continue
+                    classes = m.group(1).replace(", and ", ", ").replace(" and ", ", ")
+                    for obj in classes.split(","):
+                        bare = re.sub(r"\b(card|emblem)s\b", r"\1", obj.strip(), flags=re.I)
+                        slug = re.sub(r"[^a-z0-9]+", "_", bare.lower()).strip("_")
+                        if slug and (sr.number, slug) not in seen:
+                            seen.add((sr.number, slug))
+                            rows.append((sr.number, slug))
+    return rows
+
+
 def build() -> tuple[str, dict]:
-    forms, funcs = ability_form(), ability_functions()
+    forms, funcs, cz = ability_form(), ability_functions(), command_zone_abilities()
     p = Program()
     p.comment("ability_function.dl — §113 ability form + function zones, interpreted from rules.txt.")
     p.comment("ability_form(form); ability_functions(kind, where). GENERATED.")
     p.blank()
     p.decl("ability_form", [("form", "symbol")])
     p.decl("ability_functions", [("kind", "symbol"), ("where", "symbol")])
+    p.decl("command_zone_ability", [("object_class", "symbol")])
     p.blank()
     for _n, f in forms:
         p.fact(f'ability_form("{f}")')
@@ -120,8 +167,15 @@ def build() -> tuple[str, dict]:
     for _n, k, w in funcs:
         p.fact(f'ability_functions("{k}", "{w}")')
     p.blank()
+    seen_cz = set()
+    for _n, obj in cz:                                       # §114.4 (emblem) is subsumed by §113.6p's list
+        if obj not in seen_cz:
+            seen_cz.add(obj)
+            p.fact(f'command_zone_ability("{obj}")')
+    p.blank()
     p.output("ability_form")
     p.output("ability_functions")
+    p.output("command_zone_ability")
     p.blank()
     p.comment("conformance — spot-check the ability rules §113 states plainly")
     p.conformance(
@@ -135,14 +189,15 @@ def build() -> tuple[str, dict]:
                  'expect_fn("cant_be_countered_or_copied", "on_stack")',
                  'expect_fn("modifies_entry", "as_entering")']:
         p.fact(atom)
-    return p.text(), {"forms": len(forms), "funcs": len(funcs)}
+    return p.text(), {"forms": len(forms), "funcs": len(funcs), "cz": len(cz)}
 
 
 def main() -> None:
     Path("datalog").mkdir(exist_ok=True)
     source, report = build()
     Path("datalog/ability_function.dl").write_text(source, encoding="utf-8")
-    print(f"wrote datalog/ability_function.dl ({report['forms']} ability_form, {report['funcs']} ability_functions)")
+    print(f"wrote datalog/ability_function.dl ({report['forms']} ability_form, {report['funcs']} ability_functions, "
+          f"{report['cz']} command_zone_ability)")
 
 
 if __name__ == "__main__":

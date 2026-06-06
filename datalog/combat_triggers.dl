@@ -1,0 +1,25 @@
+// combat_triggers.dl — §508.3/§509.3 combat triggered-ability templates, from rules.txt.
+// combat_trigger_template(template, step). GENERATED.
+
+.decl combat_trigger_template(template: symbol, step: symbol)
+
+combat_trigger_template("whenever_a_creature_attacks", "declare_attackers").
+combat_trigger_template("whenever_a_player_planeswalker_or_battle_is_attacked", "declare_attackers").
+combat_trigger_template("whenever_a_player_attacks_with_a_creature", "declare_attackers").
+combat_trigger_template("whenever_a_player_attacks", "declare_attackers").
+combat_trigger_template("whenever_a_player_attacks_another_player", "declare_attackers").
+combat_trigger_template("whenever_a_creature_attacks_and_isn_t_blocked", "declare_blockers").
+combat_trigger_template("whenever_a_creature_blocks", "declare_blockers").
+combat_trigger_template("whenever_a_creature_blocks_a_creature", "declare_blockers").
+combat_trigger_template("whenever_a_creature_becomes_blocked", "declare_blockers").
+combat_trigger_template("whenever_a_creature_becomes_blocked_by_a_creature", "declare_blockers").
+
+.output combat_trigger_template
+
+// conformance — spot-check a template the rules state plainly
+.decl expect_template(template: symbol, step: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("template", T, S) :- expect_template(T, S), !combat_trigger_template(T, S).
+.output conformance_fail
+.printsize conformance_fail
+expect_template("whenever_a_creature_attacks", "declare_attackers").
