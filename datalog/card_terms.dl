@@ -1,0 +1,21 @@
+// card_terms.dl — card-text terms the rules define for cards to reference, from rules.txt.
+// card_text_term(term). GENERATED.
+
+.decl card_text_term(term: symbol)
+
+card_text_term("playing").
+card_text_term("descended").
+card_text_term("crime").
+card_text_term("warped").
+card_text_term("a_spell_was_warped").
+card_text_term("coin_flip").
+
+.output card_text_term
+
+// conformance — spot-check a defined card-text term the rules state plainly
+.decl expect_term(term: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("term", T, "-") :- expect_term(T), !card_text_term(T).
+.output conformance_fail
+.printsize conformance_fail
+expect_term("descended").

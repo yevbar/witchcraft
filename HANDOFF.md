@@ -3,7 +3,11 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**97.7%** — 2766 / 2830 interpretable rules. ~64 primary misses remain.
+**97.9%** — 2771 / 2830 interpretable rules. ~59 primary misses remain.
+build_card_terms: glossary "Some cards/effects refer to '<term>'…" rules now CAPTURED as
+card_text_term(term) — they define a card-text term (descended, crime, warped, playing, coin_flip),
+so crediting the term gives an accurate remaining-to-tackle count (cf. how structural_kind discounts
+headers). Existential "Some X are Y" CLAIMS are NOT touched — those stay real misses.
 More tangled negations + complex conditionals reified (extraction was the blocker, NOT Souffle
 expressiveness — Souffle has stratified negation/aggregates/rich relations). New relations:
 requires / follows_rules (conditionals_extra), only_characteristics / color_cardinality
