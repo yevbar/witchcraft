@@ -3,7 +3,14 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**97.9%** — 2771 / 2830 interpretable rules. ~59 primary misses remain.
+**98.0%** — 2764 / 2820 interpretable rules. ~56 primary misses remain.
+More Tier-0 false positives excluded via structural_kind: non_gameplay (rules that SAY they have "no
+effect on game play" — expansion symbol, set/type icons, flavor/decorative text, DFC hint bars; carve-out
+for "marker"/"other than" so art-stickers stay), advisory ("The most commonly chosen …"), and "There are
+different/several kinds of X." intros (numeric enumerations like "six types of mana:" are NOT excluded —
+they're real, handled by build_enumerations). NOTE: these only fix the coverage % accounting; the
+transpile-based builders still emit a (harmless, spurious) print fact for the previously-"covered" ones —
+a future cleanup could have those builders skip structural_kind rules.
 build_card_terms: glossary "Some cards/effects refer to '<term>'…" rules now CAPTURED as
 card_text_term(term) — they define a card-text term (descended, crime, warped, playing, coin_flip),
 so crediting the term gives an accurate remaining-to-tackle count (cf. how structural_kind discounts

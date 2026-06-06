@@ -244,6 +244,19 @@ def structural_kind(text: str) -> str | None:
     if re.search(r"\bshould be kept in separate piles\b|\bnote that name on a piece of paper\b", t) \
        or re.match(r"^Each [\w ]+?['’]s illustration is [\w ]*?oriented\b", t):
         return "physical_note"
+    # a printed/decorative element the rule itself says has NO gameplay effect (expansion symbol, set/type
+    # icons, flavor text, alt-art bars, DFC hint bars) — physical-card description, not a game rule. The
+    # 'other than/except/marker' carve-out keeps rules that DO grant a minor in-game role (e.g. art stickers).
+    if re.search(r"\b(?:has|have) no effect on (?:game play|the game)\b", t) \
+       and not re.search(r"\b(?:other than|except|unless|marker)\b", t):
+        return "non_gameplay"
+    # an advisory, non-normative observation ("The most commonly chosen …") — not a rule.
+    if re.match(r"^The most commonly\b", t):
+        return "advisory"
+    # a pure "There are different/several kinds of X." intro with no inline list (the kinds are subrules);
+    # numeric enumerations ("There are six types of mana: …") are real and handled by build_enumerations.
+    if re.match(r"^There are (?:different|several|various) (?:kinds|types|categories) of [\w ]+\.?\s*$", t):
+        return "list_intro"
     return None
 
 

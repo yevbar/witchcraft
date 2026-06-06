@@ -3097,6 +3097,8 @@ secondary("801.2a").
 structural("104.2", "list_intro").
 structural("104.3", "list_intro").
 structural("104.4", "list_intro").
+structural("107.10", "non_gameplay").
+structural("107.9", "non_gameplay").
 structural("108.6", "see_reference").
 structural("109.4", "list_intro").
 structural("113.1", "list_intro").
@@ -3104,10 +3106,14 @@ structural("113.3", "list_intro").
 structural("113.6", "list_intro").
 structural("116.2", "list_intro").
 structural("117.3", "list_intro").
+structural("201.6", "non_gameplay").
 structural("205.2", "section_header").
 structural("205.3", "section_header").
 structural("205.4", "section_header").
+structural("206.1", "non_gameplay").
 structural("206.3", "superseded").
+structural("207.3", "non_gameplay").
+structural("213.1", "non_gameplay").
 structural("306.4", "superseded").
 structural("306.7", "superseded").
 structural("403.5", "superseded").
@@ -3122,6 +3128,7 @@ structural("602.1d", "superseded").
 structural("603.10", "list_intro").
 structural("605.3", "list_intro").
 structural("605.4", "list_intro").
+structural("607.2", "list_intro").
 structural("613.1", "list_intro").
 structural("701.10", "section_header").
 structural("701.11", "section_header").
@@ -3395,8 +3402,11 @@ structural("702.99", "section_header").
 structural("703.4", "list_intro").
 structural("704.5", "list_intro").
 structural("704.6", "list_intro").
+structural("712.2c", "non_gameplay").
+structural("712.3c", "non_gameplay").
 structural("719.1", "physical_note").
 structural("727.1", "list_intro").
+structural("801.2a", "advisory").
 structural("901.15", "section_header").
 structural("903.12", "section_header").
 structural("903.13", "section_header").
