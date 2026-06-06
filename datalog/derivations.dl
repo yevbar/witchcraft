@@ -42,6 +42,7 @@ derived("subtype", "list", "scope", "dash").
 derived("card", "use", "scope", "play").
 derived("card", "put", "condition", "-").
 derived("creature", "declare", "as", "creature").
+derived("ability", "declare", "absolute", "-").
 derived("ability", "declare", "as", "attacker").
 derived("damage", "deal", "absolute", "-").
 derived("creature", "remove", "scope", "combat").
@@ -49,6 +50,7 @@ derived("effect", "consider", "absolute", "-").
 derived("event", "call", "absolute", "-").
 derived("ability", "create", "as", "result").
 derived("ability", "consider", "absolute", "-").
+derived("ability", "link", "scope", "itself").
 derived("ability", "link", "absolute", "-").
 derived("ability", "link", "scope", "ability").
 derived("spell", "put", "as", "part").
@@ -65,6 +67,7 @@ derived("effect", "call", "absolute", "-").
 derived("effect", "apply", "scope", "event").
 derived("devotion", "calculate", "scope", "-").
 derived("counter", "share", "by", "team").
+derived("creature", "destroy", "as", "action").
 derived("amount", "consider", "absolute", "-").
 derived("damage", "prevent", "absolute", "-").
 derived("bonus", "calculate", "condition", "-").
@@ -85,6 +88,7 @@ derived("face", "mark", "by", "symbol").
 derived("face", "use", "absolute", "-").
 derived("face", "evaluate", "absolute", "-").
 derived("card", "consider", "scope", "purpose").
+derived("enchantment", "print", "scope", "box").
 derived("characteristic", "evaluate", "condition", "-").
 derived("frame", "call", "absolute", "-").
 derived("object", "control", "by", "controller").

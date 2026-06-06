@@ -27,6 +27,7 @@ ability("planeswalker", "be_attack", "absolute", "-").
 ability("player", "own", "condition", "-").
 ability("battle", "be_attack", "absolute", "-").
 ability("battle", "have", "scope", "time").
+ability("ability", "reference", "qualified", "-").
 ability("ability", "find", "condition", "-").
 ability("card", "be_put", "by", "effect").
 ability("effect", "give", "absolute", "-").
@@ -44,6 +45,7 @@ ability("card", "be_meld", "qualified", "-").
 ability("permanent", "be_suspect", "frequency", "-").
 ability("aura", "target", "qualified", "-").
 ability("sunburst", "be_use", "frequency", "-").
+ability("ability", "trigger", "qualified", "-").
 ability("ability", "prevent", "scope", "time").
 ability("creature", "be_pair", "scope", "creature").
 ability("card", "enter", "scope", "-").

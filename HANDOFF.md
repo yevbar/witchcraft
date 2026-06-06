@@ -3,9 +3,18 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**94.6%** — 2678 / 2830 interpretable rules. ~152 primary misses remain.
-Tier 1/4/2-3 enrichment landed: build_sba_extra (5 complex SBAs), build_multiplayer (7 §8/§9
-variant rules), build_card_misc (3 special-card/keyword). All descriptive facts, parse-independent.
+**96.3%** — 2724 / 2830 interpretable rules. ~106 primary misses remain.
+TRF INTEGRATED: transpile_rule now uses en_core_web_sm first and falls back to en_core_web_trf
+(transformer parser) ONLY when sm yields no fact — recovers the NP-head mis-roots. Strictly additive
+(every sm fact unchanged; +160 new facts, of which ~46 net primary after a quality guard). trf is now
+a PIPELINE DEPENDENCY (install: pip install spacy-transformers && python -m spacy download
+en_core_web_trf; ~917MB torch — a +cpu wheel is lighter). If trf is absent the pipeline degrades to
+sm-only (lower coverage) — so reproducible builds require trf installed.
+Quality guards added with trf (caught wrong facts trf surfaced from quoted ability text / idioms):
+  _action abstains on relation-verb + no object ("X means/refers -" — removed 23 lossy sm facts too);
+  _isa/_not_isa abstain on a DEMONSTRATIVE subject ("THIS permanent is/ isn't a Y" — a specific ref,
+  not the class, e.g. hexproof's quoted text); _is_property "short" idiom blocklisted.
+Tier 1/4/2-3 enrichment also landed: build_sba_extra, build_multiplayer, build_card_misc (descriptive).
 Tier-0 non-semantic units now excluded from the denominator via structural_kind():
   superseded ("Previously, …" historical), list_intro ("There are several ways to …"),
   physical_note (pile-keeping / paper notes / card-illustration orientation).

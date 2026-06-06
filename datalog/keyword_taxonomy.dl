@@ -5,7 +5,7 @@
 .decl keyword_class(kw: symbol, cls: symbol)
 .decl keyword_appears_on(kw: symbol, card_type: symbol)
 
-// --- 131 via spaCy "X is a Y ability" ---
+// --- 133 via spaCy "X is a Y ability" ---
 keyword_class("deathtouch", "static").   // 702.2a
 keyword_class("defender", "static").   // 702.3a
 keyword_class("double_strike", "static").   // 702.4a
@@ -119,6 +119,7 @@ keyword_class("companion", "keyword").   // 702.139a
 keyword_class("encore", "activated").   // 702.141a
 keyword_class("demonstrate", "triggered").   // 702.144a
 keyword_class("training", "triggered").   // 702.149a
+keyword_class("compleated", "static").   // 702.150a
 keyword_class("visit", "keyword").   // 702.159a
 keyword_class("prototype", "static").   // 702.160a
 keyword_class("living_metal", "keyword").   // 702.161a
@@ -133,12 +134,13 @@ keyword_class("spree", "static").   // 702.172a
 keyword_class("freerunning", "static").   // 702.173a
 keyword_class("mobilize", "triggered").   // 702.181a
 keyword_class("job_select", "triggered").   // 702.182a
+keyword_class("tiered", "static").   // 702.183a
 keyword_class("station", "activated").   // 702.184a
 keyword_class("mayhem", "static").   // 702.187a
 keyword_class("firebending", "triggered").   // 702.189a
 keyword_class("increment", "triggered").   // 702.191a
 
-// --- 64 via the verb-group classifier (represents/special-kind/keyword-that-functions) ---
+// --- 62 via the verb-group classifier (represents/special-kind/keyword-that-functions) ---
 keyword_class("fading", "composite").
 keyword_class("madness", "triggered").
 keyword_class("amplify", "static").
@@ -176,7 +178,6 @@ keyword_class("daybound_and_nightbound", "static").
 keyword_class("decayed", "static").
 keyword_class("decayed", "triggered").
 keyword_class("cleave", "static").
-keyword_class("compleated", "static").
 keyword_class("reconfigure", "activated").
 keyword_class("blitz", "static").
 keyword_class("blitz", "triggered").
@@ -196,7 +197,6 @@ keyword_class("max_speed", "static").
 keyword_class("start_your_engines", "static").
 keyword_class("start_your_engines", "triggered").
 keyword_class("harmonize", "static").
-keyword_class("tiered", "static").
 keyword_class("warp", "static").
 keyword_class("warp", "triggered").
 keyword_class("web_slinging", "static").
@@ -204,7 +204,7 @@ keyword_class("sneak", "static").
 keyword_class("paradigm", "spell").
 keyword_class("paradigm", "triggered").
 
-// --- 23 appearance facts (appears-on/found-on) ---
+// --- 21 appearance facts (appears-on/found-on) ---
 keyword_appears_on("buyback", "instant").
 keyword_appears_on("buyback", "sorcery").
 keyword_appears_on("flashback", "instant").
@@ -222,8 +222,6 @@ keyword_appears_on("mutate", "card").
 keyword_appears_on("mutate", "creature").
 keyword_appears_on("daybound_and_nightbound", "card").
 keyword_appears_on("disturb", "card").
-keyword_appears_on("compleated", "card").
-keyword_appears_on("compleated", "planeswalker").
 keyword_appears_on("read_ahead", "card").
 keyword_appears_on("ravenous", "card").
 keyword_appears_on("ravenous", "creature").

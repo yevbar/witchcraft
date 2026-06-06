@@ -5,10 +5,12 @@
 
 // --- one per matched 'X <verb> Y' sentence; the verb is the link type ---
 relation("tournament", "consist", "series").
+relation("effect", "cause", "game").
 relation("symbol", "represent", "mana").
 relation("symbol", "represent", "cost").
 relation("box", "contain", "symbol").
 relation("box", "contain", "bar").
+relation("ability", "represent", "ability").
 relation("ability", "affect", "game").
 relation("effect", "affect", "component").
 relation("cost", "contain", "symbol").
@@ -41,8 +43,10 @@ relation("card", "refer", "party").
 relation("outlaw", "refer", "object").
 relation("card", "refer", "outlaws").
 relation("spell", "refer", "permanent").
+relation("phrase", "refer", "creature").
 relation("travel", "mean", "time").
 relation("n", "mean", "card").
+relation("spell", "refer", "creature").
 relation("ability", "include", "x").
 relation("phrase", "mean", "thing").
 relation("modular", "represent", "ability").
@@ -56,6 +60,7 @@ relation("dash", "represent", "ability").
 relation("emerge", "represent", "ability").
 relation("rule", "refer", "identity").
 relation("partner", "represent", "ability").
+relation("ascend", "represent", "ability").
 relation("escape", "represent", "ability").
 relation("decayed", "represent", "ability").
 relation("reconfigure", "represent", "ability").
@@ -66,6 +71,7 @@ relation("ability", "include", "instruction").
 relation("eye", "represent", "ability").
 relation("rule", "refer", "value").
 relation("craft", "represent", "ability").
+relation("text", "mean", "text").
 relation("offspring", "represent", "ability").
 relation("effect", "refer", "speed").
 relation("warp", "represent", "ability").
@@ -79,6 +85,7 @@ relation("card", "refer", "door").
 relation("half", "contain", "name").
 relation("face", "include", "bar").
 relation("card", "represent", "card").
+relation("symbol", "include", "numeral").
 relation("symbol", "represent", "ability").
 relation("spell", "cause", "permanent").
 relation("card", "refer", "life").

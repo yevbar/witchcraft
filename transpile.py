@@ -482,13 +482,17 @@ def _action(rule, doc):
         return None
     obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
     o = obj.lemma_.lower() if _clean(obj) else "-"
+    if o == "-" and root.lemma_.lower() in _REL_VERBS:
+        return None        # a definitional/relation verb ("X means/represents/refers …") with no captured
+                           # object carries no information — abstain rather than emit "action(X, mean, -)".
     return Out(rule, f'action("{subj.lemma_.lower()}", "{root.lemma_.lower()}", "{o}").   // {rule}', "action")
 
 
 _COMPARE_ADJ = {"same", "different", "greater", "less", "fewer", "equal", "identical", "similar"}
 # predicate adjectives that are really the head of an idiom needing a complement ("subject TO the rules",
-# "due TO …") — the bare adjective carries no standalone property, so _is_property abstains.
-_IDIOM_ADJ = {"subject", "due"}
+# "due TO …", "short FOR …") — the bare adjective carries no standalone property, so _is_property abstains.
+_IDIOM_ADJ = {"subject", "due", "short"}
+_DEMONSTRATIVE = {"this", "that", "these", "those"}    # a demonstrative subject is a specific ref, not a class
 
 
 def _comparison(rule, doc):
@@ -1080,6 +1084,8 @@ def _isa(rule, doc):
     subj, attr = _child(root, "nsubj"), _child(root, "attr")
     if subj is None or attr is None:
         return None
+    if any(c.dep_ == "det" and c.lemma_.lower() in _DEMONSTRATIVE for c in subj.children):
+        return None                              # "THIS permanent is a Y" is a specific ref, not a class definition
     # partitive predicate "X is one of the Y" -> the genus is Y ("a player is one of the people" ->
     # isa(player, person)). Excludes a COUNTING context ("exactly one of the FIVE colors" — a count of
     # an attribute set, not a type the subject instantiates), which carries 'exactly'/a numbered set.
@@ -1218,6 +1224,8 @@ def _not_isa(rule, doc):
         return None
     if _masked(subj) or _masked(attr) or any(c.dep_ in ("relcl", "acl", "prep") for c in subj.children):
         return None                                                    # restricted subject ("ability WITH a target") -> over-claim
+    if any(c.dep_ == "det" and c.lemma_.lower() in _DEMONSTRATIVE for c in subj.children):
+        return None                                                    # "THIS permanent" is a specific ref, not the class
     neg = (any(c.dep_ == "neg" for c in root.children)                  # "is not …" on the copula
            or any(t.lemma_.lower() in ("not", "neither") and t.head in (root, attr) for t in doc))   # "neither … nor"
     if not neg:
@@ -1460,14 +1468,26 @@ def _self_contained(sentence: str, doc) -> bool:
     return True                                                     # indefinite / quantified / bare generic -> standalone
 
 
-def transpile_rule(rule: str, text: str) -> Out | None:
-    """Interpret a rule into one faithful Datalog fact, reading its sentences in order.
+_TRF = None
 
-    Sentence 0 is the rule's opening statement (its primary meaning). Later sentences are read too,
-    but ONLY when self-contained (_self_contained), so a fact never depends on earlier text. Across
-    all sentences, a negative-quantified subject is never asserted positively (_neg_subject), so a
-    negated generalization yields no false positive fact. Returns the first faithful fact, tagged
-    with the sentence it came from, or None."""
+
+def _trf():
+    """Lazily load en_core_web_trf (the transformer dependency parser), used ONLY as a fallback for
+    rules the en_core_web_sm pipeline can't interpret — its better parses recover the NP-head mis-roots
+    (long subject NPs whose main verb sm buries under the subject noun). Returns None if trf isn't
+    installed, so the pipeline degrades to sm-only (deterministic per machine either way; trf is a
+    required dep for full reproducible coverage — see HANDOFF)."""
+    global _TRF
+    if _TRF is None:
+        try:
+            _TRF = spacy.load("en_core_web_trf")
+        except Exception:
+            _TRF = False                          # sentinel: tried once, unavailable
+    return _TRF or None
+
+
+def _interpret(rule: str, text: str, nlp) -> Out | None:
+    """The sentence-by-sentence interpretation loop, run with a given spaCy pipeline (sm or trf)."""
     global _LEGEND
     for i, chunk in enumerate(_split_sentences(text)):
         sent = _normalize(chunk)
@@ -1477,7 +1497,7 @@ def transpile_rule(rule: str, text: str) -> Out | None:
         _LEGEND = masked.legend                  # patterns (e.g. _symbol_def) may resolve masked tokens
         if not masked.text.strip():
             continue
-        doc = _NLP(masked.text)
+        doc = nlp(masked.text)
         if len(doc) == 0:
             continue
         _retag_game_nouns(doc)                    # fix mis-tagged game-object subjects before matching
@@ -1494,6 +1514,25 @@ def transpile_rule(rule: str, text: str) -> Out | None:
             out.sentence = i
             return out
     return None
+
+
+def transpile_rule(rule: str, text: str) -> Out | None:
+    """Interpret a rule into one faithful Datalog fact, reading its sentences in order.
+
+    Sentence 0 is the rule's opening statement (its primary meaning). Later sentences are read too,
+    but ONLY when self-contained (_self_contained), so a fact never depends on earlier text. Across
+    all sentences, a negative-quantified subject is never asserted positively (_neg_subject), so a
+    negated generalization yields no false positive fact. Returns the first faithful fact, tagged
+    with the sentence it came from, or None.
+
+    The fast en_core_web_sm parser is tried first; ONLY when it yields no fact is the rule re-read with
+    the transformer parser (en_core_web_trf), whose better dependency analysis recovers the NP-head
+    mis-roots sm can't. Every sm-interpreted rule is unchanged — trf strictly adds, never overrides."""
+    out = _interpret(rule, text, _NLP)
+    if out is not None:
+        return out
+    trf = _trf()
+    return _interpret(rule, text, trf) if trf is not None else None
 
 
 if __name__ == "__main__":

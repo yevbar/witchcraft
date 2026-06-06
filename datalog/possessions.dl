@@ -16,10 +16,12 @@ has_property("ability", "condition", "yes").
 has_property("emblem", "characteristic", "no").
 has_property("card", "ability", "yes").
 has_property("player", "priority", "yes").
+has_property("team", "priority", "yes").
 has_property("object", "cost", "no").
 has_property("spell", "cost", "yes").
 has_property("player", "access", "yes").
 has_property("sticker", "effect", "no").
+has_property("object", "name", "yes").
 has_property("card", "name", "yes").
 has_property("object", "type", "yes").
 has_property("tokens", "type", "yes").
@@ -44,6 +46,7 @@ has_property("card", "series", "yes").
 has_property("room", "name", "yes").
 has_property("room", "ability", "yes").
 has_property("battle", "ability", "yes").
+has_property("battle", "player", "yes").
 has_property("siege", "ability", "yes").
 has_property("card", "characteristic", "no").
 has_property("player", "size", "yes").
@@ -55,6 +58,7 @@ has_property("end", "action", "no").
 has_property("permanent", "text", "yes").
 has_property("object", "ability", "yes").
 has_property("auras", "ability", "yes").
+has_property("spell", "step", "yes").
 has_property("effect", "duration", "yes").
 has_property("effect", "timestamp", "yes").
 has_property("spell", "mode", "yes").

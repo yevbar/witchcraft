@@ -28,6 +28,7 @@ permission("player", "activate", "condition", "-").
 permission("action", "be_modify", "by", "effect").
 permission("damage", "be_deal", "scope", "result").
 permission("damage", "be_deal", "scope", "effect").
+permission("damage", "have", "scope", "-").
 permission("card", "be_draw", "scope", "time").
 permission("sticker", "have", "qualified", "-").
 permission("text", "change", "qualified", "-").
@@ -49,8 +50,8 @@ permission("player", "arrange", "scope", "fashion").
 permission("effect", "create", "frequency", "-").
 permission("player", "concede", "scope", "time").
 permission("emblem", "be_create", "scope", "zone").
-permission("ability", "include", "qualified", "-").
 permission("ability", "have", "qualified", "-").
+permission("ability", "include", "qualified", "-").
 permission("ability", "state", "absolute", "-").
 permission("ability", "have", "condition", "-").
 permission("ability", "read", "condition", "-").
@@ -61,6 +62,7 @@ permission("object", "have", "condition", "-").
 permission("effect", "be_generate", "by", "resolution").
 permission("effect", "be_generate", "by", "ability").
 permission("effect", "allow", "qualified", "-").
+permission("effect", "cause", "qualified", "-").
 permission("event", "take", "scope", "resolution").
 permission("spell", "instruct", "absolute", "-").
 permission("spell", "instruct", "qualified", "-").

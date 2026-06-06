@@ -43,10 +43,12 @@ negation("ability", "trigger", "-").
 negation("player", "count", "-").
 negation("action", "control", "-").
 negation("ability", "include", "table").
+negation("choice", "copy", "-").
 negation("copy", "cast", "-").
 negation("counter", "interact", "-").
 negation("card", "begin", "game").
 negation("counter", "consider", "-").
+negation("object", "leave", "game").
 negation("player", "skip", "step").
 negation("range", "use", "-").
 negation("option", "use", "-").
