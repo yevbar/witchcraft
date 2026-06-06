@@ -1,11 +1,14 @@
-"""Build datalog/existential.dl — "Some/Most <X> are/have/include <Y>" claims as existential facts,
-from rules.txt.
+"""Build datalog/existential.dl — "Some/Most <X> are/have/include <Y>" claims (and soft "<X> may be
+<Y>" pointers) as existential facts, from rules.txt.
 
 These are broad (non-universal) assertions transpile's _some_are abstains on (coordinated predicate,
-complex object). They're real — a SUBSET of X has property Y — just not crisp universal rules. Captured
-as existential(subject, property): "some continuous effects are replacement effects" is faithful as
-existential(continuous_effect, replacement_effect). Curated per rule (anchored regex + subject/property
-slug, abstaining if reworded), so the fuzziness is recorded as data rather than left as a false "uncovered".
+complex object) — and "may"-modal pointers whose subject/modal is buried mid-sentence so the permission
+parser misses them (e.g. 202.2f "Effects may change an object's color", 118.7 "What a player needs to
+do to pay a cost may be changed or reduced by effects"). They're real — a SUBSET of X has/may-have
+property Y — just not crisp universal rules. Captured as existential(subject, property): "some
+continuous effects are replacement effects" is faithful as existential(continuous_effect,
+replacement_effect). Curated per rule (anchored regex + subject/property slug, abstaining if reworded),
+so the fuzziness is recorded as data rather than left as a false "uncovered".
 """
 
 from __future__ import annotations
@@ -41,6 +44,12 @@ _RULES = [
      "object_with_tribute", ["tribute_not_paid_check_trigger"]),
     ("202.2f", r"^Effects may change an object.s color",
      "effect", ["may_change_object_color"]),
+    # a soft "may"-pointer whose modal is buried mid-sentence (subject is a free-relative clause).
+    ("118.7", r"^What a player actually needs to do to pay a cost may be changed or reduced by effects",
+     "cost_payment_requirement", ["may_be_changed_or_reduced_by_effects"]),
+    # a "Most <X> <verb> <Y>" generality the engine can't take as universal (most abilities, not all).
+    ("702.1", r"^Most abilities describe exactly what they do in the card.s rules text",
+     "ability", ["usually_describes_what_it_does_in_card_rules_text"]),
 ]
 
 

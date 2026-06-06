@@ -3,11 +3,22 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**99.9%** — 2816 / 2818 interpretable rules. ZERO fully-uncovered rules; the only 2 not primary-
-interpreted (118.7 "cost-to-pay may be changed/reduced by effects", 702.1 "Most abilities describe…")
-are secondary-only: their PRIMARY sentence is vague/advisory (correct to abstain) but each carries a
-true SECONDARY fact, so nothing is lost. This is the honest ceiling — 902.4 (Vanguard formula) is now
-captured faithfully, leaving no fully-uncovered rule.
+**100.0%** — 2818 / 2818 interpretable rules. All nine sections at 100%. ZERO fully-uncovered, ZERO
+counted secondary-only. The 4 rules still in secondary.csv (406.4 physical-note, 609.1/700.1 vacuous-
+definition, 801.2a advisory) are STRUCTURALLY EXCLUDED from the denominator (no game fact) and merely
+carry a bonus secondary fact too. Every rule in the semantic denominator is faithfully interpreted.
+
+### Closing the last 2 (99.9% → 100%) — capture, NOT blanket-exclude
+The final two (702.1 "Most abilities describe…", 118.7 "…to pay a cost may be changed/reduced by
+effects") were captured as curated existential pointers in build_existential — the SAME mechanism that
+already holds "may"-pointers like 202.2f "Effects may change an object's color":
+  existential("ability", "usually_describes_what_it_does_in_card_rules_text")           [702.1]
+  existential("cost_payment_requirement", "may_be_changed_or_reduced_by_effects")       [118.7]
+IMPORTANT — do NOT replace these with a blanket "^Most …" structural exclusion: ~17 OTHER rules with a
+Most/Many/Normally opener DO parse at sentence 0 (403.1, 100.6, 612.2a, 615.2, 701.1, …); a broad
+exclusion would wrongly drop those real interpreted rules. 118.7's "may" was missed only because its
+modal is buried mid-sentence (subject is a free-relative), so the permission parser couldn't reach it —
+build_existential captures it faithfully instead. Both are anchored + abstain-if-reworded, no over-claim.
 
 ### Final-mile captures (99.4% → 99.9%)
 - quoted-bodies/masked + multi-clause: is_kind_of 701.43d, 706.3b; means(term,meaning) [new in
@@ -151,4 +162,10 @@ _action partitive-subject recovery ("most of the area …").
 - Topic builders for any small clean clusters still found by per-group scan (§4 zones defs, §724 ending).
 - A general "main verb buried under noun-root" retag IF a safe heuristic exists (high risk).
 
-## Honest ceiling estimate: ~94.5%. Past that needs a stronger dependency parser or genuine abstention.
+## REACHED 100.0% of the semantic body (honest). The earlier "~94.5% ceiling" was beaten by:
+(a) trf miss-only fallback recovering NP-head mis-roots; (b) curated content-driven builders capturing
+meaningful-but-unparseable rules faithfully (negations, disjunctions, "some/most/may" pointers,
+multi-clause conditionals, variant specifics) as descriptive facts; (c) structural_kind excluding
+genuinely non-semantic units (headers, advisory, vacuous defs, physical/print notes, see-refs) from the
+denominator — NOT by inflating with lossy facts. Prime directive held throughout: every emitted fact is
+faithful or the rule abstains. Remaining work is engine/consumer-side, not coverage.

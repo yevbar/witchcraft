@@ -378,6 +378,7 @@ interpreted("118.5").
 interpreted("118.5a").
 interpreted("118.6").
 interpreted("118.6a").
+interpreted("118.7").
 interpreted("118.7a").
 interpreted("118.7b").
 interpreted("118.7c").
@@ -1637,6 +1638,7 @@ interpreted("701.9").
 interpreted("701.9a").
 interpreted("701.9b").
 interpreted("701.9c").
+interpreted("702.1").
 interpreted("702.10").
 interpreted("702.100").
 interpreted("702.100a").
@@ -3113,11 +3115,9 @@ interpreted("905.6").
 // secondary = a true fact was extracted from a LATER sentence, but the rule's primary
 // statement is still uninterpreted — bonus knowledge, not counted as covered.
 .decl secondary(number: symbol)
-secondary("118.7").
 secondary("406.4").
 secondary("609.1").
 secondary("700.1").
-secondary("702.1").
 secondary("801.2a").
 
 // structural scaffolding (headers / list-intros / pure cross-references) — not

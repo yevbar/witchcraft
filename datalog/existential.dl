@@ -15,6 +15,8 @@ existential("cost", "x_amount").
 existential("leveler_card", "level_up_ability").
 existential("object_with_tribute", "tribute_not_paid_check_trigger").
 existential("effect", "may_change_object_color").
+existential("cost_payment_requirement", "may_be_changed_or_reduced_by_effects").
+existential("ability", "usually_describes_what_it_does_in_card_rules_text").
 
 .output existential
 
