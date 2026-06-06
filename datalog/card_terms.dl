@@ -6,9 +6,13 @@
 card_text_term("playing").
 card_text_term("descended").
 card_text_term("crime").
+card_text_term("enter").
+card_text_term("if_a_was_beheld").
+card_text_term("kicker_and_or").
 card_text_term("warped").
 card_text_term("a_spell_was_warped").
 card_text_term("coin_flip").
+card_text_term("to_gain_a_class_level").
 
 .output card_text_term
 

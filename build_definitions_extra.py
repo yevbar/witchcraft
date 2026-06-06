@@ -34,6 +34,8 @@ _IS_KIND_OF = [
     # disjunctive SUBJECT — each conjunct independently is the predicate's kind.
     ("113.2b", r"^An additional cost or alternative cost to cast a card is an ability of the card",
      ["additional_cost", "alternative_cost"], "ability"),
+    ("702.22b", r"^[“\"]Bands with other[”\"] is a special form of banding", "bands_with_other", "banding"),
+    ("700.3b", r"^Each object in a pile is still an individual object", "object_in_a_pile", "individual_object"),
 ]
 # (rule, anchor, term, [members]) — disjunctive PREDICATE ("X is a Y or Z").
 _IS_ONE_OF = [

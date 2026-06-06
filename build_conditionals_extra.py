@@ -48,6 +48,12 @@ _WHEN = [
      "attacking_creature_has_declared_blockers", "becomes_blocked_creature"),
     ("509.1h", r"one with no creatures declared as blockers for it becomes an unblocked creature",
      "attacking_creature_has_no_declared_blockers", "becomes_unblocked_creature"),
+    ("702.165d", r"^The abilities that a backup ability grants are determined as the ability is put on the stack",
+     "backup_ability_put_on_stack", "granted_abilities_determined"),
+    ("701.51c", r"^An ability which triggers whenever a player opens an Attraction triggers when that player puts an Attraction card onto the battlefield",
+     "player_puts_attraction_onto_battlefield", "opens_an_attraction_trigger"),
+    ("727.4", r"^The effect that restarts the game finishes resolving just before the first turn.s untap step",
+     "restart_game_effect_finishes_resolving", "just_before_first_turn_untap_step"),
 ]
 # (rule, anchor regex, a, b)
 _DISTINCT = [

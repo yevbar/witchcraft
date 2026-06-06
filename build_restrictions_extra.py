@@ -74,6 +74,13 @@ _COLOR_CARD = [
     ("105.2", r"^An object can be one or more of the five colors, or it can be no color at all",
      "object", "zero_to_five_colors"),
 ]
+# (rule, anchor regex, governed, governing) — "X is/are subject to Y" (X is governed by ruleset Y).
+_SUBJECT_TO = [
+    ("100.2c", r"^Commander decks are subject to additional deckbuilding restrictions", "commander_deck", "additional_deckbuilding_restrictions"),
+    ("111.6", r"^A token is subject to anything that affects permanents", "token", "effects_affecting_permanents"),
+    ("500.5b", r"^Effects that last [“\"]until end of turn[”\"] are subject to special rules", "until_end_of_turn_effect", "special_rules"),
+    ("903.5", r"^Each Commander deck is subject to the following deck construction rules", "commander_deck", "deck_construction_rules"),
+]
 
 
 def _scan(table, want_groups):
@@ -120,16 +127,20 @@ def color_card_rows():
     return _scan(_COLOR_CARD, 2)
 
 
+def subject_to_rows():
+    return _scan(_SUBJECT_TO, 2)
+
+
 def rule_numbers() -> set:
     return {r[0] for r in cannot_rows() + does_not_rows() + at_most_one_rows()
             + is_not_rows() + not_part_of_rows() + only_means_rows()
-            + only_chars_rows() + color_card_rows()}
+            + only_chars_rows() + color_card_rows() + subject_to_rows()}
 
 
 def build() -> tuple[str, dict]:
     can, dn, amo = cannot_rows(), does_not_rows(), at_most_one_rows()
     isn, npo, om = is_not_rows(), not_part_of_rows(), only_means_rows()
-    oc, cc = only_chars_rows(), color_card_rows()
+    oc, cc, st = only_chars_rows(), color_card_rows(), subject_to_rows()
     p = Program()
     p.comment("restrictions_extra.dl — negatively-phrased rules reified as positive facts, from rules.txt.")
     p.comment("cannot(subject,action,scope); does_not(subject,action,scope); at_most_one(thing); "
@@ -143,6 +154,7 @@ def build() -> tuple[str, dict]:
     p.decl("only_means", [("outcome", "symbol"), ("means", "symbol")])
     p.decl("only_characteristics", [("object", "symbol"), ("characteristic_set", "symbol")])
     p.decl("color_cardinality", [("subject", "symbol"), ("cardinality", "symbol")])
+    p.decl("subject_to", [("governed", "symbol"), ("governing", "symbol")])
     p.blank()
     for _n, _pat, subj, act, scope in can:
         p.fact(f'cannot("{subj}", "{act}", "{scope}")')
@@ -161,9 +173,11 @@ def build() -> tuple[str, dict]:
         p.fact(f'only_characteristics("{obj}", "{cset}")')
     for _n, _pat, subj, card in cc:
         p.fact(f'color_cardinality("{subj}", "{card}")')
+    for _n, _pat, gov, ing in st:
+        p.fact(f'subject_to("{gov}", "{ing}")')
     p.blank()
     p.output("cannot", "does_not", "at_most_one", "is_not", "not_part_of", "only_means",
-             "only_characteristics", "color_cardinality")
+             "only_characteristics", "color_cardinality", "subject_to")
     p.blank()
     p.comment("conformance — spot-check a prohibition the rules state plainly")
     p.conformance(
@@ -172,7 +186,7 @@ def build() -> tuple[str, dict]:
     p.fact('expect_cannot("player", "get_priority", "ending_turn_process")')
     return p.text(), {"cannot": len(can), "does_not": len(dn), "at_most_one": len(amo),
                       "is_not": len(isn), "not_part_of": len(npo), "only_means": len(om),
-                      "only_characteristics": len(oc), "color_cardinality": len(cc)}
+                      "only_characteristics": len(oc), "color_cardinality": len(cc), "subject_to": len(st)}
 
 
 def main() -> None:

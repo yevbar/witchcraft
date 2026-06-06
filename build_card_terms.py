@@ -27,12 +27,16 @@ _REFER = re.compile(
     r"^(?:Some|Most) (?:cards|effects|rules|spells|abilities|spells and abilities)\b[^.]*?\brefer to "
     r"(?:whether (?:a player has |an object had |the object had )?)?"
     r"(?:[“\"]([^“”\"]+?)[”\"]|(committing a crime|flipping a coin))", re.I)
+# "The phrase '<X>' means/refers to …" / "The term <X> is short for …" — also a defined card-text term.
+_PHRASE = re.compile(r"^The phrase [“\"]([^“”\"]+?)[”\"] (?:means|refers to)\b", re.I)
+_TERM = re.compile(r"^The term ([\w\[\] ]+?) is short for\b", re.I)
 
 
 def _term_slug(phrase: str) -> str:
     """Normalize a referenced term to a slug: 'descended this turn.' -> 'descended',
     'committing a crime' -> 'crime', 'flipping a coin' -> 'coin_flip'."""
     p = phrase.strip().rstrip(".").lower()
+    p = re.sub(r"\[.*?\]", "", p)                     # drop masked placeholders: 'enter[s]' -> 'enter'
     p = re.sub(r"\bthis turn\b", "", p)
     p = re.sub(r"^committing an? ", "", p)            # "committing a crime" -> "crime"
     p = re.sub(r"^flipping an? ", "", p) + ("_flip" if p.startswith("flipping") else "")
@@ -47,10 +51,11 @@ def extract() -> list[tuple[str, str]]:
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
-                    m = _REFER.search(_split_sentences(sr.text)[0])
+                    s0 = _split_sentences(sr.text)[0]
+                    m = _REFER.search(s0) or _PHRASE.search(s0) or _TERM.search(s0)
                     if not m:
                         continue
-                    term = _term_slug(m.group(1) or m.group(2))
+                    term = _term_slug(m.group(1) if m.lastindex == 1 else (m.group(1) or m.group(2)))
                     if term and (sr.number, term) not in seen:
                         seen.add((sr.number, term))
                         rows.append((sr.number, term))

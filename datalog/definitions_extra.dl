@@ -9,6 +9,8 @@ is_kind_of("basic_land", "land").
 is_kind_of("infinity", "keyword").
 is_kind_of("additional_cost", "ability").
 is_kind_of("alternative_cost", "ability").
+is_kind_of("bands_with_other", "banding").
+is_kind_of("object_in_a_pile", "individual_object").
 is_one_of("permanent", "card").
 is_one_of("permanent", "token").
 is_one_of("cost", "action").

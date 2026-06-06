@@ -3,7 +3,15 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**98.3%** — 2770 / 2818 interpretable rules. ~48 primary misses remain.
+**99.1%** — 2793 / 2818 interpretable rules. ~25 primary misses remain.
+Chipped the bespoke residue: is_kind_of (bands-with-other→banding, pile-object→individual);
+happens_when (backup-on-stack, attraction-open, restart-timing); existential (tribute, color-change-
+effects); card_text_term (phrase/term defs: to-gain-class-level, enter shorthand, beheld-quality,
+dual-kicker). Each anchored + faithful.
+The "broad/fuzzy" bucket CAPTURED (not blanket-excluded — broad exclusion patterns hit 84 existential /
+26 masked / 9 subject-to rules, mostly REAL covered ones, so they'd remove real facts): existential
+(subject, property) for "Some X are/have Y" claims [build_existential]; subject_to(governed, governing)
+for "X is subject to Y" [build_restrictions_extra]. Fuzziness recorded as data, faithful, no over-claim.
 Disjunctive/vacuous-definition bucket handled HONESTLY (not blanket-skipped): only the truly VACUOUS
 umbrella defs ("an effect is something that happens", "anything that happens is an event") excluded via
 structural_kind=vacuous_definition. The REAL disjunctive definitions are CAPTURED faithfully in

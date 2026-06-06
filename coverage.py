@@ -51,6 +51,7 @@ import build_restrictions_extra
 import build_conditionals_extra
 import build_card_terms
 import build_definitions_extra
+import build_existential
 import build_card_misc
 import build_color
 import build_face_down
@@ -157,6 +158,7 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | build_conditionals_extra.rule_numbers()
                     | build_card_terms.rule_numbers()
                     | build_definitions_extra.rule_numbers()
+                    | build_existential.rule_numbers()
                     | build_card_misc.rule_numbers()
                     | {r[0] for r in build_color.color_sources()}
                     | {r[0] for r in build_color.color_combinations()}

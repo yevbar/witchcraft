@@ -19,6 +19,9 @@ happens_when("constructed_game_with_sticker_sheets", "reveal_all_sticker_sheets_
 happens_when("stickered_melded_or_merged_permanent_leaves_battlefield", "only_one_resulting_object_keeps_stickers").
 happens_when("attacking_creature_has_declared_blockers", "becomes_blocked_creature").
 happens_when("attacking_creature_has_no_declared_blockers", "becomes_unblocked_creature").
+happens_when("backup_ability_put_on_stack", "granted_abilities_determined").
+happens_when("player_puts_attraction_onto_battlefield", "opens_an_attraction_trigger").
+happens_when("restart_game_effect_finishes_resolving", "just_before_first_turn_untap_step").
 distinct_action("transform", "turn_face_up_or_down").
 distinct_action("convert", "turn_face_up_or_down").
 distinct_action("create_regeneration_shield", "regenerate_permanent").

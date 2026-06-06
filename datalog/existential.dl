@@ -1,0 +1,27 @@
+// existential.dl — 'Some/Most X are/have/include Y' claims as existential facts, from rules.txt.
+// existential(subject, property). GENERATED.
+
+.decl existential(subject: symbol, property: symbol)
+
+existential("continuous_effect", "replacement_effect").
+existential("continuous_effect", "prevention_effect").
+existential("noncard_object", "some_card_parts").
+existential("aura", "leaves_battlefield_triggered_ability").
+existential("effect", "prevent_damage_from_chosen_source").
+existential("triggered_ability_effect", "optional").
+existential("cant_effect", "modifies_how_permanent_enters").
+existential("rule_or_effect", "uses_alternative_characteristics").
+existential("cost", "x_amount").
+existential("leveler_card", "level_up_ability").
+existential("object_with_tribute", "tribute_not_paid_check_trigger").
+existential("effect", "may_change_object_color").
+
+.output existential
+
+// conformance — spot-check an existential claim the rules state plainly
+.decl expect_exist(subject: symbol, property: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("exist", S, P) :- expect_exist(S, P), !existential(S, P).
+.output conformance_fail
+.printsize conformance_fail
+expect_exist("continuous_effect", "replacement_effect").
