@@ -71,7 +71,7 @@ from rules_parser import split
 from transpile import transpile_rule
 
 # Rules interpreted by the lark builders (not transpile.py): enumerations + turn structure.
-LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
+LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | {num for num, _, _ in build_turn_structure.SOURCES}
                     | {n for n, _ in build_ontology.extract()}
                     | {num for num, _, _, _ in build_keyword_defs.extract()}
@@ -163,6 +163,10 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_variants.planar_die_faces()}
                     | {r[0] for r in build_variants.planar_die_outcomes()}
                     | {r[0] for r in build_variants.roi_restriction()}
+                    | {r[0] for r in build_variants.variant_player_count()}
+                    | {r[0] for r in build_variants.command_zone_function()}
+                    | {r[0] for r in build_variants.roi_exempt()}
+                    | build_starting.life_restatement_rules()
                     | {r[0] for r in build_card_types.subtype_single_word()}
                     | {r[0] for r in build_card_types.planeswalker_loyalty()}
                     | {r[0] for r in build_card_types.planeswalker_properties()}

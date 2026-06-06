@@ -12,6 +12,9 @@
 .decl planar_die_face(face: symbol, n: number)
 .decl planar_die_outcome(face: symbol, effect: symbol)
 .decl roi_restriction(subject: symbol, action: symbol)
+.decl variant_player_count(variant: symbol, players: symbol)
+.decl command_zone_function(object: symbol)
+.decl roi_exempt(object: symbol)
 
 multiplayer_construct("limited_range_of_influence", "option").
 multiplayer_construct("attack_multiple_players", "option").
@@ -74,6 +77,18 @@ roi_restriction("player", "activate_ability").
 roi_restriction("aura", "enchant").
 roi_restriction("equipment", "equip").
 roi_restriction("spell_or_ability", "affect").
+variant_player_count("planechase", "two_player").
+variant_player_count("planechase", "multiplayer").
+variant_player_count("vanguard", "two_player").
+variant_player_count("vanguard", "multiplayer").
+variant_player_count("commander", "two_player").
+variant_player_count("commander", "multiplayer").
+command_zone_function("plane_card").
+command_zone_function("phenomenon_card").
+command_zone_function("vanguard_card").
+command_zone_function("scheme_card").
+roi_exempt("plane_card").
+roi_exempt("phenomenon_card").
 
 .output multiplayer_construct
 .output variant_uses
@@ -86,6 +101,9 @@ roi_restriction("spell_or_ability", "affect").
 .output planar_die_face
 .output planar_die_outcome
 .output roi_restriction
+.output variant_player_count
+.output command_zone_function
+.output roi_exempt
 
 // conformance — spot-check the §8/§9 facts the rules state plainly
 .decl expect_construct(name: symbol, kind: symbol)

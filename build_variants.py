@@ -205,11 +205,66 @@ def planar_die_outcomes() -> list[tuple[str, str, str]]:
     return rulescan.find(_DIE_OUTCOME, group_title="Planechase")
 
 
+_PLAYER_COUNT = re.compile(r"may be a (two-player) game or a (multiplayer) game", re.I)
+_CZ_FUNCTION = re.compile(r"abilities of a face-up (.+?) in the command zone function from that zone", re.I)
+_ROI_EXEMPT = re.compile(r"([\w ]+?) are exempt from the limited range of influence", re.I)
+
+
+def _object_slug(phrase: str) -> str:
+    """Slug a card-object phrase to a singular form: 'plane cards' -> 'plane_card'."""
+    return _slug(re.sub(r"cards\b", "card", phrase.strip(), flags=re.I))
+
+
+def variant_player_count() -> list[tuple[str, str, str]]:
+    """(rule, variant, count) — 'A <variant> game may be a two-player game or a multiplayer game',
+    one fact per allowed count; the variant comes from the group title."""
+    rows = []
+    for g, name, _kind in _variant_groups():
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                m = _PLAYER_COUNT.search(sr.text)
+                if m:
+                    for grp in (m.group(1), m.group(2)):
+                        rows.append((sr.number, name, _slug(grp)))
+    return rows
+
+
+def command_zone_function() -> list[tuple[str, str]]:
+    """(rule, object) — 'Any abilities of a face-up <object> in the command zone function from that
+    zone', one fact per object (a list like 'plane card or phenomenon card' splits)."""
+    rows = []
+    for g, _name, _kind in _variant_groups():
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                m = _CZ_FUNCTION.search(sr.text)
+                if m:
+                    for obj in re.split(r"\s+or\s+", m.group(1)):
+                        rows.append((sr.number, _object_slug(obj)))
+    return rows
+
+
+def roi_exempt() -> list[tuple[str, str]]:
+    """(rule, object) — '<objects> are exempt from the limited range of influence', one per object."""
+    rows, seen = [], set()
+    for g, _name, _kind in _variant_groups():
+        for r in g.rules:
+            for sr in [r] + r.subrules:
+                m = _ROI_EXEMPT.search(sr.text)
+                if m:
+                    for obj in re.split(r"\s+and\s+", m.group(1)):
+                        key = (sr.number, _object_slug(obj))
+                        if key not in seen and obj.strip():
+                            seen.add(key)
+                            rows.append(key)
+    return rows
+
+
 def build() -> tuple[str, dict]:
     cons, uses, teams = constructs(), variant_uses(), variant_teams()
     props, roi, adir, opt = variant_properties(), variant_range_of_influence(), attack_direction(), option_used()
     deck, faces, outcomes = variant_deck_size(), planar_die_faces(), planar_die_outcomes()
     roi_r = roi_restriction()
+    pcount, czf, rexempt = variant_player_count(), command_zone_function(), roi_exempt()
     p = Program()
     p.comment("variants.dl — §8 multiplayer + §9 casual variant facts, interpreted from rules.txt.")
     p.comment("multiplayer_construct(name, kind); variant_uses(variant, option); variant_teams(variant, n); "
@@ -227,6 +282,9 @@ def build() -> tuple[str, dict]:
     p.decl("planar_die_face", [("face", "symbol"), ("n", "number")])
     p.decl("planar_die_outcome", [("face", "symbol"), ("effect", "symbol")])
     p.decl("roi_restriction", [("subject", "symbol"), ("action", "symbol")])
+    p.decl("variant_player_count", [("variant", "symbol"), ("players", "symbol")])
+    p.decl("command_zone_function", [("object", "symbol")])
+    p.decl("roi_exempt", [("object", "symbol")])
     p.blank()
     for _n, name, kind in cons:
         p.fact(f'multiplayer_construct("{name}", "{kind}")')
@@ -255,10 +313,23 @@ def build() -> tuple[str, dict]:
         p.fact(f'planar_die_outcome("{face}", "{eff}")')
     for _n, subj, act in roi_r:
         p.fact(f'roi_restriction("{subj}", "{act}")')
+    for _n, var, cnt in pcount:
+        p.fact(f'variant_player_count("{var}", "{cnt}")')
+    seen_czf = set()
+    for _n, obj in czf:                                  # several variant groups state the same frame
+        if obj not in seen_czf:
+            seen_czf.add(obj)
+            p.fact(f'command_zone_function("{obj}")')
+    seen_rex = set()
+    for _n, obj in rexempt:                              # §801.18 and §901.13 state the same exemption
+        if obj not in seen_rex:
+            seen_rex.add(obj)
+            p.fact(f'roi_exempt("{obj}")')
     p.blank()
     p.output("multiplayer_construct", "variant_uses", "variant_teams", "variant_property")
     p.output("variant_range_of_influence", "attack_direction", "option_used")
     p.output("variant_deck_size", "planar_die_face", "planar_die_outcome", "roi_restriction")
+    p.output("variant_player_count", "command_zone_function", "roi_exempt")
     p.blank()
     p.comment("conformance — spot-check the §8/§9 facts the rules state plainly")
     p.conformance(
@@ -283,7 +354,7 @@ def build() -> tuple[str, dict]:
     return p.text(), {"constructs": len(cons), "uses": len(uses), "teams": len(teams),
                       "props": len(props), "roi": len(roi), "adir": len(adir), "opt": len(opt),
                       "deck": len(deck), "faces": len(faces), "outcomes": len(outcomes),
-                      "roi_r": len(roi_r)}
+                      "roi_r": len(roi_r), "pcount": len(pcount), "czf": len(czf), "rexempt": len(rexempt)}
 
 
 def main() -> None:
@@ -294,7 +365,8 @@ def main() -> None:
           f"{report['teams']} teams, {report['props']} property, {report['roi']} roi, "
           f"{report['adir']} attack_direction, {report['opt']} option_used, {report['deck']} deck_size, "
           f"{report['faces']} planar_die_face, {report['outcomes']} planar_die_outcome, "
-          f"{report['roi_r']} roi_restriction)")
+          f"{report['roi_r']} roi_restriction, {report['pcount']} player_count, "
+          f"{report['czf']} command_zone_function, {report['rexempt']} roi_exempt)")
 
 
 if __name__ == "__main__":

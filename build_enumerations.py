@@ -69,10 +69,12 @@ def _ok(items: list[str]) -> bool:
     return all(len(it) <= 22 and not (set(it.lower().split()) & stop) for it in items)
 
 
-def extract() -> list[tuple[str, str, str]]:
-    """(rule#, category_slug, item) for every clean enumeration."""
+def _frame_matches():
+    """Yield (rule#, category_slug, items) for EVERY sentence that cleanly matches an enumeration
+    frame, before any cross-rule de-duplication. Both extract() (which dedups members) and
+    matched_rules() (which credits coverage) read this, so a rule that merely RESTATES an earlier
+    enumeration — e.g. §300.1 relisting the card types from §205.2a — is still recognized."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    seen, out = set(), []
     for s in doc.sections:
         for g in s.groups:
             for r in g.rules:
@@ -83,15 +85,21 @@ def extract() -> list[tuple[str, str, str]]:
                         if not m:
                             continue
                         items = _items(m.group(2))
-                        if not _ok(items):
-                            continue
-                        cat = _slug(m.group(1))
-                        for it in items:
-                            key = (cat, it)
-                            if key not in seen:
-                                seen.add(key)
-                                out.append((sr.number, cat, it))
+                        if _ok(items):
+                            yield sr.number, _slug(m.group(1)), items
+
+
+def extract() -> list[tuple[str, str, str]]:
+    """(rule#, category_slug, item) for every clean enumeration; members de-duplicated across rules."""
+    seen, out = set(), []
+    for num, cat, items in _frame_matches():
+        for it in items:
+            key = (cat, it)
+            if key not in seen:
+                seen.add(key)
+                out.append((num, cat, it))
     # §205.3m creature types use a different frame ("... one word long: <list>")
+    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
     text = {sr.number: sr.text for s in doc.sections for g in s.groups for r in g.rules for sr in [r] + r.subrules}
     body = re.sub(r"\([^)]*\)", "", text.get("205.3m", ""))
     one = re.search(r"one word long:?\s*(.+?)\.", body)
@@ -101,6 +109,13 @@ def extract() -> list[tuple[str, str, str]]:
     if two:
         out.append(("205.3m", "creature_type", two.group(1).strip()))
     return out
+
+
+def matched_rules() -> set:
+    """Every rule# whose sentence cleanly matches an enumeration frame — INCLUDING those whose members
+    duplicate an earlier rule's (so coverage credits the restatement, e.g. §202.2a colors, §300.1 card
+    types). The facts stay de-duplicated in extract(); only the interpreted-rule credit is broadened."""
+    return {num for num, _, _ in _frame_matches()} | {"205.3m"}
 
 
 def members(category: str) -> list[str]:

@@ -54,6 +54,25 @@ def starting_life() -> list[tuple[str, str, int]]:
     return rows
 
 
+def life_restatement_rules() -> set:
+    """§8/§9 rule#s that RESTATE a per-variant starting life total already captured in §103.4/§119.1
+    (e.g. §903.12f Brawl 25, §904.5 Archenemy 40) — for coverage credit only, no new facts. A total
+    given as a FORMULA rather than a constant (§902.4 'is 20 plus or minus the life modifier') is
+    abstained: its point is the modifier, which we don't capture, so crediting it would overstate."""
+    out = set()
+    for s in _doc().sections:
+        if s.number not in ("8", "9"):
+            continue
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    for sent in sr.text.split(". "):
+                        m = re.search(r"starting life total (?:of|is) (\d+)", sent, re.I)
+                        if m and not re.search(r"\b(plus|minus|modifier)\b", sent, re.I):
+                            out.add(sr.number)
+    return out
+
+
 def starting_hand_size() -> list[tuple[str, str, int]]:
     rows = []
     for s in _doc().sections:
