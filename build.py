@@ -79,6 +79,7 @@ import build_tba
 import build_terms
 import build_zone_props
 import build_split
+import build_layouts
 import build_color
 import build_face_down
 import build_saga
@@ -206,6 +207,7 @@ def regenerate() -> None:
     build_terms.main()
     build_zone_props.main()
     build_split.main()
+    build_layouts.main()
     build_color.main()
     build_face_down.main()
     build_saga.main()

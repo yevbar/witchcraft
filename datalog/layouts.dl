@@ -1,0 +1,40 @@
+// layouts.dl — alternative-characteristics card-layout frames, from rules.txt.
+// layout_alt_copiable(layout); layout_alt_frame(layout, side); layout_normal_off_stack(layout); layout_alt_reference(layout); layout_halves_combined(layout). GENERATED.
+
+.decl layout_alt_copiable(layout: symbol)
+.decl layout_alt_frame(layout: symbol, side: symbol)
+.decl layout_normal_off_stack(layout: symbol)
+.decl layout_alt_reference(layout: symbol)
+.decl layout_halves_combined(layout: symbol)
+
+layout_alt_copiable("adventurer").
+layout_alt_copiable("prototype").
+layout_alt_copiable("omen").
+layout_alt_copiable("preparation").
+layout_alt_frame("adventurer", "left").
+layout_alt_frame("omen", "left").
+layout_alt_frame("preparation", "right").
+layout_normal_off_stack("adventurer").
+layout_normal_off_stack("prototype").
+layout_normal_off_stack("omen").
+layout_normal_off_stack("preparation").
+layout_alt_reference("adventurer").
+layout_alt_reference("omen").
+layout_halves_combined("split").
+
+.output layout_alt_copiable
+.output layout_alt_frame
+.output layout_normal_off_stack
+.output layout_alt_reference
+.output layout_halves_combined
+
+// conformance — spot-check layout frames the rules state plainly
+.decl expect_copiable(layout: symbol)
+.decl expect_frame(layout: symbol, side: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("copiable", L, "-") :- expect_copiable(L), !layout_alt_copiable(L).
+conformance_fail("frame", L, S) :- expect_frame(L, S), !layout_alt_frame(L, S).
+.output conformance_fail
+.printsize conformance_fail
+expect_copiable("adventurer").
+expect_frame("omen", "left").
