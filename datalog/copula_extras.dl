@@ -22,6 +22,7 @@ is_property("cost", "optional").
 is_property("object", "colorless").
 is_property("supertype", "independent").
 is_property("planeswalker", "subject").
+is_property("target", "illegal").
 is_property("instance", "redundant").
 is_property("ability", "distinct").
 is_property("rule", "informal").
@@ -29,18 +30,34 @@ is_property("effect", "exempt").
 
 // --- negation: X doesn't count / cause / include Y ---
 negation("card", "include", "-").
+negation("method", "use", "-").
 negation("mulligan", "count", "-").
+negation("tokens", "consider", "-").
 negation("word", "indicate", "target").
+negation("effect", "affect", "capability").
 negation("thing", "use", "stack").
+negation("creature", "affect", "-").
+negation("creature", "remove", "-").
 negation("ability", "go", "-").
 negation("ability", "cancel", "one").
 negation("attacking", "cause", "creature").
 negation("ability", "trigger", "-").
+negation("player", "count", "-").
+negation("action", "control", "-").
 negation("ability", "include", "table").
+negation("copy", "cast", "-").
+negation("counter", "interact", "-").
 negation("card", "begin", "game").
+negation("counter", "consider", "-").
 negation("player", "skip", "step").
+negation("range", "use", "-").
+negation("option", "use", "-").
+negation("player", "use", "-").
+negation("variant", "share", "-").
+negation("resource", "share", "-").
 negation("game", "use", "sideboard").
 negation("game", "use", "action").
+negation("counter", "share", "-").
 
 .output comparison
 .output is_property

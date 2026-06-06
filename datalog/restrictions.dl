@@ -4,6 +4,7 @@
 .decl restriction(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
 
 // --- one per matched "X can't VERB" sentence; the qualifier is recorded, never dropped ---
+restriction("ability", "be_activate", "condition", "-").
 restriction("card", "start", "scope", "zone").
 restriction("token", "move", "qualified", "-").
 restriction("target", "be_choose", "scope", "instance").
@@ -11,20 +12,24 @@ restriction("player", "pay", "scope", "-").
 restriction("damage", "be_deal", "qualified", "-").
 restriction("player", "put", "qualified", "-").
 restriction("object", "gain", "qualified", "-").
+restriction("player", "cast", "condition", "-").
 restriction("equipment", "equip", "condition", "-").
-restriction("ability", "be_activate", "condition", "-").
 restriction("aura", "enchant", "absolute", "-").
 restriction("instant", "enter", "absolute", "-").
 restriction("player", "play", "condition", "-").
 restriction("sorcery", "enter", "absolute", "-").
+restriction("card", "leave", "except", "-").
 restriction("battle", "be_attach", "condition", "-").
 restriction("card", "enter", "qualified", "-").
 restriction("order", "be_change", "except", "-").
 restriction("card", "be_affect", "except", "spell").
+restriction("card", "be_examine", "except", "player").
 restriction("player", "begin", "qualified", "-").
 restriction("ability", "use", "scope", "spell").
+restriction("effect", "change", "condition", "-").
 restriction("object", "be_choose", "condition", "-").
 restriction("player", "choose", "condition", "-").
+restriction("aura", "be_attach", "scope", "object").
 restriction("player", "mill", "qualified", "-").
 restriction("permanent", "convert", "condition", "-").
 restriction("object", "be_exert", "qualified", "-").
@@ -34,7 +39,6 @@ restriction("permanent", "be_target", "by", "spell").
 restriction("permanent", "be_enchant", "by", "auras").
 restriction("permanent", "be_equip", "by", "equipment").
 restriction("creature", "be_block", "by", "creature").
-restriction("player", "cast", "condition", "-").
 restriction("creature", "have", "condition", "-").
 restriction("down", "be_turn", "absolute", "-").
 restriction("permanent", "transform", "condition", "-").

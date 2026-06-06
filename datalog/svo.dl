@@ -13,6 +13,7 @@ action("player", "know", "choice").
 action("player", "determine", "-").
 action("card", "state", "-").
 action("player", "put", "commander").
+action("player", "choose", "sheet").
 action("player", "put", "number").
 action("player", "begin", "game").
 action("player", "draw", "number").
@@ -32,7 +33,6 @@ action("object", "use", "x").
 action("x", "appear", "-").
 action("object", "use", "letter").
 action("icon", "appear", "-").
-action("ability", "mean", "-").
 action("game", "use", "card").
 action("name", "rule", "text").
 action("permanent", "enter", "battlefield").
@@ -46,6 +46,7 @@ action("object", "check", "state").
 action("action", "happen", "-").
 action("player", "receive", "priority").
 action("game", "perform", "action").
+action("player", "carry", "instruction").
 action("cost", "include", "-").
 action("payment", "apply", "-").
 action("spell", "read", "-").
@@ -58,7 +59,6 @@ action("player", "draw", "card").
 action("effect", "replace", "draw").
 action("effect", "result", "-").
 action("number", "indicate", "-").
-action("player", "choose", "sheet").
 action("version", "feature", "bar").
 action("cost", "represent", "-").
 action("symbol", "contribute", "-").
@@ -104,6 +104,8 @@ action("effect", "refer", "-").
 action("player", "announce", "choice").
 action("player", "determine", "cost").
 action("player", "pay", "cost").
+action("object", "refer", "-").
+action("ability", "mean", "-").
 action("ability", "trigger", "-").
 action("phase", "begin", "ability").
 action("event", "use", "word").
@@ -131,9 +133,11 @@ action("permanent", "receive", "timestamp").
 action("card", "receive", "timestamp").
 action("sticker", "receive", "timestamp").
 action("effect", "wait", "-").
+action("effect", "use", "word").
 action("effect", "replace", "card").
 action("effect", "modify", "battlefield").
 action("effect", "state", "-").
+action("effect", "use", "prevent").
 action("effect", "prevent", "damage").
 action("controller", "choose", "mode(s").
 action("spell", "specify", "-").
@@ -183,12 +187,13 @@ action("card", "mean", "-").
 action("treasure", "mean", "-").
 action("octopus", "mean", "-").
 action("effect", "happen", "-").
+action("player", "control", "permanent").
 action("step", "begin", "permanent").
 action("action", "pay", "attention").
-action("player", "control", "permanent").
 action("table", "appear", "-").
 action("copy", "acquire", "value").
 action("effect", "copy", "spell").
+action("method", "include", "-").
 action("player", "choose", "-").
 action("characteristic", "exist", "-").
 action("spell", "instruct", "player").
@@ -227,6 +232,7 @@ action("group", "compete", "-").
 action("team", "sit", "-").
 action("variant", "involve", "team").
 action("game", "use", "option").
+action("order", "go", "-").
 action("variant", "use", "team").
 action("variant", "use", "rule").
 action("player", "win", "-").

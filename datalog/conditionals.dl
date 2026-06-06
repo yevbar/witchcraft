@@ -37,7 +37,9 @@ conditional("ability", "produce", "-", "produce", "replacement").
 conditional("effect", "add", "player", "choose", "condition").
 conditional("effect", "add", "mana", "add", "condition").
 conditional("ability", "resolve", "effect", "modify", "temporal").
+conditional("spell", "generate", "spell", "tell", "condition").
 conditional("rule", "instruct", "player", "choose", "condition").
+conditional("spell", "be", "x", "equal", "temporal").
 conditional("value", "define", "choice", "be", "condition").
 conditional("spell", "have", "-", "be", "condition").
 conditional("cost", "have", "value", "choose", "condition").
@@ -49,6 +51,7 @@ conditional("ability", "have", "value", "be", "condition").
 conditional("ability", "refer", "value", "be", "condition").
 conditional("x", "define", "value", "be", "condition").
 conditional("counter", "put", "-", "mean", "condition").
+conditional("level", "become", "ability", "mean", "condition").
 conditional("card", "have", "controller", "determine", "condition").
 conditional("spell", "use", "-", "mean", "condition").
 conditional("ability", "include", "-", "mean", "condition").
@@ -59,12 +62,15 @@ conditional("player", "put", "object", "enter", "condition").
 conditional("effect", "cause", "player", "control", "condition").
 conditional("permanent", "lose", "-", "remain", "condition").
 conditional("spell", "change", "permanent", "retain", "temporal").
+conditional("spell", "specify", "name", "be", "condition").
 conditional("spell", "create", "token", "create", "condition").
+conditional("zone", "trigger", "-", "note", "condition").
 conditional("player", "create", "player", "use", "condition").
 conditional("player", "create", "token", "create", "condition").
 conditional("-", "resolve", "copy", "become", "temporal").
 conditional("-", "be", "owner", "be", "condition").
 conditional("effect", "change", "effect", "continue", "condition").
+conditional("-", "grant", "player", "have", "condition").
 conditional("object", "be", "ability", "function", "temporal").
 conditional("game", "begin", "ability", "function", "temporal").
 conditional("effect", "add", "one", "prevail", "condition").
@@ -84,6 +90,7 @@ conditional("player", "pass", "phase", "end", "condition").
 conditional("player", "cast", "spell", "cast", "condition").
 conditional("cost", "include", "player", "have", "condition").
 conditional("cost", "impose", "cost", "be", "condition").
+conditional("component", "reduce", "-", "consider", "condition").
 conditional("cost", "reduce", "cost", "reduce", "condition").
 conditional("cost", "reduce", "component", "reduce", "condition").
 conditional("cost", "reduce", "player", "pay", "condition").
@@ -95,6 +102,7 @@ conditional("-", "do", "spell", "read", "condition").
 conditional("cost", "contain", "choice", "make", "condition").
 conditional("cost", "contain", "player", "pay", "condition").
 conditional("effect", "cause", "total", "adjust", "condition").
+conditional("payment", "subtract", "player", "lose", "condition").
 conditional("cost", "allow", "player", "do", "condition").
 conditional("effect", "set", "-", "gain", "condition").
 conditional("player", "make", "exchange", "happen", "condition").
@@ -103,6 +111,7 @@ conditional("effect", "deal", "event", "modify", "replacement").
 conditional("-", "modify", "damage", "deal", "temporal").
 conditional("-", "modify", "damage", "process", "temporal").
 conditional("stop", "be", "damage", "remain", "condition").
+conditional("-", "choose", "object", "refer", "condition").
 conditional("source", "deal", "-", "deal", "condition").
 conditional("trigger", "deal", "-", "refer", "condition").
 conditional("player", "perform", "player", "do", "condition").
@@ -115,6 +124,8 @@ conditional("effect", "replace", "effect", "complete", "condition").
 conditional("-", "draw", "effect", "perform", "temporal").
 conditional("spell", "cause", "card", "keep", "condition").
 conditional("effect", "give", "player", "look", "condition").
+conditional("-", "become", "effect", "be", "replacement").
+conditional("permanent", "put", "effect", "be", "replacement").
 conditional("object", "move", "counter", "retain", "condition").
 conditional("permanent", "have", "counter", "remove", "condition").
 conditional("effect", "say", "-", "mean", "condition").
@@ -122,12 +133,14 @@ conditional("object", "enter", "effect", "specify", "condition").
 conditional("ability", "instruct", "player", "move", "condition").
 conditional("-", "be", "player", "move", "condition").
 conditional("player", "put", "player", "choose", "condition").
+conditional("-", "have", "sticker", "consider", "condition").
 conditional("sticker", "move", "cost", "need", "condition").
 conditional("object", "move", "sticker", "retain", "temporal").
 conditional("card", "enter", "-", "be", "condition").
 conditional("object", "become", "sticker", "be", "condition").
 conditional("sticker", "place", "controller", "choose", "temporal").
 conditional("effect", "refer", "-", "refer", "condition").
+conditional("power", "be", "-", "use", "condition").
 conditional("-", "have", "object", "have", "condition").
 conditional("object", "have", "spell", "check", "condition").
 conditional("-", "have", "card", "treat", "temporal").
@@ -141,6 +154,7 @@ conditional("object", "be", "value", "be", "condition").
 conditional("-", "have", "value", "calculate", "temporal").
 conditional("object", "be", "x", "treat", "temporal").
 conditional("card", "have", "subtype", "correlate", "condition").
+conditional("-", "have", "land", "be", "condition").
 conditional("card", "appear", "player", "include", "condition").
 conditional("-", "be", "noncreature", "have", "condition").
 conditional("effect", "create", "effect", "create", "condition").
@@ -149,6 +163,7 @@ conditional("effect", "attempt", "equipment", "enter", "condition").
 conditional("permanent", "be", "ability", "refer", "condition").
 conditional("vehicle", "become", "-", "have", "condition").
 conditional("object", "leave", "aura", "put", "condition").
+conditional("aura", "enchant", "-", "change", "condition").
 conditional("aura", "enter", "-", "specify", "condition").
 conditional("aura", "enter", "aura", "remain", "condition").
 conditional("effect", "attempt", "-", "enter", "condition").
@@ -157,7 +172,9 @@ conditional("-", "enchant", "aura", "move", "condition").
 conditional("effect", "allow", "controller", "consider", "condition").
 conditional("permanent", "have", "-", "put", "condition").
 conditional("text", "state", "-", "mean", "condition").
+conditional("number", "be", "play", "be", "condition").
 conditional("number", "play", "-", "be", "condition").
+conditional("object", "use", "-", "refer", "condition").
 conditional("effect", "set", "land", "have", "condition").
 conditional("object", "be", "-", "play", "condition").
 conditional("loyalty", "be", "-", "put", "condition").
@@ -177,6 +194,7 @@ conditional("-", "stop", "protector", "change", "condition").
 conditional("battle", "have", "controller", "choose", "condition").
 conditional("siege", "enter", "controller", "choose", "temporal").
 conditional("-", "be", "card", "remain", "temporal").
+conditional("-", "leave", "controller", "retain", "temporal").
 conditional("card", "face", "controller", "planeswalk", "condition").
 conditional("deck", "shuffle", "player", "put", "temporal").
 conditional("object", "go", "-", "go", "condition").
@@ -196,6 +214,7 @@ conditional("-", "be", "object", "be", "condition").
 conditional("effect", "put", "owner", "arrange", "condition").
 conditional("effect", "cause", "player", "put", "condition").
 conditional("effect", "put", "-", "put", "condition").
+conditional("player", "receive", "-", "deal", "temporal").
 conditional("player", "leave", "object", "leave", "condition").
 conditional("object", "become", "-", "change", "condition").
 conditional("player", "draw", "player", "put", "temporal").
@@ -210,6 +229,7 @@ conditional("player", "be", "player", "set", "condition").
 conditional("player", "put", "-", "control", "condition").
 conditional("player", "control", "player", "roll", "condition").
 conditional("stack", "be", "player", "play", "condition").
+conditional("opponent", "become", "player", "choose", "condition").
 conditional("effect", "put", "permanent", "enter", "condition").
 conditional("effect", "put", "creature", "enter", "condition").
 conditional("-", "be", "creature", "enter", "condition").
@@ -226,12 +246,16 @@ conditional("-", "have", "player", "announce", "condition").
 conditional("-", "require", "player", "determine", "condition").
 conditional("-", "require", "player", "have", "condition").
 conditional("player", "have", "-", "pay", "temporal").
+conditional("creature", "put", "-", "trigger", "condition").
 conditional("creature", "put", "controller", "choose", "condition").
 conditional("creature", "put", "creature", "put", "condition").
 conditional("-", "attack", "creature", "become", "condition").
 conditional("ability", "refer", "spell", "refer", "condition").
 conditional("player", "control", "player", "attack", "condition").
 conditional("-", "reselecte", "creature", "affect", "temporal").
+conditional("-", "remain", "effect", "say", "temporal").
+conditional("creature", "declare", "-", "trigger", "condition").
+conditional("creature", "block", "-", "trigger", "condition").
 conditional("ability", "trigger", "ability", "trigger", "condition").
 conditional("-", "trigger", "ability", "trigger", "condition").
 conditional("effect", "block", "creature", "put", "condition").
@@ -240,6 +264,7 @@ conditional("-", "have", "creature", "be", "condition").
 conditional("-", "enter", "ability", "trigger", "condition").
 conditional("hand", "contain", "-", "discard", "condition").
 conditional("-", "see", "game", "check", "condition").
+conditional("-", "put", "effect", "begin", "temporal").
 conditional("spell", "be", "player", "announce", "condition").
 conditional("spell", "require", "player", "announce", "condition").
 conditional("step", "complete", "-", "cast", "temporal").
@@ -253,7 +278,9 @@ conditional("player", "allow", "casting", "be", "condition").
 conditional("player", "begin", "-", "continue", "temporal").
 conditional("-", "do", "spell", "specify", "temporal").
 conditional("-", "be", "controller", "decide", "condition").
+conditional("ability", "have", "-", "appear", "condition").
 conditional("spell", "modify", "modification", "apply", "condition").
+conditional("object", "say", "controller", "activate", "condition").
 conditional("-", "do", "ability", "specify", "temporal").
 conditional("ability", "have", "restriction", "continue", "condition").
 conditional("object", "acquire", "restriction", "apply", "condition").
@@ -261,6 +288,8 @@ conditional("event", "occur", "ability", "trigger", "condition").
 conditional("ability", "trigger", "controller", "put", "temporal").
 conditional("ability", "trigger", "ability", "place", "condition").
 conditional("ability", "be", "controller", "announce", "condition").
+conditional("permanent", "be", "effect", "apply", "temporal").
+conditional("object", "put", "ability", "treat", "condition").
 conditional("-", "have", "ability", "trigger", "condition").
 conditional("object", "change", "ability", "affect", "condition").
 conditional("spell", "create", "source", "be", "condition").
@@ -298,20 +327,22 @@ conditional("player", "do", "effect", "state", "temporal").
 conditional("creature", "do", "condition", "apply", "condition").
 conditional("effect", "allow", "-", "affect", "condition").
 conditional("effect", "result", "text", "specify", "condition").
-conditional("-", "choose", "object", "refer", "condition").
 conditional("event", "occur", "effect", "cause", "temporal").
 conditional("-", "return", "object", "return", "condition").
 conditional("effect", "create", "effect", "be", "condition").
+conditional("-", "phase", "effect", "happen", "condition").
 conditional("effect", "modify", "set", "determine", "condition").
 conditional("-", "have", "effect", "apply", "condition").
 conditional("effect", "apply", "part", "apply", "condition").
 conditional("-", "put", "counter", "receive", "temporal").
 conditional("object", "receive", "timestamp", "determine", "condition").
 conditional("effect", "receive", "effect", "receive", "condition").
+conditional("dependency", "exist", "-", "override", "condition").
 conditional("effect", "apply", "order", "reevaluate", "temporal").
 conditional("effect", "exist", "-", "go", "temporal").
 conditional("event", "replace", "-", "happen", "condition").
 conditional("effect", "replace", "effect", "do", "condition").
+conditional("player", "skip", "effect", "be", "condition").
 conditional("effect", "replace", "action", "complete", "condition").
 conditional("-", "draw", "action", "perform", "condition").
 conditional("-", "enter", "effect", "make", "temporal").
@@ -320,6 +351,7 @@ conditional("-", "apply", "effect", "cause", "temporal").
 conditional("effect", "create", "effect", "apply", "condition").
 conditional("event", "happen", "-", "replace", "condition").
 conditional("damage", "prevent", "-", "happen", "condition").
+conditional("property", "match", "damage", "prevent", "condition").
 conditional("source", "deal", "effect", "refer", "condition").
 conditional("-", "have", "effect", "attempt", "condition").
 conditional("effect", "apply", "process", "repeat", "temporal").
@@ -332,7 +364,9 @@ conditional("spell", "need", "calculation", "perform", "condition").
 conditional("creature", "have", "-", "count", "condition").
 conditional("-", "be", "player", "have", "condition").
 conditional("effect", "try", "aura", "move", "condition").
+conditional("-", "have", "player", "cast", "condition").
 conditional("effect", "apply", "effect", "apply", "condition").
+conditional("permanent", "put", "-", "destroy", "condition").
 conditional("card", "discard", "value", "consider", "condition").
 conditional("power", "be", "-", "mean", "condition").
 conditional("permanent", "control", "-", "gain", "condition").
@@ -340,8 +374,10 @@ conditional("card", "exchange", "card", "stop", "condition").
 conditional("player", "exchange", "card", "exchange", "condition").
 conditional("creature", "fight", "-", "deal", "condition").
 conditional("player", "goad", "player", "have", "temporal").
+conditional("-", "be", "stack", "be", "condition").
 conditional("effect", "regenerate", "-", "create", "condition").
 conditional("effect", "regenerate", "-", "replace", "condition").
+conditional("effect", "cause", "-", "reveal", "condition").
 conditional("card", "shuffle", "card", "stop", "condition").
 conditional("player", "instruct", "event", "occur", "condition").
 conditional("player", "scry", "-", "look", "condition").
@@ -364,9 +400,11 @@ conditional("player", "convert", "-", "happen", "condition").
 conditional("player", "reveal", "player", "win", "condition").
 conditional("owner", "leave", "player", "planeswalk", "causal").
 conditional("permanent", "be", "n", "mean", "condition").
+conditional("permanent", "become", "-", "stay", "temporal").
 conditional("ability", "instruct", "ability", "refer", "condition").
 conditional("text", "refer", "-", "refer", "condition").
 conditional("effect", "give", "vote", "happen", "condition").
+conditional("card", "be", "-", "turn", "condition").
 conditional("card", "manifest", "controller", "turn", "condition").
 conditional("effect", "instruct", "card", "manifest", "condition").
 conditional("rule", "prohibit", "card", "manifest", "condition").
@@ -400,6 +438,7 @@ conditional("creature", "have", "controller", "activate", "condition").
 conditional("creature", "block", "damage", "assign", "condition").
 conditional("creature", "attack", "damage", "assign", "condition").
 conditional("creature", "attack", "none", "assign", "condition").
+conditional("effect", "cause", "permanent", "lose", "condition").
 conditional("player", "declare", "-", "declare", "temporal").
 conditional("band", "announce", "-", "last", "temporal").
 conditional("member", "block", "band", "block", "condition").
@@ -416,7 +455,9 @@ conditional("ability", "activate", "-", "continue", "condition").
 conditional("controller", "declare", "spell", "kick", "condition").
 conditional("-", "kick", "object", "have", "condition").
 conditional("part", "have", "controller", "choose", "condition").
+conditional("permanent", "have", "-", "turn", "condition").
 conditional("cost", "include", "ability", "refer", "condition").
+conditional("-", "reveal", "n", "mean", "temporal").
 conditional("creature", "have", "one", "work", "condition").
 conditional("spell", "have", "-", "trigger", "condition").
 conditional("spell", "have", "-", "apply", "condition").
@@ -428,6 +469,7 @@ conditional("object", "have", "-", "apply", "condition").
 conditional("spell", "have", "-", "pay", "condition").
 conditional("permanent", "have", "one", "work", "condition").
 conditional("-", "be", "card", "suspend", "condition").
+conditional("-", "remove", "n", "mean", "condition").
 conditional("permanent", "have", "-", "work", "condition").
 conditional("half", "complete", "ability", "have", "condition").
 conditional("fortification", "have", "-", "use", "condition").
@@ -443,9 +485,11 @@ conditional("aura", "become", "-", "cease", "condition").
 conditional("aura", "phase", "-", "cease", "condition").
 conditional("player", "leave", "card", "reveal", "condition").
 conditional("player", "choose", "controller", "choose", "condition").
+conditional("-", "cast", "emerge", "mean", "condition").
 conditional("card", "have", "-", "choose", "condition").
 conditional("-", "designate", "partner", "mean", "condition").
 conditional("-", "designate", "companion", "mean", "condition").
+conditional("half", "cast", "aftermath", "mean", "replacement").
 conditional("player", "get", "effect", "reapplie", "temporal").
 conditional("-", "enter", "ability", "mean", "condition").
 conditional("-", "have", "ability", "mean", "condition").
@@ -455,8 +499,10 @@ conditional("effect", "state", "card", "become", "condition").
 conditional("player", "own", "-", "ensure", "condition").
 conditional("equipment", "stop", "-", "cause", "temporal").
 conditional("spell", "have", "-", "use", "condition").
+conditional("ability", "trigger", "-", "mean", "condition").
 conditional("-", "have", "permanent", "be", "condition").
 conditional("battlefield", "create", "order", "maintain", "condition").
+conditional("permanent", "lose", "-", "change", "condition").
 conditional("controller", "declare", "spell", "bargain", "condition").
 conditional("-", "bargain", "object", "have", "condition").
 conditional("object", "describe", "-", "refer", "condition").
@@ -464,6 +510,7 @@ conditional("controller", "declare", "gift", "promise", "condition").
 conditional("-", "take", "effect", "allow", "temporal").
 conditional("rule", "set", "player", "have", "temporal").
 conditional("player", "have", "speed", "become", "condition").
+conditional("-", "increase", "ability", "be", "condition").
 conditional("spell", "be", "harmonize", "represent", "temporal").
 conditional("-", "have", "ability", "mean", "temporal").
 conditional("-", "cast", "mayhem", "mean", "temporal").
@@ -482,6 +529,7 @@ conditional("damage", "assign", "damage", "deal", "temporal").
 conditional("step", "begin", "-", "discard", "temporal").
 conditional("player", "discard", "damage", "remove", "temporal").
 conditional("step", "end", "mana", "leave", "temporal").
+conditional("-", "trigger", "check", "repeat", "condition").
 conditional("player", "attempt", "player", "lose", "condition").
 conditional("player", "attack", "controller", "choose", "condition").
 conditional("controller", "be", "player", "choose", "condition").
@@ -491,6 +539,7 @@ conditional("-", "result", "information", "derive", "condition").
 conditional("-", "be", "number", "indicate", "temporal").
 conditional("player", "choose", "-", "consider", "condition").
 conditional("player", "instruct", "roll", "consider", "condition").
+conditional("kind", "note", "-", "roll", "condition").
 conditional("permanent", "have", "ability", "link", "condition").
 conditional("value", "derive", "copy", "acquire", "causal").
 conditional("object", "copy", "-", "cause", "temporal").
@@ -498,6 +547,7 @@ conditional("ability", "generate", "value", "determine", "condition").
 conditional("-", "modify", "value", "become", "temporal").
 conditional("pair", "copy", "ability", "link", "condition").
 conditional("effect", "create", "token", "be", "condition").
+conditional("-", "be", "indicator", "copy", "condition").
 conditional("copy", "be", "exception", "apply", "condition").
 conditional("effect", "create", "copy", "be", "condition").
 conditional("effect", "refer", "effect", "track", "condition").
@@ -533,6 +583,7 @@ conditional("phase", "begin", "player", "roll", "temporal").
 conditional("card", "put", "owner", "put", "replacement").
 conditional("-", "be", "cost", "represent", "temporal").
 conditional("player", "cast", "player", "choose", "temporal").
+conditional("cost", "include", "-", "become", "condition").
 conditional("permanent", "copy", "copy", "have", "condition").
 conditional("condition", "mean", "case", "become", "condition").
 conditional("text", "be", "-", "trigger", "condition").
@@ -543,6 +594,7 @@ conditional("information", "be", "-", "be", "condition").
 conditional("-", "control", "player", "make", "temporal").
 conditional("-", "be", "ability", "cease", "condition").
 conditional("ability", "trigger", "-", "trigger", "causal").
+conditional("ability", "put", "player", "get", "condition").
 conditional("ability", "trigger", "phase", "end", "causal").
 conditional("effect", "attempt", "-", "happen", "condition").
 conditional("monarch", "leave", "player", "become", "condition").
@@ -551,6 +603,7 @@ conditional("player", "leave", "player", "take", "condition").
 conditional("player", "instruct", "-", "cause", "condition").
 conditional("card", "involve", "card", "involve", "condition").
 conditional("player", "draw", "player", "lose", "causal").
+conditional("spell", "have", "instruction", "follow", "condition").
 conditional("subgame", "restart", "game", "be", "condition").
 conditional("game", "restart", "player", "involve", "condition").
 conditional("subgame", "start", "set", "create", "temporal").
@@ -560,6 +613,7 @@ conditional("permanent", "be", "-", "come", "causal").
 conditional("permanent", "contain", "permanent", "be", "condition").
 conditional("permanent", "contain", "status", "determine", "condition").
 conditional("permanent", "turn", "component", "turn", "condition").
+conditional("permanent", "turn", "controller", "reveal", "condition").
 conditional("permanent", "contain", "characteristic", "use", "condition").
 conditional("-", "contain", "permanent", "be", "condition").
 conditional("effect", "apply", "-", "apply", "condition").
@@ -596,7 +650,9 @@ conditional("player", "declare", "-", "choose", "temporal").
 conditional("-", "control", "player", "declare", "condition").
 conditional("option", "use", "player", "attack", "condition").
 conditional("attack", "use", "player", "attack", "condition").
+conditional("player", "agree", "player", "make", "condition").
 conditional("team", "have", "team", "pass", "condition").
+conditional("team", "make", "team", "make", "condition").
 conditional("member", "put", "member", "do", "condition").
 conditional("effect", "give", "team", "take", "condition").
 conditional("step", "begin", "team", "declare", "temporal").
@@ -611,6 +667,7 @@ conditional("player", "leave", "player", "enter", "condition").
 conditional("effect", "cause", "player", "keep", "condition").
 conditional("marker", "be", "player", "get", "condition").
 conditional("-", "activate", "player", "specify", "condition").
+conditional("team", "have", "player", "go", "condition").
 conditional("player", "concede", "team", "leave", "condition").
 conditional("total", "be", "team", "lose", "condition").
 conditional("cost", "need", "-", "use", "condition").
@@ -647,6 +704,8 @@ conditional("commander", "have", "deck", "contain", "condition").
 conditional("draft", "be", "card", "become", "temporal").
 conditional("phase", "begin", "player", "move", "temporal").
 conditional("ability", "cause", "-", "remain", "temporal").
+conditional("ability", "instruct", "player", "reveal", "condition").
+conditional("player", "wish", "action", "take", "condition").
 conditional("-", "reveal", "card", "instruct", "temporal").
 
 .output conditional

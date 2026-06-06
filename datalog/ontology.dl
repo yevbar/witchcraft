@@ -53,6 +53,7 @@ isa("zone", "place").   // 400.1
 isa("public_zone", "zone").   // 400.2
 isa("graveyard", "pile").   // 404.1
 isa("exile_zone", "area").   // 406.1
+isa("exiled_card", "card").   // 406.2
 isa("first_main_phase", "phase").   // 505.1a
 isa("active_player", "player").   // 506.2
 isa("activated_ability", "loyalty_ability").   // 606.2

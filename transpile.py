@@ -91,6 +91,7 @@ class Out:
     rule: str
     datalog: str
     pattern: str
+    sentence: int = 0          # which sentence of the rule the fact came from (0 = the opening statement)
 
 
 def _root(doc):
@@ -539,6 +540,8 @@ def _passive(rule, doc):
     if not any(c.dep_ == "auxpass" and c.lemma_ == "be" for c in kids):
         return None
     if any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in kids):
+        return None
+    if any(c.dep_ == "neg" for c in kids):               # "isn't determined / aren't shared" — don't assert it
         return None
     subj = next((c for c in kids if c.dep_ == "nsubjpass"), None)
     if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
@@ -1131,17 +1134,129 @@ def _retag_game_nouns(doc) -> None:
             tok.pos_ = "NOUN"
 
 
+# --- truthiness guards for interpreting a rule beyond its opening sentence --------------------
+#
+# A rule's later sentences are only safe to interpret when each stands on its own. We accept a
+# later sentence ONLY if it is self-contained — a conditional (its condition is stated in-sentence)
+# or a standalone generalization (an indefinite / quantified / bare-generic subject) — and skip any
+# EXTENSION whose truth leans on the prior sentence: a pronoun / demonstrative / possessive subject
+# ("it", "such an ability", "its front face"), a definite back-reference ("the token …"), a discourse
+# continuation ("then …", "the same is true …"), or a cross-reference aside ("See rule …"). This is
+# deliberately conservative: a sentence that needs context is dropped, never flattened into a
+# context-free fact.
+_FOLLOWUP_NOISE = _re.compile(
+    r'^(see rule|see section|for more information|for rules|for details|for a list|'
+    r'example|note that|this is an exception)\b', _re.I)
+_DISCOURSE_LEAD = {"then", "otherwise", "instead", "however", "similarly", "likewise", "additionally",
+                   "conversely", "nonetheless", "regardless", "meanwhile", "alternatively", "also",
+                   "thus", "therefore"}
+_DEFINITE_DET = {"the", "this", "that", "these", "those", "such"}      # a definite subject may be a back-reference
+_ANAPHOR_MOD = {"such", "other", "this", "that", "these", "those", "same", "its", "their", "his", "her"}
+_NEG_DET = {"no", "neither", "none"}                                   # negative-quantified subject
+
+# Patterns that ASSERT their subject positively. A negative-quantified subject ("No player gets
+# priority") would invert their truth, so we suppress them in that case — a negated generalization
+# can't be stated faithfully as a positive fact. Structural skeletons (conditional, sba_*, …) and
+# the already-negative _negation are exempt.
+_POS_ASSERT = {"action", "effect", "possession", "ability", "permission", "restriction", "obligation",
+               "relation", "isa", "property", "comparison", "capability", "some_are", "gerund_action",
+               "passive"}
+
+
+def _balanced(s: str) -> bool:
+    """True if s has no open quotation or bracket — a complete span, not cut mid-quote/mid-bracket."""
+    return (s.count("“") == s.count("”") and s.count('"') % 2 == 0       # " "
+            and s.count("[") == s.count("]") and s.count("{") == s.count("}")
+            and s.count("(") == s.count(")"))
+
+
+def _split_sentences(text: str) -> list:
+    """Sentence-split on '. ', re-joining any chunk that ends mid-quote or mid-bracket — the rules
+    quote ability text that itself contains sentence breaks ("…enters with N counters. …"), and a
+    naive split would shear those into meaningless fragments. For text with no such spanning quote
+    (the vast majority of rules) this is EXACTLY text.split(". "), so sentence 0 is byte-identical to
+    the prior single-sentence behavior and nothing already-covered changes."""
+    out, buf = [], ""
+    for part in text.split(". "):
+        buf = part if not buf else buf + ". " + part
+        if _balanced(buf):
+            out.append(buf)
+            buf = ""
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _neg_subject(doc) -> bool:
+    """True if the main clause subject is negatively quantified ('No player …', 'Neither team …')."""
+    root = _root(doc)
+    subj = next((c for c in root.children if c.dep_ in ("nsubj", "nsubjpass")), None) if root else None
+    if subj is None:
+        return False
+    return (subj.lemma_.lower() in _NEG_DET
+            or any(c.lemma_.lower() in _NEG_DET for c in subj.children if c.dep_ in ("det", "predet", "amod")))
+
+
+def _self_contained(sentence: str, doc) -> bool:
+    """True if a fact drawn from this (non-opening) sentence is true on its own — see the note above."""
+    s = sentence.strip().lstrip('" ').lower()
+    if _FOLLOWUP_NOISE.match(s) or s.startswith(("the same", "doing so", "such ", "other ", "these ", "those ")):
+        return False
+    if doc[0].lemma_.lower() in _DISCOURSE_LEAD:
+        return False
+    root = _root(doc)
+    if root is None:
+        return False
+    if any(c.dep_ in ("advcl", "ccomp")                              # a conditional/temporal: condition is in-sentence
+           and any(t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS for t in c.subtree)
+           for c in root.children):
+        return True
+    subj = next((c for c in root.children if c.dep_ in ("nsubj", "nsubjpass")), None)
+    if subj is None:                                                 # subjectless generalization (gerund / existential)
+        return True
+    if subj.pos_ == "PRON":                                          # "it / they / this …"
+        return False
+    if any(c.dep_ == "poss" for c in subj.children):                # "its / a player's … X" — specific/relational
+        return False
+    if any(c.lemma_.lower() in _ANAPHOR_MOD                          # "such / other / that … X" in any modifier slot
+           for c in subj.children if c.dep_ in ("det", "predet", "amod", "nmod", "nummod")):
+        return False
+    det = next((c for c in subj.children if c.dep_ == "det"), None)
+    if det is not None and det.lemma_.lower() in _DEFINITE_DET:      # definite "the X" -> possible back-reference
+        return False
+    return True                                                     # indefinite / quantified / bare generic -> standalone
+
+
 def transpile_rule(rule: str, text: str) -> Out | None:
-    """Try each pattern on the first sentence; return the Datalog or None."""
+    """Interpret a rule into one faithful Datalog fact, reading its sentences in order.
+
+    Sentence 0 is the rule's opening statement (its primary meaning). Later sentences are read too,
+    but ONLY when self-contained (_self_contained), so a fact never depends on earlier text. Across
+    all sentences, a negative-quantified subject is never asserted positively (_neg_subject), so a
+    negated generalization yields no false positive fact. Returns the first faithful fact, tagged
+    with the sentence it came from, or None."""
     global _LEGEND
-    sent = _normalize(text.split(". ")[0])
-    masked = preprocess(sent)                    # mask formal fragments for a clean parse
-    _LEGEND = masked.legend                      # patterns (e.g. _symbol_def) may resolve masked tokens
-    doc = _NLP(masked.text)
-    _retag_game_nouns(doc)                        # fix mis-tagged game-object subjects before matching
-    for fn in _PATTERNS:
-        out = fn(rule, doc)
-        if out is not None:
+    for i, chunk in enumerate(_split_sentences(text)):
+        sent = _normalize(chunk)
+        if not sent:
+            continue
+        masked = preprocess(sent)                # mask formal fragments for a clean parse
+        _LEGEND = masked.legend                  # patterns (e.g. _symbol_def) may resolve masked tokens
+        if not masked.text.strip():
+            continue
+        doc = _NLP(masked.text)
+        if len(doc) == 0:
+            continue
+        _retag_game_nouns(doc)                    # fix mis-tagged game-object subjects before matching
+        if i > 0 and not _self_contained(chunk, doc):
+            continue
+        for fn in _PATTERNS:
+            out = fn(rule, doc)
+            if out is None:
+                continue
+            if out.pattern in _POS_ASSERT and _neg_subject(doc):   # don't assert a negated subject positively
+                break                                              # (try the next sentence instead)
+            out.sentence = i
             return out
     return None
 

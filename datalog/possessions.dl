@@ -10,6 +10,7 @@ has_property("object", "color", "no").
 has_property("instance", "value", "yes").
 has_property("ability", "symbol", "yes").
 has_property("object", "controller", "yes").
+has_property("permanent", "controller", "yes").
 has_property("permanent", "status", "yes").
 has_property("ability", "cost", "yes").
 has_property("ability", "condition", "yes").
@@ -77,7 +78,6 @@ has_property("face", "set", "yes").
 has_property("spell", "face", "yes").
 has_property("frame", "rule", "no").
 has_property("card", "power", "no").
-has_property("effect", "meaning", "yes").
 has_property("team", "player", "yes").
 has_property("player", "range", "yes").
 has_property("team", "total", "yes").

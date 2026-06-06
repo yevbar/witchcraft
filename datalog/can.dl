@@ -6,11 +6,14 @@
 // --- one per matched "X can VERB" sentence; the qualifier is recorded, never dropped ---
 ability("player", "use", "scope", "-").
 ability("player", "concede", "scope", "time").
+ability("ability", "be_grant", "by", "rule").
 ability("ability", "affect", "qualified", "-").
 ability("ability", "generate", "absolute", "-").
+ability("ability", "be_counter", "by", "effect").
 ability("effect", "add", "absolute", "-").
 ability("effect", "stop", "scope", "-").
 ability("spell", "affect", "absolute", "-").
+ability("player", "take", "qualified", "-").
 ability("ability", "trigger", "condition", "-").
 ability("player", "pay", "condition", "-").
 ability("object", "deal", "absolute", "-").
@@ -25,12 +28,11 @@ ability("player", "own", "condition", "-").
 ability("battle", "be_attack", "absolute", "-").
 ability("battle", "have", "scope", "time").
 ability("ability", "find", "condition", "-").
+ability("card", "be_put", "by", "effect").
 ability("effect", "give", "absolute", "-").
 ability("effect", "add", "scope", "turn").
 ability("effect", "add", "scope", "phase").
 ability("effect", "cause", "absolute", "-").
-ability("event", "occur", "scope", "step").
-ability("spell", "be_cast", "frequency", "-").
 ability("effect", "override", "absolute", "-").
 ability("effect", "become", "qualified", "-").
 ability("pile", "contain", "qualified", "-").
@@ -52,7 +54,6 @@ ability("player", "have", "scope", "time").
 ability("effect", "bring", "scope", "game").
 ability("subgame", "be_create", "scope", "subgame").
 ability("loop", "be_fragment", "condition", "-").
-ability("player", "be_force", "qualified", "-").
 ability("game", "continue", "scope", "game").
 ability("creature", "attack", "qualified", "-").
 ability("player", "block", "qualified", "-").

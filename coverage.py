@@ -204,6 +204,8 @@ def interpreted_units() -> tuple[set, dict]:
                     if o:
                         interp.add(sr.number)
                         per_pattern[o.pattern] += 1
+                        if o.sentence > 0:                  # covered via a self-contained LATER sentence
+                            per_pattern["_via_later_sentence"] += 1
     per_pattern["lark_type_list"] = len(LARK_INTERPRETED)
     return interp, per_pattern
 

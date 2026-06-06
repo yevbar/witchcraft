@@ -6,9 +6,9 @@
 // --- one per matched 'X <verb> Y' sentence; the verb is the link type ---
 relation("tournament", "consist", "series").
 relation("symbol", "represent", "mana").
+relation("symbol", "represent", "cost").
 relation("box", "contain", "symbol").
 relation("box", "contain", "bar").
-relation("symbol", "represent", "cost").
 relation("ability", "affect", "game").
 relation("effect", "affect", "component").
 relation("cost", "contain", "symbol").
@@ -44,6 +44,7 @@ relation("spell", "refer", "permanent").
 relation("travel", "mean", "time").
 relation("n", "mean", "card").
 relation("ability", "include", "x").
+relation("n", "mean", "enter").
 relation("phrase", "mean", "thing").
 relation("modular", "represent", "ability").
 relation("epic", "represent", "ability").
