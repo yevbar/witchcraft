@@ -32,18 +32,50 @@ def _lit(x: object) -> str:
     return f'"{x}"' if isinstance(x, str) else str(x)
 
 
-def run(state: dict, outputs: list[str]) -> dict:
-    """Run the engine on `state`; return the requested output relations."""
+# Memoization of the engine transition. run() is a PURE function of the DECLARED facts in `state`
+# (souffle is deterministic; nothing else is read), so identical engine-inputs always derive the
+# same outputs. A lookahead search re-reaches the same engine-input on many branches; caching it
+# collapses "total tree nodes × one souffle call" into "DISTINCT engine-inputs × one souffle call",
+# which (with search.canonical_key dedup on top) is what makes deep multi-state lookahead cheap.
+# Keyed by the canonical (order-independent) fact set; cleared with clear_cache() between scenarios.
+_CACHE: dict = {}
+_EVALS = [0]                                          # count of actual souffle invocations (cache misses)
+
+
+def _facts_key(state: dict) -> frozenset:
+    return frozenset((rel, frozenset(rows)) for rel, rows in state.items()
+                     if rel in DECLARED and rows)
+
+
+def clear_cache() -> None:
+    _CACHE.clear()
+    _EVALS[0] = 0
+
+
+def cache_stats() -> dict:
+    return {"distinct_states": len(_CACHE), "souffle_evals": _EVALS[0]}
+
+
+def _evaluate(fkey: frozenset) -> dict:
+    """Run souffle once for a fact set and return ALL outputs (cached). The program derives every
+    relation regardless of what's read back, so we capture them all and serve any later request."""
+    _EVALS[0] += 1
     facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})."
-                      for rel, rows in state.items() if rel in DECLARED for row in rows)
+                      for rel, rows in fkey for row in rows)
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "e.dl").write_text(RULES + "\n" + facts)
         subprocess.run(["souffle", f"{d}/e.dl", "-D", d], check=True, capture_output=True)
-        out = {}
-        for rel in outputs:
-            f = Path(d) / f"{rel}.csv"
-            out[rel] = {tuple(r) for r in csv.reader(f.open(), delimiter="\t")} if f.exists() else set()
-        return out
+        return {f.stem: {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}
+                for f in Path(d).glob("*.csv")}
+
+
+def run(state: dict, outputs: list[str]) -> dict:
+    """Run the engine on `state`; return the requested output relations (memoized, pure)."""
+    fkey = _facts_key(state)
+    derived = _CACHE.get(fkey)
+    if derived is None:
+        derived = _CACHE[fkey] = _evaluate(fkey)
+    return {rel: derived.get(rel, set()) for rel in outputs}
 
 
 def _others(state: dict, p: str) -> list[str]:
