@@ -18,7 +18,6 @@ restriction("aura", "enchant", "absolute", "-").
 restriction("instant", "enter", "absolute", "-").
 restriction("player", "play", "condition", "-").
 restriction("sorcery", "enter", "absolute", "-").
-restriction("card", "leave", "except", "-").
 restriction("battle", "be_attach", "condition", "-").
 restriction("card", "enter", "qualified", "-").
 restriction("order", "be_change", "except", "-").

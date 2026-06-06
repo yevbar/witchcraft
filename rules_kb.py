@@ -41,6 +41,8 @@ SCHEMA: dict[str, tuple] = {
     "gerund_action":     ("action", "verb", "object", "polarity"),
     "some_are":          ("subject", "category", "polarity"),
     "keyword_action_trigger_timing": ("action", "timing"),
+    "not_isa":           ("term", "category"),
+    "attribute_of":      ("owner", "attribute", "value"),
 }
 
 _FACT = re.compile(r'^([a-z_]\w*)\((.*)\)\.\s*(?://.*)?$')

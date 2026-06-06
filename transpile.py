@@ -1073,6 +1073,69 @@ def _some_are(rule, doc):
     return Out(rule, f'some_are("{sname}", "{aname}", "{polarity}").   // {rule}', "some_are")
 
 
+def _not_isa(rule, doc):
+    """Negated genus definition "X is not a Y" / "X is neither A nor B" -> not_isa(term, category),
+    one per coordinated category. The negative twin of _isa — what something ISN'T. The negation
+    must attach to the COPULA itself (not a relative clause: "actions … that don't use the stack"
+    must NOT become not_isa(action, action)), and the subject must be UNRESTRICTED (no relative
+    clause), so the denial is never over-claimed."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
+        return None
+    subj, attr = _child(root, "nsubj"), _child(root, "attr")
+    if subj is None or attr is None or subj.pos_ not in ("NOUN", "PROPN") or attr.pos_ not in ("NOUN", "PROPN"):
+        return None
+    if _masked(subj) or _masked(attr) or any(c.dep_ in ("relcl", "acl", "prep") for c in subj.children):
+        return None                                                    # restricted subject ("ability WITH a target") -> over-claim
+    neg = (any(c.dep_ == "neg" for c in root.children)                  # "is not …" on the copula
+           or any(t.lemma_.lower() in ("not", "neither") and t.head in (root, attr) for t in doc))   # "neither … nor"
+    if not neg:
+        return None
+    sname = _np_name(subj)
+    lines = []
+    for c in [attr] + [k for k in attr.children if k.dep_ == "conj"]:   # "neither A nor B" -> A and B
+        if c.pos_ not in ("NOUN", "PROPN") or _masked(c):
+            continue
+        g = _isa_genus(c)
+        if g and g != sname:
+            lines.append(f'not_isa("{sname}", "{g}").')
+    if not lines:
+        return None
+    lines[0] += f"   // {rule}"
+    return Out(rule, "\n".join(lines), "not_isa")
+
+
+def _attribute_of(rule, doc):
+    """Possessive-attribute definition "X's Y is Z" / "the Y of X is Z" -> attribute_of(owner,
+    attribute, value): a creature's power is an amount; an ability's source is an object; a player's
+    opponent is a player. The owner + attribute are crisp; value is the predicate noun's genus. Runs
+    AFTER _isa, so it only claims the possessive copulas _isa abstains on (additive). Excludes
+    partial ('Some …'), modal, coordinated-subject, adjectival/pronoun-valued and anaphoric forms —
+    those aren't clean attribute definitions."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "be" or any(c.dep_ == "neg" for c in root.children):
+        return None
+    if doc[0].lemma_.lower() == "some" or any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in root.children):
+        return None
+    subj, attr = _child(root, "nsubj"), _child(root, "attr")
+    if subj is None or attr is None or subj.pos_ not in ("NOUN", "PROPN") or attr.pos_ not in ("NOUN", "PROPN"):
+        return None
+    if _masked(subj) or _masked(attr) or any(c.dep_ in ("conj", "cc") for c in subj.children):
+        return None
+    if any(c.dep_ in ("nummod", "conj", "cc") for c in attr.children):  # "is seven cards" / "is name, mana cost, …"
+        return None                                                    # a quantity / enumeration, not a clean genus value
+    poss = _child(subj, "poss")
+    of = next((c for c in subj.children if c.dep_ == "prep" and c.lemma_ == "of"), None)
+    owner = poss if (poss is not None and poss.pos_ in ("NOUN", "PROPN")) else \
+        (_child(of, "pobj") if of is not None else None)
+    if owner is None or owner.pos_ not in ("NOUN", "PROPN") or _masked(owner):
+        return None
+    if any(c.lemma_.lower() in _ANAPHOR_MOD for c in owner.children if c.dep_ in ("det", "amod", "poss")):
+        return None                                                    # "these alternative characteristics"
+    return Out(rule, f'attribute_of("{owner.lemma_.lower()}", "{_np_name(subj)}", "{attr.lemma_.lower()}").   // {rule}',
+               "attribute_of")
+
+
 def _gerund_action(rule, doc):
     """Nominalized-action subject "[Gerund] … [verb]s [object]" -> gerund_action(action, verb,
     object, polarity). Many consequences are stated with a gerund-phrase subject ("Doubling a
@@ -1093,7 +1156,7 @@ def _gerund_action(rule, doc):
                "gerund_action")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _some_are, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _some_are, _not_isa, _attribute_of, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

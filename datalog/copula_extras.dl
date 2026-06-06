@@ -8,10 +8,8 @@
 // --- comparison: X is the same as / different from / greater than Y ---
 comparison("characteristic", "same", "-").
 comparison("effect", "different", "ability").
-comparison("value", "equal", "amount").
 comparison("loyalty", "equal", "number").
 comparison("defense", "equal", "number").
-comparison("protector", "different", "controller").
 comparison("remainder", "identical", "process").
 comparison("devotion", "equal", "number").
 

@@ -111,7 +111,6 @@ conditional("effect", "deal", "event", "modify", "replacement").
 conditional("-", "modify", "damage", "deal", "temporal").
 conditional("-", "modify", "damage", "process", "temporal").
 conditional("stop", "be", "damage", "remain", "condition").
-conditional("-", "choose", "object", "refer", "condition").
 conditional("source", "deal", "-", "deal", "condition").
 conditional("trigger", "deal", "-", "refer", "condition").
 conditional("player", "perform", "player", "do", "condition").
@@ -327,6 +326,7 @@ conditional("player", "do", "effect", "state", "temporal").
 conditional("creature", "do", "condition", "apply", "condition").
 conditional("effect", "allow", "-", "affect", "condition").
 conditional("effect", "result", "text", "specify", "condition").
+conditional("-", "choose", "object", "refer", "condition").
 conditional("event", "occur", "effect", "cause", "temporal").
 conditional("-", "return", "object", "return", "condition").
 conditional("effect", "create", "effect", "be", "condition").
@@ -556,7 +556,6 @@ conditional("-", "enter", "object", "turn", "temporal").
 conditional("-", "put", "object", "turn", "temporal").
 conditional("-", "move", "owner", "reveal", "temporal").
 conditional("-", "become", "value", "become", "condition").
-conditional("object", "be", "existence", "be", "condition").
 conditional("-", "enter", "permanent", "give", "temporal").
 conditional("permanent", "flip", "cost", "change", "condition").
 conditional("player", "choose", "player", "do", "condition").
