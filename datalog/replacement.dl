@@ -1,0 +1,31 @@
+// replacement.dl — §613-616 replacement/prevention-effect handling, from rules.txt.
+// layer_order_system(system, frequency); casting_unrestricted(effect_kind); replacement_choice_case(case). GENERATED.
+
+.decl layer_order_system(system: symbol, frequency: symbol)
+.decl casting_unrestricted(effect_kind: symbol)
+.decl replacement_choice_case(case: symbol)
+
+layer_order_system("timestamp", "usually").
+layer_order_system("dependency", "sometimes").
+casting_unrestricted("replacement").
+casting_unrestricted("prevention").
+replacement_choice_case("self_replacement").
+replacement_choice_case("control_on_entry").
+replacement_choice_case("copy_on_entry").
+replacement_choice_case("back_face_on_entry").
+replacement_choice_case("any").
+
+.output layer_order_system
+.output casting_unrestricted
+.output replacement_choice_case
+
+// conformance — spot-check the §613-616 facts the rules state plainly
+.decl expect_system(system: symbol, frequency: symbol)
+.decl expect_case(case: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("system", S, F) :- expect_system(S, F), !layer_order_system(S, F).
+conformance_fail("case", C, "-") :- expect_case(C), !replacement_choice_case(C).
+.output conformance_fail
+.printsize conformance_fail
+expect_system("timestamp", "usually").
+expect_case("self_replacement").
