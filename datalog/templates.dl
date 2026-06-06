@@ -1,0 +1,53 @@
+// templates.dl — verbatim template/term definitions, from rules.txt (literal, not parsed).
+// template_means(template, expansion); term_meaning(term, meaning). GENERATED.
+
+.decl template_means(template: symbol, expansion: symbol)
+.decl term_meaning(term: symbol, meaning: symbol)
+
+// --- template_means: card-template notation -> its printed expansion, verbatim ---
+template_means("{LEVEL N1-N2} [Abilities] [P/T]", "As long as this creature has at least N1 level counters on it, but no more than N2 level counters on it, it has base power and toughness [P/T] and has [abilities]").
+template_means("{LEVEL N3+} [Abilities] [P/T]", "As long as this creature has N3 or more level counters on it, it has base power and toughness [P/T] and has [abilities]").
+template_means("{rN}—[Effect]", "When one or more lore counters are put onto this Saga, if the number of lore counters on it was less than N and became at least N, [effect]").
+template_means("{rN1}, {rN2}—[Effect]", "{rN1}—[Effect]").
+template_means("[Cost]: Level N — [Abilities]", "[Cost]: This Class’s level becomes N. Activate only if this Class is level N-1 and only as a sorcery").
+template_means("Behold a [quality]", "Reveal a [quality] card from your hand or choose a [quality] permanent you control on the battlefield").
+template_means("Investigate", "Create a Clue token").
+template_means("Clash with an opponent", "Choose an opponent. You and that opponent each clash").
+template_means("Monstrosity N", "If this permanent isn’t monstrous, put N +1/+1 counters on it and it becomes monstrous").
+template_means("Bolster N", "Choose a creature you control with the least toughness or tied for least toughness among creatures you control. Put N +1/+1 counters on that creature").
+template_means("Adapt N", "If this permanent has no +1/+1 counters on it, put N +1/+1 counters on it").
+template_means("Learn", "You may discard a card. If you do, draw a card. If you didn’t discard a card, you may reveal a Lesson card you own from outside the game and put it into your hand").
+template_means("[A player] faces a villainous choice — [option A], or [option B]", "[A player] chooses [option A] or [option B]. Then all actions in the chosen option are performed").
+template_means("Discover N", "Exile cards from the top of your library until you exile a nonland card with mana value N or less. You may cast that card without paying its mana cost if the resulting spell’s mana value is less than or equal to N. If you don’t cast it, put that card into your hand. Put the remaining exiled cards on the bottom of your library in a random order").
+template_means("Manifest dread", "Look at the top two cards of your library. Manifest one of them, then put the cards you looked at that were not manifested this way into your graveyard").
+template_means("Harness [this permanent]", "If this permanent isn’t harnessed, it becomes harnessed").
+template_means("Earthbend N", "Target land you control becomes a 0/0 land creature with haste in addition to its other types. Put N +1/+1 counters on it. When that land dies or is put into exile, return it to the battlefield tapped under your control").
+template_means("Waterbend [cost]", "Pay [cost]. For each generic mana in that cost, you may tap an untapped artifact or creature you control rather than pay that mana").
+template_means("Hexproof from [quality A] and from [quality B]", "hexproof from [quality A]").
+template_means("Hexproof from each [characteristic]", "hexproof from [quality A]").
+template_means("Protection from [quality A] and from [quality B]", "protection from [quality A]").
+template_means("Protection from each [characteristic]", "protection from [quality A]").
+template_means("Protection from each [set of characteristics, qualities, or players]", "protection from [A]").
+template_means("Partner", "You may designate two legendary cards as your commander rather than one if each of them has partner").
+template_means("Partner—[text]", "You may designate two legendary cards as your commander rather than one if each of them has the same ‘partner—[text]’ ability").
+template_means("Choose a Background", "You may designate two cards as your commander rather than one if one of them is this card and the other is a legendary Background enchantment card").
+template_means("Doctor’s companion", "You may designate two legendary creature cards as your commander rather than one if one of them is this card and the other is a legendary Time Lord Doctor creature card that has no other creature types").
+template_means("∞ — [Ability]", "As long as this permanent is harnessed, it has [ability]").
+template_means("Mayhem [cost]", "As long as you discarded this card this turn, you may cast it from your graveyard by paying [cost] rather than paying its mana cost").
+template_means("To solve — [Condition]", "At the beginning of your end step, if [condition] and this Case is not solved, this Case becomes solved").
+template_means("{N+}[abilities]", "As long as this permanent has N or more charge counters on it, it has [abilities]").
+template_means("{N+}[abilities][P/T]", "As long as this permanent has N or more charge counters on it, it has [abilities] and is a creature with base power and toughness [P/T] in addition to its other types").
+
+// --- term_meaning: what a referenced term denotes ---
+term_meaning("card", "only a Magic card or an object represented by a Magic card").
+
+.output template_means
+.output term_meaning
+
+// conformance — spot-check a template the rules define plainly
+.decl expect_template(t: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("template", T, "-") :- expect_template(T), !template_means(T, _).
+.output conformance_fail
+.printsize conformance_fail
+expect_template("{LEVEL N1-N2} [Abilities] [P/T]").

@@ -954,6 +954,34 @@ def _isa_genus(attr):
     return attr.lemma_.lower()                                  # specific head: unchanged (head-only, additive)
 
 
+def _subclass(rule, doc):
+    """Restricted-subject definition "Xs that [criterion] are [Modified-X]s" -> isa(modified_x, x).
+    The PREDICATE names a subclass of the subject's kind ("Effects that use the word 'instead' are
+    replacement effects" -> isa(replacement_effect, effect); "The team whose turn it is is the active
+    team" -> isa(active_team, team)). This is the FAITHFUL direction — the named subclass genuinely is
+    a kind of the parent — and it sidesteps the over-claim of a forward isa(effect, replacement_effect),
+    which is why a restricted subject is otherwise abstained. Fires only when the subject carries a
+    relative clause AND the predicate shares its head noun (so it's truly a subclass, not a definition)."""
+    root = _root(doc)
+    if root is None or root.lemma_ != "be" or any(c.dep_ == "neg" for c in root.children):
+        return None
+    if any(t.lemma_.lower() in ("not", "neither", "nor") for t in doc):
+        return None
+    subj, attr = _child(root, "nsubj"), _child(root, "attr")
+    if subj is None or attr is None or subj.pos_ not in ("NOUN", "PROPN") or attr.pos_ not in ("NOUN", "PROPN"):
+        return None
+    if _masked(subj) or _masked(attr) or any(c.dep_ in ("conj", "cc") for c in attr.children):
+        return None
+    if not any(c.dep_ in ("relcl", "acl") for c in subj.children):     # subject must be restricted
+        return None
+    if subj.lemma_.lower() != attr.lemma_.lower():                      # predicate must share the head -> a subclass
+        return None
+    parent, sub = subj.lemma_.lower(), _np_name(attr)
+    if sub == parent:
+        return None
+    return Out(rule, f'isa("{sub}", "{parent}").   // {rule}', "isa")
+
+
 def _isa(rule, doc):
     """Genus-differentia definition "A [term] is a [category]" -> isa(term, category). A COORDINATED
     subject distributes — "Power and toughness are characteristics" -> isa(power, ...), isa(toughness,
@@ -1160,7 +1188,7 @@ def _gerund_action(rule, doc):
                "gerund_action")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _some_are, _not_isa, _attribute_of, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _subclass, _isa, _some_are, _not_isa, _attribute_of, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 

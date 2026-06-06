@@ -59,7 +59,11 @@ isa("active_player", "player").   // 506.2
 isa("activated_ability", "loyalty_ability").   // 606.2
 isa("second_object", "source").   // 607.1d
 isa("characteristic", "value").   // 613.2c
+isa("replacement_effect", "effect").   // 614.1a
+isa("replacement_effect", "effect").   // 614.1b
 isa("regeneration", "effect").   // 614.8
+isa("replacement_effect", "effect").   // 614.10
+isa("prevention_effect", "effect").   // 615.1a
 isa("goaded", "designation").   // 701.15b
 isa("plane_card", "plane").   // 701.31d
 isa("meld", "action").   // 701.42a
@@ -127,6 +131,7 @@ isa("night", "designation").
 isa("multiplayer_game", "game").   // 800.1
 isa("limited_range", "option").   // 801.1
 isa("range", "distance").   // 801.2
+isa("active_team", "team").   // 805.4a
 isa("melee_variant", "modification").   // 807.1
 isa("game", "draw").   // 809.5c
 isa("planar_die", "die").   // 901.3a

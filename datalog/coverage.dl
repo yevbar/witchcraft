@@ -119,6 +119,7 @@ interpreted("107.13").
 interpreted("107.14").
 interpreted("107.15").
 interpreted("107.15a").
+interpreted("107.15b").
 interpreted("107.16").
 interpreted("107.16a").
 interpreted("107.17").
@@ -154,7 +155,10 @@ interpreted("107.5").
 interpreted("107.6").
 interpreted("107.7").
 interpreted("107.8").
+interpreted("107.8a").
+interpreted("107.8b").
 interpreted("107.9").
+interpreted("108.2").
 interpreted("108.2a").
 interpreted("108.2b").
 interpreted("108.3").
@@ -1131,6 +1135,7 @@ interpreted("613.8b").
 interpreted("613.8c").
 interpreted("613.9").
 interpreted("614.1").
+interpreted("614.10").
 interpreted("614.10b").
 interpreted("614.11").
 interpreted("614.11a").
@@ -1148,6 +1153,8 @@ interpreted("614.17").
 interpreted("614.17a").
 interpreted("614.17b").
 interpreted("614.17c").
+interpreted("614.1a").
+interpreted("614.1b").
 interpreted("614.1e").
 interpreted("614.2").
 interpreted("614.4").
@@ -1162,6 +1169,7 @@ interpreted("615.11").
 interpreted("615.12").
 interpreted("615.12a").
 interpreted("615.13").
+interpreted("615.1a").
 interpreted("615.2").
 interpreted("615.4").
 interpreted("615.5").
@@ -1547,6 +1555,8 @@ interpreted("702.11a").
 interpreted("702.11b").
 interpreted("702.11c").
 interpreted("702.11d").
+interpreted("702.11f").
+interpreted("702.11g").
 interpreted("702.11h").
 interpreted("702.12").
 interpreted("702.120").
@@ -1751,6 +1761,8 @@ interpreted("702.16c").
 interpreted("702.16d").
 interpreted("702.16e").
 interpreted("702.16f").
+interpreted("702.16g").
+interpreted("702.16h").
 interpreted("702.16i").
 interpreted("702.16j").
 interpreted("702.16k").
@@ -2600,6 +2612,7 @@ interpreted("805.3").
 interpreted("805.3a").
 interpreted("805.3b").
 interpreted("805.4").
+interpreted("805.4a").
 interpreted("805.4b").
 interpreted("805.4c").
 interpreted("805.4d").
@@ -2839,8 +2852,6 @@ secondary("612.2").
 secondary("613.7").
 secondary("613.8").
 secondary("614.10a").
-secondary("614.1a").
-secondary("615.1a").
 secondary("615.9").
 secondary("700.1").
 secondary("701.37b").

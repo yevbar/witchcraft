@@ -44,6 +44,8 @@ SCHEMA: dict[str, tuple] = {
     "not_isa":           ("term", "category"),
     "attribute_of":      ("owner", "attribute", "value"),
     "trigger_condition": ("ability_class", "event_subject", "event_verb"),
+    "template_means":    ("template", "expansion"),
+    "term_meaning":      ("term", "meaning"),
 }
 
 _FACT = re.compile(r'^([a-z_]\w*)\((.*)\)\.\s*(?://.*)?$')

@@ -133,11 +133,9 @@ action("permanent", "receive", "timestamp").
 action("card", "receive", "timestamp").
 action("sticker", "receive", "timestamp").
 action("effect", "wait", "-").
-action("effect", "use", "word").
 action("effect", "replace", "card").
 action("effect", "modify", "battlefield").
 action("effect", "state", "-").
-action("effect", "use", "prevent").
 action("effect", "prevent", "damage").
 action("controller", "choose", "mode(s").
 action("spell", "specify", "-").
