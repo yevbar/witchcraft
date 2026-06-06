@@ -46,6 +46,7 @@ interpreted("103.2c").
 interpreted("103.2d").
 interpreted("103.2e").
 interpreted("103.3").
+interpreted("103.3a").
 interpreted("103.4").
 interpreted("103.4a").
 interpreted("103.4b").
@@ -524,6 +525,7 @@ interpreted("201.5b").
 interpreted("201.5c").
 interpreted("201.6").
 interpreted("202.1").
+interpreted("202.1a").
 interpreted("202.1b").
 interpreted("202.2").
 interpreted("202.2a").
@@ -810,6 +812,7 @@ interpreted("401.4").
 interpreted("401.5").
 interpreted("401.6").
 interpreted("401.7").
+interpreted("402.1").
 interpreted("402.2").
 interpreted("402.3").
 interpreted("403.1").
@@ -1137,6 +1140,7 @@ interpreted("607.2n").
 interpreted("607.2p").
 interpreted("607.2q").
 interpreted("607.3").
+interpreted("607.4").
 interpreted("607.5").
 interpreted("607.5a").
 interpreted("608.1").
@@ -1488,6 +1492,7 @@ interpreted("701.37b").
 interpreted("701.37c").
 interpreted("701.38").
 interpreted("701.38a").
+interpreted("701.38b").
 interpreted("701.38c").
 interpreted("701.38d").
 interpreted("701.39").
@@ -1810,6 +1815,7 @@ interpreted("702.140b").
 interpreted("702.140c").
 interpreted("702.140d").
 interpreted("702.140e").
+interpreted("702.140f").
 interpreted("702.141").
 interpreted("702.141a").
 interpreted("702.142").
@@ -2708,6 +2714,7 @@ interpreted("723.1").
 interpreted("723.1a").
 interpreted("723.1b").
 interpreted("723.2").
+interpreted("723.3").
 interpreted("723.4").
 interpreted("723.5").
 interpreted("723.5a").
@@ -3015,6 +3022,7 @@ interpreted("901.9d").
 interpreted("902.1").
 interpreted("902.2").
 interpreted("902.3").
+interpreted("902.4").
 interpreted("902.5").
 interpreted("902.5a").
 interpreted("902.5b").
@@ -3105,15 +3113,11 @@ interpreted("905.6").
 // secondary = a true fact was extracted from a LATER sentence, but the rule's primary
 // statement is still uninterpreted — bonus knowledge, not counted as covered.
 .decl secondary(number: symbol)
-secondary("103.3a").
 secondary("118.7").
-secondary("202.1a").
-secondary("402.1").
 secondary("406.4").
 secondary("609.1").
 secondary("700.1").
 secondary("702.1").
-secondary("723.3").
 secondary("801.2a").
 
 // structural scaffolding (headers / list-intros / pure cross-references) — not

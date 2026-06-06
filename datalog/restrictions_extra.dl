@@ -24,6 +24,7 @@ does_not("replacement_effect", "invoke_itself", "repeatedly").
 does_not("zero_mana_cost_spell", "cast_itself", "automatically").
 does_not("scheduled_event", "happen", "in_skipped_step").
 does_not("static_ability_continuous_effect", "lock_in", "applies_per_moment").
+does_not("controlling_another_player", "change_control_of_objects", "objects_keep_their_normal_controllers").
 at_most_one("monarch").
 is_not("spell", "mana_ability").
 is_not("sideboard_card", "in_the_game").

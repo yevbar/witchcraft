@@ -1,13 +1,13 @@
 // starting.dl — §103 game-setup constants, interpreted from rules.txt.
-// starting_life(variant, total); starting_hand_size(variant, n); first_turn_draw_skip(variant, skip). GENERATED.
+// starting_life(variant, total); starting_hand_size(variant, n); first_turn_draw_skip(variant, skip); starting_life_formula(variant, formula). GENERATED.
 
 .decl starting_life(variant: symbol, total: number)
 .decl starting_hand_size(variant: symbol, n: number)
 .decl first_turn_draw_skip(variant: symbol, skip: symbol)
+.decl starting_life_formula(variant: symbol, formula: symbol)
 
 starting_life("default", 20).
 starting_life("two-headed_giant", 30).
-starting_life("vanguard", 20).
 starting_life("commander", 40).
 starting_life("brawl", 25).
 starting_life("archenemy", 40).
@@ -19,9 +19,14 @@ first_turn_draw_skip("two-player", "yes").
 first_turn_draw_skip("two-headed_giant", "yes").
 first_turn_draw_skip("default", "no").
 
+starting_life_formula("vanguard", "20_plus_or_minus_vanguard_card_life_modifier").
+starting_life_formula("vanguard", "20_plus_or_minus_vanguard_card_life_modifier").
+starting_life_formula("vanguard", "20_plus_or_minus_vanguard_card_life_modifier").
+
 .output starting_life
 .output starting_hand_size
 .output first_turn_draw_skip
+.output starting_life_formula
 
 // conformance — spot-check the setup constants §103 states plainly
 .decl expect_life(variant: symbol, total: number)

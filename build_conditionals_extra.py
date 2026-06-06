@@ -60,6 +60,10 @@ _WHEN = [
      "x_value_undefined_in_cost", "controller_chooses_and_announces_x_when_casting"),
     ("706.8b", r"^To reroll one or more stored results of a permanent, roll one of the kind of die noted",
      "reroll_stored_results", "roll_noted_kind_of_die_for_each"),
+    ("702.140f", r"^Any effect that refers to or modifies the mutating creature spell refers to or modifies the mutated permanent",
+     "effect_refers_to_or_modifies_mutating_creature_spell", "also_refers_to_or_modifies_mutated_permanent"),
+    ("103.3a", r"^In a game using one or more supplementary decks of nontraditional cards.*each supplementary deck.s owner shuffles it so the cards are in a random order",
+     "game_uses_supplementary_decks_of_nontraditional_cards", "each_owner_shuffles_their_supplementary_deck_to_random_order"),
 ]
 # (rule, anchor regex, a, b)
 _DISTINCT = [

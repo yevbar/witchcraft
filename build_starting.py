@@ -10,8 +10,13 @@ Three regular per-variant families:
 
 The variant is read from the "In a[n] [variant] game" lead (or "default" for the base rule);
 the number/skip from fixed phrases. Engine-relevant: the base life total (20) and the
-two-player first-turn draw skip are turn-loop facts. The Vanguard "20 ± modifier" rules
-capture the base 20 (the modifier is per-card, off the rules).
+two-player first-turn draw skip are turn-loop facts.
+
+  §902.4  Vanguard "starting life total is 20 plus or minus the life modifier of their
+          vanguard card" -> starting_life_formula(variant, formula). This is NOT credited as
+          a starting_life CONSTANT (the per-card modifier means it isn't a fixed 20 — claiming
+          a constant would overstate), but the FORMULA itself is recorded faithfully as a symbol,
+          so the rule's content isn't lost.
 """
 
 from __future__ import annotations
@@ -48,6 +53,8 @@ def starting_life() -> list[tuple[str, str, int]]:
                 for sr in [r] + r.subrules:
                     if not (sr.number.startswith("103.4") or sr.number.startswith("119.1")):
                         continue
+                    if re.search(r"plus or minus", sr.text, re.I):
+                        continue  # a FORMULA, not a constant — see starting_life_formula() (no flat 20)
                     m = _LIFE.search(sr.text)
                     if m:
                         rows.append((sr.number, _variant(sr.text.lower()), int(m.group(1))))
@@ -57,8 +64,9 @@ def starting_life() -> list[tuple[str, str, int]]:
 def life_restatement_rules() -> set:
     """§8/§9 rule#s that RESTATE a per-variant starting life total already captured in §103.4/§119.1
     (e.g. §903.12f Brawl 25, §904.5 Archenemy 40) — for coverage credit only, no new facts. A total
-    given as a FORMULA rather than a constant (§902.4 'is 20 plus or minus the life modifier') is
-    abstained: its point is the modifier, which we don't capture, so crediting it would overstate."""
+    given as a FORMULA rather than a constant (§902.4 'is 20 plus or minus the life modifier') is NOT
+    credited here as a constant (claiming a flat 20 would overstate); it's captured faithfully as a
+    symbol by starting_life_formula() instead."""
     out = set()
     for s in _doc().sections:
         if s.number not in ("8", "9"):
@@ -71,6 +79,21 @@ def life_restatement_rules() -> set:
                         if m and not re.search(r"\b(plus|minus|modifier)\b", sent, re.I):
                             out.add(sr.number)
     return out
+
+
+def starting_life_formula() -> list[tuple[str, str, str]]:
+    """(rule, variant, formula) — a starting life total given as a FORMULA, not a constant
+    (§902.4 Vanguard: 20 ± the vanguard card's life modifier). Recorded as an opaque symbol so
+    the rule's content is captured WITHOUT claiming a fixed total (which would overstate)."""
+    rows = []
+    for s in _doc().sections:
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    if re.search(r"starting life total is \d+ plus or minus the life modifier", sr.text, re.I):
+                        rows.append((sr.number, _variant(sr.text.lower()) if _VARIANT.search(sr.text.lower())
+                                     else "vanguard", "20_plus_or_minus_vanguard_card_life_modifier"))
+    return rows
 
 
 def starting_hand_size() -> list[tuple[str, str, int]]:
@@ -109,13 +132,16 @@ def first_turn_draw_skip() -> list[tuple[str, str, str]]:
 
 def build() -> tuple[str, dict]:
     life, hand, skip = starting_life(), starting_hand_size(), first_turn_draw_skip()
+    formula = starting_life_formula()
     p = Program()
     p.comment("starting.dl — §103 game-setup constants, interpreted from rules.txt.")
-    p.comment("starting_life(variant, total); starting_hand_size(variant, n); first_turn_draw_skip(variant, skip). GENERATED.")
+    p.comment("starting_life(variant, total); starting_hand_size(variant, n); first_turn_draw_skip(variant, skip); "
+              "starting_life_formula(variant, formula). GENERATED.")
     p.blank()
     p.decl("starting_life", [("variant", "symbol"), ("total", "number")])
     p.decl("starting_hand_size", [("variant", "symbol"), ("n", "number")])
     p.decl("first_turn_draw_skip", [("variant", "symbol"), ("skip", "symbol")])
+    p.decl("starting_life_formula", [("variant", "symbol"), ("formula", "symbol")])
     p.blank()
     seen = set()
     for _n, v, total in life:                            # §103.4 and §119.1 state the same per-variant life
@@ -130,9 +156,13 @@ def build() -> tuple[str, dict]:
     for _n, v, sk in skip:
         p.fact(f'first_turn_draw_skip("{v}", "{sk}")')
     p.blank()
+    for _n, v, f in formula:
+        p.fact(f'starting_life_formula("{v}", "{f}")')
+    p.blank()
     p.output("starting_life")
     p.output("starting_hand_size")
     p.output("first_turn_draw_skip")
+    p.output("starting_life_formula")
     p.blank()
     p.comment("conformance — spot-check the setup constants §103 states plainly")
     p.conformance(
@@ -149,7 +179,7 @@ def build() -> tuple[str, dict]:
         p.fact(atom)
     for atom in ['expect_skip("two-player", "yes")', 'expect_skip("default", "no")']:
         p.fact(atom)
-    return p.text(), {"life": len(life), "hand": len(hand), "skip": len(skip)}
+    return p.text(), {"life": len(life), "hand": len(hand), "skip": len(skip), "formula": len(formula)}
 
 
 def main() -> None:

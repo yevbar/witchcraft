@@ -47,11 +47,18 @@ _MEANS = [
      "cant_be_target_of_opponents_spells_or_abilities"),
     ("307.5", r"^If a spell, ability, or effect states that a player can do something only [“\"]any time they could cast a sorcery[”\"]",
      "sorcery_speed", "priority_main_phase_own_turn_empty_stack"),
+    # qualified/locational definitions — "X represents/is where Y".
+    ("202.1a", r"^The mana cost of an object represents what a player must spend from their mana pool",
+     "mana_cost", "what_player_spends_from_mana_pool_to_cast"),
+    ("402.1", r"^The hand is where a player holds cards that have been drawn",
+     "hand", "zone_where_player_holds_drawn_cards"),
 ]
 # (rule, anchor, term, [members]) — disjunctive PREDICATE ("X is a Y or Z").
 _IS_ONE_OF = [
     ("110.1", r"^A permanent is a card or token on the battlefield", "permanent", ["card", "token"]),
     ("118.1", r"^A cost is an action or payment necessary", "cost", ["action", "payment"]),
+    ("701.38b", r"^The listed choices may be objects, words with no rules meaning",
+     "listed_choice", ["object", "word_with_no_rules_meaning", "variable_relevant_to_resolution"]),
 ]
 
 

@@ -18,8 +18,13 @@ is_one_of("permanent", "card").
 is_one_of("permanent", "token").
 is_one_of("cost", "action").
 is_one_of("cost", "payment").
+is_one_of("listed_choice", "object").
+is_one_of("listed_choice", "word_with_no_rules_meaning").
+is_one_of("listed_choice", "variable_relevant_to_resolution").
 means("hexproof_on_a_player", "cant_be_target_of_opponents_spells_or_abilities").
 means("sorcery_speed", "priority_main_phase_own_turn_empty_stack").
+means("mana_cost", "what_player_spends_from_mana_pool_to_cast").
+means("hand", "zone_where_player_holds_drawn_cards").
 
 .output is_kind_of
 .output is_one_of

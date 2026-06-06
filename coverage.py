@@ -111,6 +111,7 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | {r[0] for r in build_starting.starting_life()}
                     | {r[0] for r in build_starting.starting_hand_size()}
                     | {r[0] for r in build_starting.first_turn_draw_skip()}
+                    | {r[0] for r in build_starting.starting_life_formula()}
                     | {r[0] for r in build_costs.cost_payment()}
                     | {r[0] for grp in build_costs.cost_types() for r in grp}
                     | {r[0] for r in build_dfc.meld_pairs()}

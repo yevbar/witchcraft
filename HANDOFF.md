@@ -3,12 +3,24 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**99.6%** — 2808 / 2818 interpretable rules. ~10 primary misses remain.
-Last batch (quoted-bodies/masked + multi-clause conditionals): is_kind_of 701.43d (exert-as-it-attacks→
-optional-cost-to-attack), 706.3b (dice-roll instructions→one ability); new means(term,meaning) relation in
-build_definitions_extra — 702.11c (hexproof-on-a-player→can't-be-target-of-opponents), 307.5 (sorcery-speed
-→priority main-phase own-turn empty-stack); happens_when 702.11e (lose-hexproof→lose-all-from-quality),
-107.3a (undefined-X→controller-chooses-when-casting), 706.8b (reroll-stored→roll-noted-die-each).
+**99.9%** — 2816 / 2818 interpretable rules. ZERO fully-uncovered rules; the only 2 not primary-
+interpreted (118.7 "cost-to-pay may be changed/reduced by effects", 702.1 "Most abilities describe…")
+are secondary-only: their PRIMARY sentence is vague/advisory (correct to abstain) but each carries a
+true SECONDARY fact, so nothing is lost. This is the honest ceiling — 902.4 (Vanguard formula) is now
+captured faithfully, leaving no fully-uncovered rule.
+
+### Final-mile captures (99.4% → 99.9%)
+- quoted-bodies/masked + multi-clause: is_kind_of 701.43d, 706.3b; means(term,meaning) [new in
+  definitions_extra] 702.11c, 307.5; happens_when 702.11e, 107.3a, 706.8b.
+- last clean residue: is_one_of 701.38b (listed-choice ∈ {object, word-no-meaning, variable});
+  means 202.1a (mana-cost→what-player-spends), 402.1 (hand→zone-where-holds-drawn-cards);
+  happens_when 702.140f (mutate-redirect), 103.3a (supplementary-deck shuffle); does_not 723.3
+  (controlling-a-player→object-control-unchanged); can_belong_to_multiple 607.4 [new in card_misc]
+  (ability ∈ multiple linked pairs).
+- 902.4 Vanguard "20 ± life modifier": was abstained (a formula, not a constant). Now captured WITHOUT
+  overstating via starting_life_formula(variant, formula) [new in build_starting] — and the misleading
+  flat starting_life("vanguard", 20) constant (from 103.4b/119.1b) was REMOVED (the rule says 20±mod,
+  so a flat 20 over-claims). Faithful: the formula is recorded as an opaque symbol.
 Bracketed-placeholder restatements credited: build_templates.matched_rules() credits rules whose
 template frame duplicates an earlier covered def (711.2a/b leveler restate 107.8a/b; 714.2c saga) —
 facts stay deduped, only credit broadens (like build_enumerations.matched_rules). Multiplayer variants
