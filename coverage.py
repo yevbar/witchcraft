@@ -176,6 +176,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_markers.markers()}
                     | {r[0] for r in build_keyword_events.events()}
                     | {r[0] for r in build_keyword_events.class_contexts()}
+                    | {r[0] for r in build_keyword_events.cost_choices()}
                     | {r[0] for r in build_protection.protection_prevents()}
                     | {r[0] for r in build_card_types.card_type_property()}
                     | {r[0] for r in build_card_types.vanguard_modifier()}

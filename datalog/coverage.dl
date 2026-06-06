@@ -1555,6 +1555,7 @@ interpreted("702.118c").
 interpreted("702.119").
 interpreted("702.119a").
 interpreted("702.119b").
+interpreted("702.119c").
 interpreted("702.11a").
 interpreted("702.11b").
 interpreted("702.11c").
@@ -1829,6 +1830,7 @@ interpreted("702.17c").
 interpreted("702.18").
 interpreted("702.180").
 interpreted("702.180a").
+interpreted("702.180b").
 interpreted("702.181").
 interpreted("702.181a").
 interpreted("702.182").

@@ -37,6 +37,8 @@ _EVENT = re.compile(rf"^(?:An?|The|Each) [\w ]+? {_Q}([^“”\"]+){_Q}\s+(?:[\w
 # "K on [context] represents a [kind] ability/spell"  /  "K is a [kind] ability found on [context]"
 _REPR = re.compile(rf"^([A-Z][a-z]+) on (?:an? )?(.+?) represents an? (\w+) (?:ability|spell)\b", re.I)
 _FOUND = re.compile(r"^([A-Z][a-z]+) is an? (\w+) ability found on (?:some )?(.+?) cards?\b", re.I)
+# "You choose which [object] to [action] as you choose to pay a spell's [keyword] cost"
+_COST = re.compile(r"^You choose which (\w+) to (\w+) as you .*?pay a spell.s (\w+) cost", re.I)
 
 
 def _lemma_event(phrase: str) -> str:
@@ -110,14 +112,33 @@ def class_contexts() -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def cost_choices() -> list[tuple[str, str, str, str]]:
+    """(rule, keyword_cost, object, action) for 'you choose which X to Y as you pay a spell's K cost'."""
+    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
+    rows, seen = [], set()
+    for s in doc.sections:
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    m = _COST.match(_split_sentences(sr.text)[0].strip())
+                    if not m:
+                        continue
+                    fact = (m.group(3).lower(), m.group(1).lower(), m.group(2).lower())
+                    if fact not in seen:
+                        seen.add(fact)
+                        rows.append((sr.number, *fact))
+    return rows
+
+
 def build() -> tuple[str, dict]:
-    ev, cc = events(), class_contexts()
+    ev, cc, ch = events(), class_contexts(), cost_choices()
     p = Program()
     p.comment("keyword_events.dl — quoted keyword-event definitions + keyword class-by-context, from rules.txt.")
     p.comment("event_definition(event, subject, verb); keyword_class_ctx(keyword, context, kind). GENERATED.")
     p.blank()
     p.decl("event_definition", [("event", "symbol"), ("subject", "symbol"), ("verb", "symbol")])
     p.decl("keyword_class_ctx", [("keyword", "symbol"), ("context", "symbol"), ("kind", "symbol")])
+    p.decl("keyword_cost_choice", [("keyword_cost", "symbol"), ("object", "symbol"), ("action", "symbol")])
     p.blank()
     p.comment("--- event_definition: when a quoted keyword-event happens ---")
     for _n, e, s, v in ev:
@@ -127,21 +148,25 @@ def build() -> tuple[str, dict]:
     for _n, kw, ctx, kind in cc:
         p.fact(f'keyword_class_ctx("{kw}", "{ctx}", "{kind}")')
     p.blank()
-    p.output("event_definition", "keyword_class_ctx")
+    p.comment("--- keyword_cost_choice: paying a keyword cost asks you to choose an object to act on ---")
+    for _n, kc, obj, act in ch:
+        p.fact(f'keyword_cost_choice("{kc}", "{obj}", "{act}")')
+    p.blank()
+    p.output("event_definition", "keyword_class_ctx", "keyword_cost_choice")
     p.blank()
     p.comment("conformance — spot-check an event the rules define plainly")
     p.conformance(
         [("expect_event", [("event", "symbol"), ("verb", "symbol")])],
         [("event", "expect_event(E, V)", "miss", "event_definition(E, _, V)")])
     p.fact('expect_event("evolve", "put")')
-    return p.text(), {"events": len(ev), "contexts": len(cc)}
+    return p.text(), {"events": len(ev), "contexts": len(cc), "choices": len(ch)}
 
 
 def main() -> None:
     Path("datalog").mkdir(exist_ok=True)
     source, report = build()
     Path("datalog/keyword_events.dl").write_text(source, encoding="utf-8")
-    print(f"wrote datalog/keyword_events.dl (event_definition={report['events']}, "
+    print(f"wrote datalog/keyword_events.dl (event_definition={report['events']}, keyword_cost_choice={report['choices']}, "
           f"keyword_class_ctx={report['contexts']})")
 
 

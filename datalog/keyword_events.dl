@@ -3,6 +3,7 @@
 
 .decl event_definition(event: symbol, subject: symbol, verb: symbol)
 .decl keyword_class_ctx(keyword: symbol, context: symbol, kind: symbol)
+.decl keyword_cost_choice(keyword_cost: symbol, object: symbol, action: symbol)
 
 // --- event_definition: when a quoted keyword-event happens ---
 event_definition("do_only_once_turn", "controller", "take").
@@ -31,8 +32,13 @@ keyword_class_ctx("compleated", "planeswalker", "static").
 keyword_class_ctx("visit", "attraction", "keyword").
 keyword_class_ctx("solved", "case", "keyword").
 
+// --- keyword_cost_choice: paying a keyword cost asks you to choose an object to act on ---
+keyword_cost_choice("emerge", "permanent", "sacrifice").
+keyword_cost_choice("harmonize", "creature", "tap").
+
 .output event_definition
 .output keyword_class_ctx
+.output keyword_cost_choice
 
 // conformance — spot-check an event the rules define plainly
 .decl expect_event(event: symbol, verb: symbol)
