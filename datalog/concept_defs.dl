@@ -1,0 +1,21 @@
+// concept_defs.dl — §105/§103/§117 concept frames, interpreted from rules.txt.
+// color_count(color_class, count); option_replaces(option, new, old). GENERATED.
+
+.decl color_count(color_class: symbol, n: symbol)
+.decl option_replaces(option: symbol, new: symbol, old: symbol)
+
+color_count("monocolored", "one").
+color_count("multicolored", "two_or_more").
+option_replaces("shared_team_turns", "starting_team", "starting_player").
+option_replaces("shared_team_turns", "team", "individual_player").
+
+.output color_count
+.output option_replaces
+
+// conformance — spot-check the concept facts the rules state plainly
+.decl expect_color(color_class: symbol, n: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("color", C, N) :- expect_color(C, N), !color_count(C, N).
+.output conformance_fail
+.printsize conformance_fail
+expect_color("monocolored", "one").

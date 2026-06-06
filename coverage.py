@@ -41,6 +41,7 @@ import build_zone_props
 import build_split
 import build_layouts
 import build_replacement
+import build_concept_defs
 import build_color
 import build_face_down
 import build_saga
@@ -136,6 +137,7 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | {r[0] for r in build_split.room_actions()}
                     | build_layouts.rule_numbers()
                     | build_replacement.rule_numbers()
+                    | build_concept_defs.rule_numbers()
                     | {r[0] for r in build_color.color_sources()}
                     | {r[0] for r in build_color.color_combinations()}
                     | {r[0] for r in build_color.colorless_rules()}

@@ -33,6 +33,7 @@ interpreted("102.2").
 interpreted("102.3").
 interpreted("102.4").
 interpreted("103.1").
+interpreted("103.1a").
 interpreted("103.1b").
 interpreted("103.1c").
 interpreted("103.2").
@@ -88,6 +89,8 @@ interpreted("104.4i").
 interpreted("104.5").
 interpreted("104.6").
 interpreted("105.1").
+interpreted("105.2a").
+interpreted("105.2b").
 interpreted("105.2c").
 interpreted("105.3").
 interpreted("105.4").
@@ -333,6 +336,7 @@ interpreted("117.3c").
 interpreted("117.3d").
 interpreted("117.4").
 interpreted("117.5").
+interpreted("117.6").
 interpreted("117.7").
 interpreted("118.10").
 interpreted("118.11").
