@@ -64,7 +64,6 @@ conditional("spell", "create", "token", "create", "condition").
 conditional("player", "create", "player", "use", "condition").
 conditional("player", "create", "token", "create", "condition").
 conditional("-", "resolve", "copy", "become", "temporal").
-conditional("player", "do", "copy", "be", "condition").
 conditional("-", "be", "owner", "be", "condition").
 conditional("effect", "change", "effect", "continue", "condition").
 conditional("object", "be", "ability", "function", "temporal").

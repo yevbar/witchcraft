@@ -1,0 +1,51 @@
+// statements.dl — gerund-action + partial-membership, TRANSPILED by transpile.py
+// (spaCy dependency parse). gerund_action(action, verb, object, polarity); some_are(subject, category, polarity). GENERATED.
+
+.decl gerund_action(action: symbol, verb: symbol, object: symbol, polarity: symbol)
+.decl some_are(subject: symbol, category: symbol, polarity: symbol)
+
+// --- gerund_action: '[Gerund] … [verb]s [object]' (polarity yes|no) ---
+gerund_action("add", "fall", "-", "no").
+gerund_action("play", "be", "action", "yes").
+gerund_action("turn", "be", "action", "yes").
+gerund_action("resolve", "instruct", "player", "yes").
+gerund_action("activate", "be", "mandatory", "no").
+gerund_action("tap", "remove", "-", "no").
+gerund_action("cast", "affect", "spell", "no").
+gerund_action("activate", "affect", "spell", "no").
+gerund_action("activate", "follow", "rule", "yes").
+gerund_action("attach", "cause", "-", "yes").
+gerund_action("double", "create", "effect", "yes").
+gerund_action("triple", "create", "effect", "yes").
+gerund_action("reveal", "cause", "-", "no").
+gerund_action("remove", "stop", "-", "yes").
+gerund_action("give", "allow", "-", "yes").
+gerund_action("give", "preclude", "creature", "no").
+gerund_action("cast", "follow", "rule", "yes").
+gerund_action("vanish", "mean", "-", "yes").
+gerund_action("exile", "be", "action", "yes").
+gerund_action("flip", "be", "process", "yes").
+gerund_action("take", "follow", "procedure", "yes").
+gerund_action("roll", "cause", "ability", "yes").
+
+// --- some_are: 'Some [X] are [Y]' partial membership (NOT universal isa) ---
+some_are("copy", "spell", "yes").
+some_are("activated_ability", "mana_ability", "yes").
+some_are("activated_ability", "loyalty_ability", "yes").
+some_are("part", "characteristic", "yes").
+some_are("static_ability", "defining_ability", "yes").
+some_are("continuous_effect", "replacement_effect", "yes").
+some_are("replacement_effect", "continuous_effect", "no").
+some_are("continuous_effect", "prevention_effect", "yes").
+some_are("split_card", "permanent_card", "yes").
+
+.output gerund_action
+.output some_are
+
+// conformance — spot-check a partial-membership the rules state plainly
+.decl expect_some_are(subject: symbol, category: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("some_are", S, C) :- expect_some_are(S, C), !some_are(S, C, _).
+.output conformance_fail
+.printsize conformance_fail
+expect_some_are("activated_ability", "loyalty_ability").

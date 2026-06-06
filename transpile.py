@@ -1018,7 +1018,51 @@ def _symbol_means(rule, doc):
     return Out(rule, f'symbol_means("{g}", "{meaning}").   // {rule}', "symbol_means")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _action]
+def _some_are(rule, doc):
+    """Partial-membership "Some [X] are [Y]" -> some_are(subject, category, polarity). The HONEST
+    counterpart to _isa for "some" statements: "Some activated abilities are loyalty abilities" must
+    not become a universal isa (only SOME are), so it gets its own existential relation. Negation
+    ("Some replacement effects are not continuous effects") flips polarity to no. A coordinated
+    predicate ("are replacement effects or prevention effects") is abstained (kept singular)."""
+    if doc[0].lemma_.lower() != "some":
+        return None
+    root = _root(doc)
+    if root is None or root.lemma_ != "be":
+        return None
+    subj, attr = _child(root, "nsubj"), _child(root, "attr") or _child(root, "acomp")
+    if subj is None or attr is None or subj.pos_ not in ("NOUN", "PROPN") or attr.pos_ not in ("NOUN", "PROPN"):
+        return None
+    if _masked(subj) or _masked(attr) or any(c.dep_ in ("conj", "cc") for c in attr.children):
+        return None
+    sname = "_".join([c.text.lower() for c in subj.children if c.dep_ in ("amod", "compound")] + [subj.lemma_.lower()])
+    aname = "_".join([c.text.lower() for c in attr.children if c.dep_ in ("amod", "compound")] + [attr.lemma_.lower()])
+    if sname == aname:
+        return None
+    polarity = "no" if any(c.dep_ == "neg" for c in root.children) else "yes"
+    return Out(rule, f'some_are("{sname}", "{aname}", "{polarity}").   // {rule}', "some_are")
+
+
+def _gerund_action(rule, doc):
+    """Nominalized-action subject "[Gerund] … [verb]s [object]" -> gerund_action(action, verb,
+    object, polarity). Many consequences are stated with a gerund-phrase subject ("Doubling a
+    creature's power creates a continuous effect", "Revealing a card doesn't cause …"); spaCy roots
+    these on the main verb with the gerund as a clausal subject (csubj) and no noun nsubj, so the SVO
+    patterns miss them. action = gerund lemma; polarity = yes|no (captures doesn't / won't / not)."""
+    root = _root(doc)
+    if root is None or (root.pos_ != "VERB" and root.lemma_ != "be"):
+        return None
+    g = doc[0]
+    if g.tag_ != "VBG" or g.dep_ != "csubj" or g.head != root:
+        return None
+    obj = next((c for c in root.children if c.dep_ in ("dobj", "obj", "attr", "acomp")), None)
+    o = (obj.lemma_.lower() if obj is not None and obj.pos_ in ("NOUN", "PROPN", "ADJ")
+         and not _masked(obj) else "-")
+    polarity = "no" if any(c.dep_ == "neg" for c in root.children) else "yes"
+    return Out(rule, f'gerund_action("{g.lemma_.lower()}", "{root.lemma_.lower()}", "{o}", "{polarity}").   // {rule}',
+               "gerund_action")
+
+
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _isa, _some_are, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 
