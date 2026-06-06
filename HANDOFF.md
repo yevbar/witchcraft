@@ -3,18 +3,27 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**93.8%** — 2673 / 2849 interpretable rules. ~176 primary misses remain.
+**94.1%** — 2663 / 2830 interpretable rules. ~167 primary misses remain.
+Tier-0 non-semantic units now excluded from the denominator via structural_kind():
+  superseded ("Previously, …" historical), list_intro ("There are several ways to …"),
+  physical_note (pile-keeping / paper notes / card-illustration orientation).
+MODEL TEST: en_core_web_md does NOT fix NP-head mis-roots (same CNN parser as sm, only
+  bigger vectors) — net noise. en_core_web_lg is the same architecture, so also won't help.
+  Only en_core_web_trf (transformer parser) would; still needs approval (torch, re-validation).
 Per-section floor: §4 Zones 88.5%, §6 Spells/Abilities 91.7%, §5 Turn 91.8%.
 Last clean cluster captured: build_card_props (attached_controller_independent, subtype_single_word).
 A full lead-phrase + grammatical-bucket re-scan after this found NO further clean clusters.
 
-## STATUS: safe automated gains essentially EXHAUSTED at ~93.7% (truthful ceiling)
-Both lenses swept — topic builders AND grammatical buckets. Remaining ~180 misses are
-irreducible within en_core_web_sm: NP-head mis-roots (buried main verb, ~36), pronoun/
-quantifier subjects (it/nothing/anything/one), negations, disjunctive predicates (over-claim),
-and genuinely-vague sentences. Capturing them needs a BETTER PARSER, not more patterns.
-DO NOT inflate % with lossy facts. Next real lever (needs human approval — changes every parse,
-re-validate all facts, may break byte-identical determinism): swap en_core_web_sm -> en_core_web_trf.
+## IN PROGRESS: enriching tiers 1-4 so meaningful uncovered rules aren't lost info
+The user cares about non-1v1 formats too. Capturing meaningful misses as descriptive facts via
+content-driven builders (parse-independent), tier by tier:
+  Tier 1 SBAs (704.5r/s/v, 704.6f, 702.2b): counter-cap, Saga final chapter, battle defense 0,
+    phenomenon planeswalk, deathtouch. Tier 2 keyword tail. Tier 3 special-card layouts.
+    Tier 4 multiplayer/variant. Emit (rule, subject, condition, outcome)-style facts; the executable
+    engine side (build_sba) stays transpile-only.
+The ~167 STILL-uncovered after enrichment are irreducible in en_core_web_sm: NP-head mis-roots
+(buried verb), pronoun/quantifier subjects, negations, disjunctive predicates, vague sentences.
+DO NOT inflate % with lossy facts. Only further parser lever (needs approval): en_core_web_trf.
 
 ## Prime directive (never violate)
 **A wrong fact is worse than no fact.** Abstain rather than emit a lossy/over-claimed fact.

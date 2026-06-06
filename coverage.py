@@ -215,11 +215,23 @@ def structural_kind(text: str) -> str | None:
     t = text.strip()
     if t.endswith(":"):
         return "list_intro"
+    if re.match(r"^There are several ways (to|for)\b", t):
+        return "list_intro"                            # "There are several ways to win …" — the ways are the subrules
     if t and len(t) <= 42 and "." not in t.rstrip(".") and t[:1].isupper() and not t.endswith((".", ";")):
         return "section_header"
     if re.match(r"^For more information\b.*\bsee (rule|section)\b", t) or \
        re.match(r"^See rule \d.*\bfor more information\b.*\.?\s*$", t):
         return "see_reference"
+    # a superseded-wording note ("Previously, the battlefield was called …") — the rules ENGINE works on
+    # current oracle text, so historical terminology/behavior carries no current game state.
+    if re.match(r"^Previously,", t):
+        return "superseded"
+    # physical/paper bookkeeping (pile-keeping, paper notes, card layout orientation) — no game state.
+    # The orientation clause must be the rule's MAIN statement (start-anchored), so a Saga/Class rule
+    # that only mentions illustration orientation in passing (714.1/716.1) is NOT excluded.
+    if re.search(r"\bshould be kept in separate piles\b|\bnote that name on a piece of paper\b", t) \
+       or re.match(r"^Each [\w ]+?['’]s illustration is [\w ]*?oriented\b", t):
+        return "physical_note"
     return None
 
 

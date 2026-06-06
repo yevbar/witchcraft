@@ -3004,6 +3004,9 @@ secondary("905.2a").
 // structural scaffolding (headers / list-intros / pure cross-references) — not
 // interpretable facts; excluded from the coverage denominator.
 .decl structural(number: symbol, kind: symbol)
+structural("104.2", "list_intro").
+structural("104.3", "list_intro").
+structural("104.4", "list_intro").
 structural("108.6", "see_reference").
 structural("109.4", "list_intro").
 structural("113.1", "list_intro").
@@ -3014,8 +3017,18 @@ structural("117.3", "list_intro").
 structural("205.2", "section_header").
 structural("205.3", "section_header").
 structural("205.4", "section_header").
+structural("206.3", "superseded").
+structural("306.4", "superseded").
+structural("306.7", "superseded").
+structural("403.5", "superseded").
+structural("406.4", "physical_note").
+structural("406.5", "physical_note").
+structural("406.8", "superseded").
 structural("510.1", "list_intro").
+structural("513.1a", "superseded").
 structural("514.3", "list_intro").
+structural("601.1", "superseded").
+structural("602.1d", "superseded").
 structural("603.10", "list_intro").
 structural("605.3", "list_intro").
 structural("605.4", "list_intro").
@@ -3029,6 +3042,8 @@ structural("701.15", "section_header").
 structural("701.16", "section_header").
 structural("701.17", "section_header").
 structural("701.18", "section_header").
+structural("701.18d", "superseded").
+structural("701.18e", "superseded").
 structural("701.19", "section_header").
 structural("701.2", "section_header").
 structural("701.20", "section_header").
@@ -3087,6 +3102,7 @@ structural("701.66", "section_header").
 structural("701.67", "section_header").
 structural("701.68", "section_header").
 structural("701.7", "section_header").
+structural("701.7c", "superseded").
 structural("701.8", "section_header").
 structural("701.9", "section_header").
 structural("702.10", "section_header").
@@ -3097,6 +3113,7 @@ structural("702.103", "section_header").
 structural("702.104", "section_header").
 structural("702.105", "section_header").
 structural("702.106", "section_header").
+structural("702.106b", "physical_note").
 structural("702.107", "section_header").
 structural("702.108", "section_header").
 structural("702.109", "section_header").
@@ -3258,6 +3275,7 @@ structural("702.72", "section_header").
 structural("702.73", "section_header").
 structural("702.74", "section_header").
 structural("702.75", "section_header").
+structural("702.75b", "superseded").
 structural("702.76", "section_header").
 structural("702.77", "section_header").
 structural("702.78", "section_header").
@@ -3287,6 +3305,7 @@ structural("702.99", "section_header").
 structural("703.4", "list_intro").
 structural("704.5", "list_intro").
 structural("704.6", "list_intro").
+structural("719.1", "physical_note").
 structural("727.1", "list_intro").
 structural("901.15", "section_header").
 structural("903.12", "section_header").
