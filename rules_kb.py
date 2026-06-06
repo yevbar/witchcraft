@@ -120,6 +120,45 @@ def about(kb: dict, subject: str) -> dict:
     return out
 
 
+def keywords(kb: dict) -> list:
+    """Every keyword name the KB knows something keyword-specific about, sorted — the union of the
+    keyword-keyed relations (markers, class-by-context, cost choices, quoted events). An event name
+    like 'crew_vehicle' contributes its head 'crew', so it lines up with the keyword it belongs to."""
+    names = {r[0] for r in kb.get("marker_designation", [])}
+    names |= {r[0] for r in kb.get("keyword_class_ctx", [])}
+    names |= {r[0] for r in kb.get("keyword_cost_choice", [])}
+    names |= {r[0].split("_")[0] for r in kb.get("event_definition", [])}
+    return sorted(names)
+
+
+def keyword(kb: dict, name: str) -> dict:
+    """Everything the KB asserts about a single KEYWORD, gathered across the keyword-specific relations
+    that `about` (subject-keyed) misses. Each is keyed differently in the prose, so this is the one
+    place that joins them by keyword name:
+
+      is_marker      bool — a pure designation with no rules meaning (marker_designation)
+      events         the quoted game-event(s) it defines and their trigger (event_definition); an event
+                     named 'crew_vehicle' matches keyword 'crew'
+      class_contexts the ability KIND it is, per object context (keyword_class_ctx)
+      cost_choices   what paying its cost asks you to choose/act on (keyword_cost_choice)
+
+    Returns only the non-empty facets, so an absent key means the KB says nothing of that kind."""
+    out: dict = {}
+    if any(r[0] == name for r in kb.get("marker_designation", [])):
+        out["is_marker"] = True
+    events = [dict(zip(SCHEMA["event_definition"], r)) for r in kb.get("event_definition", [])
+              if r[0] == name or r[0].split("_")[0] == name]
+    if events:
+        out["events"] = events
+    ctx = query(kb, "keyword_class_ctx", keyword=name)
+    if ctx:
+        out["class_contexts"] = ctx
+    cost = query(kb, "keyword_cost_choice", keyword_cost=name)
+    if cost:
+        out["cost_choices"] = cost
+    return out
+
+
 def taxonomy(kb: dict) -> dict:
     """The genus graph: category -> {terms asserted to be (a kind of) it}, from isa() plus the
     existential some_are(); a term explicitly denied (not_isa) is shown prefixed '!'. A small
@@ -179,6 +218,10 @@ def _demo() -> None:
           f"e.g. {[(r['action'], r['verb'], r['object']) for r in neg_gerund][:3]}")
     print(f"  keyword-action trigger timings: "
           f"{[(r['action'], r['timing']) for r in query(kb, 'keyword_action_trigger_timing')][:4]}")
+
+    print(f"\nkeywords() — {len(keywords(kb))} keywords the KB knows something specific about")
+    for kw in ("evolve", "ascend", "emerge", "monstrous"):
+        print(f"  keyword('{kw}'): {keyword(kb, kw)}")
 
     print("\ntaxonomy() — interpreted genus graph (category -> terms), abilities branch:")
     tax = taxonomy(kb)
