@@ -3,7 +3,9 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**94.1%** — 2663 / 2830 interpretable rules. ~167 primary misses remain.
+**94.6%** — 2678 / 2830 interpretable rules. ~152 primary misses remain.
+Tier 1/4/2-3 enrichment landed: build_sba_extra (5 complex SBAs), build_multiplayer (7 §8/§9
+variant rules), build_card_misc (3 special-card/keyword). All descriptive facts, parse-independent.
 Tier-0 non-semantic units now excluded from the denominator via structural_kind():
   superseded ("Previously, …" historical), list_intro ("There are several ways to …"),
   physical_note (pile-keeping / paper notes / card-illustration orientation).

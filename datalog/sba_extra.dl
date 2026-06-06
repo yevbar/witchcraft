@@ -1,0 +1,20 @@
+// sba_extra.dl — complex state-based actions (counter cap, Saga, battle, phenomenon,
+// deathtouch) as descriptive facts, from rules.txt. state_based_check(subject, trigger, outcome). GENERATED.
+
+.decl state_based_check(subject: symbol, trigger: symbol, outcome: symbol)
+
+state_based_check("creature", "deathtouch_damage", "destroyed").
+state_based_check("permanent", "counter_cap_exceeded", "excess_removed").
+state_based_check("saga", "final_chapter_reached", "sacrificed").
+state_based_check("battle", "defense_zero", "owners_graveyard").
+state_based_check("phenomenon", "face_up_in_command", "controller_planeswalks").
+
+.output state_based_check
+
+// conformance — spot-check an SBA the rules state plainly
+.decl expect_sba(subject: symbol, trigger: symbol, outcome: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("sba", S, T) :- expect_sba(S, T, O), !state_based_check(S, T, O).
+.output conformance_fail
+.printsize conformance_fail
+expect_sba("battle", "defense_zero", "owners_graveyard").

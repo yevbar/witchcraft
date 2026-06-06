@@ -1,0 +1,21 @@
+// multiplayer.dl — §8/§9 multiplayer & variant rules, as descriptive facts, from rules.txt.
+// multiplayer_rule(topic, detail). GENERATED.
+
+.decl multiplayer_rule(topic: symbol, detail: symbol)
+
+multiplayer_rule("attack_options", "exactly_one_used").
+multiplayer_rule("primary_player", "rightmost_seat").
+multiplayer_rule("range_of_influence", "includes_self").
+multiplayer_rule("poison_counters", "per_player").
+multiplayer_rule("draft", "no_active_player_or_priority").
+multiplayer_rule("archenemy_team", "one_player").
+
+.output multiplayer_rule
+
+// conformance — spot-check a variant rule the rules state plainly
+.decl expect_mp(topic: symbol, detail: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("mp", T, D) :- expect_mp(T, D), !multiplayer_rule(T, D).
+.output conformance_fail
+.printsize conformance_fail
+expect_mp("archenemy_team", "one_player").

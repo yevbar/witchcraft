@@ -85,6 +85,9 @@ import build_replacement
 import build_concept_defs
 import build_ability_class
 import build_card_props
+import build_sba_extra
+import build_multiplayer
+import build_card_misc
 import build_color
 import build_face_down
 import build_saga
@@ -218,6 +221,9 @@ def regenerate() -> None:
     build_concept_defs.main()
     build_ability_class.main()
     build_card_props.main()
+    build_sba_extra.main()
+    build_multiplayer.main()
+    build_card_misc.main()
     build_color.main()
     build_face_down.main()
     build_saga.main()

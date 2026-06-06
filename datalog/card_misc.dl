@@ -1,0 +1,23 @@
+// card_misc.dl — clean special-card / keyword rules as descriptive facts, from rules.txt.
+// keyword_equivalent(a, b); layout_active_face_only(kind); split_shared_type_line(part). GENERATED.
+
+.decl keyword_equivalent(a: symbol, b: symbol)
+.decl layout_active_face_only(kind: symbol)
+.decl split_shared_type_line(part: symbol)
+
+keyword_equivalent("typecycling_ability", "cycling_ability").
+keyword_equivalent("typecycling_cost", "cycling_cost").
+layout_active_face_only("modal_double_faced").
+split_shared_type_line("shared_type_line").
+
+.output keyword_equivalent
+.output layout_active_face_only
+.output split_shared_type_line
+
+// conformance — spot-check a rule the text states plainly
+.decl expect_equiv(a: symbol, b: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("equiv", A, B) :- expect_equiv(A, B), !keyword_equivalent(A, B).
+.output conformance_fail
+.printsize conformance_fail
+expect_equiv("typecycling_ability", "cycling_ability").
