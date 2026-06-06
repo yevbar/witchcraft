@@ -1,0 +1,24 @@
+// card_props.dl — small card-property frames (attachment controller, subtype word), from rules.txt.
+// attached_controller_independent(kind); subtype_single_word(card_type). GENERATED.
+
+.decl attached_controller_independent(kind: symbol)
+.decl subtype_single_word(card_type: symbol)
+
+attached_controller_independent("equipment").
+attached_controller_independent("aura").
+subtype_single_word("creature").
+subtype_single_word("kindred").
+
+.output attached_controller_independent
+.output subtype_single_word
+
+// conformance — spot-check frames the rules state plainly
+.decl expect_sep(kind: symbol)
+.decl expect_word(card_type: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("sep", K, "-") :- expect_sep(K), !attached_controller_independent(K).
+conformance_fail("word", C, "-") :- expect_word(C), !subtype_single_word(C).
+.output conformance_fail
+.printsize conformance_fail
+expect_sep("equipment").
+expect_word("creature").

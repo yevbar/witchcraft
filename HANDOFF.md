@@ -3,8 +3,10 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**93.7%** — 2669 / 2849 interpretable rules. ~180 primary misses remain.
+**93.8%** — 2673 / 2849 interpretable rules. ~176 primary misses remain.
 Per-section floor: §4 Zones 88.5%, §6 Spells/Abilities 91.7%, §5 Turn 91.8%.
+Last clean cluster captured: build_card_props (attached_controller_independent, subtype_single_word).
+A full lead-phrase + grammatical-bucket re-scan after this found NO further clean clusters.
 
 ## STATUS: safe automated gains essentially EXHAUSTED at ~93.7% (truthful ceiling)
 Both lenses swept — topic builders AND grammatical buckets. Remaining ~180 misses are
