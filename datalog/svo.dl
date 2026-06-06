@@ -205,10 +205,8 @@ action("creature", "crew", "vehicle").
 action("commander", "function", "-").
 action("start", "appear", "-").
 action("mutate", "appear", "-").
-action("player", "transform", "-").
 action("spell", "enter", "battlefield").
 action("player", "read", "-").
-action("player", "choose", "designation").
 action("attractions", "instruct", "player").
 action("player", "turn", "card").
 action("card", "mean", "-").

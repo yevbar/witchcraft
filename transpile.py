@@ -882,12 +882,25 @@ def _conditional(rule, doc):
     root = _root(doc)
     if root is None or (root.pos_ != "VERB" and root.lemma_ != "be"):
         return None                                        # allow a copula root ("…, the game IS a draw")
-    trig = None                                            # the if/when adverbial clause
-    for c in root.children:
-        if c.dep_ in ("advcl", "ccomp"):
-            if any(t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS for t in c.subtree):
-                trig = c
-                break
+    kind_override = None
+    mark_trig = next((c for c in root.children if c.dep_ in ("advcl", "ccomp")           # if/when adverbial clause
+                      and any(t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS for t in c.subtree)), None)
+    temp_trig = None                                        # SENTENCE-INITIAL "Any/Each time [clause], …" trigger
+    tnp = next((c for c in root.children if c.lemma_ == "time" and c.left_edge.i == 0
+                and any(g.lemma_.lower() in ("any", "each", "every", "the") for g in c.children if g.dep_ == "det")), None)
+    if tnp is not None:
+        rel = next((c for c in tnp.children if c.dep_ in ("relcl", "acl")), None)
+        if rel is not None and _clause_subject(rel) != "-":
+            temp_trig = rel
+    # prefer a concrete-subject trigger: the if/when clause if it has one, else the temporal NP
+    if mark_trig is not None and _clause_subject(mark_trig) != "-":
+        trig = mark_trig
+    elif temp_trig is not None:
+        if any(c.lemma_ in ("may", "can") and c.dep_ in ("aux", "auxpass") for c in root.children):
+            return None                                    # "Any time …, you MAY …" is a permission, not a trigger
+        trig, kind_override = temp_trig, "temporal"
+    else:
+        trig = mark_trig
     if trig is None:
         return None
     ts, os_ = _clause_subject(trig), _clause_subject(root)
@@ -895,8 +908,8 @@ def _conditional(rule, doc):
         return None
     sub = " ".join(t.text.lower() for t in trig.subtree)
     mark = next((t.lemma_.lower() for t in trig.subtree if t.dep_ == "mark" and t.lemma_.lower() in _TRIGGER_MARKS), "if")
-    kind = ("replacement" if "would" in sub and "instead" in doc.text.lower()
-            else _MARK_KIND.get(mark, "condition"))
+    kind = (kind_override or ("replacement" if "would" in sub and "instead" in doc.text.lower()
+            else _MARK_KIND.get(mark, "condition")))
     return Out(rule, f'conditional("{ts}", "{trig.lemma_.lower()}", "{os_}", '
                      f'"{root.lemma_.lower()}", "{kind}").   // {rule}', "conditional")
 

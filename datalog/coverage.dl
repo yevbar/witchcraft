@@ -1688,8 +1688,10 @@ interpreted("702.144a").
 interpreted("702.145").
 interpreted("702.145a").
 interpreted("702.145b").
+interpreted("702.145d").
 interpreted("702.145e").
 interpreted("702.145f").
+interpreted("702.145g").
 interpreted("702.146").
 interpreted("702.146a").
 interpreted("702.146b").
@@ -2039,6 +2041,7 @@ interpreted("702.48b").
 interpreted("702.48c").
 interpreted("702.49").
 interpreted("702.49a").
+interpreted("702.49b").
 interpreted("702.49c").
 interpreted("702.49d").
 interpreted("702.4a").
