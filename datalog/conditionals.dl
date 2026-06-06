@@ -276,7 +276,6 @@ conditional("state", "allow", "ability", "remain", "condition").
 conditional("-", "cast", "player", "activate", "condition").
 conditional("-", "put", "ability", "be", "condition").
 conditional("cost", "contain", "cost", "combine", "condition").
-conditional("object", "be", "object", "be", "condition").
 conditional("object", "have", "ability", "link", "condition").
 conditional("object", "have", "-", "link", "condition").
 conditional("-", "have", "ability", "link", "condition").

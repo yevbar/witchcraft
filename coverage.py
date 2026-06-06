@@ -52,6 +52,7 @@ import build_variants
 import build_card_types
 import build_action_kinds
 import build_action_defs
+import build_keyword_action_triggers
 import build_protection
 import build_keyword_definitions
 import build_enumerations
@@ -68,7 +69,7 @@ from transpile import transpile_rule
 # Rules interpreted by the lark builders (not transpile.py): enumerations + turn structure.
 LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {num for num, _, _ in build_turn_structure.SOURCES}
-                    | {dl.split('// ')[1].strip() for _, dl in build_ontology.extract()}
+                    | {n for n, _ in build_ontology.extract()}
                     | {num for num, _, _, _ in build_keyword_defs.extract()}
                     | {r[0] for r in build_token_defs.extract()}
                     | {r[0] for r in build_keyword_effects.extract()}
@@ -164,6 +165,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_card_types.dungeon_properties()}
                     | {r[0] for r in build_action_kinds.action_kinds()}
                     | {r[0] for r in build_action_defs.action_definitions()}
+                    | {r[0] for r in build_keyword_action_triggers.trigger_timings()}
                     | {r[0] for r in build_protection.protection_prevents()}
                     | {r[0] for r in build_card_types.card_type_property()}
                     | {r[0] for r in build_card_types.vanguard_modifier()}
@@ -174,15 +176,20 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
 
 def structural_kind(text: str) -> str | None:
     """Classify a STRUCTURAL, non-semantic unit — not an interpretable fact, so excluded from the
-    coverage denominator (and numerator). Two kinds: a list intro ('The state-based actions are as
-    follows:' — the facts live in the subrules) and a heading label (a section sub-group header
-    'Card Types'/'Subtypes', or a keyword/keyword-action name 'Flying'/'Attach'). These are the
-    rulebook's scaffolding; counting them as interpreted via the name rosters inflates the %."""
+    coverage denominator (and numerator). Three kinds: a list intro ('The state-based actions are as
+    follows:' — the facts live in the subrules); a heading label (a section sub-group header
+    'Card Types'/'Subtypes', or a keyword/keyword-action name 'Flying'/'Attach'); and a pure
+    cross-reference pointer ('For more information about Auras, see rule 303.' / 'See rule 708 … for
+    more information.') — navigation, carrying no game fact (the link itself is in the xref graph).
+    These are the rulebook's scaffolding; counting them as interpreted would inflate the %."""
     t = text.strip()
     if t.endswith(":"):
         return "list_intro"
     if t and len(t) <= 42 and "." not in t.rstrip(".") and t[:1].isupper() and not t.endswith((".", ";")):
         return "section_header"
+    if re.match(r"^For more information\b.*\bsee (rule|section)\b", t) or \
+       re.match(r"^See rule \d.*\bfor more information\.?\s*$", t):
+        return "see_reference"
     return None
 
 

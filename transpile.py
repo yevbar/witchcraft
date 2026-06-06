@@ -926,26 +926,43 @@ ISA_SKIP_START = {"if", "in", "when", "whenever", "while", "as", "because", "unl
 
 
 def _isa(rule, doc):
-    """Genus-differentia definition "A [term] is a [category] ..." -> isa(term, category).
-    Strict guards keep it ACCURATE: indefinite subject, nominal predicate, not negated,
-    no disjunction, no conjunction in subject/predicate, not a conditional sentence."""
+    """Genus-differentia definition "A [term] is a [category]" -> isa(term, category). A COORDINATED
+    subject distributes — "Power and toughness are characteristics" -> isa(power, ...), isa(toughness,
+    ...), each conjunct independently of that category (faithful, the same per-conjunct expansion the
+    rules intend). A coordinated or negated PREDICATE ("is A or B", "is neither A nor B") is an
+    enumeration / negation, not a clean genus, so it's abstained. Strict otherwise: nominal predicate
+    not in the generic blocklist, not negated, not a leading conditional/quantified clause."""
     root = _root(doc)
     if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
         return None
-    if any(c.dep_ == "neg" for c in root.children) or any(t.lemma_ in ("not", "or") for t in doc):
+    if any(c.dep_ == "neg" for c in root.children) or any(t.lemma_ in ("not", "neither", "nor") for t in doc):
         return None
     subj, attr = _child(root, "nsubj"), _child(root, "attr")
     if subj is None or attr is None or attr.pos_ not in ("NOUN", "PROPN") or attr.lemma_ in ISA_BAD_PRED:
         return None
-    if any(c.dep_ in ("conj", "cc") for c in attr.children) or any(c.dep_ in ("conj", "cc") for c in subj.children):
+    if any(c.dep_ in ("conj", "cc") for c in attr.children) or _masked(attr):   # disjunctive predicate -> enumeration
         return None
-    if subj.pos_ not in ("NOUN", "PROPN") or _masked(subj) or _masked(attr):    # any noun subject (definite/bare/indefinite)
+    cat = attr.lemma_.lower()
+    subjects = [subj] + [c for c in subj.children if c.dep_ == "conj"]          # head + coordinated conjuncts
+    if len(subjects) > 1:
+        # "and" + a SINGULAR copula is noun-phrase-internal coordination ("a power and toughness
+        # sticker IS …" = one noun), not two subjects; only plural agreement ("Power and toughness
+        # ARE …") or "or" (alternatives) is genuine subject coordination. Else a false isa("power", …).
+        cc = next((c.lemma_.lower() for s in subjects for c in s.children if c.dep_ == "cc"), "and")
+        if cc == "and" and root.tag_ == "VBZ":
+            return None
+    lines = []
+    for s in subjects:
+        if s.pos_ not in ("NOUN", "PROPN") or _masked(s):
+            return None
+        pre = [c.text.lower() for c in s.children if c.dep_ in ("amod", "compound")]
+        name = "_".join(pre + [s.lemma_.lower()])
+        if name != cat:
+            lines.append(f'isa("{name}", "{cat}").')
+    if not lines:
         return None
-    pre = [c.text.lower() for c in subj.children if c.dep_ in ("amod", "compound")]
-    name = "_".join(pre + [subj.lemma_.lower()])
-    if name == attr.lemma_.lower():
-        return None
-    return Out(rule, f'isa("{name}", "{attr.lemma_.lower()}").   // {rule}', "isa")
+    lines[0] += f"   // {rule}"
+    return Out(rule, "\n".join(lines), "isa")
 
 
 def _symbol_def(rule, doc):

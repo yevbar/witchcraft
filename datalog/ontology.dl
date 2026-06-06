@@ -19,14 +19,23 @@ isa("royal_role", "enchantment").   // 111.10m
 isa("sorcerer_role", "enchantment").   // 111.10n
 isa("virtuous_role", "enchantment").   // 111.10p
 isa("wicked_role", "enchantment").   // 111.10q
+isa("young_hero_role", "enchantment").   // 111.10r
 isa("token_map", "artifact").   // 111.10s
 isa("token_junk", "artifact").   // 111.10t
 isa("spell", "card").   // 112.1
 isa("copy", "spell").   // 112.1a
 isa("controller", "player").   // 113.8
+isa("spell", "target").   // 115.5
+isa("ability", "target").
+isa("counter", "marker").   // 122.1
+isa("sticker", "marker").   // 123.1
+isa("word", "series").   // 123.6a
+isa("ability_sticker", "sticker").   // 123.7
 isa("object", "color").   // 204.2
 isa("subtype", "word").   // 205.3b
 isa("artifact_subtype", "word").   // 301.3
+isa("power", "characteristic").   // 302.4
+isa("toughness", "characteristic").
 isa("enchantment_subtype", "word").   // 303.3
 isa("instant_subtype", "word").   // 304.3
 isa("land_subtype", "word").   // 305.5
@@ -38,10 +47,12 @@ isa("owner", "player").   // 313.5
 isa("owner", "player").   // 314.5
 isa("owner", "player").   // 315.6
 isa("zone", "place").   // 400.1
+isa("public_zone", "zone").   // 400.2
 isa("graveyard", "pile").   // 404.1
 isa("exile_zone", "area").   // 406.1
 isa("first_main_phase", "phase").   // 505.1a
 isa("active_player", "player").   // 506.2
+isa("second_object", "source").   // 607.1d
 isa("characteristic", "value").   // 613.2c
 isa("regeneration", "effect").   // 614.8
 isa("goaded", "designation").   // 701.15b
@@ -56,6 +67,7 @@ isa("harnessed", "designation").   // 701.64b
 isa("equip_planeswalker", "variant").   // 702.6e
 isa("hexproof", "variant").   // 702.11d
 isa("landwalk", "term").   // 702.14a
+isa("protection", "shorthand").   // 702.16i
 isa("protection", "variant").   // 702.16j
 isa("protection", "variant").   // 702.16k
 isa("trample", "variant").   // 702.19c
@@ -83,9 +95,11 @@ isa("squad", "keyword").   // 702.157a
 isa("sector_designation", "designation").   // 702.158b
 isa("gift", "keyword").   // 702.174a
 isa("impending", "keyword").   // 702.176a
+isa("based_action", "action").   // 703.1
 isa("based_action", "action").   // 704.1
 isa("split_card", "card").   // 709.2
 isa("mana_cost", "cost").   // 709.4b
+isa("substitute_card", "supplement").   // 713.1
 isa("final_chapter_number", "value").   // 714.2d
 isa("adventurer_card", "card").   // 715.2c
 isa("level", "designation").   // 716.2b
@@ -95,13 +109,17 @@ isa("omen_card", "card").   // 720.2c
 isa("preparation_card", "card").   // 722.2c
 isa("monarch", "designation").   // 725.1
 isa("initiative", "designation").   // 726.1
+isa("starting_player", "player").   // 727.1a
 isa("subgame", "game").   // 729.1a
+isa("day", "designation").   // 731.1
+isa("night", "designation").
 isa("multiplayer_game", "game").   // 800.1
 isa("limited_range", "option").   // 801.1
 isa("range", "distance").   // 801.2
 isa("melee_variant", "modification").   // 807.1
 isa("game", "draw").   // 809.5c
 isa("planar_die", "die").   // 901.3a
+isa("owner", "player").   // 901.6
 isa("plane_card", "plane").   // 901.11b
 isa("planar_controller", "player").   // 901.12b
 isa("owner", "player").   // 902.6

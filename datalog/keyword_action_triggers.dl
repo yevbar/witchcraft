@@ -1,0 +1,25 @@
+// keyword_action_triggers.dl — when a keyword-action trigger fires, interpreted from rules.txt.
+// keyword_action_trigger_timing(action, timing). GENERATED.
+
+.decl keyword_action_trigger_timing(action: symbol, timing: symbol)
+
+keyword_action_trigger_timing("scry", "after_process").
+keyword_action_trigger_timing("surveil", "after_process").
+keyword_action_trigger_timing("manifest_dread", "after_process").
+keyword_action_trigger_timing("airbend", "when").
+keyword_action_trigger_timing("earthbend", "when").
+keyword_action_trigger_timing("waterbend", "whenever").
+keyword_action_trigger_timing("blight", "after_process").
+keyword_action_trigger_timing("mentor_another_creature", "whenever").
+keyword_action_trigger_timing("mutate", "when").
+keyword_action_trigger_timing("firebend", "whenever").
+
+.output keyword_action_trigger_timing
+
+// conformance — spot-check a timing the rules state plainly
+.decl expect_timing(action: symbol, timing: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("timing", A, T) :- expect_timing(A, T), !keyword_action_trigger_timing(A, T).
+.output conformance_fail
+.printsize conformance_fail
+expect_timing("scry", "after_process").
