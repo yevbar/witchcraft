@@ -55,6 +55,7 @@ import build_action_defs
 import build_keyword_action_triggers
 import build_trigger_conditions
 import build_templates
+import build_markers
 import build_protection
 import build_keyword_definitions
 import build_enumerations
@@ -171,6 +172,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_trigger_conditions.trigger_conditions()}
                     | {r[0] for r in build_templates.template_definitions()}
                     | {r[0] for r in build_templates.term_meanings()}
+                    | {r[0] for r in build_markers.markers()}
                     | {r[0] for r in build_protection.protection_prevents()}
                     | {r[0] for r in build_card_types.card_type_property()}
                     | {r[0] for r in build_card_types.vanguard_modifier()}
@@ -193,7 +195,7 @@ def structural_kind(text: str) -> str | None:
     if t and len(t) <= 42 and "." not in t.rstrip(".") and t[:1].isupper() and not t.endswith((".", ";")):
         return "section_header"
     if re.match(r"^For more information\b.*\bsee (rule|section)\b", t) or \
-       re.match(r"^See rule \d.*\bfor more information\.?\s*$", t):
+       re.match(r"^See rule \d.*\bfor more information\b.*\.?\s*$", t):
         return "see_reference"
     return None
 

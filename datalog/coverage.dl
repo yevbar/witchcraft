@@ -1338,6 +1338,7 @@ interpreted("701.36").
 interpreted("701.36a").
 interpreted("701.37").
 interpreted("701.37a").
+interpreted("701.37b").
 interpreted("701.37c").
 interpreted("701.38").
 interpreted("701.38a").
@@ -1530,6 +1531,7 @@ interpreted("702.111b").
 interpreted("702.111c").
 interpreted("702.112").
 interpreted("702.112a").
+interpreted("702.112b").
 interpreted("702.112c").
 interpreted("702.113").
 interpreted("702.113a").
@@ -1779,6 +1781,7 @@ interpreted("702.170e").
 interpreted("702.170f").
 interpreted("702.171").
 interpreted("702.171a").
+interpreted("702.171b").
 interpreted("702.172").
 interpreted("702.172a").
 interpreted("702.172b").
@@ -2854,11 +2857,9 @@ secondary("613.8").
 secondary("614.10a").
 secondary("615.9").
 secondary("700.1").
-secondary("701.37b").
 secondary("701.43d").
 secondary("701.51c").
 secondary("701.8b").
-secondary("702.112b").
 secondary("702.165d").
 secondary("702.168b").
 secondary("702.168c").
@@ -3054,6 +3055,7 @@ structural("702.165", "section_header").
 structural("702.166", "section_header").
 structural("702.167", "section_header").
 structural("702.168", "section_header").
+structural("702.168f", "see_reference").
 structural("702.169", "section_header").
 structural("702.17", "section_header").
 structural("702.170", "section_header").
@@ -3100,6 +3102,7 @@ structural("702.34", "section_header").
 structural("702.35", "section_header").
 structural("702.36", "section_header").
 structural("702.37", "section_header").
+structural("702.37g", "see_reference").
 structural("702.38", "section_header").
 structural("702.39", "section_header").
 structural("702.4", "section_header").

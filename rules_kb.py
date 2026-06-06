@@ -46,6 +46,7 @@ SCHEMA: dict[str, tuple] = {
     "trigger_condition": ("ability_class", "event_subject", "event_verb"),
     "template_means":    ("template", "expansion"),
     "term_meaning":      ("term", "meaning"),
+    "marker_designation": ("name",),
 }
 
 _FACT = re.compile(r'^([a-z_]\w*)\((.*)\)\.\s*(?://.*)?$')

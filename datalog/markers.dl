@@ -1,0 +1,19 @@
+// markers.dl — keyword designations with no rules meaning (pure markers), from rules.txt.
+// marker_designation(name). GENERATED.
+
+.decl marker_designation(name: symbol)
+
+marker_designation("monstrous").
+marker_designation("harnessed").
+marker_designation("renowned").
+marker_designation("saddled").
+
+.output marker_designation
+
+// conformance — spot-check a marker the rules state plainly
+.decl expect_marker(name: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("marker", N, "-") :- expect_marker(N), !marker_designation(N).
+.output conformance_fail
+.printsize conformance_fail
+expect_marker("monstrous").
