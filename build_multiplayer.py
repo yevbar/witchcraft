@@ -30,6 +30,9 @@ _RULES = [
     ("poison_counters", "per_player", re.compile(r"poison counters happen to each player individually", re.I)),
     ("draft", "no_active_player_or_priority", re.compile(r"During a draft, there is no active player or system of priority", re.I)),
     ("archenemy_team", "one_player", re.compile(r"One of the teams consists of exactly one player, who is designated the archenemy", re.I)),
+    ("defending_players", "one_or_more_in_multiplayer", re.compile(r"During the combat phase of a multiplayer game, there may be one or more defending players", re.I)),
+    ("apnap_order", "modified_by_shared_team_turns", re.compile(r"Active Player, Nonactive Player order rule .* is modified if the shared team turns option is used", re.I)),
+    ("archenemy_free_for_all", "each_player_is_archenemy", re.compile(r"^Each player in this game is an archenemy", re.I)),
 ]
 
 

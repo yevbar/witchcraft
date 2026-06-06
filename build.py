@@ -87,6 +87,7 @@ import build_ability_class
 import build_card_props
 import build_sba_extra
 import build_multiplayer
+import build_restrictions_extra
 import build_card_misc
 import build_color
 import build_face_down
@@ -223,6 +224,7 @@ def regenerate() -> None:
     build_card_props.main()
     build_sba_extra.main()
     build_multiplayer.main()
+    build_restrictions_extra.main()
     build_card_misc.main()
     build_color.main()
     build_face_down.main()

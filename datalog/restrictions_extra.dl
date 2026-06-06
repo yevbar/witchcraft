@@ -1,0 +1,31 @@
+// restrictions_extra.dl — negatively-phrased rules reified as positive facts, from rules.txt.
+// cannot(subject, action, scope); does_not(subject, action, scope); at_most_one(thing). GENERATED.
+
+.decl cannot(subject: symbol, action: symbol, scope: symbol)
+.decl does_not(subject: symbol, action: symbol, scope: symbol)
+.decl at_most_one(thing: symbol)
+
+cannot("merged_permanent", "turn_face_up", "contains_instant_or_sorcery").
+cannot("stack_ability", "be_countered", "by_spell_counter").
+cannot("game_event", "occur", "between_steps_phases_turns").
+cannot("player", "get_priority", "ending_turn_process").
+cannot("player", "get_priority", "ending_phase_process").
+cannot("player", "be_forced", "end_a_loop").
+cannot("effect", "have_meaning", "across_game_and_subgame").
+does_not("indirectly_phased_out_permanent", "phase_in", "at_untap_turn_based_action").
+does_not("replacement_effect", "invoke_itself", "repeatedly").
+does_not("zero_mana_cost_spell", "cast_itself", "automatically").
+does_not("scheduled_event", "happen", "in_skipped_step").
+at_most_one("monarch").
+
+.output cannot
+.output does_not
+.output at_most_one
+
+// conformance — spot-check a prohibition the rules state plainly
+.decl expect_cannot(subject: symbol, action: symbol, scope: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("cannot", S, A) :- expect_cannot(S, A, Sc), !cannot(S, A, Sc).
+.output conformance_fail
+.printsize conformance_fail
+expect_cannot("player", "get_priority", "ending_turn_process").

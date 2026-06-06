@@ -3,7 +3,12 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**96.3%** — 2724 / 2830 interpretable rules. ~106 primary misses remain.
+**96.7%** — 2738 / 2830 interpretable rules. ~92 primary misses remain.
+Negation/restriction + multiplayer enrichment: build_restrictions_extra reifies negatively-phrased
+rules as positive tuples — cannot(subject,action,SCOPE) / does_not(...) / at_most_one(thing); the
+SCOPE field is what keeps them faithful (priority denied only during the turn-ending process, events
+only between steps — without scope they'd over-claim). build_multiplayer extended (+3: defending
+players, APNAP-modified-by-shared-team-turns, archenemy-free-for-all).
 TRF INTEGRATED: transpile_rule now uses en_core_web_sm first and falls back to en_core_web_trf
 (transformer parser) ONLY when sm yields no fact — recovers the NP-head mis-roots. Strictly additive
 (every sm fact unchanged; +160 new facts, of which ~46 net primary after a quality guard). trf is now

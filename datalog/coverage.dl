@@ -281,6 +281,7 @@ interpreted("113.6p").
 interpreted("113.7").
 interpreted("113.7a").
 interpreted("113.8").
+interpreted("113.9").
 interpreted("114.1").
 interpreted("114.2").
 interpreted("114.3").
@@ -363,6 +364,7 @@ interpreted("118.3a").
 interpreted("118.3b").
 interpreted("118.3c").
 interpreted("118.5").
+interpreted("118.5a").
 interpreted("118.6").
 interpreted("118.6a").
 interpreted("118.7a").
@@ -830,6 +832,7 @@ interpreted("500.1").
 interpreted("500.10").
 interpreted("500.10a").
 interpreted("500.11").
+interpreted("500.12").
 interpreted("500.2").
 interpreted("500.3").
 interpreted("500.4").
@@ -862,6 +865,7 @@ interpreted("505.6a").
 interpreted("505.6b").
 interpreted("506.1").
 interpreted("506.2").
+interpreted("506.2a").
 interpreted("506.2b").
 interpreted("506.3").
 interpreted("506.3a").
@@ -1141,6 +1145,7 @@ interpreted("610.3b").
 interpreted("610.3c").
 interpreted("610.3d").
 interpreted("610.4").
+interpreted("610.4a").
 interpreted("610.4b").
 interpreted("610.4c").
 interpreted("610.4d").
@@ -1211,6 +1216,7 @@ interpreted("613.8c").
 interpreted("613.9").
 interpreted("614.1").
 interpreted("614.10").
+interpreted("614.10a").
 interpreted("614.10b").
 interpreted("614.11").
 interpreted("614.11a").
@@ -1238,6 +1244,7 @@ interpreted("614.1e").
 interpreted("614.2").
 interpreted("614.3").
 interpreted("614.4").
+interpreted("614.5").
 interpreted("614.6").
 interpreted("614.7").
 interpreted("614.7a").
@@ -2643,15 +2650,18 @@ interpreted("724.1b").
 interpreted("724.1c").
 interpreted("724.1d").
 interpreted("724.1e").
+interpreted("724.1f").
 interpreted("724.2").
 interpreted("724.2a").
 interpreted("724.2b").
 interpreted("724.2c").
 interpreted("724.2d").
 interpreted("724.2e").
+interpreted("724.2f").
 interpreted("724.2g").
 interpreted("725.1").
 interpreted("725.2").
+interpreted("725.3").
 interpreted("725.4").
 interpreted("725.5").
 interpreted("726.1").
@@ -2670,6 +2680,7 @@ interpreted("728.1").
 interpreted("728.1a").
 interpreted("729.1").
 interpreted("729.1a").
+interpreted("729.1b").
 interpreted("729.2").
 interpreted("729.2a").
 interpreted("729.2b").
@@ -2691,6 +2702,7 @@ interpreted("730.2c").
 interpreted("730.2d").
 interpreted("730.2e").
 interpreted("730.2f").
+interpreted("730.2g").
 interpreted("730.2h").
 interpreted("730.2i").
 interpreted("730.2j").
@@ -2715,6 +2727,7 @@ interpreted("732.2b").
 interpreted("732.2c").
 interpreted("732.3").
 interpreted("732.4").
+interpreted("732.5").
 interpreted("732.6").
 interpreted("733.1").
 interpreted("733.2").
@@ -2801,6 +2814,7 @@ interpreted("805.4d").
 interpreted("805.5").
 interpreted("805.5a").
 interpreted("805.5b").
+interpreted("805.6").
 interpreted("805.6a").
 interpreted("805.7").
 interpreted("805.8").
@@ -2980,6 +2994,7 @@ interpreted("904.1").
 interpreted("904.10").
 interpreted("904.11").
 interpreted("904.12a").
+interpreted("904.12b").
 interpreted("904.12c").
 interpreted("904.13a").
 interpreted("904.13b").
@@ -3018,7 +3033,6 @@ secondary("103.3a").
 secondary("107.3a").
 secondary("110.1").
 secondary("111.6").
-secondary("113.9").
 secondary("118.1").
 secondary("118.7").
 secondary("119.4").
@@ -3029,15 +3043,12 @@ secondary("305.8").
 secondary("307.5").
 secondary("402.1").
 secondary("406.4").
-secondary("506.2a").
 secondary("509.1h").
 secondary("601.3e").
 secondary("602.1c").
 secondary("603.6b").
 secondary("608.2b").
 secondary("609.1").
-secondary("610.4a").
-secondary("614.10a").
 secondary("614.17d").
 secondary("615.9").
 secondary("700.1").
@@ -3058,14 +3069,9 @@ secondary("708.8").
 secondary("716.4").
 secondary("718.3b").
 secondary("723.3").
-secondary("724.1f").
-secondary("724.2f").
-secondary("725.3").
 secondary("727.4").
-secondary("730.2g").
 secondary("731.2b").
 secondary("801.2a").
-secondary("805.6").
 
 // structural scaffolding (headers / list-intros / pure cross-references) — not
 // interpretable facts; excluded from the coverage denominator.
