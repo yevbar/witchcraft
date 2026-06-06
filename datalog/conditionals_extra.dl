@@ -1,0 +1,27 @@
+// conditionals_extra.dl — complex conditionals as descriptive facts, from rules.txt.
+// happens_when(trigger, outcome); distinct_action(a, b); ordered_resolution(first, second). GENERATED.
+
+.decl happens_when(trigger: symbol, outcome: symbol)
+.decl distinct_action(a: symbol, b: symbol)
+.decl ordered_resolution(first: symbol, second: symbol)
+
+happens_when("player_would_get_priority", "check_state_based_actions").
+happens_when("face_down_permanent_turned_face_up", "copiable_values_revert_to_normal").
+happens_when("night_and_two_or_more_spells_cast_last_turn", "becomes_day").
+happens_when("permanent_phases_out", "attached_auras_equipment_fortifications_phase_out").
+distinct_action("transform", "turn_face_up_or_down").
+distinct_action("convert", "turn_face_up_or_down").
+ordered_resolution("spell_controller", "other_player").
+ordered_resolution("ability_controller", "other_player").
+
+.output happens_when
+.output distinct_action
+.output ordered_resolution
+
+// conformance — spot-check a conditional the rules state plainly
+.decl expect_when(trigger: symbol, outcome: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("when", T, O) :- expect_when(T, O), !happens_when(T, O).
+.output conformance_fail
+.printsize conformance_fail
+expect_when("player_would_get_priority", "check_state_based_actions").

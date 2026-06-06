@@ -3,7 +3,13 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**96.7%** — 2738 / 2830 interpretable rules. ~92 primary misses remain.
+**97.3%** — 2753 / 2830 interpretable rules. ~77 primary misses remain.
+More residual negations reified (build_restrictions_extra): is_not / not_part_of / only_means added
+(spells aren't mana abilities, additional cost not part of mana cost, only ways to destroy, only
+activated abilities can be activated, sideboard cards outside the game). Complex conditionals
+captured (build_conditionals_extra): happens_when / distinct_action / ordered_resolution (SBA-check
+on priority, copiable-revert on flip, daybound day-flip, phasing of attached permanents, transform≠
+turn-face-up, controller-goes-first).
 Negation/restriction + multiplayer enrichment: build_restrictions_extra reifies negatively-phrased
 rules as positive tuples — cannot(subject,action,SCOPE) / does_not(...) / at_most_one(thing); the
 SCOPE field is what keeps them faithful (priority denied only during the turn-ending process, events

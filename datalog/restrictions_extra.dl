@@ -1,9 +1,12 @@
 // restrictions_extra.dl — negatively-phrased rules reified as positive facts, from rules.txt.
-// cannot(subject, action, scope); does_not(subject, action, scope); at_most_one(thing). GENERATED.
+// cannot(subject,action,scope); does_not(subject,action,scope); at_most_one(thing); is_not(subject,category); not_part_of(part,whole); only_means(outcome,means). GENERATED.
 
 .decl cannot(subject: symbol, action: symbol, scope: symbol)
 .decl does_not(subject: symbol, action: symbol, scope: symbol)
 .decl at_most_one(thing: symbol)
+.decl is_not(subject: symbol, category: symbol)
+.decl not_part_of(part: symbol, whole: symbol)
+.decl only_means(outcome: symbol, means: symbol)
 
 cannot("merged_permanent", "turn_face_up", "contains_instant_or_sorcery").
 cannot("stack_ability", "be_countered", "by_spell_counter").
@@ -12,15 +15,27 @@ cannot("player", "get_priority", "ending_turn_process").
 cannot("player", "get_priority", "ending_phase_process").
 cannot("player", "be_forced", "end_a_loop").
 cannot("effect", "have_meaning", "across_game_and_subgame").
+cannot("spell_or_ability", "affect_other_zones", "unless_specifically_mentioned").
 does_not("indirectly_phased_out_permanent", "phase_in", "at_untap_turn_based_action").
 does_not("replacement_effect", "invoke_itself", "repeatedly").
 does_not("zero_mana_cost_spell", "cast_itself", "automatically").
 does_not("scheduled_event", "happen", "in_skipped_step").
+does_not("static_ability_continuous_effect", "lock_in", "applies_per_moment").
 at_most_one("monarch").
+is_not("spell", "mana_ability").
+is_not("sideboard_card", "in_the_game").
+not_part_of("additional_cost", "mana_cost").
+only_means("destroy", "destroy_effect").
+only_means("destroy", "lethal_damage_sba").
+only_means("destroy", "deathtouch_damage_sba").
+only_means("activate", "activated_ability").
 
 .output cannot
 .output does_not
 .output at_most_one
+.output is_not
+.output not_part_of
+.output only_means
 
 // conformance — spot-check a prohibition the rules state plainly
 .decl expect_cannot(subject: symbol, action: symbol, scope: symbol)
