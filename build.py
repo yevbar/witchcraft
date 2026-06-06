@@ -49,6 +49,7 @@ import build_actions
 import build_cast
 import build_combat
 import build_combat_triggers
+import build_combat_phase
 import build_engine
 import build_keyword_actions
 import build_keyword_defs
@@ -203,6 +204,7 @@ def regenerate() -> None:
     build_permanents.main()
     build_ability_function.main()
     build_combat_triggers.main()
+    build_combat_phase.main()
     build_copy.main()
     build_tokens.main()
     build_tba.main()

@@ -840,6 +840,7 @@ interpreted("505.6").
 interpreted("505.6b").
 interpreted("506.1").
 interpreted("506.2").
+interpreted("506.2b").
 interpreted("506.3").
 interpreted("506.3a").
 interpreted("506.3b").
@@ -855,6 +856,8 @@ interpreted("506.4c").
 interpreted("506.5").
 interpreted("506.6").
 interpreted("506.7").
+interpreted("506.7a").
+interpreted("506.7b").
 interpreted("506.7c").
 interpreted("506.7d").
 interpreted("506.7e").
@@ -874,9 +877,11 @@ interpreted("508.1h").
 interpreted("508.1i").
 interpreted("508.1j").
 interpreted("508.1k").
+interpreted("508.1m").
 interpreted("508.2").
 interpreted("508.2a").
 interpreted("508.2b").
+interpreted("508.3").
 interpreted("508.3a").
 interpreted("508.3b").
 interpreted("508.3c").
@@ -895,6 +900,7 @@ interpreted("508.7").
 interpreted("508.7a").
 interpreted("508.7b").
 interpreted("508.7c").
+interpreted("508.8").
 interpreted("509.1").
 interpreted("509.1b").
 interpreted("509.1c").
@@ -902,8 +908,10 @@ interpreted("509.1d").
 interpreted("509.1e").
 interpreted("509.1f").
 interpreted("509.1g").
+interpreted("509.1i").
 interpreted("509.2").
 interpreted("509.2a").
+interpreted("509.3").
 interpreted("509.3a").
 interpreted("509.3b").
 interpreted("509.3c").

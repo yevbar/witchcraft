@@ -1,0 +1,36 @@
+// combat_phase.dl — §506/§508/§509 combat-phase mechanics, interpreted from rules.txt.
+// cast_timing_reference(event); triggers_on_declaration(event); declaration_trigger_varies(event); combat_team_role(team_state, role); skip_step_no_attackers(step). GENERATED.
+
+.decl cast_timing_reference(event: symbol)
+.decl triggers_on_declaration(event: symbol)
+.decl declaration_trigger_varies(event: symbol)
+.decl combat_team_role(team_state: symbol, role: symbol)
+.decl skip_step_no_attackers(step: symbol)
+
+cast_timing_reference("attackers").
+cast_timing_reference("blockers").
+triggers_on_declaration("attackers").
+triggers_on_declaration("blockers").
+declaration_trigger_varies("attackers").
+declaration_trigger_varies("blockers").
+combat_team_role("active", "attacking").
+combat_team_role("nonactive", "defending").
+skip_step_no_attackers("declare_blockers").
+skip_step_no_attackers("combat_damage").
+
+.output cast_timing_reference
+.output triggers_on_declaration
+.output declaration_trigger_varies
+.output combat_team_role
+.output skip_step_no_attackers
+
+// conformance — spot-check the combat-phase facts the rules state plainly
+.decl expect_team(team_state: symbol, role: symbol)
+.decl expect_skip(step: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("team", T, R) :- expect_team(T, R), !combat_team_role(T, R).
+conformance_fail("skip", S, "-") :- expect_skip(S), !skip_step_no_attackers(S).
+.output conformance_fail
+.printsize conformance_fail
+expect_team("active", "attacking").
+expect_skip("combat_damage").
