@@ -968,6 +968,8 @@ interpreted("601.6").
 interpreted("601.6a").
 interpreted("601.7").
 interpreted("602.1").
+interpreted("602.1a").
+interpreted("602.1b").
 interpreted("602.1d").
 interpreted("602.1e").
 interpreted("602.2").
@@ -1012,6 +1014,8 @@ interpreted("603.3c").
 interpreted("603.3d").
 interpreted("603.4").
 interpreted("603.6").
+interpreted("603.6a").
+interpreted("603.6c").
 interpreted("603.6d").
 interpreted("603.7").
 interpreted("603.7a").
@@ -1197,6 +1201,8 @@ interpreted("614.17b").
 interpreted("614.17c").
 interpreted("614.1a").
 interpreted("614.1b").
+interpreted("614.1c").
+interpreted("614.1d").
 interpreted("614.1e").
 interpreted("614.2").
 interpreted("614.3").
@@ -2395,6 +2401,7 @@ interpreted("709.4c").
 interpreted("709.4d").
 interpreted("709.5").
 interpreted("709.5b").
+interpreted("709.5c").
 interpreted("709.5d").
 interpreted("709.5e").
 interpreted("709.5f").
@@ -2425,14 +2432,17 @@ interpreted("712.12").
 interpreted("712.13").
 interpreted("712.13a").
 interpreted("712.14").
+interpreted("712.14a").
 interpreted("712.14b").
 interpreted("712.14c").
 interpreted("712.15").
 interpreted("712.15a").
 interpreted("712.16").
 interpreted("712.17").
+interpreted("712.18").
 interpreted("712.19").
 interpreted("712.2").
+interpreted("712.21").
 interpreted("712.21a").
 interpreted("712.21b").
 interpreted("712.21c").
@@ -2626,6 +2636,7 @@ interpreted("730.2f").
 interpreted("730.2h").
 interpreted("730.2i").
 interpreted("730.2j").
+interpreted("730.3").
 interpreted("730.3a").
 interpreted("730.3b").
 interpreted("730.3c").
@@ -2955,10 +2966,8 @@ secondary("406.4").
 secondary("506.2a").
 secondary("509.1h").
 secondary("601.3e").
-secondary("602.1b").
 secondary("602.1c").
 secondary("603.6b").
-secondary("603.6c").
 secondary("608.2b").
 secondary("609.1").
 secondary("610.4a").
@@ -2977,9 +2986,6 @@ secondary("704.3").
 secondary("706.8b").
 secondary("707.12").
 secondary("708.8").
-secondary("709.5c").
-secondary("712.14a").
-secondary("712.18").
 secondary("716.4").
 secondary("718.3b").
 secondary("723.3").

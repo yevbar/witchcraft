@@ -36,6 +36,10 @@ _FRAME = re.compile(r"text that appears in the inset frame on the (left|right) d
 _NORMAL = re.compile(r"\ban? (\w+) card has only its normal characteristics", re.I)
 _REFERENCE = re.compile(r"has an \w+,?.? it refers to an object that has the alternative characteristics", re.I)
 _COMBINED = re.compile(r"characteristics of a [\w ]*split (?:card|spell)[\w ]* are (?:also )?those of its two halves combined", re.I)
+_DECOMPOSE = re.compile(r"If a (melded|merged) permanent leaves the battlefield, one permanent leaves the battlefield", re.I)
+_PRESERVE = re.compile(r"a double-faced permanent transforms or converts, it does.?n.?t become a new object", re.I)
+_DESIG = re.compile(r"[“\"]([^“”\"]+?)[”\"] and [“\"]([^“”\"]+?)[”\"] are designations that a permanent", re.I)
+_TRANS_ENTRY = re.compile(r"puts a double-faced card onto the battlefield [“\"]transformed[”\"] or [“\"]converted,?[”\"] it enters the battlefield with its (back face up)", re.I)
 
 
 def _layout(title: str) -> str:
@@ -47,7 +51,8 @@ def _layout(title: str) -> str:
 def extract() -> dict:
     """{relation_kind: [(rule, *args)]} for each layout frame, keyed by layout (and side where named)."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    out = {"copiable": [], "frame": [], "normal": [], "reference": [], "combined": []}
+    out = {"copiable": [], "frame": [], "normal": [], "reference": [], "combined": [],
+           "decompose": [], "preserve": [], "designation": [], "transformed_entry": []}
     for s in doc.sections:
         for g in s.groups:
             for r in g.rules:
@@ -66,6 +71,15 @@ def extract() -> dict:
                         out["reference"].append((sr.number, ly))
                     if _COMBINED.search(t):
                         out["combined"].append((sr.number, ly))
+                    if (m := _DECOMPOSE.search(t)):
+                        out["decompose"].append((sr.number, {"melded": "meld", "merged": "merge"}[m.group(1).lower()]))
+                    if _PRESERVE.search(t):
+                        out["preserve"].append((sr.number, ly))
+                    if (m := _DESIG.search(t)):
+                        for name in (m.group(1), m.group(2)):
+                            out["designation"].append((sr.number, re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")))
+                    if _TRANS_ENTRY.search(t):
+                        out["transformed_entry"].append((sr.number, ly))
     return out
 
 
@@ -86,6 +100,10 @@ def build() -> tuple[str, dict]:
     p.decl("layout_normal_off_stack", [("layout", "symbol")])
     p.decl("layout_alt_reference", [("layout", "symbol")])
     p.decl("layout_halves_combined", [("layout", "symbol")])
+    p.decl("composite_decomposes", [("kind", "symbol")])
+    p.decl("transform_preserves_object", [("layout", "symbol")])
+    p.decl("half_unlock_designation", [("name", "symbol")])
+    p.decl("transformed_entry_back_face", [("layout", "symbol")])
     p.blank()
 
     def emit(rel, rows, *idx):
@@ -102,9 +120,14 @@ def build() -> tuple[str, dict]:
     emit("layout_normal_off_stack", ex["normal"], 1)
     emit("layout_alt_reference", ex["reference"], 1)
     emit("layout_halves_combined", ex["combined"], 1)
+    emit("composite_decomposes", ex["decompose"], 1)
+    emit("transform_preserves_object", ex["preserve"], 1)
+    emit("half_unlock_designation", ex["designation"], 1)
+    emit("transformed_entry_back_face", ex["transformed_entry"], 1)
     p.blank()
     p.output("layout_alt_copiable", "layout_alt_frame", "layout_normal_off_stack")
     p.output("layout_alt_reference", "layout_halves_combined")
+    p.output("composite_decomposes", "transform_preserves_object", "half_unlock_designation", "transformed_entry_back_face")
     p.blank()
     p.comment("conformance — spot-check layout frames the rules state plainly")
     p.conformance(
@@ -121,7 +144,9 @@ def main() -> None:
     source, report = build()
     Path("datalog/layouts.dl").write_text(source, encoding="utf-8")
     print(f"wrote datalog/layouts.dl (copiable={report['copiable']}, frame={report['frame']}, "
-          f"normal={report['normal']}, reference={report['reference']}, combined={report['combined']})")
+          f"normal={report['normal']}, reference={report['reference']}, combined={report['combined']}, "
+          f"decompose={report['decompose']}, preserve={report['preserve']}, designation={report['designation']}, "
+          f"transformed_entry={report['transformed_entry']})")
 
 
 if __name__ == "__main__":

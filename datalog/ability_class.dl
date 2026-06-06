@@ -1,0 +1,24 @@
+// ability_class.dl — §602/§603 ability-classification frames, interpreted from rules.txt.
+// ability_kind_triggers_on(kind, event); activated_ability_syntax(part, where). GENERATED.
+
+.decl ability_kind_triggers_on(kind: symbol, event: symbol)
+.decl activated_ability_syntax(part: symbol, where: symbol)
+
+ability_kind_triggers_on("enters_the_battlefield", "permanent_enters").
+ability_kind_triggers_on("leaves_the_battlefield", "permanent_leaves").
+activated_ability_syntax("activation_cost", "before_colon").
+activated_ability_syntax("instructions", "after_colon").
+
+.output ability_kind_triggers_on
+.output activated_ability_syntax
+
+// conformance — spot-check the §602/§603 facts the rules state plainly
+.decl expect_trigger(kind: symbol, event: symbol)
+.decl expect_syntax(part: symbol, where: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("trigger", K, E) :- expect_trigger(K, E), !ability_kind_triggers_on(K, E).
+conformance_fail("syntax", P, W) :- expect_syntax(P, W), !activated_ability_syntax(P, W).
+.output conformance_fail
+.printsize conformance_fail
+expect_trigger("enters_the_battlefield", "permanent_enters").
+expect_syntax("activation_cost", "before_colon").

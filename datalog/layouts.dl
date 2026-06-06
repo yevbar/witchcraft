@@ -6,6 +6,10 @@
 .decl layout_normal_off_stack(layout: symbol)
 .decl layout_alt_reference(layout: symbol)
 .decl layout_halves_combined(layout: symbol)
+.decl composite_decomposes(kind: symbol)
+.decl transform_preserves_object(layout: symbol)
+.decl half_unlock_designation(name: symbol)
+.decl transformed_entry_back_face(layout: symbol)
 
 layout_alt_copiable("adventurer").
 layout_alt_copiable("prototype").
@@ -21,12 +25,22 @@ layout_normal_off_stack("preparation").
 layout_alt_reference("adventurer").
 layout_alt_reference("omen").
 layout_halves_combined("split").
+composite_decomposes("meld").
+composite_decomposes("merge").
+transform_preserves_object("double_faced").
+half_unlock_designation("left_half_unlocked").
+half_unlock_designation("right_half_unlocked").
+transformed_entry_back_face("double_faced").
 
 .output layout_alt_copiable
 .output layout_alt_frame
 .output layout_normal_off_stack
 .output layout_alt_reference
 .output layout_halves_combined
+.output composite_decomposes
+.output transform_preserves_object
+.output half_unlock_designation
+.output transformed_entry_back_face
 
 // conformance — spot-check layout frames the rules state plainly
 .decl expect_copiable(layout: symbol)

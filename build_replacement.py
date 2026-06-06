@@ -31,6 +31,17 @@ _SYS = re.compile(r"determining which order effects are applied in is (usually|s
 _NORES = re.compile(r"no special restrictions on casting a spell or activating an ability that generates an? (replacement|prevention) effect", re.I)
 _CHOOSE = re.compile(r"^If any of the replacement and/or prevention effects (.+?), one of them must be chosen", re.I)
 _ANY = re.compile(r"^Any of the applicable replacement and/or prevention effects may be chosen", re.I)
+_RTEMPLATE = re.compile(r"(?:Continuous e|E)ffects that read (.+?) are replacement effects", re.I)
+_QUOTED = re.compile(r"[“\"]([^“”\"]+?)[”\"]")
+
+
+def _tmpl_slug(quoted: str) -> str:
+    """A quoted replacement template -> slug ('[This permanent] enters with . . .' ->
+    'this_permanent_enters_with'). Brackets, ellipsis, and punctuation dropped (cf. combat templates)."""
+    x = re.sub(r"[\[\]]", "", quoted)
+    x = re.sub(r"\.\s*\.\s*\.", "", x)
+    x = re.sub(r"[^\w\s]", " ", x)
+    return "_".join(x.lower().split())
 
 # distinguishing phrase -> case slug for §616.1a-d (a wrong slug is worse than none, so unmatched abstains)
 _CASES = [
@@ -44,12 +55,12 @@ _CASES = [
 def extract() -> dict:
     """{kind: [(rule, *args)]} for the three frames."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    out = {"system": [], "unrestricted": [], "case": []}
+    out = {"system": [], "unrestricted": [], "case": [], "template": []}
     for s in doc.sections:
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
-                    t = _split_sentences(sr.text)[0]
+                    t = _split_sentences(sr.text)[0].replace("“", '"').replace("”", '"')
                     if (m := _SYS.search(t)):
                         out["system"].append((sr.number, m.group(2).lower(), m.group(1).lower()))
                     if (m := _NORES.search(t)):
@@ -60,6 +71,11 @@ def extract() -> dict:
                             out["case"].append((sr.number, case))
                     elif _ANY.match(t):
                         out["case"].append((sr.number, "any"))
+                    if (m := _RTEMPLATE.search(t)):
+                        for q in _QUOTED.findall(m.group(1)):
+                            slug = _tmpl_slug(q)
+                            if slug:
+                                out["template"].append((sr.number, slug))
     return out
 
 
@@ -72,11 +88,12 @@ def build() -> tuple[str, dict]:
     p = Program()
     p.comment("replacement.dl — §613-616 replacement/prevention-effect handling, from rules.txt.")
     p.comment("layer_order_system(system, frequency); casting_unrestricted(effect_kind); "
-              "replacement_choice_case(case). GENERATED.")
+              "replacement_choice_case(case); replacement_template(template). GENERATED.")
     p.blank()
     p.decl("layer_order_system", [("system", "symbol"), ("frequency", "symbol")])
     p.decl("casting_unrestricted", [("effect_kind", "symbol")])
     p.decl("replacement_choice_case", [("case", "symbol")])
+    p.decl("replacement_template", [("template", "symbol")])
     p.blank()
     for _n, sysm, freq in ex["system"]:
         p.fact(f'layer_order_system("{sysm}", "{freq}")')
@@ -84,8 +101,13 @@ def build() -> tuple[str, dict]:
         p.fact(f'casting_unrestricted("{kind}")')
     for _n, case in ex["case"]:
         p.fact(f'replacement_choice_case("{case}")')
+    seen_t = set()
+    for _n, tmpl in ex["template"]:
+        if tmpl not in seen_t:
+            seen_t.add(tmpl)
+            p.fact(f'replacement_template("{tmpl}")')
     p.blank()
-    p.output("layer_order_system", "casting_unrestricted", "replacement_choice_case")
+    p.output("layer_order_system", "casting_unrestricted", "replacement_choice_case", "replacement_template")
     p.blank()
     p.comment("conformance — spot-check the §613-616 facts the rules state plainly")
     p.conformance(
@@ -103,7 +125,7 @@ def main() -> None:
     source, report = build()
     Path("datalog/replacement.dl").write_text(source, encoding="utf-8")
     print(f"wrote datalog/replacement.dl (system={report['system']}, unrestricted={report['unrestricted']}, "
-          f"case={report['case']})")
+          f"case={report['case']}, template={report['template']})")
 
 
 if __name__ == "__main__":

@@ -83,6 +83,7 @@ import build_split
 import build_layouts
 import build_replacement
 import build_concept_defs
+import build_ability_class
 import build_color
 import build_face_down
 import build_saga
@@ -214,6 +215,7 @@ def regenerate() -> None:
     build_layouts.main()
     build_replacement.main()
     build_concept_defs.main()
+    build_ability_class.main()
     build_color.main()
     build_face_down.main()
     build_saga.main()
