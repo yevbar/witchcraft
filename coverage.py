@@ -50,6 +50,7 @@ import build_multiplayer
 import build_restrictions_extra
 import build_conditionals_extra
 import build_card_terms
+import build_definitions_extra
 import build_card_misc
 import build_color
 import build_face_down
@@ -155,6 +156,7 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | build_restrictions_extra.rule_numbers()
                     | build_conditionals_extra.rule_numbers()
                     | build_card_terms.rule_numbers()
+                    | build_definitions_extra.rule_numbers()
                     | build_card_misc.rule_numbers()
                     | {r[0] for r in build_color.color_sources()}
                     | {r[0] for r in build_color.color_combinations()}
@@ -253,6 +255,13 @@ def structural_kind(text: str) -> str | None:
     # an advisory, non-normative observation ("The most commonly chosen …") — not a rule.
     if re.match(r"^The most commonly\b", t):
         return "advisory"
+    # a VACUOUS umbrella-term definition — the most general term defined tautologically as
+    # "something/anything that happens" ("An effect is something that happens …", "Anything that
+    # happens in a game is an event") — no discriminating content for the engine to act on. (Specific
+    # definitions like "a permanent is a card or token" are NOT vacuous and stay in the denominator.)
+    if re.match(r"^An? [\w ]*?\bis (?:something|anything) that happens\b", t) \
+       or re.match(r"^Anything that happens (?:in (?:a|the) game )?is an? \w+", t):
+        return "vacuous_definition"
     # a pure "There are different/several kinds of X." intro with no inline list (the kinds are subrules);
     # numeric enumerations ("There are six types of mana: …") are real and handled by build_enumerations.
     if re.match(r"^There are (?:different|several|various) (?:kinds|types|categories) of [\w ]+\.?\s*$", t):

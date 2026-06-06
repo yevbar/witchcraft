@@ -3,7 +3,14 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**98.0%** — 2764 / 2820 interpretable rules. ~56 primary misses remain.
+**98.3%** — 2770 / 2818 interpretable rules. ~48 primary misses remain.
+Disjunctive/vacuous-definition bucket handled HONESTLY (not blanket-skipped): only the truly VACUOUS
+umbrella defs ("an effect is something that happens", "anything that happens is an event") excluded via
+structural_kind=vacuous_definition. The REAL disjunctive definitions are CAPTURED faithfully in
+build_definitions_extra: is_kind_of(subtype,type) [pt-sticker→sticker, basic-land→land, infinity→keyword,
+additional/alternative-cost→ability] and is_one_of(term,member) [permanent∈{card,token}, cost∈{action,
+payment}] — the is_one_of relation records the alternation WITHOUT over-claiming (a permanent need not be
+a card). Do NOT blanket-exclude meaningful definitions just because they're disjunctive.
 More Tier-0 false positives excluded via structural_kind: non_gameplay (rules that SAY they have "no
 effect on game play" — expansion symbol, set/type icons, flavor/decorative text, DFC hint bars; carve-out
 for "marker"/"other than" so art-stickers stay), advisory ("The most commonly chosen …"), and "There are

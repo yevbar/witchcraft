@@ -193,6 +193,7 @@ interpreted("109.4e").
 interpreted("109.4f").
 interpreted("109.4g").
 interpreted("109.5").
+interpreted("110.1").
 interpreted("110.2").
 interpreted("110.2a").
 interpreted("110.2b").
@@ -256,6 +257,7 @@ interpreted("113.1b").
 interpreted("113.1c").
 interpreted("113.2").
 interpreted("113.2a").
+interpreted("113.2b").
 interpreted("113.2c").
 interpreted("113.2d").
 interpreted("113.3").
@@ -350,6 +352,7 @@ interpreted("117.4").
 interpreted("117.5").
 interpreted("117.6").
 interpreted("117.7").
+interpreted("118.1").
 interpreted("118.10").
 interpreted("118.11").
 interpreted("118.12").
@@ -487,6 +490,7 @@ interpreted("123.6d").
 interpreted("123.6e").
 interpreted("123.7").
 interpreted("123.7a").
+interpreted("123.8").
 interpreted("123.8a").
 interpreted("123.9").
 interpreted("200.1").
@@ -665,6 +669,7 @@ interpreted("305.4").
 interpreted("305.5").
 interpreted("305.6").
 interpreted("305.7").
+interpreted("305.8").
 interpreted("305.9").
 interpreted("306.1").
 interpreted("306.2").
@@ -1981,6 +1986,7 @@ interpreted("702.185a").
 interpreted("702.185b").
 interpreted("702.185c").
 interpreted("702.186").
+interpreted("702.186a").
 interpreted("702.186b").
 interpreted("702.187").
 interpreted("702.187a").
@@ -3063,13 +3069,9 @@ interpreted("905.6").
 .decl secondary(number: symbol)
 secondary("103.3a").
 secondary("107.3a").
-secondary("110.1").
 secondary("111.6").
-secondary("118.1").
 secondary("118.7").
-secondary("123.8").
 secondary("202.1a").
-secondary("305.8").
 secondary("307.5").
 secondary("402.1").
 secondary("406.4").
@@ -3083,7 +3085,6 @@ secondary("701.51c").
 secondary("702.1").
 secondary("702.11e").
 secondary("702.165d").
-secondary("702.186a").
 secondary("702.22b").
 secondary("706.8b").
 secondary("716.4").
@@ -3129,7 +3130,9 @@ structural("603.10", "list_intro").
 structural("605.3", "list_intro").
 structural("605.4", "list_intro").
 structural("607.2", "list_intro").
+structural("609.1", "vacuous_definition").
 structural("613.1", "list_intro").
+structural("700.1", "vacuous_definition").
 structural("701.10", "section_header").
 structural("701.11", "section_header").
 structural("701.12", "section_header").
