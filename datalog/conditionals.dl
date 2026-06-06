@@ -131,7 +131,6 @@ conditional("object", "enter", "effect", "specify", "condition").
 conditional("ability", "instruct", "player", "move", "condition").
 conditional("-", "be", "player", "move", "condition").
 conditional("player", "put", "player", "choose", "condition").
-conditional("-", "have", "sticker", "consider", "condition").
 conditional("sticker", "move", "cost", "need", "condition").
 conditional("object", "move", "sticker", "retain", "temporal").
 conditional("card", "enter", "-", "be", "condition").

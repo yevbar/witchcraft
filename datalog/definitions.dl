@@ -6,6 +6,7 @@
 
 // --- not_isa: what something explicitly is NOT (the negative twin of isa) ---
 not_isa("status", "characteristic").
+not_isa("token", "card").
 not_isa("emblem", "card").
 not_isa("emblem", "permanent").
 not_isa("dungeon_card", "permanent").

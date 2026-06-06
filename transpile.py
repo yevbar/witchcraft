@@ -453,6 +453,9 @@ def _imperative(rule, doc):
     return Out(rule, f'action("player", "{root.lemma_.lower()}", "{o}").   // {rule}', "action")
 
 
+_PARTITIVE_SUBJ = {"most", "some", "part", "rest", "all", "half", "none", "much", "many"}
+
+
 def _action(rule, doc):
     """Generic active-declarative SVO "[subject] [verb] [object]" -> action(subject, verb, object).
     The coarse catch-all (runs LAST) for declaratives whose verb no specific pattern claims; object
@@ -467,6 +470,14 @@ def _action(rule, doc):
     if any(c.dep_ == "aux" and c.lemma_ not in ("will", "shall") for c in kids):
         return None                                        # only a future-tense aux ('X will cause Y' = 'X causes Y')
     subj = next((c for c in kids if c.dep_ == "nsubj"), None)
+    if subj is None:
+        return None
+    # a partitive-quantifier subject ("Most of the area … represents …") takes its real head from the
+    # 'of' object — "most of the area" is about the area. Use the pobj as the subject noun.
+    if subj.pos_ in ("ADJ", "DET", "PRON", "NOUN") and subj.lemma_.lower() in _PARTITIVE_SUBJ:
+        of = next((c for c in subj.children if c.dep_ == "prep" and c.lemma_ == "of"), None)
+        pobj = _child(of, "pobj") if of else None
+        subj = pobj if _clean(pobj) else subj
     if not _clean(subj):
         return None
     obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
@@ -475,6 +486,9 @@ def _action(rule, doc):
 
 
 _COMPARE_ADJ = {"same", "different", "greater", "less", "fewer", "equal", "identical", "similar"}
+# predicate adjectives that are really the head of an idiom needing a complement ("subject TO the rules",
+# "due TO …") — the bare adjective carries no standalone property, so _is_property abstains.
+_IDIOM_ADJ = {"subject", "due"}
 
 
 def _comparison(rule, doc):
@@ -515,7 +529,10 @@ def _is_property(rule, doc):
     adjective). The adjectival twin of _isa (which takes a noun predicate); comparative adjectives go
     to _comparison."""
     root = _root(doc)
-    if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
+    # a UNIVERSAL quantifier start ("Each/Every/All X is [adj]") is faithful — the property holds of
+    # every instance — so it's allowed here even though _isa abstains on quantified subjects.
+    start = doc[0].lemma_.lower()
+    if root is None or root.lemma_ != "be" or (start in ISA_SKIP_START and start not in ("each", "every", "all")):
         return None
     if any(c.dep_ == "neg" for c in root.children):
         return None
@@ -523,7 +540,8 @@ def _is_property(rule, doc):
     if not _clean(subj):
         return None
     adj = next((c for c in root.children if c.dep_ == "acomp" and c.pos_ == "ADJ"
-                and c.lemma_.lower() not in _COMPARE_ADJ and not _masked(c)), None)
+                and c.lemma_.lower() not in _COMPARE_ADJ and c.lemma_.lower() not in _IDIOM_ADJ
+                and not _masked(c)), None)
     if adj is None:
         return None
     conjs = [c for c in adj.children if c.dep_ == "conj"]
@@ -1060,7 +1078,22 @@ def _isa(rule, doc):
     if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
         return None
     subj, attr = _child(root, "nsubj"), _child(root, "attr")
-    if subj is None or attr is None or attr.pos_ not in ("NOUN", "PROPN"):
+    if subj is None or attr is None:
+        return None
+    # partitive predicate "X is one of the Y" -> the genus is Y ("a player is one of the people" ->
+    # isa(player, person)). Excludes a COUNTING context ("exactly one of the FIVE colors" — a count of
+    # an attribute set, not a type the subject instantiates), which carries 'exactly'/a numbered set.
+    if attr.pos_ == "NUM" and attr.lemma_ == "one" and _clean(subj):
+        if any(t.lemma_ in ("not", "neither", "nor") and t.head in (root, attr) for t in doc):
+            return None
+        of = next((c for c in attr.children if c.dep_ == "prep" and c.lemma_ == "of"), None)
+        pobj = _child(of, "pobj") if of else None
+        if (pobj is not None and pobj.pos_ in ("NOUN", "PROPN") and not _masked(pobj)
+                and not any(c.dep_ == "nummod" for c in pobj.children)
+                and not any(c.lemma_.lower() == "exactly" for c in attr.children)):
+            return Out(rule, f'isa("{_np_name(subj)}", "{pobj.lemma_.lower()}").   // {rule}', "isa")
+        return None
+    if attr.pos_ not in ("NOUN", "PROPN"):
         return None
     # negation must attach to the COPULA or its predicate ("X is not a Y" / "neither A nor B"), not to a
     # relative clause describing the subject/predicate ("actions that DON'T use the stack" — 116.1).

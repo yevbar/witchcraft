@@ -5,6 +5,7 @@
 
 isa("player_game", "game").   // 100.1a
 isa("multiplayer_game", "game").   // 100.1b
+isa("player", "people").   // 102.1
 isa("mana", "resource").   // 106.1
 isa("only_number", "integer").   // 107.1
 isa("hybrid_mana_symbol", "colored_mana_symbol").   // 107.4e

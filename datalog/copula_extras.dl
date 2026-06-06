@@ -15,12 +15,10 @@ comparison("remainder", "identical", "process").
 comparison("devotion", "equal", "number").
 
 // --- is_property: X is exempt / optional / independent (predicate adjective) ---
-is_property("deck", "subject").
-is_property("token", "subject").
 is_property("cost", "optional").
+is_property("sticker", "discrete").
 is_property("object", "colorless").
 is_property("supertype", "independent").
-is_property("planeswalker", "subject").
 is_property("target", "illegal").
 is_property("instance", "redundant").
 is_property("ability", "distinct").

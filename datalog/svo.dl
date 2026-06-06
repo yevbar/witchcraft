@@ -85,6 +85,7 @@ action("card", "remain", "-").
 action("effect", "trigger", "ability").
 action("effect", "bring", "card").
 action("effect", "tell", "player").
+action("area", "represent", "battlefield").
 action("permanent", "exist", "-").
 action("stack", "keep", "track").
 action("player", "pass", "-").
