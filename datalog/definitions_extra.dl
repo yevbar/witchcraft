@@ -3,6 +3,7 @@
 
 .decl is_kind_of(subtype: symbol, type: symbol)
 .decl is_one_of(term: symbol, member: symbol)
+.decl means(term: symbol, meaning: symbol)
 
 is_kind_of("power_and_toughness_sticker", "sticker").
 is_kind_of("basic_land", "land").
@@ -11,13 +12,18 @@ is_kind_of("additional_cost", "ability").
 is_kind_of("alternative_cost", "ability").
 is_kind_of("bands_with_other", "banding").
 is_kind_of("object_in_a_pile", "individual_object").
+is_kind_of("exert_as_it_attacks", "optional_cost_to_attack").
+is_kind_of("dice_roll_instructions_modifiers_and_table", "one_ability").
 is_one_of("permanent", "card").
 is_one_of("permanent", "token").
 is_one_of("cost", "action").
 is_one_of("cost", "payment").
+means("hexproof_on_a_player", "cant_be_target_of_opponents_spells_or_abilities").
+means("sorcery_speed", "priority_main_phase_own_turn_empty_stack").
 
 .output is_kind_of
 .output is_one_of
+.output means
 
 // conformance — spot-check a definition the rules state plainly
 .decl expect_kind(subtype: symbol, type: symbol)

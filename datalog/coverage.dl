@@ -140,6 +140,7 @@ interpreted("107.1b").
 interpreted("107.1c").
 interpreted("107.2").
 interpreted("107.3").
+interpreted("107.3a").
 interpreted("107.3b").
 interpreted("107.3c").
 interpreted("107.3d").
@@ -692,6 +693,7 @@ interpreted("307.1").
 interpreted("307.2").
 interpreted("307.3").
 interpreted("307.4").
+interpreted("307.5").
 interpreted("307.5a").
 interpreted("308.1").
 interpreted("308.2").
@@ -1513,6 +1515,7 @@ interpreted("701.43").
 interpreted("701.43a").
 interpreted("701.43b").
 interpreted("701.43c").
+interpreted("701.43d").
 interpreted("701.44").
 interpreted("701.44a").
 interpreted("701.44b").
@@ -1710,7 +1713,9 @@ interpreted("702.119b").
 interpreted("702.119c").
 interpreted("702.11a").
 interpreted("702.11b").
+interpreted("702.11c").
 interpreted("702.11d").
+interpreted("702.11e").
 interpreted("702.11f").
 interpreted("702.11g").
 interpreted("702.11h").
@@ -2449,6 +2454,7 @@ interpreted("706.2a").
 interpreted("706.2b").
 interpreted("706.3").
 interpreted("706.3a").
+interpreted("706.3b").
 interpreted("706.3c").
 interpreted("706.4").
 interpreted("706.5").
@@ -2456,6 +2462,7 @@ interpreted("706.6").
 interpreted("706.7").
 interpreted("706.8").
 interpreted("706.8a").
+interpreted("706.8b").
 interpreted("706.8c").
 interpreted("707.1").
 interpreted("707.10").
@@ -3099,18 +3106,13 @@ interpreted("905.6").
 // statement is still uninterpreted — bonus knowledge, not counted as covered.
 .decl secondary(number: symbol)
 secondary("103.3a").
-secondary("107.3a").
 secondary("118.7").
 secondary("202.1a").
-secondary("307.5").
 secondary("402.1").
 secondary("406.4").
 secondary("609.1").
 secondary("700.1").
-secondary("701.43d").
 secondary("702.1").
-secondary("702.11e").
-secondary("706.8b").
 secondary("723.3").
 secondary("801.2a").
 

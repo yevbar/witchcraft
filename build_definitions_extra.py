@@ -36,6 +36,17 @@ _IS_KIND_OF = [
      ["additional_cost", "alternative_cost"], "ability"),
     ("702.22b", r"^[“\"]Bands with other[”\"] is a special form of banding", "bands_with_other", "banding"),
     ("700.3b", r"^Each object in a pile is still an individual object", "object_in_a_pile", "individual_object"),
+    ("701.43d", r"^[“\"]You may exert \[this creature\] as it attacks[”\"] is an optional cost to attack",
+     "exert_as_it_attacks", "optional_cost_to_attack"),
+    ("706.3b", r"^An instruction to roll one or more dice, .* are all part of one ability",
+     "dice_roll_instructions_modifiers_and_table", "one_ability"),
+]
+# (rule, anchor, term, meaning) — a quoted/qualified definition "X [context] means Y".
+_MEANS = [
+    ("702.11c", r"^[“\"]Hexproof[”\"] on a player means", "hexproof_on_a_player",
+     "cant_be_target_of_opponents_spells_or_abilities"),
+    ("307.5", r"^If a spell, ability, or effect states that a player can do something only [“\"]any time they could cast a sorcery[”\"]",
+     "sorcery_speed", "priority_main_phase_own_turn_empty_stack"),
 ]
 # (rule, anchor, term, [members]) — disjunctive PREDICATE ("X is a Y or Z").
 _IS_ONE_OF = [
@@ -59,18 +70,23 @@ def one_of_rows():
     return _scan(_IS_ONE_OF)
 
 
+def means_rows():
+    return _scan(_MEANS)
+
+
 def rule_numbers() -> set:
-    return {e[0] for e in kind_of_rows() + one_of_rows()}
+    return {e[0] for e in kind_of_rows() + one_of_rows() + means_rows()}
 
 
 def build() -> tuple[str, dict]:
-    ko, oo = kind_of_rows(), one_of_rows()
+    ko, oo, mn = kind_of_rows(), one_of_rows(), means_rows()
     p = Program()
     p.comment("definitions_extra.dl — real genus definitions _isa abstains on (disjunctive/restricted), from rules.txt.")
     p.comment("is_kind_of(subtype, type); is_one_of(term, member). GENERATED.")
     p.blank()
     p.decl("is_kind_of", [("subtype", "symbol"), ("type", "symbol")])
     p.decl("is_one_of", [("term", "symbol"), ("member", "symbol")])
+    p.decl("means", [("term", "symbol"), ("meaning", "symbol")])
     p.blank()
     for _n, _pat, sub, typ in ko:
         for s in (sub if isinstance(sub, list) else [sub]):
@@ -78,15 +94,17 @@ def build() -> tuple[str, dict]:
     for _n, _pat, term, members in oo:
         for m in members:
             p.fact(f'is_one_of("{term}", "{m}")')
+    for _n, _pat, term, meaning in mn:
+        p.fact(f'means("{term}", "{meaning}")')
     p.blank()
-    p.output("is_kind_of", "is_one_of")
+    p.output("is_kind_of", "is_one_of", "means")
     p.blank()
     p.comment("conformance — spot-check a definition the rules state plainly")
     p.conformance(
         [("expect_kind", [("subtype", "symbol"), ("type", "symbol")])],
         [("kind", "expect_kind(S, T)", "miss", "is_kind_of(S, T)")])
     p.fact('expect_kind("basic_land", "land")')
-    return p.text(), {"is_kind_of": len(ko), "is_one_of": len(oo)}
+    return p.text(), {"is_kind_of": len(ko), "is_one_of": len(oo), "means": len(mn)}
 
 
 def main() -> None:

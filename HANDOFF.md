@@ -3,7 +3,12 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**99.4%** — 2801 / 2818 interpretable rules. ~17 primary misses remain.
+**99.6%** — 2808 / 2818 interpretable rules. ~10 primary misses remain.
+Last batch (quoted-bodies/masked + multi-clause conditionals): is_kind_of 701.43d (exert-as-it-attacks→
+optional-cost-to-attack), 706.3b (dice-roll instructions→one ability); new means(term,meaning) relation in
+build_definitions_extra — 702.11c (hexproof-on-a-player→can't-be-target-of-opponents), 307.5 (sorcery-speed
+→priority main-phase own-turn empty-stack); happens_when 702.11e (lose-hexproof→lose-all-from-quality),
+107.3a (undefined-X→controller-chooses-when-casting), 706.8b (reroll-stored→roll-noted-die-each).
 Bracketed-placeholder restatements credited: build_templates.matched_rules() credits rules whose
 template frame duplicates an earlier covered def (711.2a/b leveler restate 107.8a/b; 714.2c saga) —
 facts stay deduped, only credit broadens (like build_enumerations.matched_rules). Multiplayer variants

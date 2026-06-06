@@ -54,6 +54,12 @@ _WHEN = [
      "player_puts_attraction_onto_battlefield", "opens_an_attraction_trigger"),
     ("727.4", r"^The effect that restarts the game finishes resolving just before the first turn.s untap step",
      "restart_game_effect_finishes_resolving", "just_before_first_turn_untap_step"),
+    ("702.11e", r"^Any effect that causes an object to lose hexproof will cause an object to lose all",
+     "object_loses_hexproof", "loses_all_hexproof_from_quality_abilities"),
+    ("107.3a", r"^If a spell or activated ability has a mana cost.* the value of X is.?n.?t defined",
+     "x_value_undefined_in_cost", "controller_chooses_and_announces_x_when_casting"),
+    ("706.8b", r"^To reroll one or more stored results of a permanent, roll one of the kind of die noted",
+     "reroll_stored_results", "roll_noted_kind_of_die_for_each"),
 ]
 # (rule, anchor regex, a, b)
 _DISTINCT = [
