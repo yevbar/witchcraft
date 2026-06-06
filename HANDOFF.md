@@ -10,8 +10,19 @@ Tier-0 non-semantic units now excluded from the denominator via structural_kind(
   superseded ("Previously, …" historical), list_intro ("There are several ways to …"),
   physical_note (pile-keeping / paper notes / card-illustration orientation).
 MODEL TEST: en_core_web_md does NOT fix NP-head mis-roots (same CNN parser as sm, only
-  bigger vectors) — net noise. en_core_web_lg is the same architecture, so also won't help.
-  Only en_core_web_trf (transformer parser) would; still needs approval (torch, re-validation).
+  bigger vectors). en_core_web_lg is the same architecture.
+TRF PROVEN (installed + tested on this aarch64 box): en_core_web_trf FIXES the NP-head mis-roots
+  (106.12a/122.7/603.6a now root on the main VERB). Loads 2.8s, ~0.06s/parse, DETERMINISTIC across
+  parses. Bounded proof: as a MISS-ONLY fallback it newly parses 89 of the 152 misses -> ~97.8%.
+  Deps installed: torch 2.12 (917MB; pulled unused CUDA cu13 libs — a +cpu wheel is ~10x lighter),
+  spacy-transformers, en_core_web_trf.
+INTEGRATION DECISION PENDING (user): trf as a miss-only fallback in transpile_rule (sm primary,
+  trf retried only when sm yields no fact — so existing 2678 facts are untouched). Tradeoffs:
+  (a) trf becomes a pipeline dependency (like sm/lark already are); (b) the 89 new facts need
+  per-fact faithfulness vetting (a few are marginal: 700.15 is_property(term,short),
+  702.22b isa(band,banding)); (c) within-machine determinism holds (gate passes), but transformer
+  float matmuls may not be byte-identical ACROSS machines/torch versions — weaker cross-machine
+  reproducibility than the current CNN pipeline. Do NOT swap unilaterally; needs go-ahead.
 Per-section floor: §4 Zones 88.5%, §6 Spells/Abilities 91.7%, §5 Turn 91.8%.
 Last clean cluster captured: build_card_props (attached_controller_independent, subtype_single_word).
 A full lead-phrase + grammatical-bucket re-scan after this found NO further clean clusters.
