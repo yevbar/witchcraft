@@ -15,6 +15,7 @@ isa("player", "owner").   // 111.2
 isa("treasure_token", "artifact").   // 111.10a
 isa("walker_token", "creature").   // 111.10d
 isa("shard_token", "enchantment").   // 111.10e
+isa("token_powerstone", "artifact").   // 111.10h
 isa("cursed_role", "enchantment").   // 111.10j
 isa("monster_role", "enchantment").   // 111.10k
 isa("royal_role", "enchantment").   // 111.10m
@@ -29,6 +30,7 @@ isa("copy", "spell").   // 112.1a
 isa("controller", "player").   // 113.8
 isa("spell", "target").   // 115.5
 isa("ability", "target").
+isa("special_action", "action").   // 116.1
 isa("counter", "marker").   // 122.1
 isa("sticker", "marker").   // 123.1
 isa("word", "series").   // 123.6a
@@ -54,7 +56,7 @@ isa("public_zone", "zone").   // 400.2
 isa("graveyard", "pile").   // 404.1
 isa("exile_zone", "area").   // 406.1
 isa("exiled_card", "card").   // 406.2
-isa("first_main_phase", "phase").   // 505.1a
+isa("command_zone", "area").   // 408.1
 isa("active_player", "player").   // 506.2
 isa("activated_ability", "loyalty_ability").   // 606.2
 isa("second_object", "source").   // 607.1d

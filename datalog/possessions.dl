@@ -10,7 +10,6 @@ has_property("object", "color", "no").
 has_property("instance", "value", "yes").
 has_property("ability", "symbol", "yes").
 has_property("object", "controller", "yes").
-has_property("permanent", "controller", "yes").
 has_property("permanent", "status", "yes").
 has_property("ability", "cost", "yes").
 has_property("ability", "condition", "yes").

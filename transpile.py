@@ -524,8 +524,21 @@ def _is_property(rule, doc):
         return None
     adj = next((c for c in root.children if c.dep_ == "acomp" and c.pos_ == "ADJ"
                 and c.lemma_.lower() not in _COMPARE_ADJ and not _masked(c)), None)
-    if adj is None or any(c.dep_ in ("conj", "cc") for c in adj.children):
+    if adj is None:
         return None
+    conjs = [c for c in adj.children if c.dep_ == "conj"]
+    if conjs:
+        # a coordinated predicate adjective distributes only under a POSSIBILITY modal ("can/may be
+        # beneficial or detrimental" = alternative properties, each holding). A plain copula list ("the
+        # colors ARE white, blue, …") is an enumeration of MEMBERS, not properties, so it stays abstained.
+        if not any(c.dep_ == "aux" and c.lemma_ in ("can", "may", "could", "might") for c in root.children):
+            return None
+        adjs = [adj] + conjs
+        if any(a.pos_ != "ADJ" or a.lemma_.lower() in _COMPARE_ADJ or _masked(a) for a in adjs):
+            return None
+        lines = [f'is_property("{subj.lemma_.lower()}", "{a.lemma_.lower()}").' for a in adjs]
+        lines[0] += f"   // {rule}"
+        return Out(rule, "\n".join(lines), "property")
     return Out(rule, f'is_property("{subj.lemma_.lower()}", "{adj.lemma_.lower()}").   // {rule}', "property")
 
 
@@ -979,7 +992,7 @@ def _evasion(rule, doc):
 ISA_BAD_PRED = {"kind", "number", "part", "set", "type", "group", "amount", "member", "one",
                 "thing", "way", "result", "example", "exception", "object", "ability", "symbol"}
 ISA_SKIP_START = {"if", "in", "when", "whenever", "while", "as", "because", "unless", "instead",
-                  "any", "each", "some", "all"}
+                  "any", "each", "some", "all", "only"}            # "Only X are Y" is restrictive, not a definition
 ISA_PARTITIVE = {"kind", "type", "sort", "form"}                # "a kind of X" -> the genus is X
 ISA_FUNC_MOD = {"only", "other", "same", "such", "certain", "single", "given", "specific", "first",
                 "last", "new", "original", "following", "particular", "equal"}   # not type-specifying modifiers
@@ -1046,10 +1059,13 @@ def _isa(rule, doc):
     root = _root(doc)
     if root is None or root.lemma_ != "be" or doc[0].lemma_.lower() in ISA_SKIP_START:
         return None
-    if any(c.dep_ == "neg" for c in root.children) or any(t.lemma_ in ("not", "neither", "nor") for t in doc):
-        return None
     subj, attr = _child(root, "nsubj"), _child(root, "attr")
     if subj is None or attr is None or attr.pos_ not in ("NOUN", "PROPN"):
+        return None
+    # negation must attach to the COPULA or its predicate ("X is not a Y" / "neither A nor B"), not to a
+    # relative clause describing the subject/predicate ("actions that DON'T use the stack" — 116.1).
+    if any(c.dep_ == "neg" for c in root.children) or any(
+            t.lemma_ in ("not", "neither", "nor") and t.head in (root, attr) for t in doc):
         return None
     if any(c.dep_ in ("conj", "cc") for c in attr.children) or _masked(attr):   # disjunctive predicate -> enumeration
         return None
@@ -1254,7 +1270,7 @@ import re as _re
 # them before the parse is the leading-scope-recovery fix: it rescues the main clause for every
 # pattern, not just one. Only asides that START with one of these markers are removed (a "(see …)"
 # is always a reference; a bare "(…)" might carry content, so it's left in place).
-_ASIDE = _re.compile(r"\s*\((?:see |such as |for example|e\.g\.|i\.e\.|including )[^()]*\)", _re.I)
+_ASIDE = _re.compile(r"\s*\((?:(?:see |such as |for example|e\.g\.|i\.e\.|including )[^()]*|[^()]*\bsee rules?\b[^()]*)\)", _re.I)
 
 
 def _normalize(s: str) -> str:

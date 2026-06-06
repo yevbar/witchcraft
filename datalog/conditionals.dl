@@ -409,7 +409,7 @@ conditional("-", "turn", "controller", "reveal", "condition").
 conditional("effect", "instruct", "-", "stay", "condition").
 conditional("-", "tap", "permanent", "exert", "condition").
 conditional("zone", "cause", "information", "use", "condition").
-conditional("permanent", "instruct", "player", "see", "condition").
+conditional("permanent", "instruct", "player", "choose", "condition").
 conditional("-", "put", "n", "mean", "condition").
 conditional("-", "create", "n", "mean", "condition").
 conditional("process", "be", "player", "amass", "temporal").
@@ -596,6 +596,7 @@ conditional("ability", "trigger", "-", "trigger", "causal").
 conditional("ability", "put", "player", "get", "condition").
 conditional("ability", "trigger", "phase", "end", "causal").
 conditional("effect", "attempt", "-", "happen", "condition").
+conditional("player", "become", "monarch", "cease", "temporal").
 conditional("monarch", "leave", "player", "become", "condition").
 conditional("result", "determine", "effect", "do", "condition").
 conditional("player", "leave", "player", "take", "condition").

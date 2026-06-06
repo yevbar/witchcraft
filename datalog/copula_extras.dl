@@ -6,6 +6,7 @@
 .decl negation(subject: symbol, verb: symbol, object: symbol)
 
 // --- comparison: X is the same as / different from / greater than Y ---
+comparison("owner", "same", "owner").
 comparison("characteristic", "same", "-").
 comparison("effect", "different", "ability").
 comparison("loyalty", "equal", "number").
