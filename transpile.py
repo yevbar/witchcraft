@@ -559,15 +559,22 @@ def _passive(rule, doc):
     if root is None or root.pos_ != "VERB":
         return None
     kids = list(root.children)
-    if not any(c.dep_ == "auxpass" and c.lemma_ == "be" for c in kids):
+    # 'is/are V-ed', or a copular linking verb of state ('remains revealed', 'becomes blocked') — the
+    # latter is the same passive-state structure, just a different copula (some tagged a noun, so the
+    # surface forms are listed).
+    aux = next((c for c in kids if c.dep_ == "auxpass" and c.lemma_.lower() in _LINK_PASS), None)
+    if aux is None:
         return None
     if any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in kids):
         return None
     if any(c.dep_ == "neg" for c in kids):               # "isn't determined / aren't shared" — don't assert it
         return None
-    subj = next((c for c in kids if c.dep_ == "nsubjpass"), None)
+    subj = (next((c for c in kids if c.dep_ in ("nsubjpass", "nsubj")), None)
+            or next((c for c in aux.children if c.dep_ in ("nsubj", "nsubjpass")), None))   # subj under the copula
     if subj is None or subj.pos_ not in ("NOUN", "PROPN") or _masked(subj):
         return None
+    if any(c.lemma_.lower() in _NEG_DET for c in subj.children if c.dep_ in ("det", "predet", "amod")):
+        return None                                      # "NEITHER object becomes paired" — don't assert it positively
     agent = next((c for c in kids if c.dep_ == "agent"), None)
     asp = next((c for c in kids if c.dep_ == "prep" and c.lemma_ == "as"), None)
     prep = next((c for c in kids if c.dep_ == "prep"), None)
@@ -813,6 +820,9 @@ def _ability(rule, doc):
 
 
 _MODALS = {"may", "must", "can", "could", "will", "shall", "would", "should"}
+# copular linking verbs of state (some spaCy-tagged as nouns, hence the surface forms) — "X remains
+# revealed" / "X becomes blocked" is the same passive-state structure as "X is revealed".
+_LINK_PASS = {"be", "remain", "remains", "stay", "stays", "become", "becomes", "get", "gets", "keep", "keeps"}
 
 
 def _possession(rule, doc):

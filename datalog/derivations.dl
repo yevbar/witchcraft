@@ -69,6 +69,7 @@ derived("amount", "consider", "absolute", "-").
 derived("damage", "prevent", "absolute", "-").
 derived("bonus", "calculate", "condition", "-").
 derived("card", "print", "scope", "cost").
+derived("card", "reveal", "scope", "time").
 derived("card", "print", "scope", "ability").
 derived("agenda", "link", "absolute", "-").
 derived("daybound", "find", "scope", "face").
