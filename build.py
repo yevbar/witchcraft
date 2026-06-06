@@ -112,6 +112,7 @@ import build_definitions
 import build_trigger_conditions
 import build_templates
 import build_markers
+import build_keyword_events
 import build_keyword_definitions
 import build_keyword_taxonomy
 import build_keywords
@@ -153,7 +154,7 @@ GENERATED = [
     "datalog/derivations.dl", "datalog/effects.dl", "datalog/relations.dl",
     "datalog/capabilities.dl", "datalog/obligations.dl", "datalog/existentials.dl",
     "datalog/copula_extras.dl", "datalog/action_defs.dl", "datalog/svo.dl", "datalog/can.dl",
-    "datalog/keyword_action_triggers.dl", "datalog/statements.dl", "datalog/definitions.dl", "datalog/trigger_conditions.dl", "datalog/templates.dl", "datalog/markers.dl",
+    "datalog/keyword_action_triggers.dl", "datalog/statements.dl", "datalog/definitions.dl", "datalog/trigger_conditions.dl", "datalog/templates.dl", "datalog/markers.dl", "datalog/keyword_events.dl",
 ]
 
 
@@ -237,6 +238,7 @@ def regenerate() -> None:
     build_trigger_conditions.main()
     build_templates.main()
     build_markers.main()
+    build_keyword_events.main()
     build_turn_structure.main()
     build_rules_index.main()
     build_ontology.main()

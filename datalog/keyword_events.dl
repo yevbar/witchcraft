@@ -1,0 +1,43 @@
+// keyword_events.dl — quoted keyword-event definitions + keyword class-by-context, from rules.txt.
+// event_definition(event, subject, verb); keyword_class_ctx(keyword, context, kind). GENERATED.
+
+.decl event_definition(event: symbol, subject: symbol, verb: symbol)
+.decl keyword_class_ctx(keyword: symbol, context: symbol, kind: symbol)
+
+// --- event_definition: when a quoted keyword-event happens ---
+event_definition("do_only_once_turn", "controller", "take").
+event_definition("depend", "-", "apply").
+event_definition("explore", "process", "be").
+event_definition("amass", "process", "be").
+event_definition("connive", "process", "be").
+event_definition("discover", "process", "be").
+event_definition("suspend", "-", "suspend").
+event_definition("champion", "-", "exile").
+event_definition("attack_alone", "-", "be").
+event_definition("evolve", "counter", "put").
+event_definition("crew_vehicle", "-", "tap").
+event_definition("embalm", "-", "create").
+event_definition("escape", "-", "resolve").
+event_definition("enlist", "player", "pay").
+event_definition("saddle", "-", "tap").
+event_definition("leave_half_unlocked", "-", "enter").
+event_definition("prepare_spell", "-", "refer").
+
+// --- keyword_class_ctx: a keyword's ability kind depends on the object ---
+keyword_class_ctx("fuse", "split", "static").
+keyword_class_ctx("ascend", "spell", "spell").
+keyword_class_ctx("ascend", "permanent", "static").
+keyword_class_ctx("compleated", "planeswalker", "static").
+keyword_class_ctx("visit", "attraction", "keyword").
+keyword_class_ctx("solved", "case", "keyword").
+
+.output event_definition
+.output keyword_class_ctx
+
+// conformance — spot-check an event the rules define plainly
+.decl expect_event(event: symbol, verb: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("event", E, V) :- expect_event(E, V), !event_definition(E, _, V).
+.output conformance_fail
+.printsize conformance_fail
+expect_event("evolve", "put").
