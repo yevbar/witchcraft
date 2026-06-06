@@ -7,6 +7,8 @@
 .decl is_not(subject: symbol, category: symbol)
 .decl not_part_of(part: symbol, whole: symbol)
 .decl only_means(outcome: symbol, means: symbol)
+.decl only_characteristics(object: symbol, characteristic_set: symbol)
+.decl color_cardinality(subject: symbol, cardinality: symbol)
 
 cannot("merged_permanent", "turn_face_up", "contains_instant_or_sorcery").
 cannot("stack_ability", "be_countered", "by_spell_counter").
@@ -29,6 +31,8 @@ only_means("destroy", "destroy_effect").
 only_means("destroy", "lethal_damage_sba").
 only_means("destroy", "deathtouch_damage_sba").
 only_means("activate", "activated_ability").
+only_characteristics("prototyped_spell_or_permanent", "alternative_power_toughness_mana_cost").
+color_cardinality("object", "zero_to_five_colors").
 
 .output cannot
 .output does_not
@@ -36,6 +40,8 @@ only_means("activate", "activated_ability").
 .output is_not
 .output not_part_of
 .output only_means
+.output only_characteristics
+.output color_cardinality
 
 // conformance — spot-check a prohibition the rules state plainly
 .decl expect_cannot(subject: symbol, action: symbol, scope: symbol)

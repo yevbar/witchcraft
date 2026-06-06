@@ -64,6 +64,16 @@ _ONLY_MEANS = [
     ("602.1c", r"^An activated ability is the only kind of ability that can be activated", "activate",
      ["activated_ability"]),
 ]
+# (rule, anchor regex, object, set) — "X has ONLY [set] characteristics".
+_ONLY_CHARS = [
+    ("718.3b", r"^Both a prototyped spell and the permanent it becomes have only its alternative set of power, toughness, and mana cost",
+     "prototyped_spell_or_permanent", "alternative_power_toughness_mana_cost"),
+]
+# (rule, anchor regex, subject, cardinality) — how many colors an object may have.
+_COLOR_CARD = [
+    ("105.2", r"^An object can be one or more of the five colors, or it can be no color at all",
+     "object", "zero_to_five_colors"),
+]
 
 
 def _scan(table, want_groups):
@@ -102,14 +112,24 @@ def only_means_rows():
     return _scan(_ONLY_MEANS, 2)
 
 
+def only_chars_rows():
+    return _scan(_ONLY_CHARS, 2)
+
+
+def color_card_rows():
+    return _scan(_COLOR_CARD, 2)
+
+
 def rule_numbers() -> set:
     return {r[0] for r in cannot_rows() + does_not_rows() + at_most_one_rows()
-            + is_not_rows() + not_part_of_rows() + only_means_rows()}
+            + is_not_rows() + not_part_of_rows() + only_means_rows()
+            + only_chars_rows() + color_card_rows()}
 
 
 def build() -> tuple[str, dict]:
     can, dn, amo = cannot_rows(), does_not_rows(), at_most_one_rows()
     isn, npo, om = is_not_rows(), not_part_of_rows(), only_means_rows()
+    oc, cc = only_chars_rows(), color_card_rows()
     p = Program()
     p.comment("restrictions_extra.dl — negatively-phrased rules reified as positive facts, from rules.txt.")
     p.comment("cannot(subject,action,scope); does_not(subject,action,scope); at_most_one(thing); "
@@ -121,6 +141,8 @@ def build() -> tuple[str, dict]:
     p.decl("is_not", [("subject", "symbol"), ("category", "symbol")])
     p.decl("not_part_of", [("part", "symbol"), ("whole", "symbol")])
     p.decl("only_means", [("outcome", "symbol"), ("means", "symbol")])
+    p.decl("only_characteristics", [("object", "symbol"), ("characteristic_set", "symbol")])
+    p.decl("color_cardinality", [("subject", "symbol"), ("cardinality", "symbol")])
     p.blank()
     for _n, _pat, subj, act, scope in can:
         p.fact(f'cannot("{subj}", "{act}", "{scope}")')
@@ -135,8 +157,13 @@ def build() -> tuple[str, dict]:
     for _n, _pat, outcome, means in om:
         for m in means:
             p.fact(f'only_means("{outcome}", "{m}")')
+    for _n, _pat, obj, cset in oc:
+        p.fact(f'only_characteristics("{obj}", "{cset}")')
+    for _n, _pat, subj, card in cc:
+        p.fact(f'color_cardinality("{subj}", "{card}")')
     p.blank()
-    p.output("cannot", "does_not", "at_most_one", "is_not", "not_part_of", "only_means")
+    p.output("cannot", "does_not", "at_most_one", "is_not", "not_part_of", "only_means",
+             "only_characteristics", "color_cardinality")
     p.blank()
     p.comment("conformance — spot-check a prohibition the rules state plainly")
     p.conformance(
@@ -144,7 +171,8 @@ def build() -> tuple[str, dict]:
         [("cannot", "expect_cannot(S, A, Sc)", "miss", "cannot(S, A, Sc)")])
     p.fact('expect_cannot("player", "get_priority", "ending_turn_process")')
     return p.text(), {"cannot": len(can), "does_not": len(dn), "at_most_one": len(amo),
-                      "is_not": len(isn), "not_part_of": len(npo), "only_means": len(om)}
+                      "is_not": len(isn), "not_part_of": len(npo), "only_means": len(om),
+                      "only_characteristics": len(oc), "color_cardinality": len(cc)}
 
 
 def main() -> None:

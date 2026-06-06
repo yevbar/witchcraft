@@ -3,7 +3,13 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**97.3%** — 2753 / 2830 interpretable rules. ~77 primary misses remain.
+**97.7%** — 2766 / 2830 interpretable rules. ~64 primary misses remain.
+More tangled negations + complex conditionals reified (extraction was the blocker, NOT Souffle
+expressiveness — Souffle has stratified negation/aggregates/rich relations). New relations:
+requires / follows_rules (conditionals_extra), only_characteristics / color_cardinality
+(restrictions_extra); more happens_when (ETB→new object, on-battlefield→continuous applies,
+specifies-targets→check-legal, planar-die→trigger, blocked/unblocked, sticker setup) and
+distinct_action (regen-shield ≠ regenerate).
 More residual negations reified (build_restrictions_extra): is_not / not_part_of / only_means added
 (spells aren't mana abilities, additional cost not part of mana cost, only ways to destroy, only
 activated abilities can be activated, sideboard cards outside the game). Complex conditionals

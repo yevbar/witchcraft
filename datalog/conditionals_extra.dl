@@ -1,22 +1,38 @@
 // conditionals_extra.dl — complex conditionals as descriptive facts, from rules.txt.
-// happens_when(trigger, outcome); distinct_action(a, b); ordered_resolution(first, second). GENERATED.
+// happens_when(trigger, outcome); distinct_action(a, b); ordered_resolution(first, second); requires(action, condition); follows_rules(action, ruleset). GENERATED.
 
 .decl happens_when(trigger: symbol, outcome: symbol)
 .decl distinct_action(a: symbol, b: symbol)
 .decl ordered_resolution(first: symbol, second: symbol)
+.decl requires(action: symbol, condition: symbol)
+.decl follows_rules(action: symbol, ruleset: symbol)
 
 happens_when("player_would_get_priority", "check_state_based_actions").
 happens_when("face_down_permanent_turned_face_up", "copiable_values_revert_to_normal").
 happens_when("night_and_two_or_more_spells_cast_last_turn", "becomes_day").
 happens_when("permanent_phases_out", "attached_auras_equipment_fortifications_phase_out").
+happens_when("permanent_enters_battlefield", "becomes_new_object_no_prior_relationship").
+happens_when("permanent_is_on_battlefield", "characteristic_modifying_continuous_effect_applies").
+happens_when("spell_or_ability_specifies_targets", "check_targets_still_legal").
+happens_when("roll_planar_die", "dice_roll_triggered_abilities_trigger").
+happens_when("constructed_game_with_sticker_sheets", "reveal_all_sticker_sheets_choose_three_at_random").
+happens_when("stickered_melded_or_merged_permanent_leaves_battlefield", "only_one_resulting_object_keeps_stickers").
+happens_when("attacking_creature_has_declared_blockers", "becomes_blocked_creature").
+happens_when("attacking_creature_has_no_declared_blockers", "becomes_unblocked_creature").
 distinct_action("transform", "turn_face_up_or_down").
 distinct_action("convert", "turn_face_up_or_down").
+distinct_action("create_regeneration_shield", "regenerate_permanent").
 ordered_resolution("spell_controller", "other_player").
 ordered_resolution("ability_controller", "other_player").
+requires("pay_life_greater_than_zero", "life_total_at_least_amount").
+follows_rules("cast_a_copy_of_an_object", "casting_spells").
+follows_rules("activate_only_as_a_sorcery", "sorcery_casting_timing").
 
 .output happens_when
 .output distinct_action
 .output ordered_resolution
+.output requires
+.output follows_rules
 
 // conformance — spot-check a conditional the rules state plainly
 .decl expect_when(trigger: symbol, outcome: symbol)

@@ -41,6 +41,7 @@ interpreted("103.2").
 interpreted("103.2a").
 interpreted("103.2b").
 interpreted("103.2c").
+interpreted("103.2d").
 interpreted("103.2e").
 interpreted("103.3").
 interpreted("103.4").
@@ -91,6 +92,7 @@ interpreted("104.4i").
 interpreted("104.5").
 interpreted("104.6").
 interpreted("105.1").
+interpreted("105.2").
 interpreted("105.2a").
 interpreted("105.2b").
 interpreted("105.2c").
@@ -393,6 +395,7 @@ interpreted("119.1d").
 interpreted("119.1e").
 interpreted("119.2").
 interpreted("119.3").
+interpreted("119.4").
 interpreted("119.4a").
 interpreted("119.4b").
 interpreted("119.5").
@@ -475,6 +478,7 @@ interpreted("123.4").
 interpreted("123.5").
 interpreted("123.5a").
 interpreted("123.5b").
+interpreted("123.5c").
 interpreted("123.6").
 interpreted("123.6a").
 interpreted("123.6b").
@@ -798,6 +802,7 @@ interpreted("402.3").
 interpreted("403.1").
 interpreted("403.2").
 interpreted("403.3").
+interpreted("403.4").
 interpreted("403.5").
 interpreted("404.1").
 interpreted("404.2").
@@ -940,6 +945,7 @@ interpreted("509.1d").
 interpreted("509.1e").
 interpreted("509.1f").
 interpreted("509.1g").
+interpreted("509.1h").
 interpreted("509.1i").
 interpreted("509.2").
 interpreted("509.2a").
@@ -1016,6 +1022,7 @@ interpreted("602.5").
 interpreted("602.5a").
 interpreted("602.5b").
 interpreted("602.5c").
+interpreted("602.5d").
 interpreted("602.5e").
 interpreted("603.1").
 interpreted("603.10").
@@ -1048,6 +1055,7 @@ interpreted("603.3d").
 interpreted("603.4").
 interpreted("603.6").
 interpreted("603.6a").
+interpreted("603.6b").
 interpreted("603.6c").
 interpreted("603.6d").
 interpreted("603.7").
@@ -1114,6 +1122,7 @@ interpreted("607.5a").
 interpreted("608.1").
 interpreted("608.2").
 interpreted("608.2a").
+interpreted("608.2b").
 interpreted("608.2c").
 interpreted("608.2d").
 interpreted("608.2e").
@@ -1360,6 +1369,7 @@ interpreted("701.18e").
 interpreted("701.19").
 interpreted("701.19a").
 interpreted("701.19b").
+interpreted("701.19c").
 interpreted("701.2").
 interpreted("701.20").
 interpreted("701.20a").
@@ -2410,6 +2420,7 @@ interpreted("706.3c").
 interpreted("706.4").
 interpreted("706.5").
 interpreted("706.6").
+interpreted("706.7").
 interpreted("706.8").
 interpreted("706.8a").
 interpreted("706.8c").
@@ -2423,6 +2434,7 @@ interpreted("707.10e").
 interpreted("707.10f").
 interpreted("707.10g").
 interpreted("707.11").
+interpreted("707.12").
 interpreted("707.13").
 interpreted("707.14").
 interpreted("707.2").
@@ -2605,6 +2617,7 @@ interpreted("718.2").
 interpreted("718.2a").
 interpreted("718.3").
 interpreted("718.3a").
+interpreted("718.3b").
 interpreted("718.3c").
 interpreted("718.3d").
 interpreted("718.4").
@@ -3043,25 +3056,19 @@ interpreted("905.6").
 // secondary = a true fact was extracted from a LATER sentence, but the rule's primary
 // statement is still uninterpreted — bonus knowledge, not counted as covered.
 .decl secondary(number: symbol)
-secondary("103.2d").
 secondary("103.3a").
 secondary("107.3a").
 secondary("110.1").
 secondary("111.6").
 secondary("118.1").
 secondary("118.7").
-secondary("119.4").
-secondary("123.5c").
 secondary("123.8").
 secondary("202.1a").
 secondary("305.8").
 secondary("307.5").
 secondary("402.1").
 secondary("406.4").
-secondary("509.1h").
 secondary("601.3e").
-secondary("603.6b").
-secondary("608.2b").
 secondary("609.1").
 secondary("614.17d").
 secondary("615.9").
@@ -3076,9 +3083,7 @@ secondary("702.186a").
 secondary("702.22b").
 secondary("705.1").
 secondary("706.8b").
-secondary("707.12").
 secondary("716.4").
-secondary("718.3b").
 secondary("723.3").
 secondary("727.4").
 secondary("801.2a").
