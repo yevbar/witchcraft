@@ -193,26 +193,35 @@ def structural_kind(text: str) -> str | None:
     return None
 
 
-def interpreted_units() -> tuple[set, dict]:
+def interpreted_units() -> tuple[set, set, dict]:
+    """(primary, secondary, per_pattern). A rule is PRIMARY-interpreted when its opening statement
+    yields a fact (transpile sentence 0, or a lark builder that reads the rule's content directly) —
+    that is honest coverage of the rule's meaning. SECONDARY-only means the opening sentence did NOT
+    parse but a later self-contained sentence did: a true bonus fact is in the datalog, yet the rule's
+    PRIMARY meaning is still uninterpreted, so it is NOT counted toward the headline %."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    interp, per_pattern = set(LARK_INTERPRETED), defaultdict(int)
+    primary, secondary, per_pattern = set(LARK_INTERPRETED), set(), defaultdict(int)
     for s in doc.sections:
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
                     o = transpile_rule(sr.number, sr.text)
-                    if o:
-                        interp.add(sr.number)
-                        per_pattern[o.pattern] += 1
-                        if o.sentence > 0:                  # covered via a self-contained LATER sentence
-                            per_pattern["_via_later_sentence"] += 1
+                    if not o:
+                        continue
+                    per_pattern[o.pattern] += 1
+                    if o.sentence == 0 or sr.number in LARK_INTERPRETED:
+                        primary.add(sr.number)
+                    else:
+                        secondary.add(sr.number)
+                        per_pattern["_secondary_only"] += 1
+    secondary -= primary
     per_pattern["lark_type_list"] = len(LARK_INTERPRETED)
-    return interp, per_pattern
+    return primary, secondary, per_pattern
 
 
 def main() -> None:
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))
-    interp, per_pattern = interpreted_units()
+    interp, secondary, per_pattern = interpreted_units()
     # per-section tally — structural units (headers / list-intros) are excluded from BOTH the
     # numerator and the denominator: they aren't interpretable facts, so counting them (e.g. the
     # keyword-name rosters at 100%) would mis-state semantic coverage. The list ITEMS in the
@@ -220,9 +229,9 @@ def main() -> None:
     structural = {sr.number: sk
                   for s in doc.sections for g in s.groups for r in g.rules for sr in [r] + r.subrules
                   if (sk := structural_kind(sr.text))}
-    rows, tot_units, tot_cov = [], 0, 0
+    rows, tot_units, tot_cov, tot_sec = [], 0, 0, 0
     for s in doc.sections:
-        units = cov = 0
+        units = cov = sec = 0
         for g in s.groups:
             for r in g.rules:
                 for sr in [r] + r.subrules:
@@ -230,9 +239,11 @@ def main() -> None:
                         continue
                     units += 1
                     cov += sr.number in interp
+                    sec += sr.number in secondary
         rows.append((s.number, s.title, units, cov))
         tot_units += units
         tot_cov += cov
+        tot_sec += sec
 
     print(f"{'§':>2}  {'section':32} {'units':>6} {'interp':>7} {'%':>6}")
     print("-" * 58)
@@ -240,7 +251,9 @@ def main() -> None:
         pct = 100 * cov / units if units else 0
         print(f"{num:>2}  {title[:32]:32} {units:6d} {cov:7d} {pct:5.1f}%")
     print("-" * 58)
-    print(f"    {'TOTAL (semantic body)':32} {tot_units:6d} {tot_cov:7d} {100*tot_cov/tot_units:5.1f}%")
+    print(f"    {'TOTAL (primary semantic body)':32} {tot_units:6d} {tot_cov:7d} {100*tot_cov/tot_units:5.1f}%")
+    print(f"    (+ {tot_sec} rules with a SECONDARY fact only — a true fact from a later sentence, but the "
+          f"rule's primary statement is still uninterpreted; NOT counted above)")
     from collections import Counter as _C
     sc = _C(structural.values())
     print(f"    (+ {len(structural)} structural units excluded — not interpretable facts: "
@@ -252,19 +265,26 @@ def main() -> None:
           f"{len(pairs)} xref facts across {len({a for a, _ in pairs})} rules")
 
     # write queryable coverage.dl (joins the rules_index scaffold)
-    lines = ['#include "rules_index.dl"', "", ".decl interpreted(number: symbol)"]
+    lines = ['#include "rules_index.dl"', "",
+             "// interpreted = the rule's PRIMARY (opening) statement yields a fact — honest coverage.",
+             ".decl interpreted(number: symbol)"]
     lines += [f'interpreted("{n}").' for n in sorted(interp)]
-    lines += ["", "// structural scaffolding (headers / list-intros) — not interpretable facts,",
-              "// excluded from the coverage denominator; the list ITEMS in the subrules remain.",
+    lines += ["", "// secondary = a true fact was extracted from a LATER sentence, but the rule's primary",
+              "// statement is still uninterpreted — bonus knowledge, not counted as covered.",
+              ".decl secondary(number: symbol)"]
+    lines += [f'secondary("{n}").' for n in sorted(secondary)]
+    lines += ["", "// structural scaffolding (headers / list-intros / pure cross-references) — not",
+              "// interpretable facts; excluded from the coverage denominator.",
               ".decl structural(number: symbol, kind: symbol)"]
     lines += [f'structural("{n}", "{k}").' for n, k in sorted(structural.items())]
-    lines += ["", ".decl uncovered(number: symbol, grp: symbol)",
-              "uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N), !structural(N, _).",
+    lines += ["", "// uncovered = no fact from ANY sentence (not even a secondary one).",
+              ".decl uncovered(number: symbol, grp: symbol)",
+              "uncovered(N, G) :- rule_unit(N, G, _), !interpreted(N), !secondary(N), !structural(N, _).",
               ".decl n_interpreted(n: number)",
               "n_interpreted(N) :- N = count : { interpreted(_) }.",
-              ".output n_interpreted", ".output structural", ".output uncovered"]
+              ".output n_interpreted", ".output structural", ".output secondary", ".output uncovered"]
     Path("datalog/coverage.dl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"\nwrote datalog/coverage.dl ({len(interp)} interpreted units; "
+    print(f"\nwrote datalog/coverage.dl ({len(interp)} primary-interpreted; {len(secondary)} secondary-only; "
           f"{len(structural)} structural; query `uncovered`)")
 
 
