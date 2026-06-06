@@ -137,8 +137,9 @@ action("effect", "replace", "card").
 action("effect", "modify", "battlefield").
 action("effect", "state", "-").
 action("effect", "prevent", "damage").
-action("controller", "choose", "mode(s").
+action("controller", "choose", "-").
 action("spell", "specify", "-").
+action("copy", "copy", "-").
 action("object", "group", "-").
 action("card", "refer", "-").
 action("action", "use", "definition").
@@ -186,6 +187,7 @@ action("treasure", "mean", "-").
 action("octopus", "mean", "-").
 action("effect", "happen", "-").
 action("player", "control", "permanent").
+action("spell", "enter", "-").
 action("step", "begin", "permanent").
 action("action", "pay", "attention").
 action("table", "appear", "-").

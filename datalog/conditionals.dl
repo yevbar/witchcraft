@@ -262,7 +262,6 @@ conditional("-", "have", "creature", "be", "condition").
 conditional("-", "enter", "ability", "trigger", "condition").
 conditional("hand", "contain", "-", "discard", "condition").
 conditional("-", "see", "game", "check", "condition").
-conditional("-", "put", "effect", "begin", "temporal").
 conditional("spell", "be", "player", "announce", "condition").
 conditional("spell", "require", "player", "announce", "condition").
 conditional("step", "complete", "-", "cast", "temporal").
@@ -702,7 +701,7 @@ conditional("commander", "have", "deck", "contain", "condition").
 conditional("draft", "be", "card", "become", "temporal").
 conditional("phase", "begin", "player", "move", "temporal").
 conditional("ability", "cause", "-", "remain", "temporal").
-conditional("ability", "instruct", "player", "reveal", "condition").
+conditional("-", "describe", "card", "face", "temporal").
 conditional("player", "wish", "action", "take", "condition").
 conditional("-", "reveal", "card", "instruct", "temporal").
 

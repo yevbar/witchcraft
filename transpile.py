@@ -430,7 +430,7 @@ def _masked(tok):
 def _clean(tok):
     """A usable noun argument: NOUN/PROPN, not masked, no mask-residue symbols."""
     return (tok is not None and tok.pos_ in ("NOUN", "PROPN") and not _masked(tok)
-            and not any(ch in tok.text for ch in "—[]{}"))
+            and not any(ch in tok.text for ch in "—[](){}"))
 
 
 def _action(rule, doc):
@@ -1234,6 +1234,20 @@ def _retag_game_nouns(doc) -> None:
             tok.pos_ = "NOUN"
 
 
+def _retag_root_verb(doc) -> None:
+    """In-place: a root-position NOUN that has BOTH a subject and a verbal complement (a direct/dative
+    object or a clausal complement) is almost certainly a mis-tagged VERB — nouns don't take subjects
+    AND objects ("a spell … enters the battlefield", where 'enters' is read as a noun). Promote it so
+    the SVO patterns apply. Content-agnostic (no word list); a pure copula predicate ('a spell is a
+    card' -> root 'card') has a subject but NO object, so it is left alone."""
+    root = next((t for t in doc if t.dep_ == "ROOT"), None)
+    if root is None or root.pos_ != "NOUN" or root.text in _LEGEND:
+        return
+    if (any(c.dep_ in ("nsubj", "nsubjpass") for c in root.children)
+            and any(c.dep_ in ("dobj", "obj", "dative", "oprd", "ccomp", "xcomp") for c in root.children)):
+        root.pos_ = "VERB"
+
+
 # --- truthiness guards for interpreting a rule beyond its opening sentence --------------------
 #
 # A rule's later sentences are only safe to interpret when each stands on its own. We accept a
@@ -1348,6 +1362,7 @@ def transpile_rule(rule: str, text: str) -> Out | None:
         if len(doc) == 0:
             continue
         _retag_game_nouns(doc)                    # fix mis-tagged game-object subjects before matching
+        _retag_root_verb(doc)                     # fix a root verb mis-read as a noun
         if i > 0 and not _self_contained(chunk, doc):
             continue
         for fn in _PATTERNS:

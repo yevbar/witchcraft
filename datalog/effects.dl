@@ -19,6 +19,7 @@ effect("effect", "add", "step", "yes").
 effect("player", "get", "priority", "yes").
 effect("creature", "become", "creature", "yes").
 effect("effect", "change", "text", "yes").
+effect("effect", "change", "word", "yes").
 effect("effect", "change", "text", "no").
 effect("ability", "change", "text", "yes").
 effect("player", "get", "refund", "no").

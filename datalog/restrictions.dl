@@ -25,7 +25,6 @@ restriction("card", "be_affect", "except", "spell").
 restriction("card", "be_examine", "except", "player").
 restriction("player", "begin", "qualified", "-").
 restriction("ability", "use", "scope", "spell").
-restriction("effect", "change", "condition", "-").
 restriction("object", "be_choose", "condition", "-").
 restriction("player", "choose", "condition", "-").
 restriction("aura", "be_attach", "scope", "object").
