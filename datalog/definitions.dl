@@ -22,6 +22,7 @@ attribute_of("object", "mana_value", "number").
 attribute_of("creature", "power", "amount").
 attribute_of("creature", "toughness", "amount").
 attribute_of("battle", "protector", "player").
+attribute_of("card", "controller", "player").
 attribute_of("half", "existence", "part").
 
 .output not_isa

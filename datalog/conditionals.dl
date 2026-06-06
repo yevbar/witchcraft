@@ -193,7 +193,6 @@ conditional("-", "stop", "protector", "change", "condition").
 conditional("battle", "have", "controller", "choose", "condition").
 conditional("siege", "enter", "controller", "choose", "temporal").
 conditional("-", "be", "card", "remain", "temporal").
-conditional("-", "leave", "controller", "retain", "temporal").
 conditional("card", "face", "controller", "planeswalk", "condition").
 conditional("deck", "shuffle", "player", "put", "temporal").
 conditional("object", "go", "-", "go", "condition").

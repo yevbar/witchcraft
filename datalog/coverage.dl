@@ -688,11 +688,13 @@ interpreted("311.1").
 interpreted("311.2").
 interpreted("311.3").
 interpreted("311.4").
+interpreted("311.5").
 interpreted("311.6").
 interpreted("311.7").
 interpreted("312.1").
 interpreted("312.2").
 interpreted("312.3").
+interpreted("312.4").
 interpreted("312.5").
 interpreted("312.6").
 interpreted("312.7").
@@ -2813,8 +2815,6 @@ secondary("305.2a").
 secondary("305.8").
 secondary("307.5").
 secondary("308.2").
-secondary("311.5").
-secondary("312.4").
 secondary("402.1").
 secondary("403.1").
 secondary("406.4").

@@ -1117,7 +1117,11 @@ def _attribute_of(rule, doc):
         return None
     if doc[0].lemma_.lower() == "some" or any(c.lemma_ in _MODALS and c.dep_ in ("aux", "auxpass") for c in root.children):
         return None
-    subj, attr = _child(root, "nsubj"), _child(root, "attr")
+    subj = _child(root, "nsubj")
+    attr = _child(root, "attr")
+    if attr is None:                                                   # "is the player designated as X" — spaCy reads the
+        ccomp = next((c for c in root.children if c.dep_ in ("ccomp", "acomp") and c.pos_ == "VERB"), None)
+        attr = _child(ccomp, "nsubj") if ccomp is not None else None   # predicate as a clause; value = the participle's subject
     if subj is None or attr is None or subj.pos_ not in ("NOUN", "PROPN") or attr.pos_ not in ("NOUN", "PROPN"):
         return None
     if _masked(subj) or _masked(attr) or any(c.dep_ in ("conj", "cc") for c in subj.children):
