@@ -43,6 +43,7 @@ SCHEMA: dict[str, tuple] = {
     "keyword_action_trigger_timing": ("action", "timing"),
     "not_isa":           ("term", "category"),
     "attribute_of":      ("owner", "attribute", "value"),
+    "trigger_condition": ("ability_class", "event_subject", "event_verb"),
 }
 
 _FACT = re.compile(r'^([a-z_]\w*)\((.*)\)\.\s*(?://.*)?$')

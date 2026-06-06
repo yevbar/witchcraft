@@ -53,6 +53,7 @@ import build_card_types
 import build_action_kinds
 import build_action_defs
 import build_keyword_action_triggers
+import build_trigger_conditions
 import build_protection
 import build_keyword_definitions
 import build_enumerations
@@ -166,6 +167,7 @@ LARK_INTERPRETED = ({num for num, _, _ in build_enumerations.extract()}
                     | {r[0] for r in build_action_kinds.action_kinds()}
                     | {r[0] for r in build_action_defs.action_definitions()}
                     | {r[0] for r in build_keyword_action_triggers.trigger_timings()}
+                    | {r[0] for r in build_trigger_conditions.trigger_conditions()}
                     | {r[0] for r in build_protection.protection_prevents()}
                     | {r[0] for r in build_card_types.card_type_property()}
                     | {r[0] for r in build_card_types.vanguard_modifier()}

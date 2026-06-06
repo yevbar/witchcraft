@@ -1,0 +1,20 @@
+// trigger_conditions.dl — the event a CLASS of triggered abilities fires on, from rules.txt.
+// trigger_condition(ability_class, event_subject, event_verb). GENERATED.
+
+.decl trigger_condition(ability_class: symbol, event_subject: symbol, event_verb: symbol)
+
+trigger_condition("triggered_ability", "state", "be").
+trigger_condition("triggered_ability", "player", "lose").
+trigger_condition("triggered_ability", "damage", "prevent").
+trigger_condition("effect", "player", "give").
+trigger_condition("ability", "player", "unlock").
+
+.output trigger_condition
+
+// conformance — spot-check a trigger condition the rules state plainly
+.decl expect_trigger(cls: symbol, verb: symbol)
+.decl conformance_fail(kind: symbol, a: symbol, b: symbol)
+conformance_fail("trigger", C, V) :- expect_trigger(C, V), !trigger_condition(C, _, V).
+.output conformance_fail
+.printsize conformance_fail
+expect_trigger("triggered_ability", "lose").
