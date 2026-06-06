@@ -8,6 +8,7 @@ requirement("library", "be_keep", "scope", "pile").
 requirement("ability", "follow", "condition", "-").
 requirement("creature", "attack", "absolute", "-").
 requirement("deck", "contain", "absolute", "-").
+requirement("player", "ensure", "condition", "-").
 requirement("player", "ensure", "absolute", "-").
 requirement("card", "indicate", "qualified", "-").
 requirement("deck", "contain", "scope", "play").

@@ -28,7 +28,6 @@ grants("effect", "cause", "search").
 grants("spell", "instruct", "vote").
 grants("spell", "instruct", "suspect").
 grants("spell", "instruct", "airbend").
-grants("ability", "allow", "do").
 grants("spell", "cause", "plot").
 grants("effect", "cause", "gain").
 grants("card", "instruct", "create").

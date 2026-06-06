@@ -1234,6 +1234,16 @@ def _retag_game_nouns(doc) -> None:
             tok.pos_ = "NOUN"
 
 
+def _retag_you(doc) -> None:
+    """In-place: "you" is the rulebook's second-person referent for the player acting, everywhere — so
+    a "you" in a subject role is resolved to the noun 'player', letting the noun-subject patterns apply
+    ("You can't cast a card face down" -> restriction(player, cast, …)). A universal pronoun
+    normalization, not keyword-specific; any "you" rule benefits and a rewording still resolves."""
+    for tok in doc:
+        if tok.lemma_.lower() == "you" and tok.dep_ in ("nsubj", "nsubjpass"):
+            tok.pos_, tok.lemma_ = "NOUN", "player"
+
+
 def _retag_root_verb(doc) -> None:
     """In-place: a root-position NOUN that has BOTH a subject and a verbal complement (a direct/dative
     object or a clausal complement) is almost certainly a mis-tagged VERB — nouns don't take subjects
@@ -1363,6 +1373,7 @@ def transpile_rule(rule: str, text: str) -> Out | None:
             continue
         _retag_game_nouns(doc)                    # fix mis-tagged game-object subjects before matching
         _retag_root_verb(doc)                     # fix a root verb mis-read as a noun
+        _retag_you(doc)                           # "you" -> the player acting
         if i > 0 and not _self_contained(chunk, doc):
             continue
         for fn in _PATTERNS:

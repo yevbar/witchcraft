@@ -43,6 +43,7 @@ permission("kindred", "have", "absolute", "-").
 permission("protector", "block", "qualified", "-").
 permission("card", "have", "absolute", "-").
 permission("ability", "affect", "absolute", "-").
+permission("player", "look", "condition", "-").
 permission("player", "count", "qualified", "-").
 permission("player", "arrange", "scope", "fashion").
 permission("effect", "create", "frequency", "-").
@@ -69,6 +70,7 @@ permission("player", "planeswalk", "scope", "game").
 permission("card", "be_set", "scope", "motion").
 permission("scheme", "be_set", "scope", "motion").
 permission("card", "be_abandon", "scope", "game").
+permission("player", "turn", "qualified", "-").
 permission("player", "open", "qualified", "-").
 permission("effect", "replace", "qualified", "-").
 permission("spell", "have", "qualified", "-").

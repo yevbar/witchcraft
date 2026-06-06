@@ -5,6 +5,7 @@
 
 // --- one per matched effect-verb sentence; the verb is the direction, polarity the negation ---
 effect("card", "become", "permanent", "yes").
+effect("player", "gain", "life", "yes").
 effect("effect", "remove", "instance", "yes").
 effect("cost", "change", "cost", "no").
 effect("player", "lose", "game", "yes").

@@ -4,6 +4,7 @@
 .decl restriction(subject: symbol, action: symbol, qualifier_kind: symbol, qualifier: symbol)
 
 // --- one per matched "X can't VERB" sentence; the qualifier is recorded, never dropped ---
+restriction("player", "choose", "absolute", "-").
 restriction("ability", "be_activate", "condition", "-").
 restriction("card", "start", "scope", "zone").
 restriction("token", "move", "qualified", "-").
@@ -37,6 +38,7 @@ restriction("permanent", "be_target", "by", "spell").
 restriction("permanent", "be_enchant", "by", "auras").
 restriction("permanent", "be_equip", "by", "equipment").
 restriction("creature", "be_block", "by", "creature").
+restriction("player", "cast", "frequency", "-").
 restriction("creature", "have", "condition", "-").
 restriction("down", "be_turn", "absolute", "-").
 restriction("permanent", "transform", "condition", "-").

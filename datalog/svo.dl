@@ -152,6 +152,7 @@ action("spell", "mill", "card").
 action("effect", "instruct", "-").
 action("player", "reveal", "card").
 action("n", "mean", "-").
+action("player", "choose", "-").
 action("spell", "instruct", "permanent").
 action("learn", "mean", "-").
 action("spell", "instruct", "-").
@@ -187,14 +188,13 @@ action("treasure", "mean", "-").
 action("octopus", "mean", "-").
 action("effect", "happen", "-").
 action("player", "control", "permanent").
+action("player", "choose", "creature").
 action("spell", "enter", "-").
 action("step", "begin", "permanent").
 action("action", "pay", "attention").
 action("table", "appear", "-").
 action("copy", "acquire", "value").
 action("effect", "copy", "spell").
-action("method", "include", "-").
-action("player", "choose", "-").
 action("characteristic", "exist", "-").
 action("spell", "instruct", "player").
 action("scavengers", "meld", "-").
