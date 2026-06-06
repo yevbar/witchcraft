@@ -208,6 +208,7 @@ LARK_INTERPRETED = (build_enumerations.matched_rules()
                     | {r[0] for r in build_trigger_conditions.trigger_conditions()}
                     | {r[0] for r in build_templates.template_definitions()}
                     | {r[0] for r in build_templates.term_meanings()}
+                    | build_templates.matched_rules()
                     | {r[0] for r in build_markers.markers()}
                     | {r[0] for r in build_keyword_events.events()}
                     | {r[0] for r in build_keyword_events.class_contexts()}

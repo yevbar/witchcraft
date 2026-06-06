@@ -14,6 +14,7 @@ interpreted("100.3").
 interpreted("100.4").
 interpreted("100.4a").
 interpreted("100.4b").
+interpreted("100.4c").
 interpreted("100.4d").
 interpreted("100.5").
 interpreted("100.6").
@@ -947,6 +948,8 @@ interpreted("508.7").
 interpreted("508.7a").
 interpreted("508.7b").
 interpreted("508.7c").
+interpreted("508.7d").
+interpreted("508.7e").
 interpreted("508.8").
 interpreted("509.1").
 interpreted("509.1a").
@@ -2532,6 +2535,8 @@ interpreted("710.4").
 interpreted("710.5").
 interpreted("711.1").
 interpreted("711.2").
+interpreted("711.2a").
+interpreted("711.2b").
 interpreted("711.3").
 interpreted("711.4").
 interpreted("711.5").
@@ -2608,6 +2613,7 @@ interpreted("714.1a").
 interpreted("714.2").
 interpreted("714.2a").
 interpreted("714.2b").
+interpreted("714.2c").
 interpreted("714.2d").
 interpreted("714.2e").
 interpreted("714.3").
@@ -2734,6 +2740,7 @@ interpreted("727.2").
 interpreted("727.3").
 interpreted("727.4").
 interpreted("727.5").
+interpreted("727.5a").
 interpreted("727.6").
 interpreted("727.7").
 interpreted("728.1").
@@ -2925,6 +2932,7 @@ interpreted("809.5a").
 interpreted("809.5b").
 interpreted("809.5c").
 interpreted("809.6").
+interpreted("809.6a").
 interpreted("809.7").
 interpreted("810.1").
 interpreted("810.10").

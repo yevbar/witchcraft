@@ -12,6 +12,11 @@ multiplayer_rule("archenemy_team", "one_player").
 multiplayer_rule("defending_players", "one_or_more_in_multiplayer").
 multiplayer_rule("apnap_order", "modified_by_shared_team_turns").
 multiplayer_rule("archenemy_free_for_all", "each_player_is_archenemy").
+multiplayer_rule("two_headed_giant_card_pool", "nondeck_cards_are_team_sideboard").
+multiplayer_rule("reselect_target_without_attack_multiple_players", "must_be_chosen_defending_player_or_their_planeswalker_or_battle").
+multiplayer_rule("reselect_target_with_limited_range_of_influence", "must_be_within_attacking_controllers_range").
+multiplayer_rule("exempted_commander_on_game_restart", "does_not_begin_in_command_zone").
+multiplayer_rule("grand_melee_general_range_of_influence", "minimum_allowing_opposing_general_in_range").
 
 .output multiplayer_rule
 

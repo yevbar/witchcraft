@@ -3,7 +3,12 @@
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 
 ## Current coverage (primary semantic body)
-**99.1%** — 2793 / 2818 interpretable rules. ~25 primary misses remain.
+**99.4%** — 2801 / 2818 interpretable rules. ~17 primary misses remain.
+Bracketed-placeholder restatements credited: build_templates.matched_rules() credits rules whose
+template frame duplicates an earlier covered def (711.2a/b leveler restate 107.8a/b; 714.2c saga) —
+facts stay deduped, only credit broadens (like build_enumerations.matched_rules). Multiplayer variants
+captured in build_multiplayer: 2HG card pool (100.4c), reselect-target constraints (508.7d/e), exempted-
+commander-on-restart (727.5a), Grand-Melee general ROI (809.6a).
 Chipped the bespoke residue: is_kind_of (bands-with-other→banding, pile-object→individual);
 happens_when (backup-on-stack, attraction-open, restart-timing); existential (tribute, color-change-
 effects); card_text_term (phrase/term defs: to-gain-class-level, enter shorthand, beheld-quality,

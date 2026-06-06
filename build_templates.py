@@ -54,6 +54,24 @@ def template_definitions() -> list[tuple[str, str, str]]:
     return rows
 
 
+def matched_rules() -> set:
+    """Every rule# whose first sentence matches a template/term-meaning frame — INCLUDING restatements
+    whose (template, expansion) duplicates an earlier rule's (e.g. §711.2a/b restate the leveler
+    template from §107.8a/b; §714.2c the saga template) and so were dropped by template_definitions'
+    de-duplication. Facts stay de-duplicated; only the interpreted-rule credit is broadened (cf.
+    build_enumerations.matched_rules)."""
+    doc = split(Path("rules.txt").read_text(encoding="utf-8"))
+    out = set()
+    for s in doc.sections:
+        for g in s.groups:
+            for r in g.rules:
+                for sr in [r] + r.subrules:
+                    t = _split_sentences(sr.text)[0].strip()
+                    if _TMPL.match(t) or _TERM.search(t):
+                        out.add(sr.number)
+    return out
+
+
 def term_meanings() -> list[tuple[str, str, str]]:
     """(rule, term, meaning) for 'refers to "[term]" … it means/refers to [meaning]'."""
     doc = split(Path("rules.txt").read_text(encoding="utf-8"))

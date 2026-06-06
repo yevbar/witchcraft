@@ -33,6 +33,16 @@ _RULES = [
     ("defending_players", "one_or_more_in_multiplayer", re.compile(r"During the combat phase of a multiplayer game, there may be one or more defending players", re.I)),
     ("apnap_order", "modified_by_shared_team_turns", re.compile(r"Active Player, Nonactive Player order rule .* is modified if the shared team turns option is used", re.I)),
     ("archenemy_free_for_all", "each_player_is_archenemy", re.compile(r"^Each player in this game is an archenemy", re.I)),
+    ("two_headed_giant_card_pool", "nondeck_cards_are_team_sideboard",
+     re.compile(r"^In limited play involving the Two-Headed Giant multiplayer variant, all cards in a team.s card pool but not in either player.s deck are in that team.s sideboard", re.I)),
+    ("reselect_target_without_attack_multiple_players", "must_be_chosen_defending_player_or_their_planeswalker_or_battle",
+     re.compile(r"^In a multiplayer game not using the attack multiple players option .* the reselected player, planeswalker, or battle must be the chosen defending player", re.I)),
+    ("reselect_target_with_limited_range_of_influence", "must_be_within_attacking_controllers_range",
+     re.compile(r"^In a multiplayer game using the limited range of influence option .* the reselected player, planeswalker, or battle must be within the range of influence", re.I)),
+    ("exempted_commander_on_game_restart", "does_not_begin_in_command_zone",
+     re.compile(r"^In a Commander game, a commander that has been exempted from the procedure that restarts the game won.t begin the new game in the command zone", re.I)),
+    ("grand_melee_general_range_of_influence", "minimum_allowing_opposing_general_in_range",
+     re.compile(r"^Each general.s range of influence should be the minimum number that allows one general from an opposing team", re.I)),
 ]
 
 
