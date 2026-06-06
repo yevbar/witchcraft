@@ -97,13 +97,17 @@ def query(kb: dict, rel: str, **where) -> list:
             if all(row[idx[k]] == v for k, v in where.items())]
 
 
+# Relations whose FIRST argument names the entity the fact is about (so `about` can gather them).
+SUBJECT_KEYED = ("isa", "not_isa", "some_are", "attribute_of", "permission", "restriction",
+                 "requirement", "ability", "has_property", "action", "negation", "relation",
+                 "comparison", "is_property", "effect", "grants")
+
+
 def about(kb: dict, subject: str) -> dict:
-    """Everything the KB asserts about a SUBJECT — its permissions, restrictions, requirements,
-    abilities, possessions, actions, partial memberships and taxonomy — gathered across the
-    subject-keyed relations into one view."""
+    """Everything the KB asserts about a SUBJECT — what it is / isn't, its attributes, what it may,
+    can't, and must do, its actions and relations — gathered across the subject-keyed relations."""
     out: dict = {}
-    for rel in ("isa", "some_are", "permission", "restriction", "requirement",
-                "ability", "has_property", "action"):
+    for rel in SUBJECT_KEYED:
         hits = [r for r in kb.get(rel, []) if r[0] == subject]
         if hits:
             out[rel] = [dict(zip(SCHEMA[rel], r)) for r in hits]
@@ -111,15 +115,43 @@ def about(kb: dict, subject: str) -> dict:
 
 
 def taxonomy(kb: dict) -> dict:
-    """The genus graph: category -> sorted list of terms asserted to be (a kind of) it, from isa()
-    plus the existential some_are(). A small reviewable view of the interpreted type hierarchy."""
+    """The genus graph: category -> {terms asserted to be (a kind of) it}, from isa() plus the
+    existential some_are(); a term explicitly denied (not_isa) is shown prefixed '!'. A small
+    reviewable view of the interpreted type hierarchy."""
     out: dict = {}
     for term, cat in kb.get("isa", []):
         out.setdefault(cat, set()).add(term)
     for subj, cat, present in kb.get("some_are", []):
         if present == "yes":
             out.setdefault(cat, set()).add(subj + " (some)")
+    for term, cat in kb.get("not_isa", []):
+        out.setdefault(cat, set()).add("!" + term)
     return {cat: sorted(terms) for cat, terms in sorted(out.items())}
+
+
+def contradictions(kb: dict) -> list:
+    """Self-consistency check over the interpreted KB. Two severities:
+
+      HARD  isa(X, Y) AND not_isa(X, Y) — X both is and isn't a Y. These are unconditional about the
+            TERM's identity, so a hit is a genuine mis-parse to chase.
+      SOFT  effect/gerund (S, V, O) asserted yes AND no. Often benign: the patterns drop a subject
+            RESTRICTION, so "some effects change text" (yes) and "effects that add abilities don't
+            change text" (no) collapse to the same triple though both are true. Worth a human glance,
+            not necessarily a bug.
+
+    Returns [(kind, key, note)] with kind 'isa/not_isa' (hard) or '<rel>_polarity' (soft)."""
+    out = []
+    isa, nis = set(kb.get("isa", [])), set(kb.get("not_isa", []))
+    for term, cat in sorted(isa & nis):
+        out.append(("isa/not_isa", (term, cat), "hard"))
+    pol: dict = {}                                       # (rel, subject, verb, object) -> set of polarities
+    for rel in ("effect", "gerund_action"):
+        for row in kb.get(rel, []):
+            pol.setdefault((rel, *row[:-1]), set()).add(row[-1])
+    for key, ps in sorted(pol.items()):
+        if {"yes", "no"} <= ps:
+            out.append((key[0] + "_polarity", key[1:], "soft (subject restriction flattened)"))
+    return out
 
 
 def _demo() -> None:
@@ -151,6 +183,16 @@ def _demo() -> None:
     print("\nabout('activated_ability') — every interpreted assertion about it:")
     for rel, rows in about(kb, "activated_ability").items():
         print(f"  {rel}: {len(rows)}  e.g. {rows[0]}")
+
+    print("\nnegative taxonomy (not_isa) + attribute definitions:")
+    print(f"  not_isa: {[(r['term'], r['category']) for r in query(kb, 'not_isa')]}")
+    print(f"  attribute_of: {[(r['owner'], r['attribute'], r['value']) for r in query(kb, 'attribute_of')][:4]}")
+
+    bad = contradictions(kb)
+    print(f"\nconsistency check — KB self-contradictions: {len(bad)}"
+          + ("  (none — the interpreted facts are internally consistent)" if not bad else ""))
+    for c in bad:
+        print(f"  CONFLICT {c}")
 
 
 if __name__ == "__main__":
