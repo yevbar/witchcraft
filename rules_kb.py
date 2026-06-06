@@ -38,6 +38,9 @@ SCHEMA: dict[str, tuple] = {
     "grants":            ("subject", "modal", "granted_action"),
     "count_of":          ("name", "n"),
     "action_definition": ("action",),
+    "gerund_action":     ("action", "verb", "object", "polarity"),
+    "some_are":          ("subject", "category", "polarity"),
+    "keyword_action_trigger_timing": ("action", "timing"),
 }
 
 _FACT = re.compile(r'^([a-z_]\w*)\((.*)\)\.\s*(?://.*)?$')
@@ -93,13 +96,27 @@ def query(kb: dict, rel: str, **where) -> list:
 
 def about(kb: dict, subject: str) -> dict:
     """Everything the KB asserts about a SUBJECT — its permissions, restrictions, requirements,
-    abilities, possessions and actions — gathered across relations into one view."""
+    abilities, possessions, actions, partial memberships and taxonomy — gathered across the
+    subject-keyed relations into one view."""
     out: dict = {}
-    for rel in ("permission", "restriction", "requirement", "ability", "has_property", "action"):
+    for rel in ("isa", "some_are", "permission", "restriction", "requirement",
+                "ability", "has_property", "action"):
         hits = [r for r in kb.get(rel, []) if r[0] == subject]
         if hits:
             out[rel] = [dict(zip(SCHEMA[rel], r)) for r in hits]
     return out
+
+
+def taxonomy(kb: dict) -> dict:
+    """The genus graph: category -> sorted list of terms asserted to be (a kind of) it, from isa()
+    plus the existential some_are(). A small reviewable view of the interpreted type hierarchy."""
+    out: dict = {}
+    for term, cat in kb.get("isa", []):
+        out.setdefault(cat, set()).add(term)
+    for subj, cat, present in kb.get("some_are", []):
+        if present == "yes":
+            out.setdefault(cat, set()).add(subj + " (some)")
+    return {cat: sorted(terms) for cat, terms in sorted(out.items())}
 
 
 def _demo() -> None:
@@ -116,9 +133,20 @@ def _demo() -> None:
     print(f"  'can't be blocked' restrictions: {len(evasion)}  qualifiers: "
           f"{sorted({r['qualifier_kind'] for r in evasion})}")
     print(f"  symbol meanings: {[(r['glyph'], r['meaning']) for r in query(kb, 'symbol_means')][:3]}")
+    neg_gerund = query(kb, "gerund_action", polarity="no")
+    print(f"  gerund actions that DON'T cause something: {len(neg_gerund)}  "
+          f"e.g. {[(r['action'], r['verb'], r['object']) for r in neg_gerund][:3]}")
+    print(f"  keyword-action trigger timings: "
+          f"{[(r['action'], r['timing']) for r in query(kb, 'keyword_action_trigger_timing')][:4]}")
 
-    print("\nabout('permanent') — what the rules say a permanent does / may / can't do:")
-    for rel, rows in about(kb, "permanent").items():
+    print("\ntaxonomy() — interpreted genus graph (category -> terms), abilities branch:")
+    tax = taxonomy(kb)
+    for cat in ("activated_ability", "keyword_ability", "static_ability"):
+        if cat in tax:
+            print(f"  {cat}: {tax[cat]}")
+
+    print("\nabout('activated_ability') — every interpreted assertion about it:")
+    for rel, rows in about(kb, "activated_ability").items():
         print(f"  {rel}: {len(rows)}  e.g. {rows[0]}")
 
 
