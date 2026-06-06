@@ -3,20 +3,27 @@
 
 .decl action_definition(action: symbol)
 
+action_definition("tap").
 action_definition("exile").
 action_definition("ante").
 action_definition("cast").
 action_definition("propose").
 action_definition("activate").
 action_definition("attach").
+action_definition("unattach").
 action_definition("counter").
 action_definition("play").
+action_definition("scry").
+action_definition("surveil").
+action_definition("fateseal").
 action_definition("planeswalk").
 action_definition("proliferate").
 action_definition("populate").
 action_definition("amass").
 action_definition("time").
+action_definition("collect").
 action_definition("forage").
+action_definition("blight").
 action_definition("store").
 action_definition("copy").
 

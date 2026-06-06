@@ -91,6 +91,7 @@ interpreted("105.5").
 interpreted("106.1").
 interpreted("106.10").
 interpreted("106.11").
+interpreted("106.12").
 interpreted("106.12b").
 interpreted("106.13").
 interpreted("106.1a").
@@ -1295,6 +1296,7 @@ interpreted("701.39").
 interpreted("701.39a").
 interpreted("701.3a").
 interpreted("701.3b").
+interpreted("701.3d").
 interpreted("701.4").
 interpreted("701.40").
 interpreted("701.40a").

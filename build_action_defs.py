@@ -15,7 +15,9 @@ from pathlib import Path
 from dlgen import Program
 from rules_parser import split
 
-_DEF = re.compile(r"^To (\w+)\b.*?\b(is to|means)\b")
+# Allow an optional opening quote before the verb — many definitions quote the action name:
+# To "scry N" means …, To "surveil N" means …, To "tap [a permanent] for mana" is to …
+_DEF = re.compile(r"^To [\"“”']?(\w+)\b.*?\b(is to|means)\b")
 
 
 def action_definitions() -> list[tuple[str, str]]:
