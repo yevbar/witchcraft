@@ -170,7 +170,6 @@ conditional("-", "enchant", "aura", "move", "condition").
 conditional("effect", "allow", "controller", "consider", "condition").
 conditional("permanent", "have", "-", "put", "condition").
 conditional("text", "state", "-", "mean", "condition").
-conditional("number", "be", "play", "be", "condition").
 conditional("number", "play", "-", "be", "condition").
 conditional("object", "use", "-", "refer", "condition").
 conditional("effect", "set", "land", "have", "condition").
@@ -668,7 +667,6 @@ conditional("player", "leave", "player", "enter", "condition").
 conditional("effect", "cause", "player", "keep", "condition").
 conditional("marker", "be", "player", "get", "condition").
 conditional("-", "activate", "player", "specify", "condition").
-conditional("team", "have", "player", "go", "condition").
 conditional("player", "concede", "team", "leave", "condition").
 conditional("total", "be", "team", "lose", "condition").
 conditional("cost", "need", "-", "use", "condition").

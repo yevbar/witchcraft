@@ -433,6 +433,26 @@ def _clean(tok):
             and not any(ch in tok.text for ch in "—[](){}"))
 
 
+def _imperative(rule, doc):
+    """Instruction in the imperative mood "[To …,] [verb] [object]" -> action(player, verb, object).
+    A base-form (VB) root with NO subject and no auxiliary is an imperative — the rulebook instructs
+    the player to do something ("To cast a card …, turn it face down", "Choose targets", "Check
+    state-based actions"). The implied subject is the player. Content-agnostic (imperative mood, no
+    word list); cross-reference imperatives ('see rule …') are excluded."""
+    root = _root(doc)
+    if root is None or root.pos_ != "VERB" or root.tag_ != "VB" or root.lemma_ in ("see", "be", "have"):
+        return None
+    kids = list(root.children)
+    if any(c.dep_ in ("nsubj", "nsubjpass", "aux", "auxpass") for c in kids):
+        return None
+    if not any(c.dep_ in ("dobj", "obj", "dative", "oprd", "prep", "advcl", "advmod", "ccomp", "npadvmod")
+               for c in kids):                              # a real instruction has an object/modifier,
+        return None                                         # not a bare keyword-name header ("Investigate")
+    obj = next((c for c in kids if c.dep_ in ("dobj", "obj")), None)
+    o = obj.lemma_.lower() if _clean(obj) else "-"
+    return Out(rule, f'action("player", "{root.lemma_.lower()}", "{o}").   // {rule}', "action")
+
+
 def _action(rule, doc):
     """Generic active-declarative SVO "[subject] [verb] [object]" -> action(subject, verb, object).
     The coarse catch-all (runs LAST) for declaratives whose verb no specific pattern claims; object
@@ -1193,7 +1213,7 @@ def _gerund_action(rule, doc):
                "gerund_action")
 
 
-_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _subclass, _isa, _some_are, _not_isa, _attribute_of, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _action]
+_PATTERNS = [_sba_grouped, _sba_world, _sba_scheme, _sba_aggregate_loss, _sba_lethal, _sba_value, _damage_result, _sba_attachment, _sba_ceases, _keyword_action, _status_action, _evasion, _passive_prohibition, _prohibition, _symbol_def, _symbol_means, _keyword_class, _subclass, _isa, _some_are, _not_isa, _attribute_of, _restriction, _conditional, _possession, _permission, _passive, _effect, _capability, _relation, _obligation, _existential, _comparison, _is_property, _negation, _ability, _gerund_action, _imperative, _action]
 
 _LEGEND: dict = {}                                            # preprocess legend for the sentence under transpilation
 
