@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 import ground
-from card_effects import parse_effect, parse_clause, _TGT, _mana_production
+from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -159,9 +159,9 @@ def _parse_body(text: str):
         sentence = sentence.strip().rstrip(".")
         if not sentence:
             continue
-        e = parse_clause(sentence)
-        if e:
-            out.append(e)
+        multi = parse_clauses(sentence)
+        if multi:
+            out.extend(multi)
             continue
         parts = _SPLIT_AND.split(sentence)
         if len(parts) < 2:
@@ -390,16 +390,46 @@ def _mode_option(unit, ctx):
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
-         "be regenerated": "be_regenerated", "be sacrificed": "be_sacrificed"}
+         "be regenerated": "be_regenerated", "be sacrificed": "be_sacrificed",
+         "attack you": "attack_you", "attack you or planeswalkers you control": "attack_you_or_pws"}
+_CANT_SUBJ = re.compile(r"^(~|enchanted creature|equipped creature) can't (.+?)\.?$", re.I)
 
 
 def _cant(unit, ctx):
-    """'~ can't <X>.' — a static restriction grounded in combat/§701 rules (no over-claim: a fixed set)."""
-    m = re.match(r"^~ can't (.+?)\.?$", unit.raw)
-    if not m or m.group(1).lower() not in _CANT:
+    """'<subject> can't <X>.' — a static restriction grounded in combat/§701 rules (fixed action set).
+    Subject is the card itself (~) or the attached creature (enchanted/equipped)."""
+    m = _CANT_SUBJ.match(unit.raw)
+    if not m or m.group(2).lower() not in _CANT:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_cant("{cid}", "{_CANT[m.group(1).lower()]}")'], "cant")
+    return CardOut(cid, [f'card_cant("{cid}", "{_target_slug(m.group(1))}", "{_CANT[m.group(2).lower()]}")'],
+                   "cant")
+
+
+def _static_grant(unit, ctx):
+    """A static keyword grant with no P/T — '<subject> has/have <keywords>.' (§613 layer 6): an Aura's
+    'Enchanted creature has flying.', an anthem's 'Other creatures you control have trample.'"""
+    m = re.match(rf"^(?P<who>{_TGT}) (?:has|have) (?P<kw>[\w, ]+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
+    if not grounded or not all(grounded):
+        return None
+    who = _target_slug(m.group("who"))
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    facts = [f'ability("{cid}", "{aid}", "static")']
+    facts += [f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
+              for i, (kw, _p) in enumerate(grounded)]
+    return CardOut(cid, facts, "static_grant")
+
+
+def _additional_cost(unit, ctx):
+    """'As an additional cost to cast ~, <cost>.' (§601.2b/§118) — record the extra casting cost."""
+    m = re.match(r"^As an additional cost to cast ~, (.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_additional_cost("{cid}", "{ground.slug(m.group(1))}")'], "additional_cost")
 
 
 def _enters_with_counters(unit, ctx):
@@ -431,9 +461,9 @@ def _attacks_each_combat(unit, ctx):
 
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _static_pt, _modal, _mode_option,
-             _cant, _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell,
-             _static_control]
+             _attacks_each_combat, _etb_choose, _static_player, _additional_cost, _static_pt,
+             _static_grant, _modal, _mode_option, _cant, _loyalty, _saga_chapter, _mana_ability,
+             _triggered, _activated, _spell, _static_control]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a

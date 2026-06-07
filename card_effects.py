@@ -21,7 +21,7 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|target [\w ]+?|each [\w ]+?|all [\w ]+?|\w+ you control|"
+_TGT = (r"(?:any target|target [\w ]+?|each [\w ]+?|all [\w ]+?|(?:\w+ )?\w+ you control|"
         r"enchanted \w+|equipped \w+|that \w+|~|it|you|its controller|its owner|their controller)")
 
 
@@ -323,6 +323,50 @@ import dataclasses as _dc
 _MAY = re.compile(r"^you may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
+
+
+def _kw_ok(phrase: str):
+    kw = ground.slug(phrase)
+    return kw if (kw in ground.keyword_abilities() or kw.split("_")[0] in ground.keyword_abilities()) else None
+
+
+_EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)((?: and gains? [\w ]+?)+) until end of turn$", re.I)
+_EOT_GRANTS = re.compile(rf"^({_TGT}) gains? ([\w ]+?(?: and [\w ]+?)+) until end of turn$", re.I)
+
+
+def _eot_compound(s: str):
+    """A compound until-end-of-turn buff -> MULTIPLE effects: '<t> gets +N/+N and gains trample …' or
+    '<t> gains flying and lifelink …'. Abstains unless every granted word is a real §702 keyword."""
+    m = _EOT_PUMP.match(s)
+    if m:
+        who = _target(m.group(1))
+        out = [Effect("modify_pt", m.group(2), who)]
+        for g in re.findall(r"gains? ([\w ]+?)(?= and gains| until|$)", m.group(3), re.I):
+            kw = _kw_ok(g)
+            if not kw:
+                return None
+            out.append(Effect("grant_keyword", "until_end_of_turn", who, kw))
+        return out
+    m = _EOT_GRANTS.match(s)
+    if m:
+        who = _target(m.group(1))
+        out = []
+        for g in re.split(r" and ", m.group(2)):
+            kw = _kw_ok(g)
+            if not kw:
+                return None
+            out.append(Effect("grant_keyword", "until_end_of_turn", who, kw))
+        return out
+    return None
+
+
+def parse_clauses(sentence: str) -> "list | None":
+    """parse a clause into one OR MORE effects (compound until-EOT buffs yield several); else None."""
+    multi = _eot_compound(sentence.strip().rstrip("."))
+    if multi:
+        return multi
+    e = parse_clause(sentence)
+    return [e] if e else None
 
 
 def parse_clause(sentence: str) -> "Effect | None":

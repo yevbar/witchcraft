@@ -58,7 +58,8 @@ def build() -> tuple[str, dict]:
                       ("extra", "symbol"), ("cond", "symbol")])
     p.decl("mode_option", [("card", "symbol"), ("aid", "symbol")])
     p.decl("card_modal", [("card", "symbol"), ("mode", "symbol")])
-    p.decl("card_cant", [("card", "symbol"), ("action", "symbol")])
+    p.decl("card_cant", [("card", "symbol"), ("who", "symbol"), ("action", "symbol")])
+    p.decl("card_additional_cost", [("card", "symbol"), ("cost", "symbol")])
     p.decl("card_doesnt_untap", [("card", "symbol"), ("who", "symbol")])
     p.decl("card_attacks_each_combat", [("card", "symbol")])
     p.decl("card_enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
@@ -76,7 +77,7 @@ def build() -> tuple[str, dict]:
              "ability", "ability_cost", "ability_trigger", "ability_modifier", "effect", "mode_option",
              "card_modal",
              "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
-             "card_enters_tapped", "card_etb_choose", "card_static_player")
+             "card_enters_tapped", "card_etb_choose", "card_static_player", "card_additional_cost")
     p.blank()
     p.comment("conformance — a grounded keyword the rules define (§702.9) on a known card")
     p.conformance(
