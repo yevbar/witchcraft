@@ -306,6 +306,20 @@ def _bounce(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
 
 
+_RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
+             "library": "put_on_top", "graveyard": "put_in_graveyard"}
+
+
+@_t(r"^return (.+?) to (?:the |its owner's |their owners?'? ?|your )?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?( tapped)?$")
+def _return_zone(m):
+    """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
+    faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
+    the precise return templates."""
+    if _is_compound_object(m.group(1)):
+        return None
+    return Effect(_RET_DEST[m.group(2).lower()], "-", _target(m.group(1)), "tapped" if m.group(3) else "-")
+
+
 @_t(r"^you get ((?:\{e\})+)$")
 def _get_energy(m):
     return Effect("get_energy", m.group(1).count("{"), "you")
@@ -330,8 +344,12 @@ def _switch_pt(m):
     return Effect("switch_pt", "-", _target(m.group(1)))
 
 
-@_t(rf"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
+@_t(r"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
 def _put_counter(m):
+    """'Put N <kind> counter(s) on <object>' — the object captured as a faithful noun-phrase slug
+    (compound-guarded so '… and <effect>' splits instead of being swallowed)."""
+    if _is_compound_object(m.group(3)):
+        return None
     n = _amount(m.group(1))
     return Effect("put_counter", n if n is not None else "X", _target(m.group(3)),
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
@@ -382,10 +400,13 @@ def _skip(m):
     return Effect("skip", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
 
 
-@_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
+@_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: for each (.+?))?(?: .*)?$")
 def _create_token(m):
     n = _amount(m.group(1))
-    return Effect("create", n if n is not None else "X", "token", ground.slug(m.group(2)))
+    amt = (n if n is not None else "X")
+    if m.group(3):
+        amt = f"{amt}_per_{ground.slug(m.group(3))}"
+    return Effect("create", amt, "token", ground.slug(m.group(2)))
 
 
 @_t(r"^(?:you )?(lose|win) the game$")
@@ -548,11 +569,20 @@ def _is_compound_object(s: str) -> bool:
         return True
     for seg in re.split(r" and ", s, flags=re.I)[1:]:
         w = (seg.split() or [""])[0].lower().rstrip("s")
-        if w in ("you", "that", "its", "their", "each", "they", "it") or \
-           w in ground.effect_verbs() or (w + "s") in ground.effect_verbs() or \
-           {"gain": "gain_life", "draw": "draw", "deal": "deal_damage", "lose": "lose_life"}.get(w):
+        if w in _PREDICATE_LEADS or w in ground.effect_verbs() or (w + "s") in ground.effect_verbs():
             return True
     return False
+
+
+# words that signal a SECOND effect after 'and'/'then' — player/pronoun subjects, plus the base form
+# of common grounded verbs (so '… and put it …', '… and create a token' are recognized as run-ons even
+# though the grounded slug is 'put_counter'/'create…'). Used to decide whether to split vs. keep whole.
+_PREDICATE_LEADS = frozenset({
+    "you", "its", "their", "they",
+    "gain", "draw", "deal", "lose", "put", "create", "return", "exile", "destroy", "tap", "untap",
+    "sacrifice", "search", "reveal", "shuffle", "mill", "scry", "choose", "discard", "counter", "copy",
+    "remove", "prevent", "regenerate", "goad", "attach", "cast", "play",
+})
 
 
 @_t(rf"^(\w+) ({_TGT})$")
@@ -663,9 +693,14 @@ def _amass(m):
     return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
 
 
-@_t(r"^choose (?:a|an|one) ([\w ]+?)$")
+@_t(r"^choose (a|an|one|two|three|up to \w+|one or more|any number of) (.+?)$")
 def _choose(m):
-    return Effect("choose", "-", ground.slug(m.group(1)))
+    """'Choose <quantifier> <thing>' — a §700.2 choice (a color, a creature type, target(s), …). The
+    chosen thing is a faithful noun-phrase slug; the quantifier is folded into it."""
+    if _is_compound_object(m.group(2)):
+        return None
+    q = "" if m.group(1) in ("a", "an", "one") else ground.slug(m.group(1)) + "_"
+    return Effect("choose", "-", q + ground.slug(m.group(2)))
 
 
 @_t(rf"^(?:({_TGT}) )?(?:takes?|take) an extra turn after this one$")
@@ -688,6 +723,15 @@ def _reveal_hand(m):
 @_t(r"^reveal (?:a|an|one|up to \w+) ([\w ]+?) from among them$")
 def _reveal_among(m):
     """'Reveal a <card-kind> from among them' — revealing a card out of a looked-at set (§701.16)."""
+    return Effect("reveal", "-", "you", ground.slug(m.group(1)))
+
+
+@_t(r"^reveal (.+?)$")
+def _reveal_generic(m):
+    """GENERIC 'Reveal <object>' (§701.16) — 'reveal your hand', 'reveal the top card of your library',
+    'reveal it', 'reveal the cards you drew'. Object as a faithful slug; compound-guarded."""
+    if _is_compound_object(m.group(1)):
+        return None
     return Effect("reveal", "-", "you", ground.slug(m.group(1)))
 
 
@@ -848,6 +892,8 @@ def _cant_regen(m):
 
 @_t(r"^search your library for ([^,]+?)$")
 def _search(m):
+    if _is_compound_object(m.group(1)):     # '… for a creature card and put it onto the battlefield'
+        return None                          # -> let the body splitter handle the second effect
     return Effect("search", "-", ground.slug(m.group(1)))
 
 
@@ -867,7 +913,8 @@ def _put_among_bf(m):
 # imperative 'VERB <object>' grounds faithfully as VERB(target=<object slug>). Excludes amount-verbs
 # (draw/mill/scry), destination-verbs (return/put), and prep-structured ones (deal … to).
 _OBJ_VERBS = frozenset({"exile", "destroy", "tap", "untap", "sacrifice", "regenerate", "goad", "detain",
-                        "counter", "transform", "populate", "fight"})
+                        "counter", "transform", "populate", "fight", "behold", "suspect", "abandon",
+                        "cloak", "double", "triple", "blight", "meld", "convert", "exchange"})
 _OBJ_BAD = re.compile(r" and | or |[:;,]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bthen\b", re.I)
 
 
