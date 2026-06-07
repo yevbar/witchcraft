@@ -457,7 +457,7 @@ def _combat_restriction(unit, ctx):
 
 _GRANTED = re.compile(
     r'^(?P<who>~|enchanted \w+|equipped \w+|(?:\w+ )?\w+ you control|other [\w ]+?|'
-    r'target [\w ]+?|each [\w ]+?|all [\w ]+?) (?:has|have|gains?) "(?P<ab>.+)"'
+    r'target [\w ]+?|each [\w ]+?|all [\w ]+?|it|they) (?:has|have|gains?) "(?P<ab>.+)"'
     r'(?P<dur> until end of turn)?\.?$', re.I | re.S)
 
 

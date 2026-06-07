@@ -229,6 +229,27 @@ def _put_counter(m):
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
 
 
+@_t(rf"^put that many ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
+def _put_counter_many(m):
+    return Effect("put_counter", "that_amount", _target(m.group(2)),
+                  ground.slug(m.group(1)) if "/" not in m.group(1) else m.group(1))
+
+
+@_t(rf"^create a token that's a copy of ({_TGT})$")
+def _create_copy(m):
+    return Effect("create", 1, "token", "copy_of_" + _target(m.group(1)))
+
+
+@_t(r"^discard your hand$")
+def _discard_hand(m):
+    return Effect("discard", "all", "you")
+
+
+@_t(r"^(?:after this phase, )?there is an additional combat phase$")
+def _extra_combat(m):
+    return Effect("extra_combat", "-", "you")
+
+
 @_t(r"^create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
 def _create_token(m):
     n = _amount(m.group(1))

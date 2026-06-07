@@ -90,6 +90,7 @@ _CORE_ACTIONS = frozenset({
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
     "doesnt_untap",         # §502 — a 'doesn't untap during its next untap step' restriction
     "choose",               # §601.2d/§700.2 — making a choice (a color, a creature type, …)
+    "extra_combat",         # §505.1b — an additional combat phase
 })
 
 
