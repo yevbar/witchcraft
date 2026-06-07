@@ -479,9 +479,30 @@ _STATIC_PLAYER = [
 
 
 def _static_player(unit, ctx):
+    cid, r = ctx["id"], unit.raw
+
+    def mk(tag):
+        return CardOut(cid, [f'card_static_player("{cid}", "{tag}")'], "static_player")
+
     for pat, tag in _STATIC_PLAYER:
-        if re.match(pat, unit.raw, re.I):
-            return CardOut(ctx["id"], [f'card_static_player("{ctx["id"]}", "{tag}")'], "static_player")
+        if re.match(pat, r, re.I):
+            return mk(tag)
+    # capturing permission/restriction statics (§116/§118/§601) — the scope is a descriptive slug.
+    m = re.match(r"^You can't cast (.+?)\.?$", r, re.I)
+    if m:
+        return mk("cant_cast_" + ground.slug(m.group(1)))
+    m = re.match(r"^You may cast (.+?) from (the top of your library|your graveyard|exile|among them)\b.*?\.?$", r, re.I)
+    if m:
+        return mk("may_cast_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)))
+    m = re.match(r"^You may play (.+?) from (the top of your library|your graveyard|exile)\b.*?\.?$", r, re.I)
+    if m:
+        return mk("may_play_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)))
+    m = re.match(r"^You may play any number of (?:additional )?lands?\b.*?\.?$", r, re.I)
+    if m:
+        return mk("unlimited_lands")
+    m = re.match(r"^You may spend (.+?) as though it were (.+?)\.?$", r, re.I)
+    if m:
+        return mk("spend_" + ground.slug(m.group(1)) + "_as_" + ground.slug(m.group(2)))
     return None
 
 
