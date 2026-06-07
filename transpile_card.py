@@ -550,6 +550,11 @@ def _static_player(unit, ctx):
 
 # card-level static declarations (commander/companion variants §903; static combat requirements §508/509)
 _CARD_STATIC = [
+    # doubling replacement effects (§614 — Doubling Season / Parallel Lives / Hardened Scales family)
+    (r"^If one or more tokens would be created under your control, twice that many.*instead\.?$", "doubles_tokens"),
+    (r"^If an effect would create one or more tokens under your control, it creates twice that many.*instead\.?$", "doubles_tokens"),
+    (r"^If one or more (?:[\w/+ ]*?)counters would be put on .*?, twice that many.*instead\.?$", "doubles_counters"),
+    (r"^If you would put one or more (?:[\w/+ ]*?)counters on .*?, put twice that many.*instead\.?$", "doubles_counters"),
     (r"^~ can be your commander\.?$", "can_be_commander"),
     (r"^[A-Z][a-z]+ commander$", "can_be_commander"),       # ability words: 'Spell commander', …
     (r"^Commander [a-z]+$", "can_be_commander"),             # 'Commander ninja', 'Commander enchantment'

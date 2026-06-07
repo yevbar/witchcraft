@@ -463,9 +463,19 @@ def _put_zone(m):
     return Effect(_ZONE[m.group(2)], "-", "you", ground.slug(m.group(1)))
 
 
-@_t(rf"^(?:({_TGT}) )?loses? that much life$")
+def _that_amt(mult, plus):
+    """'that much/many' with an optional 'twice/half' multiplier or 'plus N' rider -> an amount slug."""
+    a = "that_amount"
+    if mult:
+        a = ground.slug(mult.strip()) + "_" + a
+    if plus:
+        a = a + "_" + ground.slug(plus.strip())
+    return a
+
+
+@_t(rf"^(?:({_TGT}) )?loses? (twice |half )?that much life( plus \d+| minus \d+)?$")
 def _lose_that_much(m):
-    return Effect("lose_life", "that_amount", _target(m.group(1) or "you"))
+    return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
 @_t(rf"^(?:({_TGT}) )?discards? (\w+) cards?(?: at random)?$")
@@ -548,14 +558,14 @@ def _bare_action(m):
     return Effect(v, "-", "you") if v in ground.keyword_actions() else None
 
 
-@_t(rf"^(?:({_TGT}) )?draws? that many cards$")
+@_t(rf"^(?:({_TGT}) )?draws? (twice |half )?that many cards( plus \d+| minus \d+)?$")
 def _draw_that_many(m):
-    return Effect("draw", "that_amount", _target(m.group(1) or "you"))
+    return Effect("draw", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^(?:({_TGT}) )?gains? that much life$")
+@_t(rf"^(?:({_TGT}) )?gains? (twice |half )?that much life( plus \d+| minus \d+)?$")
 def _gain_that_much(m):
-    return Effect("gain_life", "that_amount", _target(m.group(1) or "you"))
+    return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
 @_t(rf"^attach (?:~|it) to ({_TGT})$")
