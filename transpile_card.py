@@ -129,6 +129,21 @@ def _kw_param(unit, ctx):
     return None
 
 
+_PROTO = re.compile(r"^Prototype ((?:\{[^}]+\})+) — (\d+/\d+)$", re.I)
+
+
+def _prototype(unit, ctx):
+    """'Prototype <cost> — P/T' (§702.160) — a grounded keyword giving an alternative cost + size.
+    Recorded as the keyword plus its cost and printed P/T parameters."""
+    m = _PROTO.match(unit.raw)
+    if not m or "prototype" not in ground.keyword_abilities():
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_keyword("{cid}", "prototype")',
+                         f'card_keyword_param("{cid}", "prototype", "cost_{ground.slug(m.group(1))}")',
+                         f'card_keyword_param("{cid}", "prototype", "pt_{m.group(2)}")'], "prototype")
+
+
 def _mana_ability(unit, ctx):
     """An activated mana ability '<cost>: Add <mana>.' (§605.1a — activated, no target, adds mana).
     Cost and produced mana are grounded (symbols via §107.4, colors via §105). Abstains on any
@@ -199,6 +214,8 @@ def _sentences(text: str):
 
 
 _ACTIVATE_RESTR = re.compile(r"^activate (?:this ability )?(only .+|no more than .+)$", re.I)
+_SPEND_RESTR = re.compile(r"^spend this mana only (.+)$", re.I)
+_TRIG_ONCE = re.compile(r"^this ability triggers only once$", re.I)
 
 
 def _split_modifiers(text: str):
@@ -213,6 +230,10 @@ def _split_modifiers(text: str):
         tag = next((t for pat, t in _MODIFIERS if pat.match(s)), None)
         if tag is None and (m := _ACTIVATE_RESTR.match(s)):
             tag = "activate_" + ground.slug(m.group(1))
+        if tag is None and (m := _SPEND_RESTR.match(s)):
+            tag = "spend_only_" + ground.slug(m.group(1))
+        if tag is None and _TRIG_ONCE.match(s):
+            tag = "triggers_once"
         (tags.append(tag) if tag else keep.append(s))
     return ". ".join(keep).strip(), tags        # rejoin with periods so _parse_body can re-split
 
@@ -273,6 +294,27 @@ def _spell(unit, ctx):
     aid = f"a{ctx.get('seq', 0)}"
     return CardOut(ctx["id"], [f'card_ability("{ctx["id"]}", "{aid}", "spell")']
                    + _effect_facts(ctx["id"], aid, effects), "spell")
+
+
+def _static_effect(unit, ctx):
+    """LAST-RESORT: a bare effect line on a permanent (no cost/trigger/keyword) that nonetheless parses
+    fully into grounded effects — e.g. 'Skip your draw step.' This is the static analogue of _spell;
+    it runs only after every specific pattern has declined, and _parse_body's all-or-nothing grounding
+    keeps it faithful (a single ungrounded clause => abstain)."""
+    if {"Instant", "Sorcery"} & _types(ctx):
+        return None                               # one-shots are _spell's job
+    if re.match(r"^(?:When|Whenever|At|If)\b", unit.raw, re.I) or ":" in unit.raw or '"' in unit.raw:
+        return None                               # triggered/activated/quoted/conditional — not a bare static
+    # replacement effects ('… would …, … instead') and die/level table rows ('1—9 | …') parse only
+    # lossily through the one-shot engine — abstain rather than emit a mangled slug (prime directive).
+    if re.search(r"\bwould\b|\binstead\b|—|\|", unit.raw):
+        return None
+    effects = _parse_body(unit.raw)
+    if not effects:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    return CardOut(ctx["id"], [f'card_ability("{ctx["id"]}", "{aid}", "static")']
+                   + _effect_facts(ctx["id"], aid, effects), "static_effect")
 
 
 def _static_control(unit, ctx):
@@ -433,7 +475,21 @@ def _card_static(unit, ctx):
     return None
 
 
-_STATIC_PT = re.compile(rf"^(?P<who>{_TGT}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
+# Static-anthem SUBJECT grammar — a SUBSET of permanents an always-on effect applies to (§613 layer
+# 6/7). Broader than _TGT (which is for spell targets): it admits multi-word adjective chains and a
+# trailing set-qualifier ('… of the chosen type', '… with flying', '… that are enchanted'). The set
+# descriptor is recorded as a faithful slug (like _cant/_restriction subjects) — it names WHICH
+# permanents, not a new mechanic; the grounded part is the verb (modify_pt / grant_keyword).
+_SUBJ = (
+    r"(?:~|enchanted \w+|equipped \w+|"
+    r"(?:other |another |all |each )?[\w'-]+(?: [\w'-]+){0,4}? "
+        r"(?:you control|you own|your opponents control|an opponent controls|they control)"
+        r"(?: (?:with|of|that are|that have|named|without|other than) [\w'+/{}., -]+?)?|"
+    r"(?:other |all )?[\w'-]+ (?:creatures?|permanents?|tokens?)|"
+    r"creatures?|permanents?|you|players)"
+)
+
+_STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?"
                         rf"(?: (?P<conn>as long as|for each) (?P<cond>.+?))?\.?$", re.I)
 
@@ -446,7 +502,8 @@ def _static_pt(unit, ctx):
     if not m:
         return None
     who = _target_slug(m.group("who"))
-    cond = ground.slug(m.group("conn")) + "_" + ground.slug(m.group("cond")) if m.group("cond") else "-"
+    cond = ground.slug(m.group("conn")) + "_" + ground.slug(m.group("cond")) if m.group("cond") else \
+        ("during_your_turn" if unit.raw.lower().startswith("during your turn,") else "-")
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "static")',
              f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "{cond}")']
@@ -567,7 +624,7 @@ def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
     [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
     first strike', 'Other creatures you control have trample as long as you control a Forest'."""
-    m = re.match(rf"^(?:during your turn, )?(?P<who>{_TGT}) (?:has|have) (?P<kw>[\w, ]+?)"
+    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have) (?P<kw>[\w, ]+?)"
                  rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
         return None
@@ -709,12 +766,13 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
-             _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]
+             _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control,
+             _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a

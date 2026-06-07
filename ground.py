@@ -99,6 +99,11 @@ _CORE_ACTIONS = frozenset({
     "skip",                 # §500.7/§504 — skipping a step/phase/turn
     "lose_game", "win_game",  # §104 — losing/winning the game
     "becomes",              # §613.3/§205 — a permanent becomes a creature / changes P/T & types (animate)
+    "switch_pt",            # §613.4 layer 7e — switch power and toughness
+    "extra_turn",           # §500.7 — an effect that gives a player an extra turn
+    "fight",                # §701.12 — the fight keyword action (also in §701 roster; kept explicit)
+    "put_in_hand",          # §400.7/§402 — moving a (looked-at/revealed) card into a hand
+    "put_in_graveyard",     # §400.7/§404 — moving a card into a graveyard (e.g. 'put the rest into your graveyard')
 })
 
 

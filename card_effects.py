@@ -24,8 +24,9 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
 _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
         r"(?:[\w-]+ )?[\w-]+ (?:you control|your opponents control|an opponent controls|they control)|"
-        r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|that [\w'-]+|"
-        r"~|it|them|you|its controller|its owner|their controller)")
+        r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
+        r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
+        r"~|it|them|they|you|its controller|its owner|their controller)")
 
 
 def _amount(s: str):
@@ -195,8 +196,9 @@ def _clash(m):
     return Effect("clash", "-", "you")
 
 
-@_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn$")
+@_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X)) until end of turn$")
 def _boost(m):
+    # P/T delta may be a §107.3 variable X ('-X/-X'); recorded verbatim, still grounded in modify_pt.
     return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
 
 
@@ -238,13 +240,23 @@ def _get_energy(m):
     return Effect("get_energy", m.group(1).count("{"), "you")
 
 
-@_t(r"^add (.+)$")
+@_t(rf"^(?:({_TGT}) )?adds? (?:an additional |additional )?(.+)$")
 def _add_mana(m):
-    """'Add {G}' / 'Add one mana of any color' as an EFFECT (spell/triggered/activated body), §106."""
-    prod = _mana_production(m.group(1))
+    """'Add {G}' / '<player> adds {G}' / 'add an additional {C}' as an EFFECT (§106)."""
+    prod = _mana_production(m.group(2))
     if not prod:
         return None
-    return Effect("add_mana", len(prod), "you", "_".join(dict.fromkeys(prod)))
+    return Effect("add_mana", len(prod), _target(m.group(1) or "you"), "_".join(dict.fromkeys(prod)))
+
+
+@_t(rf"^({_TGT}) perpetually gets ([+-]\d+/[+-]\d+)$")
+def _perpetual(m):
+    return Effect("modify_pt", m.group(2), _target(m.group(1)), "-", "perpetual")
+
+
+@_t(rf"^switch ({_TGT})'s power and toughness(?: until end of turn)?$")
+def _switch_pt(m):
+    return Effect("switch_pt", "-", _target(m.group(1)))
 
 
 @_t(rf"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
@@ -275,6 +287,12 @@ def _extra_combat(m):
     return Effect("extra_combat", "-", "you")
 
 
+@_t(rf"^(?:({_TGT}) )?skips? (?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$")
+def _skip(m):
+    """'Skip your <step/phase/turn>' — a §500.7/§502+ skip effect (grounded skip action)."""
+    return Effect("skip", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
+
+
 @_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
 def _create_token(m):
     n = _amount(m.group(1))
@@ -295,6 +313,18 @@ def _cast_plain(m):
 def _put_from_hand(m):
     return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card",
                   "from_hand_tapped" if m.group(2) else "from_hand")
+
+
+_ZONE = {"hand": "put_in_hand", "graveyard": "put_in_graveyard"}
+
+
+@_t(r"^(?:put )?((?:(?! into )(?! and ).)+?) into (?:your|its owner's|their) (hand|graveyard)$")
+def _put_zone(m):
+    """'Put <cards> into your hand/graveyard' — a §400.7 zone change of looked-at/revealed cards. The
+    object excludes ' into '/' and ' so a compound ('… into your hand and the rest into your
+    graveyard') won't be swallowed whole — it falls through to the body splitter and each half (the
+    second being the verb-less 'the rest into your graveyard') parses as its own grounded zone-move."""
+    return Effect(_ZONE[m.group(2)], "-", "you", ground.slug(m.group(1)))
 
 
 @_t(rf"^(?:({_TGT}) )?loses? that much life$")
@@ -324,7 +354,7 @@ def _look_at(m):
     return Effect("look", n if n is not None else 1, _target(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?gains? ([\w ]+?) until end of turn$")
+@_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?) until end of turn$")
 def _gain_kw_eot(m):
     kw = ground.slug(m.group(2))
     if kw not in ground.keyword_abilities() and kw.split("_")[0] not in ground.keyword_abilities():
@@ -482,12 +512,30 @@ def _choose(m):
     return Effect("choose", "-", ground.slug(m.group(1)))
 
 
+@_t(rf"^(?:({_TGT}) )?(?:takes?|take) an extra turn after this one$")
+def _extra_turn(m):
+    """'<player> takes an extra turn after this one' — an extra turn (§500.7)."""
+    return Effect("extra_turn", "-", _target(m.group(1) or "you"))
+
+
+@_t(r"^you choose (?:a|an|one) ([\w ]+?) from (?:it|among them|them)$")
+def _choose_from(m):
+    """'You choose a <card-kind> from it/among them' — a §700.2 choice over a set of cards."""
+    return Effect("choose", "-", "you", ground.slug(m.group(1)))
+
+
 @_t(rf"^({_TGT}) reveals? their hand$")
 def _reveal_hand(m):
     return Effect("reveal", "-", _target(m.group(1)), "hand")
 
 
-@_t(rf"^({_TGT}) doesn't untap during (?:its controller's|your|their)( next)? untap step$")
+@_t(r"^reveal (?:a|an|one|up to \w+) ([\w ]+?) from among them$")
+def _reveal_among(m):
+    """'Reveal a <card-kind> from among them' — revealing a card out of a looked-at set (§701.16)."""
+    return Effect("reveal", "-", "you", ground.slug(m.group(1)))
+
+
+@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|your|their)( next)? untap step$")
 def _doesnt_untap_eff(m):
     return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
 
@@ -564,9 +612,16 @@ def _discard_that(m):
     return Effect("discard", "that_amount", _target(m.group(1)))
 
 
-@_t(rf"^(?:({_TGT}) )?gains? ([\w ]+?)$")
+@_t(rf"^({_TGT}) fights ({_TGT})$")
+def _fight(m):
+    """'<A> fights <B>' — the §701.12 fight keyword action (each deals damage equal to its power to
+    the other). Recorded as a single grounded fight effect between the two creatures."""
+    return Effect("fight", "-", _target(m.group(1)), _target(m.group(2)))
+
+
+@_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?)$")
 def _gains_perm(m):
-    """'<target> gains <kw>' with NO duration — a permanent keyword grant (§613)."""
+    """'<target> gains/has <kw>' with NO duration — a permanent keyword grant (§613)."""
     kw = _kw_ok(m.group(2))
     return Effect("grant_keyword", "-", _target(m.group(1) or "~"), kw) if kw else None
 

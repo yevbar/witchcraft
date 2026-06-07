@@ -54,11 +54,23 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 56.1%**
-(19,138 / 34,128).
+**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 59.0%**
+(20,125 / 34,128).
 
-### Morning status / honest ceiling (overnight run)
-Climbed 44.5% → 50.1% per-card this run by capturing GENERAL cross-cutting families (keyword
+### Latest batch (cross-cutting families)
+Climbed 56.1% → 59.0% per-card by broadening the static-anthem SUBJECT grammar (`_SUBJ`: multi-word
+adjective chains + trailing set-qualifiers "of the chosen type / with flying / that are enchanted",
+covering "Other green creatures you control", "Creatures you control of the chosen type", etc.); adding
+"they"/possessive-controller targets and has/have keyword grants to the effect engine; the §701.12
+**fight**, §500.7 **extra turn**, §400.7 **zone-move** (put into hand/graveyard, compound-split),
+reveal-from-among-them, skip-step, and §700.2 choose-from templates; a **Prototype** (§702.160)
+keyword handler; "during your turn" static P/T; and a faithful last-resort `_static_effect` fallback
+for bare grounded static lines (gated to REFUSE replacement effects "…would…instead", die/level table
+rows, and conditionals — those parse only lossily, so we abstain per the prime directive). All
+souffle-clean, 0 collisions, no regressions.
+
+### Honest ceiling (overnight run)
+Earlier climbed 44.5% → 50.1% per-card by capturing GENERAL cross-cutting families (keyword
 roster-loader fix, typecycling/landwalk/megamorph/multikicker variants, taplands, anthems,
 conditionals incl. trailing-if/unless-pay/until, granted abilities incl. in-body, cost modifiers,
 CDAs, leveler §711, Class §716, multi-sentence fallback, enters-the-battlefield normalization,
