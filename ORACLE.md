@@ -14,6 +14,26 @@ emit anything it can't ground:
 - if a card says a word the rules don't define, we **abstain** — never invent a fact.
 This inherits the rules directive: *a wrong fact is worse than no fact.*
 
+## One shared pipeline — rules + cards, no duplication, cards can't mutate rules
+The card side REUSES the rules engine, it doesn't fork it:
+- `ground.py` (grounding vocab) and `transpile.py` (the spaCy/lark engine: masking, retags, the
+  _imperative/_action/_effect patterns) are shared. `card_spacy.py` is a thin bridge that DELEGATES to
+  `transpile.transpile_rule` — it never reimplements parsing.
+- card-SPECIFIC code (`card_effects.py` templates, `transpile_card.py` structure) covers only what the
+  rules engine doesn't model: mana symbols, P/T, the cost:/trigger ability skeleton, precise
+  amount/target slots the executable IR needs.
+- **Isolation:** every card relation is `card_*` (card_effect/card_ability/…); NONE collides with a
+  rules relation (validate.py check: 23 card vs 760 rules, 0 collisions). So a card fact can never land
+  in `effect`/`ability` that the rules engine reasons over — interpreting cards cannot change the game's
+  rules. Rules-changing cards (max hand size, extra lands, "can't gain life") are `card_static_player`/
+  `card_static`, which the engine applies ONLY when the card is in play; the rules datalog never reads them.
+
+**`validate.py`** is the single validator for both: (1) ISOLATION — no card/rules relation collision;
+(2) SOUNDNESS — cards.dl compiles + conformance=0 (rules side: build.py determinism gate); (3)
+FAITHFULNESS — every card effect clause is re-parsed by the RULES spaCy engine and the verb cross-checked
+(agreement = independent confirmation; conflicts, mostly the engine's own imperative mis-parses, are the
+audit list).
+
 ## Pipeline (mirrors the rules side)
 | rules side | card side | role |
 |---|---|---|
@@ -34,8 +54,8 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 41.3% · INSTANCE 62.3%** (cards.dl: ~24k cards, ~87k grounded facts,
-conformance_fail=0). Patterns landed:
+**Current: TEMPLATE 41.8% · INSTANCE 62.5%** (cards.dl: 25,333 cards, 87,196 grounded facts,
+conformance_fail=0; validate.py: 0 rules/cards relation collisions). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
 - `spell` / `activated` / `triggered` — ability decomposition (§602/§603); bodies parsed by the shared

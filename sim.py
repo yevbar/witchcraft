@@ -40,13 +40,13 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], [])
         elif rel == "card_adds_mana":
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], []).append(a[2])
-        elif rel == "ability":
+        elif rel == "card_ability":
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
-        elif rel == "ability_cost":
+        elif rel == "card_ability_cost":
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
-        elif rel == "ability_trigger":
+        elif rel == "card_ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
-        elif rel == "effect":
+        elif rel == "card_effect":
             extra = a[6] if len(a) > 6 else "-"
             cond = a[7] if len(a) > 7 else "-"
             db.setdefault(a[0], {}).setdefault("abilities", {}).setdefault(

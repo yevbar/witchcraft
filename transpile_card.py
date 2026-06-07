@@ -178,7 +178,7 @@ def _parse_body(text: str):
 
 
 def _effect_facts(cid, aid, effects):
-    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}", "{e.extra}", "{e.cond}")'
+    return [f'card_effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}", "{e.extra}", "{e.cond}")'
             for i, e in enumerate(effects)]
 
 
@@ -207,7 +207,7 @@ def _spell(unit, ctx):
     if not effects:
         return None
     aid = f"a{ctx.get('seq', 0)}"
-    return CardOut(ctx["id"], [f'ability("{ctx["id"]}", "{aid}", "spell")']
+    return CardOut(ctx["id"], [f'card_ability("{ctx["id"]}", "{aid}", "spell")']
                    + _effect_facts(ctx["id"], aid, effects), "spell")
 
 
@@ -217,8 +217,8 @@ def _static_control(unit, ctx):
     if not m:
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
-                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}", "-", "-")'],
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "static")',
+                         f'card_effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}", "-", "-")'],
                    "static_control")
 
 
@@ -228,8 +228,8 @@ def _activated(unit, ctx):
     if not m or not _cost_ok(m.group("cost")):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    cost_facts = [f'ability("{cid}", "{aid}", "activated")',
-                  f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
+    cost_facts = [f'card_ability("{cid}", "{aid}", "activated")',
+                  f'card_ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:
         return CardOut(cid, cost_facts + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "activated")
@@ -237,7 +237,7 @@ def _activated(unit, ctx):
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    cost_facts += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
 
 
@@ -255,7 +255,7 @@ def _triggered(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     trig = ground.slug(m.group("trig"))
-    head = [f'ability("{cid}", "{aid}", "triggered")', f'ability_trigger("{cid}", "{aid}", "{trig}")']
+    head = [f'card_ability("{cid}", "{aid}", "triggered")', f'card_ability_trigger("{cid}", "{aid}", "{trig}")']
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:
         return CardOut(cid, head + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
@@ -263,7 +263,7 @@ def _triggered(unit, ctx):
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    head += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
 
 
@@ -282,8 +282,8 @@ def _loyalty(unit, ctx):
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    facts = [f'ability("{cid}", "{aid}", "loyalty")', f'ability_cost("{cid}", "{aid}", "{cost}")']
-    facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    facts = [f'card_ability("{cid}", "{aid}", "loyalty")', f'card_ability_cost("{cid}", "{aid}", "{cost}")']
+    facts += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, facts + _effect_facts(cid, aid, effects), "loyalty")
 
 
@@ -303,10 +303,10 @@ def _saga_chapter(unit, ctx):
     if not effects:
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    facts = [f'ability("{cid}", "{aid}", "saga_chapter")']
+    facts = [f'card_ability("{cid}", "{aid}", "saga_chapter")']
     for ch in m.group("ch").split(", "):
         if ch in _ROMAN:
-            facts.append(f'ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
+            facts.append(f'card_ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
     return CardOut(cid, facts + _effect_facts(cid, aid, effects), "saga_chapter")
 
 
@@ -367,14 +367,14 @@ def _static_pt(unit, ctx):
         return None
     who = _target_slug(m.group("who"))
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    facts = [f'ability("{cid}", "{aid}", "static")',
-             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "-")']
+    facts = [f'card_ability("{cid}", "{aid}", "static")',
+             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "-")']
     if m.group("kw"):
         grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
         if not all(grounded):
             return None                       # abstain rather than emit a partial grant
         for i, (kw, _param) in enumerate(grounded, 1):
-            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")')
+            facts.append(f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")')
     return CardOut(cid, facts, "static_pt")
 
 
@@ -405,7 +405,7 @@ def _mode_option(unit, ctx):
     if not effects:
         return None
     cid, aid = ctx["id"], f"mode{ctx.get('seq', 0)}"
-    return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
+    return CardOut(cid, [f'card_mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
 
 
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
@@ -490,8 +490,8 @@ def _static_grant(unit, ctx):
         return None
     who = _target_slug(m.group("who"))
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    facts = [f'ability("{cid}", "{aid}", "static")']
-    facts += [f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
+    facts = [f'card_ability("{cid}", "{aid}", "static")']
+    facts += [f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
               for i, (kw, _p) in enumerate(grounded)]
     return CardOut(cid, facts, "static_grant")
 

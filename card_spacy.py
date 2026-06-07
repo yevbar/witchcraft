@@ -1,109 +1,98 @@
-"""card_spacy.py — interpret an oracle EFFECT clause with the SAME spaCy machinery as the rules.
+"""card_spacy.py — bridge the card interpreter to the RULES engine (transpile.py), no duplication.
 
-The rules pipeline (transpile.py) parses each sentence with spaCy, applies content-agnostic retags
-(_retag_root_verb fixes imperative mis-roots, etc.), and reads the dependency tree. This module reuses
-that exact machinery for card effects: it masks the formal fragments (mana symbols), parses, retags,
-then reads the dependency tree for a grounded (verb, amount, target) — the card analogue of the rules'
-_imperative/_action patterns. It is used as a FALLBACK after card_effects' curated templates (the way
-trf was a miss-only fallback for the rules), so it strictly ADDS faithful coverage and can also
-cross-check the templates.
+Two jobs, both by REUSING transpile.transpile_rule (the same spaCy/lark pipeline that interprets the
+rules — masking, retags, the _imperative/_action/_effect patterns), not reimplementing any of it:
 
-Faithful-or-abstain: emits only when the retagged root is a VERB whose lemma GROUNDS in a rules action
-(directly a §701 keyword action, or a verb+object that maps to a core action like deal+damage ->
-deal_damage). Anything else returns None.
+  engine_action(clause)  -> the grounded verb transpile's spaCy engine reads from an oracle effect
+                            clause (delegates entirely to transpile_rule, then maps its action/effect
+                            verb to the card vocabulary: deal->deal_damage, gain->gain_life, …).
+  validate()             -> run every interpreted card effect clause back through the rules engine and
+                            check the engine AGREES on the verb. This is "rules-engine validation of
+                            card processing in the same pipeline": the spaCy engine independently
+                            confirms (or flags) the curated card facts.
+
+The curated card templates (card_effects.py) stay responsible for the card-SPECIFIC precision the rules
+engine doesn't model — amounts, targets, mana symbols, P/T, the cost:/trigger ability skeleton — while
+the grammatical verb is cross-checked here against the shared engine. Conflicts are the audit list.
 """
 
 from __future__ import annotations
 
 import re
 
-import ground
 import transpile
-from card_effects import Effect
 
-_SYM = re.compile(r"\{[^}]+\}")
-# verb-lemma (+ object cue) -> grounded core action, for the compound actions whose slug isn't the verb.
-_VERB_OBJ = {
-    ("deal", "damage"): "deal_damage",
-    ("gain", "life"): "gain_life",
-    ("lose", "life"): "lose_life",
-    ("draw", "card"): "draw",
-    ("discard", "card"): "discard",
-    ("add", "mana"): "add_mana",
-}
-_DET_PREFIX = {"each": "each_", "every": "each_", "all": "all_"}
+# transpile's rule verbs -> the card effect vocabulary (only where the lemma differs from the slug).
+_MAP = {"deal": "deal_damage", "gain": "gain_life", "lose": "lose_life"}
+_FACT = re.compile(r'^(action|effect|status|capability|ability)\("[^"]*", "([^"]+)"')
 
 
-def _np(tok):
-    """A noun token -> a target slug, honoring target/each/all determiners ('target creature' ->
-    target_creature, 'each opponent' -> each_opponent)."""
-    base = ground.slug(tok.lemma_)
-    kids = {c.lemma_.lower() for c in tok.children}
-    if "target" in kids:
-        return "target_" + base
-    for det, pre in _DET_PREFIX.items():
-        if det in kids:
-            return pre + base
-    if "any" in kids and base == "target":
-        return "any_target"
-    return base
-
-
-def _num(tok):
-    n = next((c for c in tok.children if c.dep_ == "nummod"), None)
-    if n is None:
+def engine_action(clause: str):
+    """The grounded verb transpile's spaCy engine reads from a clause, or None. Pure delegation."""
+    out = transpile.transpile_rule("card", clause)
+    if out is None:
         return None
-    return int(n.text) if n.text.isdigit() else n.text
-
-
-def spacy_effect(sentence: str) -> "Effect | None":
-    """A single effect clause -> grounded Effect via spaCy, or None. Reuses transpile's pipeline."""
-    masked = transpile.preprocess(transpile._normalize(sentence))
-    if not masked.text.strip():
+    m = _FACT.match(out.datalog)
+    if not m:
         return None
-    transpile._LEGEND = masked.legend
-    doc = transpile._NLP(masked.text)
-    if len(doc) == 0:
-        return None
-    transpile._retag_game_nouns(doc)
-    transpile._retag_root_verb(doc)
-    transpile._retag_you(doc)
-    root = next((t for t in doc if t.dep_ == "ROOT"), None)
-    if root is None or root.pos_ != "VERB":
-        return None
-    verb = ground.slug(root.lemma_)
+    verb = m.group(2)
+    return _MAP.get(verb, verb)
 
-    dobj = next((c for c in root.children if c.dep_ in ("dobj", "obj")), None)
-    # "deal N damage to TARGET" — the grammatical object is 'damage'; the real target is the 'to' object.
-    prep_obj = None
-    for c in root.children:
-        if c.dep_ == "prep" and c.lemma_ in ("to", "from", "onto"):
-            prep_obj = next((g for g in c.children if g.dep_ == "pobj"), None)
 
-    obj_lemma = dobj.lemma_.lower() if dobj is not None else ""
-    grounded = _VERB_OBJ.get((verb, obj_lemma))
-    if grounded is None and verb in ground.effect_verbs():
-        grounded = verb
-    if grounded is None:
-        return None
+def _norm(verb: str) -> str:
+    """Collapse template verbs to their bare action so engine/template verbs are comparable."""
+    return {"deal_damage": "deal_damage", "gain_life": "gain_life", "lose_life": "lose_life"}.get(verb, verb)
 
-    # target & amount depend on the action shape
-    if grounded in ("deal_damage",):
-        amount = _num(dobj) if dobj is not None else None
-        target = _np(prep_obj) if prep_obj is not None else "-"
-        return Effect(grounded, amount if amount is not None else "X", target)
-    if grounded in ("draw", "gain_life", "lose_life", "discard", "scry", "surveil", "mill"):
-        amount = _num(dobj) if dobj is not None else 1
-        who = "you" if grounded in ("draw", "gain_life", "lose_life") else "you"
-        return Effect(grounded, amount if amount is not None else 1, who)
-    # object-acting actions (destroy/exile/tap/counter/sacrifice/return/…)
-    if dobj is not None:
-        return Effect(grounded, "-", _np(dobj))
-    return None
+
+def validate(limit: int | None = None):
+    """Cross-check curated card effects against the rules engine. Returns (confirmed, unconfirmed,
+    conflicts[]) where a conflict is (card, clause, template_verb, engine_verb)."""
+    import card_corpus
+    import ground
+    from transpile_card import transpile_unit, _TRIG, _strip_ability_word
+
+    confirmed = unconfirmed = 0
+    conflicts = []
+    cards = card_corpus.load_cards()
+    if limit:
+        cards = cards[:limit]
+    for c in cards:
+        cid = ground.slug(c["name"])
+        for seq, u in enumerate(card_corpus.units_of(c)):
+            o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
+            if not o:
+                continue
+            # recover the prose clause = the ability body (after a trigger/cost prefix)
+            raw = _strip_ability_word(u.raw)
+            mt = _TRIG.match(raw)
+            body = mt.group("body") if mt else (raw.split(":", 1)[1].strip()
+                                                if re.match(r"^[^:]{1,40}:", raw) and "{" in raw.split(":", 1)[0]
+                                                else raw)
+            for f in o.facts:
+                fm = re.match(r'card_effect\("[^"]*", "[^"]*", \d+, "([^"]+)"', f)
+                if not fm:
+                    continue
+                tv = _norm(fm.group(1))
+                ev = engine_action(body)
+                if ev is None:
+                    unconfirmed += 1
+                elif ev == tv:
+                    confirmed += 1
+                else:
+                    unconfirmed += 1
+                    if tv in ("deal_damage", "draw", "destroy", "exile", "gain_life", "tap", "counter") \
+                            and len(conflicts) < 40:
+                        conflicts.append((c["name"], body[:60], tv, ev))
+                break  # one representative effect per ability is enough for the verb cross-check
+    return confirmed, unconfirmed, conflicts
 
 
 if __name__ == "__main__":
-    for t in ["Destroy target creature", "Exile target artifact or enchantment", "Counter target spell",
-              "Tap target creature", "Sacrifice a creature", "Draw two cards", "You gain 3 life",
-              "Mill four cards", "Bolt deals 3 damage to any target", "Each player sacrifices a creature"]:
-        print(f"{t:46} -> {spacy_effect(t)}")
+    conf, unconf, conflicts = validate(limit=4000)
+    tot = conf + unconf
+    print(f"rules-engine cross-validation of card effects (sample of {tot} abilities):")
+    print(f"  confirmed by spaCy engine: {conf} ({100*conf/tot:.0f}%)")
+    print(f"  unconfirmed (engine coarser/abstained): {unconf}")
+    print(f"  verb CONFLICTS (audit list): {len(conflicts)}")
+    for nm, cl, tv, ev in conflicts[:20]:
+        print(f"    {nm}: '{cl}' template={tv} engine={ev}")
