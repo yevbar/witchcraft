@@ -25,7 +25,7 @@ _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|"
         r"(?:[\w-]+ )?[\w-]+ (?:you control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|that [\w'-]+|"
-        r"~|it|you|its controller|its owner|their controller)")
+        r"~|it|them|you|its controller|its owner|their controller)")
 
 
 def _amount(s: str):
@@ -160,16 +160,28 @@ def _regrowth(m):
     return Effect("return_to_hand", "-", _target(m.group(1)), "from_graveyard")
 
 
-@_t(r"^exile the top (?:(\w+) )?cards? of your library$")
+@_t(r"^exile the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$")
 def _exile_top(m):
     n = _amount(m.group(1)) if m.group(1) else 1
-    return Effect("exile", n, "top_of_library") if n is not None else None
+    owner = "library" if m.group(2).lower() == "your" else "top_of_" + ground.slug(m.group(2)) + "_library"
+    return Effect("exile", n, "top_of_library" if m.group(2).lower() == "your" else owner) if n is not None else None
 
 
-@_t(r"^reveal the top (?:(\w+) )?cards? of your library$")
+@_t(r"^reveal the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$")
 def _reveal_top(m):
     n = _amount(m.group(1)) if m.group(1) else 1
-    return Effect("reveal", n, "top_of_library") if n is not None else None
+    tgt = "top_of_library" if m.group(2).lower() == "your" else "top_of_" + ground.slug(m.group(2)) + "_library"
+    return Effect("reveal", n, tgt) if n is not None else None
+
+
+@_t(r"^manifest the top card of your library$")
+def _manifest_top(m):
+    return Effect("manifest", 1, "top_of_library")
+
+
+@_t(r"^clash with an opponent$")
+def _clash(m):
+    return Effect("clash", "-", "you")
 
 
 @_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn$")
@@ -598,8 +610,8 @@ _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
 _UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
 _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
-                      r"the next end step|the next turn's end step)|at end of combat|"
-                      r"at the beginning of the next turn)$", re.I)
+                      r"the next end step|your next end step|the next turn's end step|your upkeep)|"
+                      r"at end of combat|at the beginning of the next turn)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 
