@@ -42,9 +42,22 @@ def measure():
             by_pattern[o.pattern] += 1
         else:
             uncovered[tmpl] = freq[tmpl]
+
+    # PER-CARD full-ingest — the headline metric: a card counts only if EVERY ability line parses.
+    cards = card_corpus.load_cards()
+    full = 0
+    for c in cards:
+        units = card_corpus.units_of(c)
+        if not units:
+            full += 1
+            continue
+        cid = ground.slug(c["name"])
+        if all(transpile_unit(u, {"id": cid, "card": c, "seq": i}) for i, u in enumerate(units)):
+            full += 1
     return {
         "templates": len(reps), "templates_cov": cov_t,
         "instances": inst_total, "instances_cov": inst_cov,
+        "cards": len(cards), "cards_full": full,
         "by_pattern": by_pattern, "uncovered": uncovered,
     }
 
@@ -53,8 +66,10 @@ def main():
     r = measure()
     tpct = 100 * r["templates_cov"] / r["templates"]
     ipct = 100 * r["instances_cov"] / r["instances"]
+    cpct = 100 * r["cards_full"] / r["cards"]
     print(f"grounding vocabulary: {len(ground.keyword_abilities())} keyword abilities, "
           f"{len(ground.keyword_actions())} keyword actions (from rules.txt datalog)")
+    print(f"  >>> CARDS FULLY INGESTED (every line parses): {r['cards_full']}/{r['cards']}  {cpct:.1f}%  <<<")
     print("-" * 64)
     print(f"  TEMPLATE coverage : {r['templates_cov']:6} / {r['templates']:6}  {tpct:5.1f}%")
     print(f"  INSTANCE coverage : {r['instances_cov']:6} / {r['instances']:6}  {ipct:5.1f}%")

@@ -63,7 +63,7 @@ def build() -> tuple[str, dict]:
     p.decl("card_doesnt_untap", [("card", "symbol"), ("who", "symbol")])
     p.decl("card_attacks_each_combat", [("card", "symbol")])
     p.decl("card_enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
-    p.decl("card_enters_tapped", [("card", "symbol")])
+    p.decl("card_enters_tapped", [("card", "symbol"), ("condition", "symbol")])
     p.decl("card_etb_choose", [("card", "symbol"), ("what", "symbol")])
     p.decl("card_static_player", [("card", "symbol"), ("rule", "symbol")])
     p.decl("card_static", [("card", "symbol"), ("tag", "symbol")])

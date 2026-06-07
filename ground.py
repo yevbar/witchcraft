@@ -19,18 +19,21 @@ from functools import lru_cache
 from pathlib import Path
 
 _DL = Path(__file__).parent / "datalog"
-_FACT = re.compile(r'"([a-z0-9_]+)"\)\.')
+_FACT = re.compile(r'"([^"]+)"\)\.')
 
 
 def _names(dl_file: str, decl: str) -> frozenset:
-    """Every second-column symbol of `decl(rule, name).` facts in a generated .dl file."""
+    """Every second-column symbol of `decl(rule, name).` facts in a generated .dl file, normalized to
+    the slug convention used everywhere else. (Reading the full quoted name and re-slugging is what
+    grounds the hyphenated / punctuated §702 keywords — 'jump-start', 'start_your_engines!',
+    'web-slinging' — which an [a-z0-9_]-only reader would silently drop.)"""
     out = set()
     for line in (_DL / dl_file).read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line.startswith(decl + "("):
             m = _FACT.search(line)
             if m:
-                out.add(m.group(1))
+                out.add(slug(m.group(1)))
     return frozenset(out)
 
 

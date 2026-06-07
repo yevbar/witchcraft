@@ -54,8 +54,12 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 42.5% · INSTANCE 63.1%** (cards.dl: ~25k cards, ~88k grounded facts,
-conformance_fail=0; validate.py: 0 rules/cards relation collisions). Patterns landed:
+**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 45.5%**
+(15,525 / 34,128). Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
+they SOLELY block), not raw frequency (`card_coverage.py` reports it; the blocker ranking is the
+worklist). cards.dl ~89k grounded facts, conformance_fail=0; validate.py: 0 rules/cards relation
+collisions. Faithful-or-abstain: keywords NOT in the §702/§701 roster (megamorph/specialize/prepared —
+not standalone CR headings) are abstained, never invented. Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
 - `spell` / `activated` / `triggered` — ability decomposition (§602/§603); bodies parsed by the shared

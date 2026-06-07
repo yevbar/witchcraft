@@ -56,6 +56,8 @@ def _ground_kw(token: str):
         return (s, None)
     if s.endswith("walk") and "landwalk" in _KW:
         return ("landwalk", s[:-4])
+    if s.endswith("cycling") and s != "cycling" and "cycling" in _KW:   # §702.29 typecycling variants
+        return ("cycling", s[:-len("cycling")].rstrip("_") or "land")
     if s in ("daybound", "nightbound") and "daybound_and_nightbound" in _KW:
         return ("daybound_and_nightbound", s)
     return None
@@ -77,6 +79,22 @@ def _kw_line(unit, ctx):
         if param:
             facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{param}")')
     return CardOut(ctx["id"], facts, "kw_line")
+
+
+def _typecycling(unit, ctx):
+    """'<Type>cycling <cost>' (§702.29) — a typecycling variant of cycling (§702.28). 'Plainscycling {2}',
+    'Basic landcycling {1}{G}', 'Landcycling {2}'. Grounds in cycling with the type as a parameter."""
+    m = re.match(r"^([\w ]+?cycling)(?: (\{[^}]+\}|.+?))?\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    g = _ground_kw(m.group(1))
+    if g is None or g[0] != "cycling" or g[1] is None:
+        return None
+    cid = ctx["id"]
+    facts = [f'card_keyword("{cid}", "cycling")', f'card_keyword_param("{cid}", "cycling", "{g[1]}")']
+    if m.group(2):
+        facts.append(f'card_keyword_param("{cid}", "cycling", "cost_{ground.slug(m.group(2))}")')
+    return CardOut(cid, facts, "typecycling")
 
 
 def _kw_param(unit, ctx):
@@ -381,7 +399,8 @@ def _card_static(unit, ctx):
 
 
 _STATIC_PT = re.compile(rf"^(?P<who>{_TGT}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
-                        rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?\.?$", re.I)
+                        rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?"
+                        rf"(?: as long as (?P<cond>.+?))?\.?$", re.I)
 
 
 def _static_pt(unit, ctx):
@@ -392,29 +411,33 @@ def _static_pt(unit, ctx):
     if not m:
         return None
     who = _target_slug(m.group("who"))
+    cond = "as_long_as_" + ground.slug(m.group("cond")) if m.group("cond") else "-"
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "static")',
-             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "-")']
+             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "{cond}")']
     if m.group("kw"):
         grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
         if not all(grounded):
             return None                       # abstain rather than emit a partial grant
         for i, (kw, _param) in enumerate(grounded, 1):
-            facts.append(f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")')
+            facts.append(f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "{cond}")')
     return CardOut(cid, facts, "static_pt")
 
 
 def _etb_tapped(unit, ctx):
-    """'~ enters tapped.' — an ETB replacement (§614) that the permanent enters tapped."""
-    if not re.match(r"^~ enters tapped\.?$", unit.raw):
+    """'~ enters tapped[ unless <condition>].' — an ETB replacement (§614). The tapland family's
+    'unless …' condition is recorded as a descriptive slug (cross-cutting across the many variants)."""
+    m = re.match(r"^~ enters tapped(?: unless (.+?))?\.?$", unit.raw)
+    if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_enters_tapped("{cid}")'], "etb_tapped")
+    cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
+    return CardOut(cid, [f'card_enters_tapped("{cid}", "{cond}")'], "etb_tapped")
 
 
 def _modal(unit, ctx):
     """'Choose one —' / 'Choose one or both —' — a modal spell/ability header (§700.2)."""
-    m = re.match(r"^Choose (one or both|up to one|up to two|up to three|one|two|three)\s*[—–-]?\s*$",
+    m = re.match(r"^Choose (one or both|one or more|up to one|up to two|up to three|one|two|three)\s*[—–-]?\s*$",
                  unit.raw, re.I)
     if not m:
         return None
@@ -559,7 +582,7 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
+_PATTERNS = [_kw_line, _typecycling, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]
