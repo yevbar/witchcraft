@@ -418,6 +418,9 @@ _CARD_STATIC = [
     (r"^You may play lands from your graveyard\.?$", "play_lands_from_graveyard"),
     (r"^A deck can have any number of cards named ~\.?$", "any_number_in_deck"),
     (r"^It's still a land\.?$", "still_a_land"),
+    (r"^Creatures with power less than ~'s power can't block it\.?$", "cant_be_blocked_by_lower_power"),
+    (r"^Enchanted creature can't attack or block, and its activated abilities can't be activated\.?$",
+     "enchanted_cant_attack_block_or_activate"),
 ]
 
 
@@ -590,12 +593,22 @@ def _additional_cost(unit, ctx):
 
 def _enters_with_counters(unit, ctx):
     """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
-    m = re.match(r"^~ enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it\.?$", unit.raw)
+    m = re.match(r"^~ enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
+                 r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{ground.slug(m.group(1))}")'],
+    n = ground.slug(m.group(1)) if not m.group("cond") else "var"
+    return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{n}")'],
                    "enters_with_counters")
+
+
+def _cast_restriction(unit, ctx):
+    """'Cast ~ only <when/if …>.' — a casting timing/condition restriction (§601)."""
+    m = re.match(r"^Cast ~ only (.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "cast_only_{ground.slug(m.group(1))}")'], "card_static")
 
 
 def _doesnt_untap(unit, ctx):
@@ -694,7 +707,8 @@ def _attacks_each_combat(unit, ctx):
 
 
 _PATTERNS = [_kw_line, _typecycling, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
-             _cost_modifier, _class_level, _cda, _etb_tapped, _enters_with_counters, _doesnt_untap,
+             _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
+             _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]
