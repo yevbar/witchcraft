@@ -442,6 +442,8 @@ def _put_zone(m):
     object excludes ' into '/' and ' so a compound ('… into your hand and the rest into your
     graveyard') won't be swallowed whole — it falls through to the body splitter and each half (the
     second being the verb-less 'the rest into your graveyard') parses as its own grounded zone-move."""
+    if re.search(r"\bputs?\b", m.group(1), re.I):   # a declarative '<subject> puts …' is _subject_puts' job
+        return None
     return Effect(_ZONE[m.group(2)], "-", "you", ground.slug(m.group(1)))
 
 
@@ -950,6 +952,39 @@ def _generic_object_verb(m):
     if v not in _OBJ_VERBS or _OBJ_BAD.search(m.group(2)):
         return None
     return Effect(v, "-", ground.slug(m.group(2)))
+
+
+_SUBJ_OBJ_VERBS = {"exiles": "exile", "reveals": "reveal", "searches": "search"}
+
+
+_PUT_DEST = [(re.compile(r"on top of .*library", re.I), "put_on_top"),
+             (re.compile(r"on the bottom of .*library", re.I), "put_on_bottom"),
+             (re.compile(r"into .*graveyard", re.I), "put_in_graveyard"),
+             (re.compile(r"into .*hand", re.I), "put_in_hand"),
+             (re.compile(r"onto the battlefield", re.I), "return_to_battlefield")]
+
+
+@_t(rf"^({_TGT}) puts? (.+?) (on top of .+?|on the bottom of .+?|into .+?|onto the battlefield)$")
+def _subject_puts(m):
+    """A declarative '<subject> puts <object> <destination>' ('Target opponent puts the cards from
+    their hand on top of their library') — destination picks the grounded zone-move verb; the object is
+    a faithful slug (compound-guarded)."""
+    if _is_compound_object(m.group(2)):
+        return None
+    dest = next((v for pat, v in _PUT_DEST if pat.search(m.group(3))), None)
+    if not dest:
+        return None
+    return Effect(dest, "-", _target(m.group(2)), "by_" + _target(m.group(1)))
+
+
+@_t(rf"^({_TGT}) (exiles|reveals|searches) (.+?)$")
+def _subject_obj_verb(m):
+    """A declarative '<subject> exiles/reveals/searches <object>' ('Each player exiles the top card of
+    their library', 'Target opponent reveals their hand') — the actor is the subject, the affected
+    object a faithful slug (compound-guarded). Object-verbs that lack a subject-form template."""
+    if _is_compound_object(m.group(3)):
+        return None
+    return Effect(_SUBJ_OBJ_VERBS[m.group(2).lower()], "-", _target(m.group(3)), "by_" + _target(m.group(1)))
 
 
 @_t(rf"^({_TGT}) (\w+)$")
