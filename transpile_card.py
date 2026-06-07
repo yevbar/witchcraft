@@ -578,6 +578,33 @@ def _doesnt_untap(unit, ctx):
     return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
 
 
+def _cost_modifier(unit, ctx):
+    """Cost-reduction / -increase statics (§118.9): '~ costs {S} less to cast [if <cond>]',
+    '<X> spells you cast cost {S} less to cast', '~ costs {S} more to cast for each …'."""
+    cid = ctx["id"]
+    m = re.match(r"^~ costs (\{[^}]+\}|\d+) (less|more) to cast(?: (.+?))?\.?$", unit.raw, re.I)
+    if m:
+        sc = ground.slug(m.group(3)) if m.group(3) else "-"
+        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "self", "{sc}")'],
+                       "cost_modifier")
+    m = re.match(r"^(.+? spells?(?: you cast)?) cost (\{[^}]+\}|\d+) (less|more) to cast\.?$", unit.raw, re.I)
+    if m:
+        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
+                            f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
+    return None
+
+
+def _cda(unit, ctx):
+    """A characteristic-defining ability (§604.3): \"~'s power [and toughness] (is|are) [each] equal to
+    <X>\" — the P/T is defined by a game quantity, recorded as a descriptive slug."""
+    m = re.match(r"^~'s (power and toughness|power|toughness) (?:is|are) (?:each )?equal to (.+?)\.?$",
+                 unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_cda("{cid}", "{ground.slug(m.group(1))}", "{ground.slug(m.group(2))}")'], "cda")
+
+
 def _painland(unit, ctx):
     """'As ~ enters, you may pay N life. If you don't, it enters tapped.' — the painland/tapland-with-
     life ETB (§614). Recorded as a conditional enters-tapped."""
@@ -604,8 +631,8 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _can_block_additional, _etb_tapped,
-             _enters_with_counters, _doesnt_untap,
+_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _can_block_additional, _cost_modifier, _cda,
+             _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]

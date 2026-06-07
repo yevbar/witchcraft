@@ -323,7 +323,7 @@ def _monarch(m):
     return Effect("become_monarch", "-", "you")
 
 
-@_t(rf"^you (?:gain )?control ({_TGT})$")
+@_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})$")
 def _control(m):
     return Effect("gain_control", "-", _target(m.group(1)))
 
