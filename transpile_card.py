@@ -368,7 +368,7 @@ def _saga_chapter(unit, ctx):
 
 def _etb_choose(unit, ctx):
     """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e)."""
-    m = re.match(r"^As ~ enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
+    m = re.match(r"^As (?:~|it) enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
@@ -683,15 +683,36 @@ def _strip_ability_word(raw: str) -> str:
     return m.group("rest")
 
 
-def transpile_unit(unit, ctx) -> "CardOut | None":
-    """Interpret one ability unit; first faithful pattern wins, else None (abstain)."""
-    stripped = _strip_ability_word(unit.raw)
-    u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
+def _try_patterns(u, ctx):
     for fn in _PATTERNS:
         out = fn(u, ctx)
         if out:
-            out.template = unit.template
             return out
+    return None
+
+
+def transpile_unit(unit, ctx) -> "CardOut | None":
+    """Interpret one ability unit; first faithful pattern wins, else None (abstain).
+    Fallback: a multi-sentence line whose EVERY sentence is independently a whole ability (e.g.
+    '~ enters tapped. As it enters, choose a color.') — interpret each and merge, no half-credit."""
+    stripped = _strip_ability_word(unit.raw)
+    u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
+    out = _try_patterns(u, ctx)
+    if out:
+        out.template = unit.template
+        return out
+    sents = _sentences(u.raw)
+    if len(sents) >= 2:
+        facts, ok = [], True
+        for j, sent in enumerate(sents):
+            sub = dataclasses.replace(u, raw=sent.rstrip("."))
+            so = _try_patterns(sub, {**ctx, "seq": f"{ctx.get('seq', 0)}_{j}"})
+            if not so:
+                ok = False
+                break
+            facts += so.facts
+        if ok:
+            return CardOut(ctx["id"], facts, "multi", template=unit.template)
     return None
 
 
