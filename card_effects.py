@@ -541,6 +541,11 @@ def _becomes(m):
     return Effect("becomes", m.group(2), _target(m.group(1)), ground.slug(m.group(3)) or "-")
 
 
+@_t(rf"^({_TGT}) becomes? the (.+?) of your choice(?: until end of turn)?$")
+def _becomes_choice(m):
+    return Effect("becomes", "-", _target(m.group(1)), "chosen_" + ground.slug(m.group(2)))
+
+
 @_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
 def _enters_counters_eff(m):
     n = _amount(m.group(1))

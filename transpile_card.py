@@ -593,12 +593,13 @@ def _additional_cost(unit, ctx):
 
 def _enters_with_counters(unit, ctx):
     """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
-    m = re.match(r"^~ enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
+    m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
                  r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
     if not m:
         return None
     cid = ctx["id"]
-    n = ground.slug(m.group(1)) if not m.group("cond") else "var"
+    cond = m.group("cond") or (unit.raw.lower().startswith("if ") and "conditional") or None
+    n = ground.slug(m.group(1)) if not cond else "var"
     return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{n}")'],
                    "enters_with_counters")
 
