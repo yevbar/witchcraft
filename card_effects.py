@@ -497,9 +497,22 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
+@_t(rf"^put ({_TGT}) from (?:a|your|its owner's) graveyard onto the battlefield(?: under (?:your|its owner's|that player's) control)?( tapped)?$")
+def _reanimate_put(m):
+    """'Put <card> from a graveyard onto the battlefield [under your control]' — reanimation (§614)."""
+    return Effect("return_to_battlefield", "-", _target(m.group(1)),
+                  "from_graveyard_tapped" if m.group(2) else "from_graveyard")
+
+
 @_t(rf"^exile ({_TGT}) until ~ leaves the battlefield$")
 def _exile_until(m):
     return Effect("exile", "-", _target(m.group(1)), "until_self_leaves")
+
+
+@_t(rf"^exile ({_TGT}) with (\w+) (\w[\w ]*?) counters? on it$")
+def _exile_with_counters(m):
+    """'Exile <X> with N <kind> counters on it' — exile that arrives with counters (suspend etc.)."""
+    return Effect("exile", "-", _target(m.group(1)), ground.slug(m.group(2) + "_" + m.group(3)))
 
 
 @_t(r"^copy (that spell|that ability|it|target [\w ]+?|~)$")
@@ -594,6 +607,12 @@ def _roll_sided(m):
 @_t(r"^play (that card|those cards|it|~|the (?:top|exiled) cards?[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
 def _play(m):
     return Effect("play", "-", _target(m.group(1)))
+
+
+@_t(r"^you may play (?:an additional|up to (?:one|two|\w+) additional) lands?(?: this turn)?$")
+def _extra_land(m):
+    """'You may play an additional land this turn' — a one-shot extra-land permission (§116.2a/§505.5b)."""
+    return Effect("play", "-", "you", "additional_land_this_turn")
 
 
 @_t(rf"^return ({_TGT}) to the battlefield(?: transformed)?(?: under (?:its owner's|your) control)?( tapped)?$")

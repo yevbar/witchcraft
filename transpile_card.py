@@ -708,6 +708,25 @@ def _additional_cost(unit, ctx):
     return CardOut(cid, [f'card_additional_cost("{cid}", "{ground.slug(m.group(1))}")'], "additional_cost")
 
 
+def _exert(unit, ctx):
+    """'You may exert ~ as it attacks.[ When you do, <effect>.]' — the §701.40 exert keyword action: a
+    static option to exert when attacking, plus the reflexive 'when you do' triggered ability whose
+    body must ground (else abstain)."""
+    m = re.match(r"^You may exert ~ as it attacks\.(?: When you do, (?P<body>.+?)\.?)?$", unit.raw, re.I)
+    if not m or "exert" not in ground.keyword_actions():
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    facts = [f'card_static("{cid}", "may_exert_as_it_attacks")']
+    if m.group("body"):
+        effects = _parse_body(m.group("body"))
+        if not effects:
+            return None
+        facts += [f'card_ability("{cid}", "{aid}", "triggered")',
+                  f'card_ability_trigger("{cid}", "{aid}", "exert_attacks")']
+        facts += _effect_facts(cid, aid, effects)
+    return CardOut(cid, facts, "exert")
+
+
 def _cast_as_flash(unit, ctx):
     """'You may cast ~ as though it had flash[ <rider>].' — a flash-granting timing permission (§702.8
     as-though, §601). Any trailing rider ('if you pay {2} more', 'If you cast it any time a sorcery
@@ -846,7 +865,7 @@ def _attacks_each_combat(unit, ctx):
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _cast_as_flash, _alt_cost, _card_static,
+             _attacks_each_combat, _etb_choose, _static_player, _exert, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
