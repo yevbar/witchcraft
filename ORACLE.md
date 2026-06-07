@@ -54,8 +54,8 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 56.0%**
-(19,098 / 34,128).
+**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 56.1%**
+(19,138 / 34,128).
 
 ### Morning status / honest ceiling (overnight run)
 Climbed 44.5% → 50.1% per-card this run by capturing GENERAL cross-cutting families (keyword

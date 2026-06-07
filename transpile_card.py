@@ -421,6 +421,8 @@ _CARD_STATIC = [
     (r"^Creatures with power less than ~'s power can't block it\.?$", "cant_be_blocked_by_lower_power"),
     (r"^Enchanted creature can't attack or block, and its activated abilities can't be activated\.?$",
      "enchanted_cant_attack_block_or_activate"),
+    (r"^You may cast ~ as though it had flash\.?$", "cast_as_though_flash"),
+    (r"^You may choose the same mode more than once\.?$", "modal_repeat_allowed"),
 ]
 
 
