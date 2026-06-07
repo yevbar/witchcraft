@@ -631,6 +631,12 @@ def _flip(m):
     return Effect("flip_coin", "until_lose" if m.group(1) else "-", "you")
 
 
+@_t(r"^(?:you )?don't lose this mana as steps and phases end$")
+def _retain_mana(m):
+    """'you don't lose this mana as steps and phases end' — a §500.4 mana-retention rider (rituals)."""
+    return Effect("retain_mana", "-", "you")
+
+
 @_t(r"^sacrifice (a|an|another|two|three) ([\w ~']+?)$")
 def _sacrifice_a(m):
     n = _amount(m.group(1))
@@ -864,6 +870,18 @@ def _becomes_base_pt(m):
 def _base_pt(m):
     """'<target> has base power and toughness N/N [until end of turn]' — a §208/§613.3 base-P/T set."""
     return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
+
+
+@_t(rf"^({_TGT}) (?:is|are|becomes?) every creature type(?: until end of turn)?$")
+def _all_types(m):
+    """'<target> is every creature type' — a §205 changeling-style all-types effect."""
+    return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
+
+
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]+?) in addition to its other (?:types|colors)(?: until end of turn)?$")
+def _type_add(m):
+    """'<target> is a <type/color> in addition to its other types' — a §205/§105 type/color addition."""
+    return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
 
 
 @_t(rf"^({_TGT}) loses? all (?:other )?abilities(?: until end of turn)?$")
