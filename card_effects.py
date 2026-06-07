@@ -310,7 +310,7 @@ _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(r"^return (.+?) to (?:the |its owner's |their owners?'? ?|your )?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?( tapped)?$")
+@_t(r"^return (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?( tapped)?$")
 def _return_zone(m):
     """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
     faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
@@ -318,6 +318,14 @@ def _return_zone(m):
     if _is_compound_object(m.group(1)):
         return None
     return Effect(_RET_DEST[m.group(2).lower()], "-", _target(m.group(1)), "tapped" if m.group(3) else "-")
+
+
+@_t(r"^return to [\w' ]*?(hand|battlefield|library|graveyard)s? (.+?)$")
+def _return_zone_rev(m):
+    """Reversed phrasing 'Return to <zone> <object>' ('Return to your hand all cards …')."""
+    if _is_compound_object(m.group(2)):
+        return None
+    return Effect(_RET_DEST[m.group(1).lower()], "-", _target(m.group(2)))
 
 
 @_t(r"^you get ((?:\{e\})+)$")
@@ -644,11 +652,17 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(rf"^put ({_TGT}) from (?:a|your|its owner's) graveyard onto the battlefield(?: under (?:your|its owner's|that player's) control)?( tapped)?$")
+@_t(r"^put (.+?)( from [\w' ]+? graveyard)? onto the battlefield(?: under [\w' ]+? control)?( tapped)?$")
 def _reanimate_put(m):
-    """'Put <card> from a graveyard onto the battlefield [under your control]' — reanimation (§614)."""
-    return Effect("return_to_battlefield", "-", _target(m.group(1)),
-                  "from_graveyard_tapped" if m.group(2) else "from_graveyard")
+    """'Put <card> [from a graveyard] onto the battlefield [under <controller>'s control] [tapped]' —
+    reanimation / put-into-play (§614). Object captured as a faithful slug; compound-guarded. The
+    source ('from … graveyard') and tapped state are recorded only when actually stated."""
+    if _is_compound_object(m.group(1)):
+        return None
+    src = "from_graveyard" if m.group(2) else "-"
+    extra = (src + "_tapped").lstrip("-_") if (src != "-" and m.group(3)) else (
+        "tapped" if m.group(3) else src)
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), extra)
 
 
 @_t(rf"^return ({_TGT}) to the battlefield(?: under (?:your|its owner's|that player's) control)?( tapped)?$")
@@ -703,15 +717,17 @@ def _choose(m):
     return Effect("choose", "-", q + ground.slug(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?(?:takes?|take) an extra turn after this one$")
+@_t(rf"^(?:({_TGT}) )?(?:takes?|take) (an|one|two|three|\w+) extra turns? after this one$")
 def _extra_turn(m):
-    """'<player> takes an extra turn after this one' — an extra turn (§500.7)."""
-    return Effect("extra_turn", "-", _target(m.group(1) or "you"))
+    """'<player> takes N extra turn(s) after this one' — extra turn(s) (§500.7)."""
+    n = _amount(m.group(2))
+    return Effect("extra_turn", n if n is not None else "-", _target(m.group(1) or "you"))
 
 
-@_t(r"^you choose (?:a|an|one) ([\w ]+?) from (?:it|among them|them)$")
+@_t(r"^(?:you )?choose (?:a|an|one|two|three|up to \w+|x) ([\w ]+?) from (?:it|among them|them|that player's hand|its owner's hand|target [\w ]+?)$")
 def _choose_from(m):
-    """'You choose a <card-kind> from it/among them' — a §700.2 choice over a set of cards."""
+    """'[You] choose <quantifier> <card-kind> from it/among them/a hand' — a §700.2 choice over a set
+    of cards (the 'look at … and choose …' family)."""
     return Effect("choose", "-", "you", ground.slug(m.group(1)))
 
 
@@ -811,6 +827,12 @@ def _becomes(m):
 @_t(rf"^({_TGT}) becomes? the (.+?) of your choice(?: until end of turn)?$")
 def _becomes_choice(m):
     return Effect("becomes", "-", _target(m.group(1)), "chosen_" + ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) becomes? (white|blue|black|red|green|colorless|all colors|the color of your choice)(?: in addition to its other colors)?(?: until end of turn)?$")
+def _becomes_color(m):
+    """'<target> becomes <color> [until end of turn]' — a §105/§613 color-change."""
+    return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
 
 @_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
