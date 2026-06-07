@@ -325,6 +325,7 @@ _STATIC_PLAYER = [
     (r"^You may play an additional land on each of your turns\.?$", "extra_land_per_turn"),
     (r"^You may play (?:an? )?additional lands? on each of your turns\.?$", "extra_land_per_turn"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
+    (r"^You may choose not to untap ~ during your untap step\.?$", "may_skip_untap"),
 ]
 
 
@@ -425,6 +426,35 @@ def _cant(unit, ctx):
                    "cant")
 
 
+# complex static combat restrictions with a qualifier (§508/§509) — captured as a descriptive slug.
+_CRESTR = [
+    (r"can't be blocked except by (.+)", "cant_be_blocked_except_by_"),
+    (r"can't be blocked by more than (.+)", "cant_be_blocked_by_more_than_"),
+    (r"can't be blocked by (.+)", "cant_be_blocked_by_"),
+    (r"can block only (.+)", "can_block_only_"),
+    (r"can attack only (.+)", "can_attack_only_"),
+    (r"can't attack unless (.+)", "cant_attack_unless_"),
+    (r"can't block unless (.+)", "cant_block_unless_"),
+    (r"attacks each combat if able if (.+)", "attacks_each_combat_if_"),
+]
+
+
+def _combat_restriction(unit, ctx):
+    """'<subject> can('t) <combat-verb> <qualifier>.' — a static combat restriction with a condition
+    (§508/§509). The qualifier is recorded as a descriptive slug (like a trigger/condition slug)."""
+    m = re.match(r"^(~|enchanted creature|equipped creature) (can.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    who = _target_slug(m.group(1))
+    for pat, prefix in _CRESTR:
+        mm = re.match("^" + pat + "$", m.group(2), re.I)
+        if mm:
+            cid = ctx["id"]
+            return CardOut(cid, [f'card_restriction("{cid}", "{who}", "{prefix}{ground.slug(mm.group(1))}")'],
+                           "combat_restriction")
+    return None
+
+
 def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '<subject> has/have <keywords>.' (§613 layer 6): an Aura's
     'Enchanted creature has flying.', an anthem's 'Other creatures you control have trample.'"""
@@ -481,8 +511,8 @@ def _attacks_each_combat(unit, ctx):
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
-             _static_grant, _modal, _mode_option, _cant, _loyalty, _saga_chapter, _mana_ability,
-             _triggered, _activated, _spell, _static_control]
+             _static_grant, _modal, _mode_option, _cant, _combat_restriction, _loyalty, _saga_chapter,
+             _mana_ability, _triggered, _activated, _spell, _static_control]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
