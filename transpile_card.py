@@ -632,6 +632,22 @@ def _painland(unit, ctx):
     return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_pay_{m.group(1)}_life")'], "etb_tapped")
 
 
+def _leveler(unit, ctx):
+    """Leveler-card band/P-T lines (§711): 'LEVEL 2-6' / 'LEVEL 7+' -> a level band; a bare 'N/N'
+    line -> that band's power/toughness. Gated on the Level Up keyword so a bare P/T can't false-match
+    elsewhere."""
+    if "Level Up" not in ((ctx.get("card") or {}).get("keywords") or []):
+        return None
+    cid = ctx["id"]
+    m = re.match(r"^LEVEL (\d+)(?:-(\d+)|(\+))$", unit.raw, re.I)
+    if m:
+        hi = m.group(2) or ("max" if m.group(3) else m.group(1))
+        return CardOut(cid, [f'card_level("{cid}", "band", "{m.group(1)}_{hi}")'], "leveler")
+    if re.match(r"^[+-]?\d+/[+-]?\d+$", unit.raw):
+        return CardOut(cid, [f'card_level("{cid}", "pt", "{unit.raw}")'], "leveler")
+    return None
+
+
 def _enters_prepared(unit, ctx):
     """'~ enters prepared.' — gains the prepared designation as it enters (§722.3)."""
     if not re.match(r"^~ enters prepared\.?$", unit.raw, re.I):
@@ -655,7 +671,7 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _cda, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
