@@ -751,7 +751,7 @@ def _copy(m):
     return Effect("copy", "-", _target(m.group(1)))
 
 
-@_t(r"^choose new targets for the (?:copy|copies)$")
+@_t(r"^(?:you )?(?:may )?choose (?:a )?new targets? for (?:the|that|each|those) (?:copy|copies)$")
 def _new_targets(m):
     return Effect("choose_new_targets", "-", "copy")
 
@@ -1011,6 +1011,15 @@ def _search(m):
     if _is_compound_object(m.group(1)):     # '… for a creature card and put it onto the battlefield'
         return None                          # -> let the body splitter handle the second effect
     return Effect("search", "-", ground.slug(m.group(1)))
+
+
+@_t(r"^search ([\w' ,/-]+?(?:graveyard|hand|library|exile)[\w' ,/-]*?) for ([^,]+?)$")
+def _search_zones(m):
+    """'Search <player>'s graveyard, hand, and/or library for <X>' — a §701.18 search across zones; the
+    searched zones are recorded as a slug, the sought card as the target."""
+    if _is_compound_object(m.group(2)):
+        return None
+    return Effect("search", "-", ground.slug(m.group(2)), ground.slug(m.group(1)))
 
 
 @_t(rf"^put ({_TGT}) onto the battlefield( tapped)?$")
