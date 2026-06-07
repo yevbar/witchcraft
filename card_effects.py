@@ -215,6 +215,13 @@ def _boost(m):
     return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
 
 
+@_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X))$")
+def _boost_bare(m):
+    # bare P/T delta with no stated duration — the duration (if any) is supplied by a wrapper such as
+    # _UNTIL ('Until end of turn, <X> gets +N/+N'); on its own it is a continuous modify_pt.
+    return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
+
+
 @_t(rf"^counter (target [\w ]+? spell[\w ]*?|{_TGT})$")
 def _counter(m):
     return Effect("counter", "-", _target(m.group(1)))
@@ -396,6 +403,15 @@ def _prevent(m):
 @_t(r"^prevent all (combat )?damage that would be dealt this turn$")
 def _fog(m):
     return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
+
+
+@_t(r"^prevent all (combat |noncombat )?damage that would be dealt (.+?)$")
+def _prevent_all_scoped(m):
+    """'Prevent all [combat|noncombat] damage that would be dealt <scope>' (§615). The scope ('to ~',
+    'this turn to creatures you control', 'by enchanted creature', …) is recorded as a faithful slug."""
+    kind = (m.group(1) or "").strip()
+    scope = ((kind + " ") if kind else "") + m.group(2).strip()
+    return Effect("prevent_damage", "all", "-", ground.slug(scope))
 
 
 @_t(r"^([\w' ]+?) (\d+|one|two|three|four|five|x)$")
