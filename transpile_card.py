@@ -264,6 +264,49 @@ def _triggered(unit, ctx):
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
 
 
+_LOYALTY = re.compile(r"^\[([+\-−]?\d+)\]:\s*(?P<body>.+)$")
+
+
+def _loyalty(unit, ctx):
+    """A planeswalker loyalty ability '[+N]: <effect>' / '[−N]: <effect>' (§606) — an activated ability
+    whose cost is a loyalty change."""
+    m = _LOYALTY.match(unit.raw)
+    if not m:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    cost = m.group(1).replace("−", "-")
+    body, mods = _split_modifiers(m.group("body"))
+    effects = _parse_body(body) if body else None
+    if not effects:
+        return None
+    facts = [f'ability("{cid}", "{aid}", "loyalty")', f'ability_cost("{cid}", "{aid}", "{cost}")']
+    facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "loyalty")
+
+
+_ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
+_SAGA = re.compile(r"^(?P<ch>[IVX]+(?:, [IVX]+)*) — (?P<body>.+)$")
+
+
+def _saga_chapter(unit, ctx):
+    """A Saga chapter ability 'I — <effect>' / 'I, II — <effect>' (§714) — a triggered ability that
+    fires when the chapter's lore counter is reached. Gated on the Saga subtype."""
+    if "Saga" not in ((ctx.get("card") or {}).get("subtypes") or []):
+        return None
+    m = _SAGA.match(unit.raw)
+    if not m:
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    facts = [f'ability("{cid}", "{aid}", "saga_chapter")']
+    for ch in m.group("ch").split(", "):
+        if ch in _ROMAN:
+            facts.append(f'ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
+    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "saga_chapter")
+
+
 def _etb_choose(unit, ctx):
     """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e)."""
     m = re.match(r"^As ~ enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
@@ -389,7 +432,8 @@ def _attacks_each_combat(unit, ctx):
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _static_pt, _modal, _mode_option,
-             _cant, _mana_ability, _triggered, _activated, _spell, _static_control]
+             _cant, _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell,
+             _static_control]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
