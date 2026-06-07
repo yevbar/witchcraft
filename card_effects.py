@@ -229,6 +229,13 @@ def _boost(m):
     return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
 
 
+@_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn for each (.+?)$")
+def _boost_foreach(m):
+    """'<X> gets +N/+N until end of turn for each <thing>' — a count-scaled pump (§107.3)."""
+    return Effect("modify_pt", m.group(2) + "_per_" + ground.slug(m.group(3)),
+                  _target(m.group(1)), "until_end_of_turn")
+
+
 @_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X))$")
 def _boost_bare(m):
     # bare P/T delta with no stated duration — the duration (if any) is supplied by a wrapper such as

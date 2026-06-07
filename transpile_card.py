@@ -763,6 +763,26 @@ def _exert(unit, ctx):
     return CardOut(cid, facts, "exert")
 
 
+def _enter_as_copy(unit, ctx):
+    """'You may have ~ enter as a copy of <X>[, except <mods>].' — a copy/clone ETB (§707/§614). The
+    copied object and any exceptions are recorded as a descriptive slug."""
+    m = re.match(r"^You may have ~ enter as a copy of (.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "enters_as_copy_of_{ground.slug(m.group(1))}")'],
+                   "card_static")
+
+
+def _assign_damage_unblocked(unit, ctx):
+    """'You may have ~ assign its combat damage as though it weren't blocked.' — a §509.2 damage-
+    assignment option (trample-like)."""
+    if not re.match(r"^You may have ~ assign its combat damage as though it weren't blocked\.?$",
+                    unit.raw, re.I):
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "may_assign_damage_as_though_unblocked")'],
+                   "card_static")
+
+
 def _cast_as_flash(unit, ctx):
     """'You may cast ~ as though it had flash[ <rider>].' — a flash-granting timing permission (§702.8
     as-though, §601). Any trailing rider ('if you pay {2} more', 'If you cast it any time a sorcery
@@ -922,7 +942,8 @@ def _attacks_each_combat(unit, ctx):
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _exert, _cast_as_flash, _alt_cost, _card_static,
+             _attacks_each_combat, _etb_choose, _static_player, _exert, _enter_as_copy,
+             _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
