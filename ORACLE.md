@@ -34,7 +34,7 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 37.7% · INSTANCE 60.0%** (cards.dl: ~24k cards, ~83k grounded facts,
+**Current: TEMPLATE 39.2% · INSTANCE 60.9%** (cards.dl: ~24k cards, ~84k grounded facts,
 conformance_fail=0). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
@@ -63,6 +63,9 @@ conformance_fail=0). Patterns landed:
   remove a counter (§122); 'discards that card'; delayed 'at end of combat'; before-attackers modifier
 - complex static combat restrictions with a qualifier (card_restriction): 'can't be blocked by …',
   'can block only …', 'can't attack unless …' (§508/509); 'may choose not to untap' static
+- play permission ('you may play that card [this turn]', §601/§116); mana 'any combination of colors';
+  'roll a/two N-sided die/dice'; 'return <t> to the battlefield [under owner's control][ tapped]';
+  'up to N target …' targets; put-on-bottom 'in any order'
 - ability-modifier clauses ('Activate only as a sorcery', 'triggers only once each turn') recorded as
   ability_modifier facts instead of blocking the body
 - `loyalty` planeswalker abilities `[+N]:`/`[−N]:` (§606); `saga_chapter` `I —`/`I, II —` (§714)

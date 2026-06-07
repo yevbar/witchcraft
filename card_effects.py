@@ -21,8 +21,9 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|target [\w ]+?|each [\w ]+?|all [\w ]+?|(?:\w+ )?\w+ you control|"
-        r"enchanted \w+|equipped \w+|that \w+|~|it|you|its controller|its owner|their controller)")
+_TGT = (r"(?:any target|up to \w+ target[\w ]*?|target [\w ]+?|each [\w ]+?|all [\w ]+?|"
+        r"(?:\w+ )?\w+ you control|enchanted \w+|equipped \w+|that \w+|~|it|you|its controller|"
+        r"its owner|their controller)")
 
 
 def _amount(s: str):
@@ -66,6 +67,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(one|two|three|four|five|six) mana of the chosen color", w, re.I)
     if m:
         return ["chosen_color"] * _NUMWORD[m.group(1).lower()]
+    m = re.fullmatch(r"(one|two|three|four|five|six) mana in any combination of colors", w, re.I)
+    if m:
+        return ["any_combination"] * _NUMWORD[m.group(1).lower()]
     return None
 
 
@@ -320,7 +324,7 @@ def _sacrifice_a(m):
     return Effect("sacrifice", n if isinstance(n, int) else "-", ground.slug(m.group(1) + " " + m.group(2)))
 
 
-@_t(r"^put (.+?) on the bottom of your library(?: in (?:a |any )?random order)?$")
+@_t(r"^put (.+?) on the bottom of your library(?: in (?:a |any )?(?:random )?order)?$")
 def _put_bottom(m):
     return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
 
@@ -355,6 +359,26 @@ def _copy(m):
 def _roll(m):
     n = _amount(m.group(1))
     return Effect("roll_die", n if n is not None else 1, "you", m.group(2).lower())
+
+
+_SIDED = {"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12, "twenty": 20, "100": 100}
+
+
+@_t(r"^roll (a|an|one|two|three|\w+) ([\w]+)-sided (?:die|dice)$")
+def _roll_sided(m):
+    n = _amount(m.group(1))
+    sides = _SIDED.get(m.group(2).lower()) or (int(m.group(2)) if m.group(2).isdigit() else None)
+    return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
+
+
+@_t(r"^play (that card|it|~|the (?:top|exiled) card[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
+def _play(m):
+    return Effect("play", "-", _target(m.group(1)))
+
+
+@_t(rf"^return ({_TGT}) to the battlefield(?: under (?:its owner's|your) control)?( tapped)?$")
+def _return_bf(m):
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
 @_t(rf"^remove (a|an|one|two|three|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT})$")

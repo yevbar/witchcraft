@@ -86,6 +86,7 @@ _CORE_ACTIONS = frozenset({
     "copy",                 # §707 — copying a spell/object
     "roll_die",             # §706 — rolling a die
     "remove_counter",       # §122 — removing a counter
+    "play",                 # §601/§116 — playing a card (cast a spell or play a land)
 })
 
 
