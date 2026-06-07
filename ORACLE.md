@@ -34,14 +34,16 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 15.7% · INSTANCE 42.8%** (cards.dl: 19,520 cards, 50,244 grounded facts,
+**Current: TEMPLATE 24.7% · INSTANCE 49.5%** (cards.dl: 21,565 cards, 62,595 grounded facts,
 conformance_fail=0). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
 - `spell` / `activated` / `triggered` — ability decomposition (§602/§603); bodies parsed by the shared
   **effect engine** `card_effects.py` into grounded `(verb, amount, target)` tuples
 - effect verbs grounded in §701 keyword actions + verified core actions (draw/deal_damage/gain_life/
-  modify_pt/tap/…); targets normalized (any_target, target_creature, all_creatures, creatures_you_control, …)
+  modify_pt/tap/add_mana/put_counter/grant_keyword/…); targets normalized (any_target, target_creature,
+  all_creatures, creatures_you_control, it=anaphor, …); effects carry an `extra` slot (counter kind,
+  token spec, mana produced, granted keyword) — `effect(card, aid, seq, verb, amount, target, extra)`
 - `modal` + `mode_option` (§700.2), `cant` restrictions (§508/509/601), `static_pt` (§613),
   `etb_tapped` / `enters_with_counters` (§614/§122), `doesnt_untap` (§502), `attacks_each_combat` (§508)
 

@@ -47,8 +47,10 @@ def load_db():
         elif rel == "ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
         elif rel == "effect":
+            extra = a[6] if len(a) > 6 else "-"
             db.setdefault(a[0], {}).setdefault("abilities", {}).setdefault(
-                a[1], {"kind": "spell", "effects": []})["effects"].append((int(a[2]), a[3], a[4], a[5]))
+                a[1], {"kind": "spell", "effects": []})["effects"].append(
+                    (int(a[2]), a[3], a[4], a[5], extra))
     return db
 
 
@@ -86,7 +88,7 @@ class Game:
         print("   " + msg)
 
     # --- the grounded-verb handlers: one per rules-defined action -----------------------------------
-    def apply(self, verb, amount, target, *, me, opp, tgt_perm=None, tgt_player=None):
+    def apply(self, verb, amount, target, extra="-", *, me, opp, tgt_perm=None, tgt_player=None):
         n = int(amount) if str(amount).lstrip("-").isdigit() else amount
         if verb == "deal_damage":
             if tgt_perm:
@@ -120,8 +122,29 @@ class Game:
             tgt_perm.tapped = (verb == "tap")
             self._say(f"{verb} {tgt_perm.name}")
         elif verb == "add_mana":
-            me.pool.append(target)
-            self._say(f"add {target} mana (pool: {me.pool})")
+            colors = extra.split("_") * (n if isinstance(n, int) else 1)
+            me.pool.extend(colors)
+            self._say(f"add {extra} mana (pool: {me.pool})")
+        elif verb == "put_counter":
+            if tgt_perm and extra.count("/") == 1:
+                dp, dt = (int(x) for x in extra.replace("+", " ").split("/"))
+                tgt_perm.power += dp
+                tgt_perm.toughness += dt
+                self._say(f"put {extra} counter on {tgt_perm.name} (now {tgt_perm.pt[0]}/{tgt_perm.pt[1]})")
+            else:
+                self._say(f"put {amount} {extra} counter(s) on {target}")
+        elif verb == "create":
+            self._say(f"create {amount} {extra} token(s)")
+        elif verb == "discard":
+            pl = tgt_player or me
+            for _ in range(n if isinstance(n, int) else 1):
+                if pl.hand:
+                    pl.hand.pop()
+            self._say(f"{pl.name} discards {n} (hand: {len(pl.hand)})")
+        elif verb == "shuffle":
+            self._say(f"{me.name} shuffles library")
+        elif verb == "grant_keyword":
+            self._say(f"{tgt_perm.name if tgt_perm else target} gains {extra} (until end of turn)")
         else:
             self._say(f"[unhandled grounded verb: {verb}]")
 
@@ -146,8 +169,8 @@ class Game:
         if not ab:
             self._say("(no interpreted spell ability — abstained)")
             return
-        for _seq, verb, amt, tgt in sorted(ab["effects"]):
-            self.apply(verb, amt, tgt, me=me, opp=opp, tgt_perm=tgt_perm, tgt_player=tgt_player)
+        for _seq, verb, amt, tgt, extra in sorted(ab["effects"]):
+            self.apply(verb, amt, tgt, extra, me=me, opp=opp, tgt_perm=tgt_perm, tgt_player=tgt_player)
 
     def tap_for_mana(self, perm, cid, *, me):
         mana = self.db.get(cid, {}).get("mana", {})

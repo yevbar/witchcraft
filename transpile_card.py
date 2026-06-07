@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 import ground
-from card_effects import parse_effect, _TGT
+from card_effects import parse_effect, _TGT, _mana_production
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -97,43 +97,6 @@ def _kw_param(unit, ctx):
     return None
 
 
-_SYM = re.compile(r"\{[^}]+\}")
-_NUMWORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
-
-
-def _mana_production(what: str):
-    """Parse the object of 'Add …' into a list of GROUNDED mana descriptors, or None if it isn't a
-    clean mana production. Each descriptor is a rules color (§105/§107.4), 'colorless', 'any_color',
-    or 'any_one_color'; a choice 'X or Y' becomes 'X_or_Y'. Anything conditional/variable abstains."""
-    w = what.strip().rstrip(".").strip()
-    sc = ground.symbol_color()
-    # "{G}", "{C}", "{G}{G}", "{W}{U}" — concrete symbols
-    syms = _SYM.findall(w)
-    if syms and _SYM.sub("", w).strip() == "":
-        out = []
-        for s in syms:
-            if s in sc:
-                out.append(sc[s])
-            elif s == "{C}":
-                out.append("colorless")
-            else:
-                return None                       # {2}, {S}, hybrid we don't ground yet -> abstain
-        return out
-    # "{G} or {W}" / "{W}, {U}, or {B}" — a choice of concrete colors
-    if " or " in w and syms:
-        choices = [sc.get(s) or ("colorless" if s == "{C}" else None) for s in syms]
-        if all(choices):
-            return ["_or_".join(choices)]
-        return None
-    m = re.fullmatch(r"(one|two|three|four|five|six) mana of any color", w, re.I)
-    if m:
-        return ["any_color"] * _NUMWORD[m.group(1).lower()]
-    m = re.fullmatch(r"(one|two|three|four|five|six) mana of any one color", w, re.I)
-    if m:
-        return ["any_one_color"] * _NUMWORD[m.group(1).lower()]
-    return None
-
-
 def _mana_ability(unit, ctx):
     """An activated mana ability '<cost>: Add <mana>.' (§605.1a — activated, no target, adds mana).
     Cost and produced mana are grounded (symbols via §107.4, colors via §105). Abstains on any
@@ -185,7 +148,7 @@ def _parse_body(text: str):
 
 
 def _effect_facts(cid, aid, effects):
-    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}")'
+    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}", "{e.extra}")'
             for i, e in enumerate(effects)]
 
 
@@ -225,7 +188,7 @@ def _static_control(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
-                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}")'],
+                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}", "-")'],
                    "static_control")
 
 
@@ -307,13 +270,13 @@ def _static_pt(unit, ctx):
     who = _target_slug(m.group("who"))
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'ability("{cid}", "{aid}", "static")',
-             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}")']
+             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-")']
     if m.group("kw"):
         grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
         if not all(grounded):
             return None                       # abstain rather than emit a partial grant
         for i, (kw, _param) in enumerate(grounded, 1):
-            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}")')
+            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-")')
     return CardOut(cid, facts, "static_pt")
 
 

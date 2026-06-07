@@ -34,6 +34,38 @@ def _amount(s: str):
     return None
 
 
+_SYM_RE = re.compile(r"\{[^}]+\}")
+
+
+def _mana_production(what: str):
+    """Parse the object of 'Add …' into a list of GROUNDED mana descriptors, or None if it isn't a
+    clean mana production. Each is a rules color (§105/§107.4), 'colorless', 'any_color', or
+    'any_one_color'; a choice 'X or Y' becomes 'X_or_Y'. Conditional/variable amounts abstain."""
+    w = what.strip().rstrip(".").strip()
+    sc = ground.symbol_color()
+    syms = _SYM_RE.findall(w)
+    if syms and _SYM_RE.sub("", w).strip() == "":
+        out = []
+        for s in syms:
+            if s in sc:
+                out.append(sc[s])
+            elif s == "{C}":
+                out.append("colorless")
+            else:
+                return None
+        return out
+    if " or " in w and syms:
+        choices = [sc.get(s) or ("colorless" if s == "{C}" else None) for s in syms]
+        return ["_or_".join(choices)] if all(choices) else None
+    m = re.fullmatch(r"(one|two|three|four|five|six) mana of any color", w, re.I)
+    if m:
+        return ["any_color"] * _NUMWORD[m.group(1).lower()]
+    m = re.fullmatch(r"(one|two|three|four|five|six) mana of any one color", w, re.I)
+    if m:
+        return ["any_one_color"] * _NUMWORD[m.group(1).lower()]
+    return None
+
+
 def _target(s: str) -> str:
     s = s.strip().rstrip(".")
     if s == "~":
@@ -50,6 +82,7 @@ class Effect:
     verb: str
     amount: object   # int | str("X") | str("+x/+y") | "-"
     target: str
+    extra: str = "-"  # secondary arg: counter kind, token spec, mana produced, granted keyword
 
     def grounded(self) -> bool:
         return self.verb in ground.effect_verbs()
@@ -143,6 +176,58 @@ def _taputap(m):
 @_t(rf"^return ({_TGT}) to (?:its owner's hand|your hand|their owners' hands?|its owner's hands?)$")
 def _bounce(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
+
+
+@_t(r"^add (.+)$")
+def _add_mana(m):
+    """'Add {G}' / 'Add one mana of any color' as an EFFECT (spell/triggered/activated body), §106."""
+    prod = _mana_production(m.group(1))
+    if not prod:
+        return None
+    return Effect("add_mana", len(prod), "you", "_".join(dict.fromkeys(prod)))
+
+
+@_t(rf"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
+def _put_counter(m):
+    n = _amount(m.group(1))
+    return Effect("put_counter", n if n is not None else "X", _target(m.group(3)),
+                  ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
+
+
+@_t(r"^create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
+def _create_token(m):
+    n = _amount(m.group(1))
+    return Effect("create", n if n is not None else "X", "token", ground.slug(m.group(2)))
+
+
+@_t(rf"^(?:(target [\w ]+?|each [\w ]+?|you) )?discards? (\w+) cards?(?: at random)?$")
+def _discard(m):
+    n = _amount(m.group(2))
+    return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
+
+
+@_t(r"^shuffle(?: your library| it into your library)?$")
+def _shuffle(m):
+    return Effect("shuffle", "-", "you")
+
+
+@_t(rf"^({_TGT}) gains? ([\w ]+?) until end of turn$")
+def _gain_kw_eot(m):
+    kw = ground.slug(m.group(2))
+    if kw not in ground.keyword_abilities() and kw.split("_")[0] not in ground.keyword_abilities():
+        return None                           # only a real §702 keyword grant — else abstain
+    return Effect("grant_keyword", "until_end_of_turn", _target(m.group(1)), kw)
+
+
+# bare §701 keyword actions with no target (investigate, populate, proliferate, …).
+_BARE_ACTIONS = {"investigate", "populate", "proliferate", "scry", "surveil", "explore",
+                 "manifest", "amass", "incubate", "connive", "convoke"}
+
+
+@_t(r"^(\w+)$")
+def _bare_action(m):
+    v = ground.slug(m.group(1))
+    return Effect(v, "-", "you") if v in _BARE_ACTIONS else None
 
 
 @_t(rf"^attach (?:~|it) to ({_TGT})$")
