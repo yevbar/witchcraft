@@ -523,6 +523,13 @@ def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
+@_t(rf"^({_TGT}) becomes? an? (\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
+def _becomes(m):
+    """'<target> becomes a N/N [colors/types] [creature] [until end of turn]' — animate / set P/T
+    & types (§613.3 / §205). The type tail is recorded as a descriptive slug."""
+    return Effect("becomes", m.group(2), _target(m.group(1)), ground.slug(m.group(3)) or "-")
+
+
 @_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
 def _enters_counters_eff(m):
     n = _amount(m.group(1))

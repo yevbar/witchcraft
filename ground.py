@@ -98,6 +98,7 @@ _CORE_ACTIONS = frozenset({
     "take_initiative",      # §726 — taking the initiative (a player designation)
     "skip",                 # §500.7/§504 — skipping a step/phase/turn
     "lose_game", "win_game",  # §104 — losing/winning the game
+    "becomes",              # §613.3/§205 — a permanent becomes a creature / changes P/T & types (animate)
 })
 
 
