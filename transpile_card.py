@@ -173,7 +173,8 @@ def _mana_ability(unit, ctx):
 
 # ---- effect bodies (shared by spell / activated / triggered) --------------------------------------
 _SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+|,\s+(?=put\s)|,\s+(?=reveal\s)|\.\s+(?=then\s)", re.I)
-_COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put)\b", re.I)
+_COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|"
+                        r"waterbend|earthbend|airbend|collect)\b", re.I)
 
 
 # ability-modifier clauses — timing/frequency restrictions (§602.5/§603), not effects. Recognized and
@@ -437,7 +438,7 @@ def _triggered(unit, ctx):
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
 
 
-_LOYALTY = re.compile(r"^\[([+\-−]?\d+)\]:\s*(?P<body>.+)$")
+_LOYALTY = re.compile(r"^\[([+\-−]?(?:\d+|X))\]:\s*(?P<body>.+)$")
 
 
 def _loyalty(unit, ctx):

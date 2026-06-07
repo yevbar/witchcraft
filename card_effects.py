@@ -578,6 +578,12 @@ def _monarch(m):
     return Effect("become_monarch", "-", "you")
 
 
+@_t(r'^you get an emblem with "(.+)"$')
+def _emblem(m):
+    """'You get an emblem with "<ability>"' — an emblem (§114); the granted ability is slugged."""
+    return Effect("get_emblem", "-", "you", ground.slug(m.group(1))[:160])
+
+
 @_t(r"^you take the initiative$")
 def _initiative(m):
     return Effect("take_initiative", "-", "you")
