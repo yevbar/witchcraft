@@ -22,8 +22,8 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
 _TGT = (r"(?:any target|up to \w+ target[\w ]*?|target [\w ]+?|each [\w ]+?|all [\w ]+?|"
-        r"(?:\w+ )?\w+ you control|enchanted \w+|equipped \w+|that \w+|~|it|you|its controller|"
-        r"its owner|their controller)")
+        r"(?:\w+ )?\w+ you control|enchanted \w+|equipped \w+|the exiled cards?|those \w+|that \w+|"
+        r"~|it|you|its controller|its owner|their controller)")
 
 
 def _amount(s: str):
@@ -350,6 +350,11 @@ def _put_bottom(m):
     return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
 
 
+@_t(rf"^put ({_TGT}) on the bottom of (?:its owner's|their owner's|your) library$")
+def _put_bottom_tgt(m):
+    return Effect("put_on_bottom", "-", _target(m.group(1)))
+
+
 @_t(r"^look at the top (?:(\w+) )?cards? of your library$")
 def _look_top(m):
     n = _amount(m.group(1)) if m.group(1) else 1
@@ -442,7 +447,7 @@ def _roll_sided(m):
     return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
 
 
-@_t(r"^play (that card|it|~|the (?:top|exiled) card[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
+@_t(r"^play (that card|those cards|it|~|the (?:top|exiled) cards?[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
 def _play(m):
     return Effect("play", "-", _target(m.group(1)))
 

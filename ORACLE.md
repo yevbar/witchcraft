@@ -54,7 +54,7 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 41.8% · INSTANCE 62.5%** (cards.dl: 25,333 cards, 87,196 grounded facts,
+**Current: TEMPLATE 42.5% · INSTANCE 63.0%** (cards.dl: ~25k cards, ~88k grounded facts,
 conformance_fail=0; validate.py: 0 rules/cards relation collisions). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
