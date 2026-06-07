@@ -56,13 +56,21 @@ conformance_fail=0). Patterns landed:
 The interpreter REQUIRES every effect sub-clause in a unit to parse, else abstains the whole unit (no
 half-facts) — e.g. Wrath of God abstains because "They can't be regenerated" isn't yet handled.
 
-## Simulation (sim.py) — the facts are executable
-`sim.py` is a small reviewable shim: it loads cards.dl, builds a tiny game state, and runs ONE handler
-per grounded verb (no per-card logic). The demo executes real cards across varied mechanics — Llanowar
-Elves taps for green; Lightning Bolt kills a Grizzly Bears (damage→death) and burns a player; Divination
-draws two; Giant Growth pumps +3/+3; Healing Salve's modal "gain 3 life". Cards whose text wasn't
-interpreted simply have no facts to run (faithful — never faked). This is the executable proof that the
-grounded fact IR is the substrate for the eventual C++ engine.
+## Simulation — the facts are executable
+Two layers, both consuming the grounded facts as their IR (no per-card logic — one handler per grounded
+verb; cards whose text wasn't interpreted act as their vanilla characteristics, never faked):
+
+- **`sim.py`** — a minimal shim: loads cards.dl, applies effects to a tiny state in a scripted scenario
+  (Llanowar Elves taps; Lightning Bolt kills a creature + burns a player; Divination; Giant Growth;
+  Healing Salve modal life). The smallest reviewable proof that the facts execute.
+- **`engine.py`** — a fuller game engine: a real turn loop (untap → upkeep → draw → main → combat →
+  main2 → end), mana system (basic-land §305.6 + interpreted mana abilities, cost payment), the stack,
+  casting from hand, ETB triggers, combat (blocking, flying/reach evasion, deathtouch, lifelink,
+  vigilance, trades), and state-based actions. Two simple-AI real-card decks (green ground vs blue
+  flyers) play a complete game to a win — e.g. blocks trade Grizzly Bears for Wind Drake, blue flyers
+  connect because green has no reach, and the game ends with a winner.
+
+This is the executable proof that the grounded fact IR is the substrate for the eventual C++ engine.
 
 ## Worklist (top uncovered templates, by instance count — the high-leverage next slices)
 1. `~ enters tapped.` (502) — ETB self-replacement → ground in §614/§603
