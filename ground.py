@@ -106,6 +106,7 @@ _CORE_ACTIONS = frozenset({
     "put_in_graveyard",     # §400.7/§404 — moving a card into a graveyard (e.g. 'put the rest into your graveyard')
     "put_on_top",           # §401.1 — the library is ordered; putting a card on its top
     "end_the_turn",         # §724 — an effect that ends the turn (expedited end process)
+    "remove_from_combat",   # §506.4 — an effect that removes a permanent from combat
 })
 
 

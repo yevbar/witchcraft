@@ -764,6 +764,19 @@ def _is_goaded(m):
     return Effect("goad", "-", _target(m.group(1)))
 
 
+@_t(rf"^remove ({_TGT}) from combat$")
+def _remove_from_combat(m):
+    """'Remove <X> from combat' — the §506.4 remove-from-combat action."""
+    return Effect("remove_from_combat", "-", _target(m.group(1)))
+
+
+@_t(rf"^(?:({_TGT}) )?endures? (\w+)$")
+def _endure(m):
+    """'<X> endures N' — the Endure keyword action (put N +1/+1 counters or make an N/N token)."""
+    n = _amount(m.group(2))
+    return Effect("endure", n if n is not None else "-", _target(m.group(1) or "~")) if "endure" in ground.effect_verbs() else None
+
+
 @_t(rf"^({_TGT}) fights ({_TGT})$")
 def _fight(m):
     """'<A> fights <B>' — the §701.12 fight keyword action (each deals damage equal to its power to

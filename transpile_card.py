@@ -860,7 +860,7 @@ def _cost_modifier(unit, ctx):
         sc = ground.slug(m.group(3)) if m.group(3) else "-"
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "self", "{sc}")'],
                        "cost_modifier")
-    m = re.match(r"^(.+? spells?(?: you cast)?) cost ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
+    m = re.match(r"^([\w' ]*?spells?(?: you cast)?(?: from [\w' ]+?)?) cost ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
     if m:
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
                             f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
