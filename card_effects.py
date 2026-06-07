@@ -120,10 +120,11 @@ def _draw(m):
     return Effect("draw", n, "you") if n is not None else None
 
 
-@_t(rf"^(target [\w ]+?|each [\w ]+?) draws? (\w+) cards?$")
+@_t(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) draws? (a) card$")
 def _draw_tgt(m):
-    n = _amount(m.group(2))
-    return Effect("draw", n, _target(m.group(1))) if n is not None else None
+    who, amt = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+    n = 1 if amt in ("a", "a card") else _amount(amt)
+    return Effect("draw", n, _target(who)) if n is not None else None
 
 
 @_t(rf"^(?:~|.+?) deals (\w+|\d+) damage to ({_TGT})$")
@@ -834,8 +835,11 @@ def parse_clause(sentence: str) -> "Effect | None":
         return _dc.replace(e, cond="if_you_did") if e else None
     m = _IF_COND.match(s)
     if m:
-        e = parse_effect(m.group(2))
-        return _dc.replace(e, cond=ground.slug(m.group(1))) if e else None
+        inner = parse_clause(m.group(2))         # recurse so 'if X, you may Y' / 'if X, Y until …' work
+        if not inner:
+            return None
+        base = ground.slug(m.group(1))
+        return _dc.replace(inner, cond=base if inner.cond == "-" else inner.cond + "__if_" + base)
     m = _UNLESS_PAY.match(s)
     if m:
         e = parse_effect(m.group(1))
