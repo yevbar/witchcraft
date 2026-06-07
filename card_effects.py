@@ -341,6 +341,34 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
+@_t(rf"^exile ({_TGT}) until ~ leaves the battlefield$")
+def _exile_until(m):
+    return Effect("exile", "-", _target(m.group(1)), "until_self_leaves")
+
+
+@_t(r"^copy (that spell|that ability|it|target [\w ]+?|~)$")
+def _copy(m):
+    return Effect("copy", "-", _target(m.group(1)))
+
+
+@_t(r"^roll (a|an|one|two|three|\w+) (d\d+)s?$")
+def _roll(m):
+    n = _amount(m.group(1))
+    return Effect("roll_die", n if n is not None else 1, "you", m.group(2).lower())
+
+
+@_t(rf"^remove (a|an|one|two|three|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT})$")
+def _remove_counter(m):
+    n = _amount(m.group(1))
+    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
+    return Effect("remove_counter", n if n is not None else 1, _target(m.group(3)), kind)
+
+
+@_t(rf"^({_TGT}) discards? that card$")
+def _discard_that(m):
+    return Effect("discard", "that_amount", _target(m.group(1)))
+
+
 @_t(rf"^(?:it |~ )?gains? ([\w ]+?)$")
 def _gains_perm(m):
     """'It gains haste' / '~ gains trample' with NO duration — a permanent keyword grant (§613)."""
@@ -393,8 +421,9 @@ _MAY = re.compile(r"^you may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
-_DELAYED = re.compile(r"^(.+?) at the beginning of (?:the next turn's upkeep|your next upkeep|"
-                      r"the next end step|the next turn's end step)$", re.I)
+_DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
+                      r"the next end step|the next turn's end step)|at end of combat|"
+                      r"at the beginning of the next turn)$", re.I)
 
 
 def _kw_ok(phrase: str):

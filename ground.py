@@ -83,6 +83,9 @@ _CORE_ACTIONS = frozenset({
     "cant_attack", "cant_block", "cant_be_blocked",   # §508/§509 — combat restrictions as effects
     "cant_be_regenerated",  # §701.19 — a 'can't be regenerated' restriction
     "search",               # §701.18 search (also a keyword action, but kept explicit for 'search your library')
+    "copy",                 # §707 — copying a spell/object
+    "roll_die",             # §706 — rolling a die
+    "remove_counter",       # §122 — removing a counter
 })
 
 
