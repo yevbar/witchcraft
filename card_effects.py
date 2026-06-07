@@ -531,15 +531,37 @@ def _skip(m):
     return Effect("skip", "-", ground.slug(m.group(1)))
 
 
-@_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})$")
+@_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})( until end of turn| for as long as .+?)?$")
 def _control(m):
-    return Effect("gain_control", "-", _target(m.group(1)))
+    return Effect("gain_control", "-", _target(m.group(1)),
+                  "until_end_of_turn" if m.group(2) and "end of turn" in m.group(2) else
+                  (ground.slug(m.group(2)) if m.group(2) else "-"))
+
+
+def _is_compound_object(s: str) -> bool:
+    """True if a captured 'object' actually runs on into a SECOND effect ('… and gain control of it',
+    '… then exile it') rather than being a single (possibly qualified) noun phrase. Distinguishes a
+    real conjunction-of-effects from an in-target qualifier ('toughness 4 or greater', 'red or green'):
+    only ' and '/' then ' FOLLOWED BY a new predicate (a grounded verb or a player/pronoun subject)
+    counts. ' or ' never splits effects in card text, so it's left alone."""
+    if re.search(r" then |[:;]", s, re.I):
+        return True
+    for seg in re.split(r" and ", s, flags=re.I)[1:]:
+        w = (seg.split() or [""])[0].lower().rstrip("s")
+        if w in ("you", "that", "its", "their", "each", "they", "it") or \
+           w in ground.effect_verbs() or (w + "s") in ground.effect_verbs() or \
+           {"gain": "gain_life", "draw": "draw", "deal": "deal_damage", "lose": "lose_life"}.get(w):
+            return True
+    return False
 
 
 @_t(rf"^(\w+) ({_TGT})$")
 def _verb_target(m):
     """Generic '<grounded verb> <target>' — regenerate/goad/detain/sacrifice/tap/… target X.
-    parse_effect's grounded() check rejects any first-word that isn't a rules action."""
+    parse_effect's grounded() check rejects any first-word that isn't a rules action. Abstains when the
+    captured target runs on into a second effect, so the body splitter handles each half."""
+    if _is_compound_object(m.group(2)):
+        return None
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
@@ -839,6 +861,26 @@ def _put_among_bf(m):
     """'Put a <kind> card from among them onto the battlefield' — putting a looked-at card into play."""
     return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card",
                   "from_among_tapped" if m.group(2) else "from_among")
+
+
+# grounded verbs whose SOLE argument is the object they affect (no amount, no destination) — a generic
+# imperative 'VERB <object>' grounds faithfully as VERB(target=<object slug>). Excludes amount-verbs
+# (draw/mill/scry), destination-verbs (return/put), and prep-structured ones (deal … to).
+_OBJ_VERBS = frozenset({"exile", "destroy", "tap", "untap", "sacrifice", "regenerate", "goad", "detain",
+                        "counter", "transform", "populate", "fight"})
+_OBJ_BAD = re.compile(r" and | or |[:;,]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bthen\b", re.I)
+
+
+@_t(r"^(\w+) (.+?)$")
+def _generic_object_verb(m):
+    """LAST-RESORT generic leaf: an imperative 'VERB <object>' for an object-only grounded verb, with
+    the object captured as a faithful noun-phrase slug ('exile that card from your graveyard'). Abstains
+    on compound/nested/qualified objects (and/or/comma/colon/equal-to/…) so it can't emit a lossy fact;
+    those need a specific template. Runs after every specific pattern."""
+    v = ground.slug(m.group(1))
+    if v not in _OBJ_VERBS or _OBJ_BAD.search(m.group(2)):
+        return None
+    return Effect(v, "-", ground.slug(m.group(2)))
 
 
 @_t(rf"^({_TGT}) (\w+)$")

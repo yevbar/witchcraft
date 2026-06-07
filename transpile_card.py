@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 import ground
-from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production
+from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production, _is_compound_object
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -252,18 +252,29 @@ def _parse_body(text: str):
         if not sentence:
             continue
         multi = parse_clauses(sentence)
-        if multi:
+        # Prefer a whole-clause parse UNLESS the sentence runs on into a second effect ('… and gain
+        # control of it', '… then exile it'): a single-effect whole-parse there has swallowed the
+        # continuation into its target, so try the split first and only fall back if the split fails.
+        if multi and (len(multi) > 1 or not _is_compound_object(sentence)):
             out.extend(multi)
             continue
         masked, q = _mask_q(sentence)
         parts = [_unmask(p, q) for p in _SPLIT_AND.split(masked)]
-        if len(parts) < 2:
-            return None
-        for p in parts:
-            e = parse_clause(p)
-            if not e:
-                return None
-            out.append(e)
+        if len(parts) >= 2:
+            sub, ok = [], True
+            for p in parts:
+                e = parse_clause(p)
+                if not e:
+                    ok = False
+                    break
+                sub.append(e)
+            if ok:
+                out.extend(sub)
+                continue
+        if multi:                       # split didn't fully parse — fall back to the whole-clause parse
+            out.extend(multi)
+            continue
+        return None
     return out or None
 
 
