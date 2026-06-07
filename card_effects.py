@@ -284,9 +284,9 @@ def _surveil(m):
     return Effect("surveil", n, "you") if n is not None else None
 
 
-@_t(rf"^(?:(target [\w ]+?|each [\w ]+?|you) )?mills? (\w+) cards?$")
+@_t(rf"^(?:({_TGT}) )?mills? (a card|\w+) cards?$")
 def _mill(m):
-    n = _amount(m.group(2))
+    n = 1 if m.group(2) == "a card" else _amount(m.group(2))
     return Effect("mill", n, _target(m.group(1) or "you")) if n is not None else None
 
 
@@ -431,9 +431,10 @@ def _shuffle(m):
     return Effect("shuffle", "-", "you")
 
 
-@_t(rf"^(?:({_TGT}) )?draws? an additional card$")
+@_t(rf"^(?:({_TGT}) )?draws? (an|a|\w+) additional cards?$")
 def _draw_additional(m):
-    return Effect("draw", 1, _target(m.group(1) or "you"), "additional")
+    n = 1 if m.group(2) in ("a", "an") else _amount(m.group(2))
+    return Effect("draw", n if n is not None else 1, _target(m.group(1) or "you"), "additional")
 
 
 @_t(rf"^look at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
@@ -546,7 +547,7 @@ def _flip(m):
     return Effect("flip_coin", "until_lose" if m.group(1) else "-", "you")
 
 
-@_t(r"^sacrifice (a|an|another|two|three) ([\w ]+?)$")
+@_t(r"^sacrifice (a|an|another|two|three) ([\w ~']+?)$")
 def _sacrifice_a(m):
     n = _amount(m.group(1))
     return Effect("sacrifice", n if isinstance(n, int) else "-", ground.slug(m.group(1) + " " + m.group(2)))
