@@ -490,6 +490,8 @@ _CARD_STATIC = [
     (r"^Enchanted creature can't attack or block, and its activated abilities can't be activated\.?$",
      "enchanted_cant_attack_block_or_activate"),
     (r"^You may cast ~ as though it had flash\.?$", "cast_as_though_flash"),
+    (r"^You may cast creature spells as though they had flash\.?$", "creature_spells_as_though_flash"),
+    (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
     (r"^You may choose the same mode more than once\.?$", "modal_repeat_allowed"),
 ]
 

@@ -21,7 +21,9 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|up to \w+ target[\w' -]*?|(?:\w+ )?target [\w' -]+?|"
+_TGT = (r"(?:any target|up to \w+ target[\w' -]*?|"
+        r"target (?:[\w']+, )+(?:or |and )?[\w']+|"   # type-list target: 'target artifact, creature, or land'
+        r"(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
@@ -438,6 +440,14 @@ def _fog(m):
     return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
 
 
+@_t(r"^prevent (that damage|the next (\w+) damage)$")
+def _prevent_that(m):
+    """'Prevent that damage' / 'Prevent the next N damage' (§615) — the consequent of an 'if damage
+    would be dealt …' clause; the wrapper supplies the condition."""
+    n = _amount(m.group(2)) if m.group(2) else None
+    return Effect("prevent_damage", n if n is not None else "that", "-")
+
+
 @_t(r"^prevent all (combat |noncombat )?damage that would be dealt (.+?)$")
 def _prevent_all_scoped(m):
     """'Prevent all [combat|noncombat] damage that would be dealt <scope>' (§615). The scope ('to ~',
@@ -543,9 +553,10 @@ def _look_top(m):
     return Effect("look", n, "top_of_library") if n is not None else None
 
 
-@_t(rf"^({_TGT}) can't (be blocked|block|attack) this turn$")
+@_t(rf"^({_TGT}) can't (be blocked|block|attack)(?: ({_TGT}))? this turn$")
 def _cant_combat(m):
-    return Effect("cant_" + m.group(2).replace(" ", "_"), "-", _target(m.group(1)))
+    extra = _target(m.group(3)) if m.group(3) else "-"
+    return Effect("cant_" + m.group(2).replace(" ", "_"), "-", _target(m.group(1)), extra)
 
 
 @_t(rf"^return ({_TGT}) from your graveyard to the battlefield( tapped)?$")
@@ -656,9 +667,10 @@ def _lose_equal(m):
     return Effect("lose_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^({_TGT}) shuffles? (?:their|its owner's|his or her) (\w+) into (?:their|its owner's|his or her) library$")
+@_t(rf"^({_TGT}) shuffles? (?:their|its owner's|his or her) ([\w ]+?) into (?:their|its owner's|his or her) library$")
 def _shuffle_subj(m):
-    """'<player> shuffles their graveyard/hand into their library' — a shuffle (§103.2/§701.19)."""
+    """'<player> shuffles their graveyard / hand and graveyard into their library' — a shuffle
+    (§103.2/§701.19); the source zone(s) are recorded as a slug."""
     return Effect("shuffle", "-", _target(m.group(1)), "from_" + ground.slug(m.group(2)))
 
 
