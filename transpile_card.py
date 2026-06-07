@@ -412,7 +412,7 @@ _CARD_STATIC = [
     (r"^All creatures able to block ~ do so\.?$", "lure"),
     (r"^~ can't attack or block alone\.?$", "cant_attack_or_block_alone"),
     (r"^~ attacks? alone\.?$", "attacks_alone"),
-    (r"^~ can attack as though it didn't have defender\.?$", "can_attack_despite_defender"),
+    (r"^~ can attack(?: this turn)? as though it didn't have defender\.?$", "can_attack_despite_defender"),
     (r"^If ~ is in your opening hand, you may begin the game with it on the battlefield\.?$", "opening_hand_to_battlefield"),
     (r"^Play with the top card of your library revealed\.?$", "play_with_top_revealed"),
     (r"^You may play lands from your graveyard\.?$", "play_lands_from_graveyard"),

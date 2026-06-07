@@ -128,6 +128,17 @@ def _damage(m):
     return Effect("deal_damage", n if n is not None else "X", _target(m.group(2)))
 
 
+@_t(rf"^(?:~|it|.+?) deals damage equal to (.+?) to ({_TGT})$")
+def _damage_equal(m):
+    return Effect("deal_damage", "equal_to_" + ground.slug(m.group(1)), _target(m.group(2)))
+
+
+@_t(rf"^({_TGT}) reveals? the top (?:(\w+) )?cards? of (?:their|its owner's|your) library$")
+def _subject_reveal_top(m):
+    n = _amount(m.group(2)) if m.group(2) else 1
+    return Effect("reveal", n if n is not None else 1, _target(m.group(1)))
+
+
 @_t(rf"^destroy ({_TGT})$")
 def _destroy(m):
     return Effect("destroy", "-", _target(m.group(1)))
