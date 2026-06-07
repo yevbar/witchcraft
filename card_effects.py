@@ -518,9 +518,15 @@ def _play(m):
     return Effect("play", "-", _target(m.group(1)))
 
 
-@_t(rf"^return ({_TGT}) to the battlefield(?: under (?:its owner's|your) control)?( tapped)?$")
+@_t(rf"^return ({_TGT}) to the battlefield(?: transformed)?(?: under (?:its owner's|your) control)?( tapped)?$")
 def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
+
+
+@_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
+def _enters_counters_eff(m):
+    n = _amount(m.group(1))
+    return Effect("put_counter", n if n is not None else 1, "self", m.group(2))
 
 
 @_t(rf"^remove (a|an|one|two|three|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT})$")
@@ -667,6 +673,7 @@ def parse_clause(sentence: str) -> "Effect | None":
     Abstains if the inner effect isn't grounded."""
     s = sentence.strip().rstrip(".").strip()
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
+    s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
     m = _MAY.match(s)
     if m:
         inner = parse_clause(m.group(1))
