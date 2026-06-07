@@ -64,6 +64,11 @@ def _ground_kw(token: str):
         return ("kicker", "multi")
     if s in ("daybound", "nightbound") and "daybound_and_nightbound" in _KW:
         return ("daybound_and_nightbound", s)
+    # a §702 keyword that carries a symbol/cost parameter inline: 'ward {2}', 'ward {1}{W}' ->
+    # (ward, '2' / '1_w'). The keyword stem must itself be grounded.
+    mm = re.match(r"^([a-z][a-z' -]*?)\s*((?:\{[^}]+\})+)$", token.strip(), re.I)
+    if mm and ground.slug(mm.group(1)) in _KW:
+        return (ground.slug(mm.group(1)), ground.slug(mm.group(2)))
     return None
 
 
@@ -534,7 +539,7 @@ def _as_long_as(unit, ctx):
     return _try_patterns(dataclasses.replace(unit, raw=rebuilt), ctx)
 
 _STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
-                        rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?"
+                        rf"(?: and (?:has|gains?) (?P<kw>[\w,{{}} ]+?))?"
                         rf"(?: (?P<conn>as long as|for each) (?P<cond>.+?))?\.?$", re.I)
 
 
@@ -720,7 +725,7 @@ def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
     [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
     first strike', 'Other creatures you control have trample as long as you control a Forest'."""
-    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have) (?P<kw>[\w, ]+?)"
+    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have) (?P<kw>[\w,{{}} ]+?)"
                  rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
         return None
