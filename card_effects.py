@@ -283,9 +283,20 @@ def _discard(m):
     return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
 
 
-@_t(r"^shuffle(?: your library| it into your library)?$")
+@_t(r"^shuffle(?: your library| (?:it|them|.+?) into (?:your|its owner's|their owner's) library)?$")
 def _shuffle(m):
     return Effect("shuffle", "-", "you")
+
+
+@_t(r"^draw an additional card$")
+def _draw_additional(m):
+    return Effect("draw", 1, "you", "additional")
+
+
+@_t(rf"^look at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
+def _look_at(m):
+    n = _amount(m.group(1)) if m.group(1) else 1
+    return Effect("look", n if n is not None else 1, _target(m.group(2)))
 
 
 @_t(rf"^(?:({_TGT}) )?gains? ([\w ]+?) until end of turn$")
@@ -562,6 +573,7 @@ _MAY = re.compile(r"^you may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
+_UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
 _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
                       r"the next end step|the next turn's end step)|at end of combat|"
                       r"at the beginning of the next turn)$", re.I)
@@ -636,6 +648,10 @@ def parse_clause(sentence: str) -> "Effect | None":
     if m:
         e = parse_effect(m.group(1))
         return _dc.replace(e, cond="unless_pay_" + ground.slug(m.group(2))) if e else None
+    m = _UNLESS.match(s)
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond="unless_" + ground.slug(m.group(2))) if e else None
     m = _DELAYED.match(s)
     if m:
         e = parse_effect(m.group(1))

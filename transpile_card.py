@@ -198,15 +198,21 @@ def _sentences(text: str):
     return [_unmask(s, q) for s in re.split(r"(?<=[.])\s+", masked.strip()) if s.strip()]
 
 
+_ACTIVATE_RESTR = re.compile(r"^activate (?:this ability )?(only .+|no more than .+)$", re.I)
+
+
 def _split_modifiers(text: str):
     """Partition a body's sentences into (effect_text, [modifier_tags]) — pulling out timing/frequency
-    restriction clauses so the remaining effect text can parse on its own."""
+    restriction clauses so the remaining effect text can parse on its own. A general 'Activate … only …'
+    / 'Activate … no more than …' is captured with its condition as a slug (§602.5)."""
     keep, tags = [], []
     for s in _sentences(text):
         s = s.rstrip(".")
         if not s:
             continue
         tag = next((t for pat, t in _MODIFIERS if pat.match(s)), None)
+        if tag is None and (m := _ACTIVATE_RESTR.match(s)):
+            tag = "activate_" + ground.slug(m.group(1))
         (tags.append(tag) if tag else keep.append(s))
     return ". ".join(keep).strip(), tags        # rejoin with periods so _parse_body can re-split
 
