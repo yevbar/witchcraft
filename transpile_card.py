@@ -529,18 +529,22 @@ def _granted_ability(unit, ctx):
 
 
 def _static_grant(unit, ctx):
-    """A static keyword grant with no P/T — '<subject> has/have <keywords>.' (§613 layer 6): an Aura's
-    'Enchanted creature has flying.', an anthem's 'Other creatures you control have trample.'"""
-    m = re.match(rf"^(?P<who>{_TGT}) (?:has|have) (?P<kw>[\w, ]+?)\.?$", unit.raw, re.I)
+    """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
+    [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
+    first strike', 'Other creatures you control have trample as long as you control a Forest'."""
+    m = re.match(rf"^(?:during your turn, )?(?P<who>{_TGT}) (?:has|have) (?P<kw>[\w, ]+?)"
+                 rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
         return None
     grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
     if not grounded or not all(grounded):
         return None
     who = _target_slug(m.group("who"))
+    cond = "as_long_as_" + ground.slug(m.group("cond")) if m.group("cond") else \
+        ("during_your_turn" if unit.raw.lower().startswith("during your turn,") else "-")
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "static")']
-    facts += [f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
+    facts += [f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "{cond}")'
               for i, (kw, _p) in enumerate(grounded)]
     return CardOut(cid, facts, "static_grant")
 
@@ -574,6 +578,24 @@ def _doesnt_untap(unit, ctx):
     return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
 
 
+def _painland(unit, ctx):
+    """'As ~ enters, you may pay N life. If you don't, it enters tapped.' — the painland/tapland-with-
+    life ETB (§614). Recorded as a conditional enters-tapped."""
+    m = re.match(r"^As ~ enters, you may pay (\d+) life\. If you don't, it enters tapped\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_pay_{m.group(1)}_life")'], "etb_tapped")
+
+
+def _can_block_additional(unit, ctx):
+    """'~ can block an additional creature[ each combat].' — a static blocking ability (§509)."""
+    m = re.match(r"^~ can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_additional")'], "card_static")
+
+
 def _attacks_each_combat(unit, ctx):
     """'~ attacks each combat if able.' — a combat requirement (§508)."""
     if not re.match(r"^~ attacks each combat if able\.?$", unit.raw):
@@ -582,7 +604,8 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
+_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _can_block_additional, _etb_tapped,
+             _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]
@@ -592,15 +615,21 @@ _PATTERNS = [_kw_line, _typecycling, _kw_param, _etb_tapped, _enters_with_counte
 # prefix FOLLOWED BY a trigger word (When/Whenever/At): that's the safe signal for a real ability word
 # and avoids the keyword-cost em-dash syntax ('Cumulative upkeep — Pay {1}', 'Buyback — {cost}'), Saga
 # chapters, die tables, loyalty, and the modal header. A grounded keyword prefix is never stripped.
-_ABILITY_WORD = re.compile(r"^(?P<word>[A-Z][a-z][\w'’-]*(?: [A-Z]?[\w'’-]+){0,3})\s+—\s+"
-                           r"(?P<rest>(?:When|Whenever|At) .+)$")
+_ABILITY_WORD = re.compile(r"^(?P<word>[A-Z][a-z][\w'’-]*(?: [a-z]?[\w'’-]+){0,2})\s+—\s+(?P<rest>.+)$")
 
 
 def _strip_ability_word(raw: str) -> str:
+    """Strip a flavor ability-word prefix ('Threshold — …', 'Landfall — …', §207.2c) for ANY following
+    ability, so it reaches its pattern. Excludes grounded keywords (so keyword-cost em-dash syntax like
+    'Cumulative upkeep — Pay {1}' is kept) and the structural 'Choose …'/'Level …' headers; Saga
+    chapters (roman, all-caps) and loyalty ('[+1]') don't match the lowercase-tailed word shape."""
     m = _ABILITY_WORD.match(raw)
-    if m and _ground_kw(m.group("word")) is None:
-        return m.group("rest")
-    return raw
+    if not m:
+        return raw
+    w = m.group("word")
+    if w.startswith(("Choose", "Level")) or _ground_kw(w) is not None:
+        return raw
+    return m.group("rest")
 
 
 def transpile_unit(unit, ctx) -> "CardOut | None":

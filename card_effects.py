@@ -281,6 +281,11 @@ def _prevent(m):
     return Effect("prevent_damage", n if n is not None else "X", _target(m.group(2)))
 
 
+@_t(r"^prevent all (combat )?damage that would be dealt this turn$")
+def _fog(m):
+    return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
+
+
 @_t(r"^([\w' ]+?) (\d+|one|two|three|four|five|x)$")
 def _kwaction_n(m):
     """A §701 keyword action that takes a number — 'Monstrosity 3', 'Amass 2', 'Proliferate'… ."""
