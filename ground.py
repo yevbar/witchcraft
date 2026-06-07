@@ -97,6 +97,7 @@ _CORE_ACTIONS = frozenset({
     "grant_ability",        # §613.6 — granting a quoted ability (effect-clause form)
     "take_initiative",      # §726 — taking the initiative (a player designation)
     "skip",                 # §500.7/§504 — skipping a step/phase/turn
+    "lose_game", "win_game",  # §104 — losing/winning the game
 })
 
 

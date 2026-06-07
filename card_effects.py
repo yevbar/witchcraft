@@ -251,10 +251,30 @@ def _extra_combat(m):
     return Effect("extra_combat", "-", "you")
 
 
-@_t(r"^create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
+@_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: .*)?$")
 def _create_token(m):
     n = _amount(m.group(1))
     return Effect("create", n if n is not None else "X", "token", ground.slug(m.group(2)))
+
+
+@_t(r"^(?:you )?(lose|win) the game$")
+def _game_end(m):
+    return Effect(m.group(1).lower() + "_game", "-", "you")
+
+
+@_t(r"^cast (the copy|that card|it|~|that [\w ]+?)(?: this turn| without paying its mana cost)?$")
+def _cast_plain(m):
+    return Effect("cast", "-", _target(m.group(1)))
+
+
+@_t(r"^put a ([\w ]+?) card from your hand onto the battlefield$")
+def _put_from_hand(m):
+    return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card", "from_hand")
+
+
+@_t(rf"^(?:({_TGT}) )?loses? that much life$")
+def _lose_that_much(m):
+    return Effect("lose_life", "that_amount", _target(m.group(1) or "you"))
 
 
 @_t(rf"^(?:({_TGT}) )?discards? (\w+) cards?(?: at random)?$")
@@ -328,7 +348,7 @@ def _initiative(m):
     return Effect("take_initiative", "-", "you")
 
 
-@_t(r"^skip your (draw step|next draw step|untap step|combat phase|next combat phase|draw)$")
+@_t(r"^(?:you )?skip your (draw step|next draw step|untap step|combat phase|next combat phase|draw|next turn|next combat)$")
 def _skip(m):
     return Effect("skip", "-", ground.slug(m.group(1)))
 

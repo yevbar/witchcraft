@@ -54,8 +54,8 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 49.5%**
-(16,897 / 34,128). Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
+**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 49.9%**
+(17,034 / 34,128). Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
 they SOLELY block), not raw frequency (`card_coverage.py` reports it; the blocker ranking is the
 worklist). cards.dl ~89k grounded facts, conformance_fail=0; validate.py: 0 rules/cards relation
 collisions. Faithful-or-abstain: keywords NOT in the §702/§701 roster (megamorph/specialize/prepared —
