@@ -28,6 +28,7 @@ _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|"
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
+        r"(?:the )?(?:defending|attacking|active|target) player|"
         r"~|it|them|they|you|its controller|its owner|their controller)")
 
 

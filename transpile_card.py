@@ -243,6 +243,25 @@ def _split_modifiers(text: str):
     return ". ".join(keep).strip(), tags        # rejoin with periods so _parse_body can re-split
 
 
+_SUBJ_RE = re.compile(rf"^({_TGT}) ", re.I)
+# 3rd-person predicate verbs that, with no subject, indicate a shared-subject continuation ('… , then
+# draws a card', '…, then exiles the rest').
+_BARE_PRED = re.compile(r"^(?:draws?|discards?|gains?|loses?|mills?|exiles?|shuffles?|sacrifices?|"
+                        r"creates?|puts?|returns?|reveals?|searches?|taps?|untaps?|adds?)\b", re.I)
+
+
+def _leading_subject(part: str):
+    """The player/permanent subject NP a clause opens with ('Each player', 'Target opponent'), or None."""
+    m = _SUBJ_RE.match(part)
+    return m.group(1) if m else None
+
+
+def _has_leading_subject(part: str) -> bool:
+    """True if the part already starts with its own subject (so it doesn't need one reattached) — i.e.
+    it does NOT start with a bare 3rd-person predicate verb."""
+    return not _BARE_PRED.match(part.strip())
+
+
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
     Splits on sentence boundaries and simple 'and'/'then' conjunctions (quote-safe); else abstains."""
@@ -264,9 +283,14 @@ def _parse_body(text: str):
         masked = re.sub(r"power and toughness", "power\x00and\x00toughness", masked, flags=re.I)
         parts = [_unmask(p.replace("\x00", " "), q) for p in _SPLIT_AND.split(masked)]
         if len(parts) >= 2:
+            subj = _leading_subject(parts[0])          # for 'X A, then B' the later predicates share X
             sub, ok = [], True
-            for p in parts:
-                e = parse_clause(p)
+            for j, p in enumerate(parts):
+                e = None
+                if j > 0 and subj and not _has_leading_subject(p):
+                    e = parse_clause(f"{subj} {p}")    # reattach the shared subject ('then draws …')
+                if not e:
+                    e = parse_clause(p)
                 if not e:
                     ok = False
                     break
@@ -569,7 +593,7 @@ def _card_static(unit, ctx):
 _SUBJ = (
     r"(?:~|enchanted \w+|equipped \w+|"
     r"(?:other |another |all |each )?[\w'-]+(?: [\w'-]+){0,4}? "
-        r"(?:you control|you own|your opponents control|an opponent controls|they control)"
+        r"(?:you control|you own|your opponents control|an opponent controls|they control|your team controls|a player controls|each player controls)"
         r"(?: (?:with|of|that are|that have|named|without|other than) [\w'+/{}., -]+?)?|"
     r"(?:other |all )?[\w'-]+ (?:creatures?|permanents?|tokens?)|"
     r"creatures?|permanents?|you|players|it)"
@@ -781,11 +805,11 @@ def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
     [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
     first strike', 'Other creatures you control have trample as long as you control a Forest'."""
-    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have) (?P<kw>[\w,{{}} ]+?)"
+    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have|gains?) (?P<kw>[\w,{{}} ]+?)"
                  rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
         return None
-    grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
+    grounded = [_ground_kw(k.strip()) for k in re.split(r",\s*(?:and )?| and ", m.group("kw")) if k.strip()]
     if not grounded or not all(grounded):
         return None
     who = _target_slug(m.group("who"))
