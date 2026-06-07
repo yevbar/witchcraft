@@ -259,7 +259,10 @@ def _parse_body(text: str):
             out.extend(multi)
             continue
         masked, q = _mask_q(sentence)
-        parts = [_unmask(p, q) for p in _SPLIT_AND.split(masked)]
+        # protect intra-phrase ' and ' that is NOT a conjunction of effects ('base power and toughness',
+        # 'power and toughness') so the splitter doesn't tear the phrase apart.
+        masked = re.sub(r"power and toughness", "power\x00and\x00toughness", masked, flags=re.I)
+        parts = [_unmask(p.replace("\x00", " "), q) for p in _SPLIT_AND.split(masked)]
         if len(parts) >= 2:
             sub, ok = [], True
             for p in parts:

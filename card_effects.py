@@ -834,7 +834,7 @@ def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(rf"^({_TGT}) becomes? an? (\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) an? (\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
 def _becomes(m):
     """'<target> becomes a N/N [colors/types] [creature] [until end of turn]' — animate / set P/T
     & types (§613.3 / §205). The type tail is recorded as a descriptive slug."""
@@ -850,6 +850,25 @@ def _becomes_choice(m):
 def _becomes_color(m):
     """'<target> becomes <color> [until end of turn]' — a §105/§613 color-change."""
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness (\d+/\d+)(?: in addition to its other types)?(?: until end of turn)?$")
+def _becomes_base_pt(m):
+    """'<target> becomes/is a <colors/types> creature with base power and toughness N/N' — animate to a
+    new creature with set base P/T (§208/§613.3); the type descriptor is a faithful slug."""
+    return Effect("becomes", m.group(3), _target(m.group(1)), "base_pt_" + ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) (?:has|have|with) base power and toughness (\d+/\d+)(?: until end of turn)?$")
+def _base_pt(m):
+    """'<target> has base power and toughness N/N [until end of turn]' — a §208/§613.3 base-P/T set."""
+    return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
+
+
+@_t(rf"^({_TGT}) loses? all (?:other )?abilities(?: until end of turn)?$")
+def _lose_abilities(m):
+    """'<target> loses all abilities [until end of turn]' — a §613.6 ability-removal effect."""
+    return Effect("lose_abilities", "-", _target(m.group(1)))
 
 
 @_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
@@ -1045,19 +1064,35 @@ def _kw_ok(phrase: str):
     return kw if (kw in ground.keyword_abilities() or kw.split("_")[0] in ground.keyword_abilities()) else None
 
 
-_EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)((?: and gains? [\w ]+?)+) until end of turn$", re.I)
-_EOT_GRANTS = re.compile(rf"^({_TGT}) gains? ([\w ]+?(?: and [\w ]+?)+) until end of turn$", re.I)
+def _kw_list(s: str):
+    """Parse a keyword list 'first strike, vigilance, and trample' -> [kw,…] iff EVERY item grounds in
+    §702, else None. Handles comma and/or 'and' separators (the common multi-keyword grant form)."""
+    parts = [p.strip() for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", s) if p.strip()]
+    kws = [_kw_ok(p) for p in parts]
+    return kws if parts and all(kws) else None
+
+
+_EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)(?: and (?:gains?|has|have) ([\w, ]+?))? until end of turn$", re.I)
+_EOT_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?) until end of turn$", re.I)
 _EOT_PUMP_CANT = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn and (can't (?:be blocked|block|attack)) this turn$", re.I)
+_PERM_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)$", re.I)
 
 
 def _eot_compound(s: str):
-    """A compound until-end-of-turn buff -> MULTIPLE effects: '<t> gets +N/+N and gains trample …' or
-    '<t> gains flying and lifelink …'. Abstains unless every granted word is a real §702 keyword.
-    Normalizes a LEADING 'Until end of turn, …' to the suffix form first — otherwise the body splitter
-    would peel '… and gains trample' into a subject-less clause and (wrongly) grant it to self."""
+    """A compound buff -> MULTIPLE effects: '<t> gets +N/+N and gains first strike, vigilance, and
+    trample …', '<t> gains flying and lifelink …'. Keyword lists may be comma- and/or 'and'-separated;
+    abstains unless EVERY granted word is a real §702 keyword. Normalizes a LEADING 'Until end of turn,
+    …' to the suffix form first — else the body splitter peels '… and gains trample' into a subject-less
+    clause and wrongly grants it to self."""
     lead = re.match(r"^until end of turn,\s+(.+)$", s, re.I)
     if lead and "until end of turn" not in lead.group(1).lower():
         s = lead.group(1) + " until end of turn"
+    # animate / turn-into form: '<subj> loses all abilities and (has|is|becomes) <…>' — the second
+    # predicate shares the subject, so reattach it before parsing (the splitter would drop it).
+    m = re.match(rf"^({_TGT}) loses? all (?:other )?abilities and (has|have|is|are|becomes?|gains?) (.+?)$", s, re.I)
+    if m:
+        tail = parse_clause(f"{m.group(1)} {m.group(2)} {m.group(3)}")
+        return [Effect("lose_abilities", "-", _target(m.group(1))), tail] if tail else None
     m = _EOT_PUMP_CANT.match(s)
     if m:
         who = _target(m.group(1))
@@ -1067,22 +1102,24 @@ def _eot_compound(s: str):
     if m:
         who = _target(m.group(1))
         out = [Effect("modify_pt", m.group(2), who)]
-        for g in re.findall(r"gains? ([\w ]+?)(?= and gains| until|$)", m.group(3), re.I):
-            kw = _kw_ok(g)
-            if not kw:
+        if m.group(3):
+            kws = _kw_list(m.group(3))
+            if not kws:
                 return None
-            out.append(Effect("grant_keyword", "until_end_of_turn", who, kw))
+            out += [Effect("grant_keyword", "until_end_of_turn", who, kw) for kw in kws]
         return out
     m = _EOT_GRANTS.match(s)
     if m:
-        who = _target(m.group(1))
-        out = []
-        for g in re.split(r" and ", m.group(2)):
-            kw = _kw_ok(g)
-            if not kw:
-                return None
-            out.append(Effect("grant_keyword", "until_end_of_turn", who, kw))
-        return out
+        kws = _kw_list(m.group(2))
+        if kws:
+            who = _target(m.group(1))
+            return [Effect("grant_keyword", "until_end_of_turn", who, kw) for kw in kws]
+    m = _PERM_GRANTS.match(s)         # permanent (no-duration) multi-keyword grant — single is _gains_perm's
+    if m:
+        kws = _kw_list(m.group(2))
+        if kws and len(kws) > 1:
+            who = _target(m.group(1))
+            return [Effect("grant_keyword", "-", who, kw) for kw in kws]
     return None
 
 

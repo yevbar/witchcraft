@@ -107,6 +107,7 @@ _CORE_ACTIONS = frozenset({
     "put_on_top",           # §401.1 — the library is ordered; putting a card on its top
     "end_the_turn",         # §724 — an effect that ends the turn (expedited end process)
     "remove_from_combat",   # §506.4 — an effect that removes a permanent from combat
+    "lose_abilities",       # §613.6 — a continuous effect that removes a permanent's abilities
 })
 
 
