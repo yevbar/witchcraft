@@ -924,7 +924,10 @@ def _enters_prepared(unit, ctx):
 
 
 def _can_block_additional(unit, ctx):
-    """'~ can block an additional creature[ each combat].' — a static blocking ability (§509)."""
+    """'~ can block an additional creature[ each combat]' / '~ can block any number of creatures.' —
+    a static blocking ability (§509)."""
+    if re.match(r"^~ can block any number of creatures\.?$", unit.raw, re.I):
+        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_any_number")'], "card_static")
     m = re.match(r"^~ can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
     if not m:
         return None

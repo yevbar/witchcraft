@@ -183,6 +183,13 @@ def _gain(m):
     return Effect("gain_life", n, _target(m.group(1) or "you")) if n is not None else None
 
 
+@_t(rf"^(?:({_TGT}) )?gains? (\w+) life for each (.+?)$")
+def _gain_foreach(m):
+    n = _amount(m.group(2))
+    return Effect("gain_life", (str(n) if n is not None else ground.slug(m.group(2))) + "_per_" + ground.slug(m.group(3)),
+                  _target(m.group(1) or "you"))
+
+
 @_t(rf"^(?:({_TGT}) )?loses? (\w+) life$")
 def _lose(m):
     n = _amount(m.group(2))
@@ -391,14 +398,19 @@ def _discard(m):
     return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
 
 
+@_t(rf"^(?:({_TGT}) )?discards? (their hand|those cards|that card|all the cards in their hand)$")
+def _discard_set(m):
+    return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
+
+
 @_t(r"^shuffle(?: your library| (?:it|them|.+?) into (?:your|its owner's|their owner's) library)?$")
 def _shuffle(m):
     return Effect("shuffle", "-", "you")
 
 
-@_t(r"^draw an additional card$")
+@_t(rf"^(?:({_TGT}) )?draws? an additional card$")
 def _draw_additional(m):
-    return Effect("draw", 1, "you", "additional")
+    return Effect("draw", 1, _target(m.group(1) or "you"), "additional")
 
 
 @_t(rf"^look at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
@@ -666,7 +678,7 @@ def _roll_sided(m):
     return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
 
 
-@_t(r"^play (that card|those cards|it|~|the (?:top|exiled) cards?[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
+@_t(r"^play (that card|those cards|them|it|~|the (?:top|exiled) cards?[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
 def _play(m):
     return Effect("play", "-", _target(m.group(1)))
 
