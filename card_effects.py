@@ -21,10 +21,10 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|up to \w+ target[\w' ]*?|target [\w' ]+?|another target [\w' ]+?|"
-        r"each [\w' ]+?|all [\w' ]+?|"
-        r"(?:\w+ )?\w+ (?:you control|your opponents control|an opponent controls|they control)|"
-        r"enchanted \w+|equipped \w+|the exiled cards?|those \w+|that [\w']+|"
+_TGT = (r"(?:any target|up to \w+ target[\w' -]*?|(?:\w+ )?target [\w' -]+?|"
+        r"each [\w' -]+?|all [\w' -]+?|"
+        r"(?:[\w-]+ )?[\w-]+ (?:you control|your opponents control|an opponent controls|they control)|"
+        r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|that [\w'-]+|"
         r"~|it|you|its controller|its owner|their controller)")
 
 
