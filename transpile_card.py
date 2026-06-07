@@ -454,6 +454,11 @@ _STATIC_PLAYER = [
     (r"^You may play (?:an? )?additional lands? on each of your turns\.?$", "extra_land_per_turn"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
     (r"^You may choose not to untap ~ during your untap step\.?$", "may_skip_untap"),
+    (r"^You play with your hand revealed\.?$", "you_play_hand_revealed"),
+    (r"^Your opponents play with their hands revealed\.?$", "opponents_play_hands_revealed"),
+    (r"^Players play with their hands revealed\.?$", "players_play_hands_revealed"),
+    (r"^Each player can't cast more than one spell each turn\.?$", "each_player_one_spell_per_turn"),
+    (r"^You can't lose the game and your opponents can't win the game\.?$", "cant_lose_opponents_cant_win"),
 ]
 
 
@@ -703,6 +708,25 @@ def _additional_cost(unit, ctx):
     return CardOut(cid, [f'card_additional_cost("{cid}", "{ground.slug(m.group(1))}")'], "additional_cost")
 
 
+def _cast_as_flash(unit, ctx):
+    """'You may cast ~ as though it had flash[ <rider>].' — a flash-granting timing permission (§702.8
+    as-though, §601). Any trailing rider ('if you pay {2} more', 'If you cast it any time a sorcery
+    couldn't…') is recorded as a descriptive slug suffix — coarse but faithful."""
+    m = re.match(r"^You may cast ~ as though it had flash(?:[.,]? (.+?))?\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    tag = "cast_as_though_flash" + ("_" + ground.slug(m.group(1)) if m.group(1) else "")
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+
+
+def _alt_cost(unit, ctx):
+    """'You may pay <cost> rather than pay ~'s mana cost.' — an alternative casting cost (§118.9/§601)."""
+    m = re.match(r"^You may pay (.+?) rather than pay ~'s mana cost\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "alt_cost_{ground.slug(m.group(1))}")'], "card_static")
+
+
 def _enters_with_counters(unit, ctx):
     """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
     m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
@@ -822,7 +846,8 @@ def _attacks_each_combat(unit, ctx):
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
+             _attacks_each_combat, _etb_choose, _static_player, _cast_as_flash, _alt_cost, _card_static,
+             _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]

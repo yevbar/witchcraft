@@ -272,6 +272,12 @@ def _put_counter(m):
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
 
 
+@_t(r"^put them back in any order$")
+def _put_back_any_order(m):
+    """'Put them back in any order' — reorder looked-at cards on top of the library (§401, scry-like)."""
+    return Effect("put_on_top", "-", "them", "any_order")
+
+
 @_t(rf"^put (its|all|all of its) counters on ({_TGT})$")
 def _move_counters(m):
     """'Put its/all counters on <target>' — moving existing counters (§122) to another permanent."""
