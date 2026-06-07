@@ -355,6 +355,27 @@ def _copy(m):
     return Effect("copy", "-", _target(m.group(1)))
 
 
+@_t(r"^choose new targets for the (?:copy|copies)$")
+def _new_targets(m):
+    return Effect("choose_new_targets", "-", "copy")
+
+
+@_t(r"^cast (.+?) without paying (?:its|their) mana costs?$")
+def _cast_free(m):
+    return Effect("cast", "-", _target(m.group(1)), "without_paying_mana_cost")
+
+
+@_t(r"^you get (a|an|one|two|three|\w+) experience counters?$")
+def _experience(m):
+    n = _amount(m.group(1))
+    return Effect("put_counter", n if n is not None else 1, "you", "experience")
+
+
+@_t(r"^you gain life equal to (.+?)$")
+def _gain_equal(m):
+    return Effect("gain_life", "equal_to_" + ground.slug(m.group(1)), "you")
+
+
 @_t(r"^roll (a|an|one|two|three|\w+) (d\d+)s?$")
 def _roll(m):
     n = _amount(m.group(1))

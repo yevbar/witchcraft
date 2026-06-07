@@ -493,12 +493,12 @@ def _enters_with_counters(unit, ctx):
 
 def _doesnt_untap(unit, ctx):
     """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502)."""
-    m = re.match(r"^(~|Enchanted creature|Equipped creature) doesn't untap during "
-                 r"(?:its controller's|your|their) untap step\.?$", unit.raw)
+    m = re.match(r"^(~|Enchanted creature|Equipped creature|That creature|That permanent) doesn't untap "
+                 r"during (?:its controller's|your|their)(?: next)? untap step\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_doesnt_untap("{cid}", "{ground.slug(m.group(1)) or "self"}")'], "doesnt_untap")
+    return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
 
 
 def _attacks_each_combat(unit, ctx):
