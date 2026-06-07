@@ -929,6 +929,17 @@ def _lose_abilities(m):
     return Effect("lose_abilities", "-", _target(m.group(1)))
 
 
+@_t(rf"^({_TGT}) loses? (this ability|[\w, ]+?)(?: until end of turn)?$")
+def _lose_specific(m):
+    """'<target> loses this ability / <keyword(s)>' — a §613.6 removal of a specific ability/keyword.
+    Only fires when each named item is a §702 keyword (or the self-reference 'this ability')."""
+    what = m.group(2).strip().lower()
+    if what == "this ability":
+        return Effect("lose_abilities", "-", _target(m.group(1)), "this_ability")
+    kws = _kw_list(what)
+    return Effect("lose_abilities", "-", _target(m.group(1)), "_".join(kws)) if kws else None
+
+
 @_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
 def _enters_counters_eff(m):
     n = _amount(m.group(1))
