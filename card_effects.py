@@ -22,7 +22,7 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
 _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|"
-        r"target (?:[\w']+, )+(?:or |and )?[\w']+|"   # type-list target: 'target artifact, creature, or land'
+        r"target (?:[\w']+, )+(?:or |and )?[\w']+(?: with [\w' ]+?)?|"   # type-list target: 'target artifact, creature, or land [with flying]'
         r"(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
@@ -81,6 +81,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(?:one|a) mana of any (?:color|type) that a land (you control|an opponent controls) could produce", w, re.I)
     if m:
         return ["land_could_produce_" + ground.slug(m.group(1))]
+    m = re.fullmatch(r"(?:one|a) mana of any type that (?:that |the )?land (?:produced|could produce)", w, re.I)
+    if m:
+        return ["that_land_type"]
     return None
 
 
@@ -520,9 +523,9 @@ def _pay(m):
     return Effect("pay", m.group(1).replace(" ", "_"), "you")
 
 
-@_t(r"^flip a coin$")
+@_t(r"^flip a coin( until you lose a flip)?$")
 def _flip(m):
-    return Effect("flip_coin", "-", "you")
+    return Effect("flip_coin", "until_lose" if m.group(1) else "-", "you")
 
 
 @_t(r"^sacrifice (a|an|another|two|three) ([\w ]+?)$")
@@ -641,7 +644,7 @@ def _reveal_among(m):
     return Effect("reveal", "-", "you", ground.slug(m.group(1)))
 
 
-@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|your|their)( next)? untap step$")
+@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|your|their)( next)? untap step(?: for as long as .+?)?$")
 def _doesnt_untap_eff(m):
     return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
 
