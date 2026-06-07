@@ -891,13 +891,15 @@ def _cda(unit, ctx):
 
 
 def _painland(unit, ctx):
-    """'As ~ enters, you may pay N life. If you don't, it enters tapped.' — the painland/tapland-with-
-    life ETB (§614). Recorded as a conditional enters-tapped."""
-    m = re.match(r"^As ~ enters, you may pay (\d+) life\. If you don't, it enters tapped\.?$", unit.raw, re.I)
+    """'As ~ enters, you may <action>. If you don't, it enters tapped.' — the conditional-tapland ETB
+    (§614): painlands ('pay N life'), fastlands/checklands/etc. ('reveal …', 'pay {1}', a control
+    condition). The 'unless' action is recorded as a descriptive slug."""
+    m = re.match(r"^As ~ enters, you may (.+?)\. If you don't, (?:it|~) enters tapped\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_pay_{m.group(1)}_life")'], "etb_tapped")
+    act = re.sub(r"^pay (\d+) life$", r"pay_\1_life", m.group(1).strip(), flags=re.I)
+    return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_{ground.slug(act)}")'], "etb_tapped")
 
 
 _STATION_BAND = re.compile(r"^(\d+)\+ \| (.+)$", re.S)
