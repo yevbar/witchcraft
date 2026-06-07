@@ -546,6 +546,7 @@ _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|
                       r"the next end step|the next turn's end step)|at end of combat|"
                       r"at the beginning of the next turn)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
+_IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 
 
 def _kw_ok(phrase: str):
@@ -625,7 +626,14 @@ def parse_clause(sentence: str) -> "Effect | None":
         if not inner:
             return None
         return inner if inner.cond != "-" else _dc.replace(inner, cond="until_" + ground.slug(m.group(1)))
-    return parse_effect(s)
+    e = parse_effect(s)
+    if e:
+        return e
+    m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond=ground.slug(m.group(2))) if e else None
+    return None
 
 
 if __name__ == "__main__":
