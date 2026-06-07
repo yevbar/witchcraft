@@ -146,6 +146,12 @@ def _damage_equal(m):
     return Effect("deal_damage", "equal_to_" + ground.slug(m.group(1)), _target(m.group(2)))
 
 
+@_t(rf"^(?:~|it|.+?) deals that much damage to ({_TGT})$")
+def _damage_that_much(m):
+    """'<source> deals that much damage to <target>' — damage equal to a just-named amount (§120)."""
+    return Effect("deal_damage", "that_amount", _target(m.group(1)))
+
+
 @_t(rf"^(?:~|it|.+?) deals damage to ({_TGT}) equal to (.+?)$")
 def _damage_to_equal(m):
     """'<source> deals damage to <target> equal to <amount>' — the target-first phrasing of §120."""
@@ -248,6 +254,12 @@ def _boost_foreach(m):
                   _target(m.group(1)), "until_end_of_turn")
 
 
+@_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) for as long as (.+?)$")
+def _boost_aslongas(m):
+    """'<X> gets +N/+N for as long as <cond>' — a duration-bounded pump (§611)."""
+    return Effect("modify_pt", m.group(2), _target(m.group(1)), "for_as_long_as_" + ground.slug(m.group(3)))
+
+
 @_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X))$")
 def _boost_bare(m):
     # bare P/T delta with no stated duration — the duration (if any) is supplied by a wrapper such as
@@ -347,9 +359,15 @@ def _discard_hand(m):
     return Effect("discard", "all", "you")
 
 
-@_t(r"^(?:after this phase, )?there is an additional combat phase$")
+@_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?$")
 def _extra_combat(m):
     return Effect("extra_combat", "-", "you")
+
+
+@_t(r"^end the turn$")
+def _end_turn(m):
+    """'End the turn' — the §724 expedited end-of-turn effect."""
+    return Effect("end_the_turn", "-", "you")
 
 
 @_t(rf"^(?:({_TGT}) )?skips? (?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$")

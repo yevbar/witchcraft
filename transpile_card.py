@@ -780,6 +780,17 @@ def _enter_as_copy(unit, ctx):
                    "card_static")
 
 
+def _escapes_with(unit, ctx):
+    """'~ escapes with N <kind> counters on it.' — a rider on the §702.139 Escape keyword describing
+    counters the card gains when it escapes."""
+    m = re.match(r"^~ escapes with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it\.?$", unit.raw, re.I)
+    if not m or "escape" not in ground.keyword_abilities():
+        return None
+    return CardOut(ctx["id"],
+                   [f'card_static("{ctx["id"]}", "escapes_with_{ground.slug(m.group(1))}_{ground.slug(m.group(2))}_counter")'],
+                   "card_static")
+
+
 def _assign_damage_unblocked(unit, ctx):
     """'You may have ~ assign its combat damage as though it weren't blocked.' — a §509.2 damage-
     assignment option (trample-like)."""
@@ -953,7 +964,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_b
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _exert, _enter_as_copy,
-             _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
+             _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
