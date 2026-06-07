@@ -141,32 +141,58 @@ _MODIFIERS = [
 ]
 
 
+# quote-safe splitting — a quoted granted ability ("When …, draw a card.") contains sentence/clause
+# punctuation that must NOT trigger the splitters; mask "…" to a sentinel, split, then restore.
+_QUOTE = re.compile(r'"[^"]*"')
+
+
+def _mask_q(text: str):
+    q = []
+
+    def r(m):
+        q.append(m.group(0))
+        return f" \x01{len(q) - 1}\x01 "
+    return _QUOTE.sub(r, text), q
+
+
+def _unmask(s: str, q):
+    s = re.sub(r"\x01(\d+)\x01", lambda m: q[int(m.group(1))], s)
+    return re.sub(r"\s{2,}", " ", s).strip()         # collapse the spaces the sentinel padding left
+
+
+def _sentences(text: str):
+    """Sentence-split that never cuts inside a quoted ability."""
+    masked, q = _mask_q(text)
+    return [_unmask(s, q) for s in re.split(r"(?<=[.])\s+", masked.strip()) if s.strip()]
+
+
 def _split_modifiers(text: str):
     """Partition a body's sentences into (effect_text, [modifier_tags]) — pulling out timing/frequency
     restriction clauses so the remaining effect text can parse on its own."""
     keep, tags = [], []
-    for sent in re.split(r"(?<=[.])\s+", text.strip()):
-        s = sent.strip().rstrip(".")
+    for s in _sentences(text):
+        s = s.rstrip(".")
         if not s:
             continue
         tag = next((t for pat, t in _MODIFIERS if pat.match(s)), None)
-        (tags.append(tag) if tag else keep.append(sent))
-    return " ".join(keep).strip(), tags
+        (tags.append(tag) if tag else keep.append(s))
+    return ". ".join(keep).strip(), tags        # rejoin with periods so _parse_body can re-split
 
 
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
-    Splits on sentence boundaries and simple 'and'/'then' conjunctions; abstains on anything else."""
+    Splits on sentence boundaries and simple 'and'/'then' conjunctions (quote-safe); else abstains."""
     out = []
-    for sentence in re.split(r"(?<=[.])\s+", text.strip()):
-        sentence = sentence.strip().rstrip(".")
+    for sentence in _sentences(text):
+        sentence = sentence.rstrip(".")
         if not sentence:
             continue
         multi = parse_clauses(sentence)
         if multi:
             out.extend(multi)
             continue
-        parts = _SPLIT_AND.split(sentence)
+        masked, q = _mask_q(sentence)
+        parts = [_unmask(p, q) for p in _SPLIT_AND.split(masked)]
         if len(parts) < 2:
             return None
         for p in parts:
