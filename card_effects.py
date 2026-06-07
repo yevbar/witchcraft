@@ -22,7 +22,8 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
 _TGT = (r"(?:any target|up to \w+ target[\w ]*?|target [\w ]+?|each [\w ]+?|all [\w ]+?|"
-        r"(?:\w+ )?\w+ you control|enchanted \w+|equipped \w+|the exiled cards?|those \w+|that \w+|"
+        r"(?:\w+ )?\w+ (?:you control|your opponents control|an opponent controls|they control)|"
+        r"enchanted \w+|equipped \w+|the exiled cards?|those \w+|that \w+|"
         r"~|it|you|its controller|its owner|their controller)")
 
 
@@ -358,6 +359,11 @@ def _put_bottom(m):
 @_t(rf"^put ({_TGT}) on the bottom of (?:its owner's|their owner's|your) library$")
 def _put_bottom_tgt(m):
     return Effect("put_on_bottom", "-", _target(m.group(1)))
+
+
+@_t(rf"^put ({_TGT}) on top of (?:its owner's|their owner's|your) library$")
+def _put_top_tgt(m):
+    return Effect("put_on_bottom", "-", _target(m.group(1)), "top")
 
 
 @_t(r"^look at the top (?:(\w+) )?cards? of your library$")

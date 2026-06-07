@@ -400,7 +400,7 @@ def _card_static(unit, ctx):
 
 _STATIC_PT = re.compile(rf"^(?P<who>{_TGT}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?"
-                        rf"(?: as long as (?P<cond>.+?))?\.?$", re.I)
+                        rf"(?: (?P<conn>as long as|for each) (?P<cond>.+?))?\.?$", re.I)
 
 
 def _static_pt(unit, ctx):
@@ -411,7 +411,7 @@ def _static_pt(unit, ctx):
     if not m:
         return None
     who = _target_slug(m.group("who"))
-    cond = "as_long_as_" + ground.slug(m.group("cond")) if m.group("cond") else "-"
+    cond = ground.slug(m.group("conn")) + "_" + ground.slug(m.group("cond")) if m.group("cond") else "-"
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "static")',
              f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "{cond}")']
@@ -570,7 +570,7 @@ def _enters_with_counters(unit, ctx):
 
 def _doesnt_untap(unit, ctx):
     """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502)."""
-    m = re.match(r"^(~|Enchanted creature|Equipped creature|That creature|That permanent) doesn't untap "
+    m = re.match(r"^(~|Enchanted \w+|Equipped \w+|That creature|That permanent) doesn't untap "
                  r"during (?:its controller's|your|their)(?: next)? untap step\.?$", unit.raw, re.I)
     if not m:
         return None
