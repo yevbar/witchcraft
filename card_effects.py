@@ -598,6 +598,17 @@ def _gain_equal(m):
     return Effect("gain_life", "equal_to_" + ground.slug(m.group(1)), "you")
 
 
+@_t(rf"^(?:({_TGT}) )?loses? life equal to (.+?)$")
+def _lose_equal(m):
+    return Effect("lose_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
+
+
+@_t(rf"^({_TGT}) shuffles? (?:their|its owner's|his or her) (\w+) into (?:their|its owner's|his or her) library$")
+def _shuffle_subj(m):
+    """'<player> shuffles their graveyard/hand into their library' — a shuffle (§103.2/§701.19)."""
+    return Effect("shuffle", "-", _target(m.group(1)), "from_" + ground.slug(m.group(2)))
+
+
 @_t(r"^roll (a|an|one|two|three|\w+) (d\d+)s?$")
 def _roll(m):
     n = _amount(m.group(1))
@@ -710,6 +721,13 @@ def _to_battlefield(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
+@_t(r"^put a ([\w ]+?) card from among them onto the battlefield( tapped)?$")
+def _put_among_bf(m):
+    """'Put a <kind> card from among them onto the battlefield' — putting a looked-at card into play."""
+    return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card",
+                  "from_among_tapped" if m.group(2) else "from_among")
+
+
 @_t(rf"^({_TGT}) (\w+)$")
 def _subject_action(m):
     """A §701 keyword action performed by an object — 'it explores', 'it connives', 'that creature
@@ -755,11 +773,17 @@ def _kw_ok(phrase: str):
 
 _EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)((?: and gains? [\w ]+?)+) until end of turn$", re.I)
 _EOT_GRANTS = re.compile(rf"^({_TGT}) gains? ([\w ]+?(?: and [\w ]+?)+) until end of turn$", re.I)
+_EOT_PUMP_CANT = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn and (can't (?:be blocked|block|attack)) this turn$", re.I)
 
 
 def _eot_compound(s: str):
     """A compound until-end-of-turn buff -> MULTIPLE effects: '<t> gets +N/+N and gains trample …' or
     '<t> gains flying and lifelink …'. Abstains unless every granted word is a real §702 keyword."""
+    m = _EOT_PUMP_CANT.match(s)
+    if m:
+        who = _target(m.group(1))
+        return [Effect("modify_pt", m.group(2), who),
+                Effect(m.group(3).replace("can't ", "cant_").replace(" ", "_"), "-", who)]
     m = _EOT_PUMP.match(s)
     if m:
         who = _target(m.group(1))
