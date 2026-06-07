@@ -76,6 +76,11 @@ _CORE_ACTIONS = frozenset({
     "pay",                  # §118 — paying a cost (used by optional 'you may pay …' riders)
     "prevent_damage",       # §615 — damage-prevention effect
     "get_energy",           # §107.16 {E} energy symbol / §122.1c energy counters — 'you get {E}'
+    "flip_coin",            # §705 — flipping a coin
+    "look",                 # §401/§701 — looking at cards (top of library, etc.)
+    "put_on_bottom",        # §401.1 — the library is ordered; putting cards on its bottom
+    "return_to_battlefield",  # §614/§111 — putting a card onto the battlefield (reanimation)
+    "cant_attack", "cant_block", "cant_be_blocked",   # §508/§509 — combat restrictions as effects
 })
 
 

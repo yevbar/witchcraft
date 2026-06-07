@@ -241,7 +241,7 @@ def _activated(unit, ctx):
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 
 
-_MODAL_HEAD = re.compile(r"^choose (one or both|up to one|up to two|up to three|one|two|three)\b", re.I)
+_MODAL_HEAD = re.compile(r"^choose (one or both|one or more|up to one|up to two|up to three|one|two|three)\b", re.I)
 
 
 def _triggered(unit, ctx):

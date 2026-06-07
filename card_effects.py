@@ -63,6 +63,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(one|two|three|four|five|six) mana of any one color", w, re.I)
     if m:
         return ["any_one_color"] * _NUMWORD[m.group(1).lower()]
+    m = re.fullmatch(r"(one|two|three|four|five|six) mana of the chosen color", w, re.I)
+    if m:
+        return ["chosen_color"] * _NUMWORD[m.group(1).lower()]
     return None
 
 
@@ -304,6 +307,45 @@ def _verb_target(m):
 @_t(r"^pay ((?:\{[^}]+\})+|\w+ life)$")
 def _pay(m):
     return Effect("pay", m.group(1).replace(" ", "_"), "you")
+
+
+@_t(r"^flip a coin$")
+def _flip(m):
+    return Effect("flip_coin", "-", "you")
+
+
+@_t(r"^sacrifice (a|an|another|two|three) ([\w ]+?)$")
+def _sacrifice_a(m):
+    n = _amount(m.group(1))
+    return Effect("sacrifice", n if isinstance(n, int) else "-", ground.slug(m.group(1) + " " + m.group(2)))
+
+
+@_t(r"^put (.+?) on the bottom of your library(?: in (?:a |any )?random order)?$")
+def _put_bottom(m):
+    return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
+
+
+@_t(r"^look at the top (?:(\w+) )?cards? of your library$")
+def _look_top(m):
+    n = _amount(m.group(1)) if m.group(1) else 1
+    return Effect("look", n, "top_of_library") if n is not None else None
+
+
+@_t(rf"^({_TGT}) can't (be blocked|block|attack) this turn$")
+def _cant_combat(m):
+    return Effect("cant_" + m.group(2).replace(" ", "_"), "-", _target(m.group(1)))
+
+
+@_t(rf"^return ({_TGT}) from your graveyard to the battlefield( tapped)?$")
+def _reanimate(m):
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
+
+
+@_t(rf"^(?:it |~ )?gains? ([\w ]+?)$")
+def _gains_perm(m):
+    """'It gains haste' / '~ gains trample' with NO duration — a permanent keyword grant (§613)."""
+    kw = _kw_ok(m.group(1))
+    return Effect("grant_keyword", "-", "self", kw) if kw else None
 
 
 def parse_effect(sentence: str) -> "Effect | None":
