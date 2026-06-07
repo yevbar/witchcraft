@@ -381,6 +381,20 @@ def _new_targets(m):
     return Effect("choose_new_targets", "-", "copy")
 
 
+@_t(rf'^({_TGT}) (?:has|have|gains?) "(.+)"( until end of turn)?$')
+def _grant_ability(m):
+    """In-body granted ability '<who> has/gains "<ability>" [until end of turn]' (§613.6) — the
+    ability text is slugged (quote-free), so even a rare bad split can't emit unbalanced quotes."""
+    ab = ground.slug(m.group(2))[:160]
+    return Effect("grant_ability", "until_end_of_turn" if m.group(3) else "-", _target(m.group(1)), ab) if ab else None
+
+
+@_t(r"^amass ([\w ]+?) (\d+|one|two|three|x)$")
+def _amass(m):
+    n = _amount(m.group(2))
+    return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
+
+
 @_t(r"^choose (?:a|an|one) ([\w ]+?)$")
 def _choose(m):
     return Effect("choose", "-", ground.slug(m.group(1)))
@@ -558,7 +572,7 @@ def parse_clause(sentence: str) -> "Effect | None":
     'if <condition>, <effect>' -> cond=<condition slug> (a descriptive predicate, like a trigger slug).
     Abstains if the inner effect isn't grounded."""
     s = sentence.strip().rstrip(".").strip()
-    s = re.sub(r"^then\s+", "", s, flags=re.I)        # discourse lead — 'Then shuffle' -> 'shuffle'
+    s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
     m = _MAY.match(s)
     if m:
         inner = parse_clause(m.group(1))

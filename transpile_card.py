@@ -129,6 +129,7 @@ _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|
 _MODIFIERS = [
     (re.compile(r"^activate (?:this ability )?only as a sorcery$", re.I), "activate_sorcery_speed"),
     (re.compile(r"^activate (?:this ability )?only once each turn$", re.I), "activate_once_per_turn"),
+    (re.compile(r"^activate (?:this ability )?only once$", re.I), "activate_only_once"),
     (re.compile(r"^activate (?:this ability )?only during your turn$", re.I), "activate_your_turn_only"),
     (re.compile(r"^activate (?:this ability )?only any time you could cast a sorcery$", re.I), "activate_sorcery_speed"),
     (re.compile(r"^this ability triggers only once each turn$", re.I), "triggers_once_per_turn"),
