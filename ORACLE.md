@@ -55,7 +55,7 @@ Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit ins
 templates (a long tail, bigger than rules).
 
 **HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 60.0%**
-(20,465 / 34,128).
+(20,492 / 34,128).
 
 ### Latest batch (cross-cutting families)
 Climbed 56.1% → 59.0% per-card by broadening the static-anthem SUBJECT grammar (`_SUBJ`: multi-word

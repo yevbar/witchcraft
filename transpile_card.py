@@ -823,6 +823,27 @@ def _painland(unit, ctx):
     return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_pay_{m.group(1)}_life")'], "etb_tapped")
 
 
+_STATION_BAND = re.compile(r"^(\d+)\+ \| (.+)$", re.S)
+
+
+def _station_band(unit, ctx):
+    """A Station band 'N+ | <ability>' (§702 Station): at N+ charge counters the Spacecraft gains the
+    band's ability. Gated on the grounded Station keyword being present on the card; the band body is
+    interpreted by the normal ability patterns and tagged with its threshold (abstain if it doesn't
+    ground — no half-credit)."""
+    card = ctx.get("card") or {}
+    if "station" not in ground.keyword_abilities() or "Station" not in (card.get("text") or ""):
+        return None
+    m = _STATION_BAND.match(unit.raw)
+    if not m:
+        return None
+    bo = _try_patterns(dataclasses.replace(unit, raw=m.group(2).strip()), ctx)
+    if not bo:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_level("{cid}", "station", "{m.group(1)}_plus")'] + bo.facts, "station")
+
+
 def _leveler(unit, ctx):
     """Leveler-card band/P-T lines (§711): 'LEVEL 2-6' / 'LEVEL 7+' -> a level band; a bare 'N/N'
     line -> that band's power/toughness. Gated on the Level Up keyword so a bare P/T can't false-match
@@ -862,7 +883,7 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _exert, _cast_as_flash, _alt_cost, _card_static,

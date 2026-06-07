@@ -23,7 +23,7 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
 _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
-        r"(?:[\w-]+ )?[\w-]+ (?:you control|your opponents control|an opponent controls|they control)|"
+        r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
         r"~|it|them|they|you|its controller|its owner|their controller)")
@@ -73,6 +73,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(one|two|three|four|five|six) mana in any combination of colors", w, re.I)
     if m:
         return ["any_combination"] * _NUMWORD[m.group(1).lower()]
+    m = re.fullmatch(r"(?:one|a) mana of any color in your commander's color identity", w, re.I)
+    if m:
+        return ["commander_color_identity"]      # §903.4 color identity restricts which colors
     return None
 
 
@@ -502,6 +505,13 @@ def _reanimate_put(m):
     """'Put <card> from a graveyard onto the battlefield [under your control]' — reanimation (§614)."""
     return Effect("return_to_battlefield", "-", _target(m.group(1)),
                   "from_graveyard_tapped" if m.group(2) else "from_graveyard")
+
+
+@_t(rf"^return ({_TGT}) to the battlefield(?: under (?:your|its owner's|that player's) control)?( tapped)?$")
+def _return_bf(m):
+    """'Return <X> to the battlefield [under its owner's control]' — a battlefield return (§614),
+    typically a death/leaves trigger's reanimation of the just-departed object."""
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
 @_t(rf"^exile ({_TGT}) until ~ leaves the battlefield$")
