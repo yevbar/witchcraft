@@ -141,6 +141,20 @@ def _damage_equal(m):
     return Effect("deal_damage", "equal_to_" + ground.slug(m.group(1)), _target(m.group(2)))
 
 
+@_t(rf"^(?:~|it|.+?) deals damage to ({_TGT}) equal to (.+?)$")
+def _damage_to_equal(m):
+    """'<source> deals damage to <target> equal to <amount>' — the target-first phrasing of §120."""
+    return Effect("deal_damage", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1)))
+
+
+@_t(r"^(?:~|it|.+?) deals (\d+|x|\w+) damage divided as you choose among (.+?)$")
+def _damage_divided(m):
+    """'<source> deals N damage divided as you choose among <targets>' — divided damage (§601.2d)."""
+    n = _amount(m.group(1))
+    return Effect("deal_damage", n if n is not None else ground.slug(m.group(1)),
+                  ground.slug(m.group(2)), "divided")
+
+
 @_t(rf"^({_TGT}) deals damage to itself equal to (.+?)$")
 def _damage_self(m):
     """'<creature> deals damage to itself equal to <amount>' — self-directed damage (§120)."""
