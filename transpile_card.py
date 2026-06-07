@@ -462,6 +462,21 @@ def _etb_choose(unit, ctx):
     return CardOut(cid, [f'card_etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
 
 
+def _as_enters(unit, ctx):
+    """'As ~ enters, <effect>.' — a §614.12/§603.6e as-enters ability whose body must ground (else
+    abstain). Modeled as a triggered ability on the 'enters' event, reusing the effect engine."""
+    m = re.match(r"^As (?:~|it) enters, (?P<body>.+)$", unit.raw, re.I)
+    if not m:
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "triggered")',
+                         f'card_ability_trigger("{cid}", "{aid}", "enters")']
+                   + _effect_facts(cid, aid, effects), "triggered")
+
+
 # static player-rule modifications, each grounded: hand size §402.2, extra land §505.5b/§116.2a,
 # top-card play §601/§715, no max hand size §402.2.
 _STATIC_PLAYER = [
@@ -509,6 +524,9 @@ def _static_player(unit, ctx):
 # card-level static declarations (commander/companion variants §903; static combat requirements §508/509)
 _CARD_STATIC = [
     (r"^~ can be your commander\.?$", "can_be_commander"),
+    (r"^[A-Z][a-z]+ commander$", "can_be_commander"),       # ability words: 'Spell commander', …
+    (r"^Commander [a-z]+$", "can_be_commander"),             # 'Commander ninja', 'Commander enchantment'
+    (r"^Friends forever$", "friends_forever"),
     (r"^~ can't be your commander\.?$", "cant_be_commander"),
     (r"^Doctor's companion\.?$", "doctors_companion"),
     (r"^Choose a Background\.?$", "choose_a_background"),
@@ -1000,7 +1018,7 @@ def _attacks_each_combat(unit, ctx):
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _exert, _enter_as_copy,
+             _attacks_each_combat, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,

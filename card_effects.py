@@ -352,6 +352,15 @@ def _switch_pt(m):
     return Effect("switch_pt", "-", _target(m.group(1)))
 
 
+@_t(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$")
+def _put_counter_equal(m):
+    """'Put a number of <kind> counters on <object> equal to <count>' — count-scaled counters (§122)."""
+    if _is_compound_object(m.group(2)):
+        return None
+    kind = m.group(1) if "/" in m.group(1) else ground.slug(m.group(1))
+    return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), kind)
+
+
 @_t(r"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
 def _put_counter(m):
     """'Put N <kind> counter(s) on <object>' — the object captured as a faithful noun-phrase slug
@@ -406,6 +415,12 @@ def _end_turn(m):
 def _skip(m):
     """'Skip your <step/phase/turn>' — a §500.7/§502+ skip effect (grounded skip action)."""
     return Effect("skip", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
+
+
+@_t(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$")
+def _create_equal(m):
+    """'Create a number of <X> tokens equal to <count>' — count-scaled token creation (§111)."""
+    return Effect("create", "equal_to_" + ground.slug(m.group(2)), "token", ground.slug(m.group(1)))
 
 
 @_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: for each (.+?))?(?: .*)?$")
@@ -1088,6 +1103,31 @@ def parse_clause(sentence: str) -> "Effect | None":
     s = sentence.strip().rstrip(".").strip()
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
+    s = re.sub(r",? rounded (?:up|down)$", "", s, flags=re.I)    # 'mill half their library, rounded down'
+    s = re.sub(r" this way$| that way$", "", s, flags=re.I)      # anaphoric tail — 'exile the cards revealed this way'
+    # trailing variable definition '…, where X is <count>' (§107.3) — parse the head and fold the
+    # definition into the amount when the head's amount is that variable, else just drop the def.
+    mw = re.match(r"^(.+?),? where ([a-z]) (?:is|are|equals?) (.+)$", s, re.I)
+    if mw:
+        inner = parse_clause(mw.group(1))
+        if not inner:
+            return None
+        var = mw.group(2).upper()
+        if str(inner.amount).upper() == var:
+            return _dc.replace(inner, amount=var + "_" + ground.slug(mw.group(3)))
+        return inner
+    # trailing 'for each <X>' (§107.3) — a count-scaled effect; fold into the amount (or extra if the
+    # effect has no numeric amount). Generalizes the per-verb for-each templates.
+    mfe = re.match(r"^(.+?) for each (.+)$", s, re.I)
+    if mfe and not re.search(r"\b(deals?|gets?|put|gains?|loses?|draws?|create|mill|distributes?)\b", mfe.group(2), re.I):
+        inner = parse_clause(mfe.group(1))
+        if inner:
+            per = ground.slug(mfe.group(2))
+            if str(inner.amount) not in ("-", "X"):
+                return _dc.replace(inner, amount=f"{inner.amount}_per_{per}")
+            if inner.extra == "-":
+                return _dc.replace(inner, extra=f"per_{per}")
+            return inner
     m = _MAY.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "may")
