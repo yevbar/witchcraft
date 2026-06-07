@@ -34,7 +34,7 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 25.7% · INSTANCE 50.1%** (cards.dl: 21,766 cards, 64,236 grounded facts,
+**Current: TEMPLATE 27.4% · INSTANCE 51.3%** (cards.dl: 22,155 cards, 66,803 grounded facts,
 conformance_fail=0). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
@@ -42,8 +42,12 @@ conformance_fail=0). Patterns landed:
   **effect engine** `card_effects.py` into grounded `(verb, amount, target)` tuples
 - effect verbs grounded in §701 keyword actions + verified core actions (draw/deal_damage/gain_life/
   modify_pt/tap/add_mana/put_counter/grant_keyword/…); targets normalized (any_target, target_creature,
-  all_creatures, creatures_you_control, it=anaphor, …); effects carry an `extra` slot (counter kind,
-  token spec, mana produced, granted keyword) — `effect(card, aid, seq, verb, amount, target, extra)`
+  all_creatures, creatures_you_control, it=anaphor, …); effects carry `extra` (counter kind, token
+  spec, mana produced, granted keyword) and `cond` (optional/conditional) slots —
+  `effect(card, aid, seq, verb, amount, target, extra, cond)`
+- optional/conditional riders: 'you may <effect>' → cond=may; 'if you do, <effect>' → cond=if_you_did
+- ability-modifier clauses ('Activate only as a sorcery', 'triggers only once each turn') recorded as
+  ability_modifier facts instead of blocking the body
 - `modal` + `mode_option` (§700.2), `cant` restrictions (§508/509/601), `static_pt` (§613),
   `etb_tapped` / `enters_with_counters` (§614/§122), `doesnt_untap` (§502), `attacks_each_combat` (§508)
 

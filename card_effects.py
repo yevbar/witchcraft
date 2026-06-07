@@ -83,6 +83,7 @@ class Effect:
     amount: object   # int | str("X") | str("+x/+y") | "-"
     target: str
     extra: str = "-"  # secondary arg: counter kind, token spec, mana produced, granted keyword
+    cond: str = "-"   # optionality/condition: 'may' (optional), 'if_you_did' (follows an optional), '-'
 
     def grounded(self) -> bool:
         return self.verb in ground.effect_verbs()
@@ -274,6 +275,11 @@ def _verb_target(m):
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
+@_t(r"^pay ((?:\{[^}]+\})+|\w+ life)$")
+def _pay(m):
+    return Effect("pay", m.group(1).replace(" ", "_"), "you")
+
+
 def parse_effect(sentence: str) -> "Effect | None":
     """A single effect sentence -> grounded Effect, or None (abstain). Only emits if verb is grounded."""
     s = sentence.strip().rstrip(".").strip()
@@ -284,6 +290,28 @@ def parse_effect(sentence: str) -> "Effect | None":
             if e and e.grounded():
                 return e
     return None
+
+
+import dataclasses as _dc
+
+_MAY = re.compile(r"^you may (.+)$", re.I)
+_IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
+
+
+def parse_clause(sentence: str) -> "Effect | None":
+    """Like parse_effect, but recognizes the optional/conditional wrappers that dominate the tail:
+    'you may <effect>' -> the effect tagged cond='may'; 'if you do, <effect>' -> cond='if_you_did'
+    (it follows an optional). Abstains if the inner effect isn't grounded."""
+    s = sentence.strip().rstrip(".").strip()
+    m = _MAY.match(s)
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond="may") if e else None
+    m = _IF_YOU_DO.match(s)
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond="if_you_did") if e else None
+    return parse_effect(s)
 
 
 if __name__ == "__main__":

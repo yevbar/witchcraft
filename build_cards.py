@@ -54,7 +54,8 @@ def build() -> tuple[str, dict]:
     p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
     p.decl("ability_modifier", [("card", "symbol"), ("aid", "symbol"), ("modifier", "symbol")])
     p.decl("effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"),
-                      ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol"), ("extra", "symbol")])
+                      ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol"),
+                      ("extra", "symbol"), ("cond", "symbol")])
     p.decl("mode_option", [("card", "symbol"), ("aid", "symbol")])
     p.decl("card_modal", [("card", "symbol"), ("mode", "symbol")])
     p.decl("card_cant", [("card", "symbol"), ("action", "symbol")])

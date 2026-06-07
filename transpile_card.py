@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 import ground
-from card_effects import parse_effect, _TGT, _mana_production
+from card_effects import parse_effect, parse_clause, _TGT, _mana_production
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -156,7 +156,7 @@ def _parse_body(text: str):
         sentence = sentence.strip().rstrip(".")
         if not sentence:
             continue
-        e = parse_effect(sentence)
+        e = parse_clause(sentence)
         if e:
             out.append(e)
             continue
@@ -164,7 +164,7 @@ def _parse_body(text: str):
         if len(parts) < 2:
             return None
         for p in parts:
-            e = parse_effect(p)
+            e = parse_clause(p)
             if not e:
                 return None
             out.append(e)
@@ -172,7 +172,7 @@ def _parse_body(text: str):
 
 
 def _effect_facts(cid, aid, effects):
-    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}", "{e.extra}")'
+    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}", "{e.extra}", "{e.cond}")'
             for i, e in enumerate(effects)]
 
 
@@ -212,7 +212,7 @@ def _static_control(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
-                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}", "-")'],
+                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}", "-", "-")'],
                    "static_control")
 
 
@@ -298,13 +298,13 @@ def _static_pt(unit, ctx):
     who = _target_slug(m.group("who"))
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'ability("{cid}", "{aid}", "static")',
-             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-")']
+             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}", "-", "-")']
     if m.group("kw"):
         grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
         if not all(grounded):
             return None                       # abstain rather than emit a partial grant
         for i, (kw, _param) in enumerate(grounded, 1):
-            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-")')
+            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")')
     return CardOut(cid, facts, "static_pt")
 
 

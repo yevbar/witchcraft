@@ -48,9 +48,10 @@ def load_db():
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
         elif rel == "effect":
             extra = a[6] if len(a) > 6 else "-"
+            cond = a[7] if len(a) > 7 else "-"
             db.setdefault(a[0], {}).setdefault("abilities", {}).setdefault(
                 a[1], {"kind": "spell", "effects": []})["effects"].append(
-                    (int(a[2]), a[3], a[4], a[5], extra))
+                    (int(a[2]), a[3], a[4], a[5], extra, cond))
     return db
 
 
@@ -169,7 +170,13 @@ class Game:
         if not ab:
             self._say("(no interpreted spell ability — abstained)")
             return
-        for _seq, verb, amt, tgt, extra in sorted(ab["effects"]):
+        did_optional = True
+        for _seq, verb, amt, tgt, extra, cond in sorted(ab["effects"]):
+            if cond == "may":
+                did_optional = True   # the shim always takes optional riders; an AI would choose
+                self._say(f"(optional) you may {verb}")
+            if cond == "if_you_did" and not did_optional:
+                continue
             self.apply(verb, amt, tgt, extra, me=me, opp=opp, tgt_perm=tgt_perm, tgt_player=tgt_player)
 
     def tap_for_mana(self, perm, cid, *, me):

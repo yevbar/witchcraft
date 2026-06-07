@@ -73,6 +73,7 @@ _CORE_ACTIONS = frozenset({
     "gain_control",         # §613.3a layer 2 / §720 — control-changing continuous effect
     "become_monarch",       # §720 the monarch (§725.3 at_most_one monarch)
     "grant_keyword",        # §613.3b/613.6 layer 6 — ability-adding continuous effect
+    "pay",                  # §118 — paying a cost (used by optional 'you may pay …' riders)
 })
 
 
