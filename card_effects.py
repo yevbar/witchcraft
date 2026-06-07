@@ -223,7 +223,7 @@ def _create_token(m):
     return Effect("create", n if n is not None else "X", "token", ground.slug(m.group(2)))
 
 
-@_t(rf"^(?:(target [\w ]+?|each [\w ]+?|you) )?discards? (\w+) cards?(?: at random)?$")
+@_t(rf"^(?:({_TGT}) )?discards? (\w+) cards?(?: at random)?$")
 def _discard(m):
     n = _amount(m.group(2))
     return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
@@ -234,12 +234,18 @@ def _shuffle(m):
     return Effect("shuffle", "-", "you")
 
 
-@_t(rf"^({_TGT}) gains? ([\w ]+?) until end of turn$")
+@_t(rf"^(?:({_TGT}) )?gains? ([\w ]+?) until end of turn$")
 def _gain_kw_eot(m):
     kw = ground.slug(m.group(2))
     if kw not in ground.keyword_abilities() and kw.split("_")[0] not in ground.keyword_abilities():
         return None                           # only a real §702 keyword grant — else abstain
-    return Effect("grant_keyword", "until_end_of_turn", _target(m.group(1)), kw)
+    return Effect("grant_keyword", "until_end_of_turn", _target(m.group(1) or "~"), kw)
+
+
+@_t(rf"^prevent the next (\w+) damage that would be dealt to ({_TGT}) this turn$")
+def _prevent(m):
+    n = _amount(m.group(1))
+    return Effect("prevent_damage", n if n is not None else "X", _target(m.group(2)))
 
 
 # bare §701 keyword actions with no target (investigate, populate, proliferate, …).

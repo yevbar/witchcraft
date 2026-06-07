@@ -221,15 +221,18 @@ def _activated(unit, ctx):
     m = re.match(r"^(?P<cost>[^:]{1,60}):\s*(?P<body>.+)$", unit.raw)
     if not m or not _cost_ok(m.group("cost")):
         return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    cost_facts = [f'ability("{cid}", "{aid}", "activated")',
+                  f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
+    mh = _MODAL_HEAD.match(m.group("body"))
+    if mh:
+        return CardOut(cid, cost_facts + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "activated")
     body, mods = _split_modifiers(m.group("body"))
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    facts = [f'ability("{cid}", "{aid}", "activated")',
-             f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
-    facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
-    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "activated")
+    cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
 
 
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
