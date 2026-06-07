@@ -558,6 +558,26 @@ def _static_pt(unit, ctx):
     return CardOut(cid, facts, "static_pt")
 
 
+def _anthem_conjunct(unit, ctx):
+    """'<subject> gets +N/+N and <conjunct>.' where the conjunct is a SECOND grounded static — a
+    restriction ('can't block'), 'doesn't untap …', 'is goaded', or a quoted ability. Emits the P/T
+    plus the conjunct interpreted by re-dispatching '<subject> <conjunct>'. Runs AFTER _static_pt
+    (which already owns the plain 'and has <keyword>' form); abstains if the conjunct doesn't ground."""
+    m = re.match(rf"^(?P<subj>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+) and (?P<rest>.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    subj = m.group("subj")
+    # dispatch the conjunct under a DISTINCT seq so its ability/effect ids never collide with the P/T's
+    bo = _try_patterns(dataclasses.replace(unit, raw=f"{subj[0].upper()}{subj[1:]} {m.group('rest')}"),
+                       {**ctx, "seq": f"{ctx.get('seq', 0)}b"})
+    if not bo:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    facts = [f'card_ability("{cid}", "{aid}", "static")',
+             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{_target_slug(subj)}", "-", "-")']
+    return CardOut(cid, facts + bo.facts, "static_pt")
+
+
 def _etb_tapped(unit, ctx):
     """'~ enters tapped[ unless <condition>]' / '~ enters tapped with N <kind> counters on it.' — an
     ETB replacement (§614). The 'unless …' condition is a descriptive slug (cross-cutting across the
@@ -903,7 +923,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_b
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _exert, _cast_as_flash, _alt_cost, _card_static,
-             _additional_cost, _as_long_as, _static_pt,
+             _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]

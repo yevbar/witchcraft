@@ -676,6 +676,12 @@ def _discard_that(m):
     return Effect("discard", "that_amount", _target(m.group(1)))
 
 
+@_t(rf"^({_TGT}) is goaded$")
+def _is_goaded(m):
+    """'<creature> is goaded' — the §701.38 goad keyword action applied as a continuous effect."""
+    return Effect("goad", "-", _target(m.group(1)))
+
+
 @_t(rf"^({_TGT}) fights ({_TGT})$")
 def _fight(m):
     """'<A> fights <B>' — the §701.12 fight keyword action (each deals damage equal to its power to
