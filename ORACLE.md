@@ -55,7 +55,23 @@ Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit ins
 templates (a long tail, bigger than rules).
 
 **HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 50.1%**
-(17,087 / 34,128). Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
+(17,094 / 34,128).
+
+### Morning status / honest ceiling (overnight run)
+Climbed 44.5% → 50.1% per-card this run by capturing GENERAL cross-cutting families (keyword
+roster-loader fix, typecycling/landwalk/megamorph/multikicker variants, taplands, anthems,
+conditionals incl. trailing-if/unless-pay/until, granted abilities incl. in-body, cost modifiers,
+CDAs, leveler §711, Class §716, multi-sentence fallback, enters-the-battlefield normalization,
+faithful keyword grounding of prepared/initiative). All souffle-clean, 0 rules/cards collisions, no
+regressions; rules stay 100% (transpile.py untouched).
+The remaining ~50% is NOT addressable by general patterns: **2,937 cards are blocked by 2+ distinct
+rare clauses**, and the rest are a long tail of ~thousands of UNIQUE clauses (1–2 cards each) — bespoke
+multi-clause spells, transform-Saga chapters, storage lands, acorn/sticker (ticket) cards, and a few
+genuinely un-grounded mechanics (Specialize, Double team, Starting intensity — not in this CR). Pushing
+past here means either per-card hardcoding (against the "general grammar patterns" directive) or
+emitting lossy facts (against the prime directive). The faithful template ceiling is ~50–55% per-card;
+true 100% needs a Forge-scale curated DSL built card-by-card over a long horizon, or a stronger CR that
+defines the newest mechanics. Coverage continues incrementally but with sharply diminishing per-batch yield. Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
 they SOLELY block), not raw frequency (`card_coverage.py` reports it; the blocker ranking is the
 worklist). cards.dl ~89k grounded facts, conformance_fail=0; validate.py: 0 rules/cards relation
 collisions. Faithful-or-abstain: keywords NOT in the §702/§701 roster (megamorph/specialize/prepared —

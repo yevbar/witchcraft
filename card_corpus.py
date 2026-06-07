@@ -27,6 +27,7 @@ _INT = re.compile(r"\b\d+\b")
 # modern templating self-references; the card's own name is handled separately (it's per-card).
 _SELF = re.compile(r"\bthis (?:creature|card|permanent|spell|artifact|enchantment|land|planeswalker|"
                    r"token|aura|equipment|fortification|vehicle|saga|battle|class|room|emblem)\b", re.I)
+_ENTERS = re.compile(r"\benters the battlefield\b", re.I)
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ def units_of(card: dict) -> list[Unit]:
         if name:
             raw = raw.replace(name, "~")
         raw = _SELF.sub("~", raw)
+        raw = _ENTERS.sub("enters", raw)        # 2021 templating: 'enters the battlefield' == 'enters'
         template = _INT.sub("N", _SYMBOL.sub("{S}", raw)).strip()
         if template:
             out.append(Unit(card=name, raw=raw.strip(), template=template))

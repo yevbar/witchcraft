@@ -60,6 +60,8 @@ def _ground_kw(token: str):
         return ("cycling", s[:-len("cycling")].rstrip("_") or "land")
     if s == "megamorph" and "morph" in _KW:                            # §702.37b — a variant of morph
         return ("morph", "mega")
+    if s == "multikicker" and "kicker" in _KW:                         # §702.33 — a variant of kicker
+        return ("kicker", "multi")
     if s in ("daybound", "nightbound") and "daybound_and_nightbound" in _KW:
         return ("daybound_and_nightbound", s)
     return None
