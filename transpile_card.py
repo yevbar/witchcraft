@@ -333,6 +333,23 @@ def _static_player(unit, ctx):
     return None
 
 
+# card-level static declarations (commander/companion variants, §903/§702.124/§702.139)
+_CARD_STATIC = [
+    (r"^~ can be your commander\.?$", "can_be_commander"),
+    (r"^~ can't be your commander\.?$", "cant_be_commander"),
+    (r"^Doctor's companion\.?$", "doctors_companion"),
+    (r"^Choose a Background\.?$", "choose_a_background"),
+    (r"^Partner\.?$", "partner"),
+]
+
+
+def _card_static(unit, ctx):
+    for pat, tag in _CARD_STATIC:
+        if re.match(pat, unit.raw, re.I):
+            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+    return None
+
+
 _STATIC_PT = re.compile(rf"^(?P<who>{_TGT}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?\.?$", re.I)
 
@@ -461,7 +478,7 @@ def _attacks_each_combat(unit, ctx):
 
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _static_player, _additional_cost, _static_pt,
+             _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _static_grant, _modal, _mode_option, _cant, _loyalty, _saga_chapter, _mana_ability,
              _triggered, _activated, _spell, _static_control]
 

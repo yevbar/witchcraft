@@ -392,6 +392,9 @@ import dataclasses as _dc
 _MAY = re.compile(r"^you may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
+_UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
+_DELAYED = re.compile(r"^(.+?) at the beginning of (?:the next turn's upkeep|your next upkeep|"
+                      r"the next end step|the next turn's end step)$", re.I)
 
 
 def _kw_ok(phrase: str):
@@ -457,6 +460,14 @@ def parse_clause(sentence: str) -> "Effect | None":
     if m:
         e = parse_effect(m.group(2))
         return _dc.replace(e, cond=ground.slug(m.group(1))) if e else None
+    m = _UNLESS_PAY.match(s)
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond="unless_pay_" + ground.slug(m.group(2))) if e else None
+    m = _DELAYED.match(s)
+    if m:
+        e = parse_effect(m.group(1))
+        return _dc.replace(e, cond="delayed") if e else None
     return parse_effect(s)
 
 
