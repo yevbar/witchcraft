@@ -549,13 +549,20 @@ def _etb_tapped(unit, ctx):
 
 
 def _modal(unit, ctx):
-    """'Choose one —' / 'Choose one or both —' — a modal spell/ability header (§700.2)."""
-    m = re.match(r"^Choose (one or both|one or more|up to one|up to two|up to three|one|two|three)\s*[—–-]?\s*$",
-                 unit.raw, re.I)
+    """'Choose one —' / 'Choose one or both —' / 'Choose one at random —' — a modal spell/ability
+    header (§700.2). Also the Commander-precon form 'Choose one. If you control a commander as you cast
+    ~, you may choose both instead.' (the commander rider recorded as a flag)."""
+    m = re.match(r"^Choose (one or both|one or more|up to one|up to two|up to three|one|two|three)"
+                 r"(?P<rand> at random)?\s*[—–-]?\s*"
+                 r"(?:\.\s*(?P<cmd>If you control a commander[^.]*\.))?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_modal("{cid}", "{ground.slug(m.group(1))}")'], "modal")
+    mode = ground.slug(m.group(1)) + ("_at_random" if m.group("rand") else "")
+    facts = [f'card_modal("{cid}", "{mode}")']
+    if m.group("cmd"):
+        facts.append(f'card_static("{cid}", "commander_choose_both")')
+    return CardOut(cid, facts, "modal")
 
 
 def _mode_option(unit, ctx):
@@ -574,19 +581,26 @@ def _mode_option(unit, ctx):
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
          "be regenerated": "be_regenerated", "be sacrificed": "be_sacrificed",
-         "attack you": "attack_you", "attack you or planeswalkers you control": "attack_you_or_pws"}
-_CANT_SUBJ = re.compile(r"^(~|enchanted creature|equipped creature) can't (.+?)\.?$", re.I)
+         "attack you": "attack_you", "attack you or planeswalkers you control": "attack_you_or_pws",
+         "attack alone": "attack_alone", "block alone": "block_alone",
+         "attack or block alone": "attack_or_block_alone", "gain life": "gain_life",
+         "be targeted by spells or abilities your opponents control": "be_targeted_by_opponents"}
+_CANT_SUBJ = re.compile(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent|"
+                        r"players|your opponents|you|creatures|creature spells you control) can't (.+?)\.?$", re.I)
 
 
 def _cant(unit, ctx):
-    """'<subject> can't <X>.' — a static restriction grounded in combat/§701 rules (fixed action set).
-    Subject is the card itself (~) or the attached creature (enchanted/equipped)."""
+    """'<subject> can't <X>[ and can't <Y>].' — a static restriction grounded in combat/§701/§119 rules
+    (fixed action set). Subject is the card (~), the attached permanent, or a player/spell set. A
+    compound 'can't X and can't Y' yields one fact per restriction; every action must be in the set."""
     m = _CANT_SUBJ.match(unit.raw)
-    if not m or m.group(2).lower() not in _CANT:
+    if not m:
         return None
-    cid = ctx["id"]
-    return CardOut(cid, [f'card_cant("{cid}", "{_target_slug(m.group(1))}", "{_CANT[m.group(2).lower()]}")'],
-                   "cant")
+    actions = [a.strip().lower() for a in re.split(r" and can't ", m.group(2))]
+    if not all(a in _CANT for a in actions):
+        return None
+    cid, who = ctx["id"], _target_slug(m.group(1))
+    return CardOut(cid, [f'card_cant("{cid}", "{who}", "{_CANT[a]}")' for a in actions], "cant")
 
 
 # complex static combat restrictions with a qualifier (§508/§509) — captured as a descriptive slug.
@@ -599,16 +613,26 @@ _CRESTR = [
     (r"can't attack unless (.+)", "cant_attack_unless_"),
     (r"can't block unless (.+)", "cant_block_unless_"),
     (r"attacks each combat if able if (.+)", "attacks_each_combat_if_"),
+    # generic trailing captures (after the specific shapes above) — a §508/§509 restriction with any
+    # qualifier, recorded as a descriptive slug rather than abstaining.
+    (r"can't be blocked (.+)", "cant_be_blocked_"),
+    (r"can't block (.+)", "cant_block_"),
+    (r"can't attack (.+)", "cant_attack_"),
 ]
 
 
 def _combat_restriction(unit, ctx):
     """'<subject> can('t) <combat-verb> <qualifier>.' — a static combat restriction with a condition
     (§508/§509). The qualifier is recorded as a descriptive slug (like a trigger/condition slug)."""
-    m = re.match(r"^(~|enchanted creature|equipped creature) (can.+?)\.?$", unit.raw, re.I)
+    m = re.match(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent) (can.+?)\.?$",
+                 unit.raw, re.I)
     if not m:
         return None
     who = _target_slug(m.group(1))
+    # a second, non-restriction effect ('… and has shroud', '… and gets +1/+1') must NOT be buried in
+    # the restriction slug — abstain rather than emit a conflated fact (prime directive).
+    if re.search(r" and (?:has|have|gains?|is|gets?|can't|becomes?) ", m.group(2), re.I):
+        return None
     for pat, prefix in _CRESTR:
         mm = re.match("^" + pat + "$", m.group(2), re.I)
         if mm:
