@@ -75,6 +75,7 @@ _CORE_ACTIONS = frozenset({
     "grant_keyword",        # §613.3b/613.6 layer 6 — ability-adding continuous effect
     "pay",                  # §118 — paying a cost (used by optional 'you may pay …' riders)
     "prevent_damage",       # §615 — damage-prevention effect
+    "get_energy",           # §107.16 {E} energy symbol / §122.1c energy counters — 'you get {E}'
 })
 
 

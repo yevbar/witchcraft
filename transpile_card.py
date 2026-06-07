@@ -132,6 +132,9 @@ _MODIFIERS = [
     (re.compile(r"^activate (?:this ability )?only during your turn$", re.I), "activate_your_turn_only"),
     (re.compile(r"^activate (?:this ability )?only any time you could cast a sorcery$", re.I), "activate_sorcery_speed"),
     (re.compile(r"^this ability triggers only once each turn$", re.I), "triggers_once_per_turn"),
+    (re.compile(r"^activate (?:this ability )?only during your upkeep$", re.I), "activate_your_upkeep_only"),
+    (re.compile(r"^do this only once each turn$", re.I), "once_per_turn"),
+    (re.compile(r"^any player may activate this ability$", re.I), "any_player_may_activate"),
 ]
 
 

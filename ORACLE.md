@@ -34,7 +34,7 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 28.2% · INSTANCE 52.1%** (cards.dl: ~22.4k cards, ~68k grounded facts,
+**Current: TEMPLATE 30.6% · INSTANCE 53.7%** (cards.dl: ~22.5k cards, ~70k grounded facts,
 conformance_fail=0). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
@@ -45,7 +45,8 @@ conformance_fail=0). Patterns landed:
   all_creatures, creatures_you_control, it=anaphor, …); effects carry `extra` (counter kind, token
   spec, mana produced, granted keyword) and `cond` (optional/conditional) slots —
   `effect(card, aid, seq, verb, amount, target, extra, cond)`
-- optional/conditional riders: 'you may <effect>' → cond=may; 'if you do, <effect>' → cond=if_you_did
+- optional/conditional riders: 'you may <effect>' → cond=may; 'if you do, <effect>' → cond=if_you_did;
+  'if <condition>, <effect>' → cond=<condition slug> (a descriptive predicate, like a trigger slug)
 - ability-modifier clauses ('Activate only as a sorcery', 'triggers only once each turn') recorded as
   ability_modifier facts instead of blocking the body
 - `modal` + `mode_option` (§700.2), `cant` restrictions (§508/509/601), `static_pt` (§613),

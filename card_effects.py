@@ -201,6 +201,11 @@ def _bounce(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
 
 
+@_t(r"^you get ((?:\{e\})+)$")
+def _get_energy(m):
+    return Effect("get_energy", m.group(1).count("{"), "you")
+
+
 @_t(r"^add (.+)$")
 def _add_mana(m):
     """'Add {G}' / 'Add one mana of any color' as an EFFECT (spell/triggered/activated body), §106."""
@@ -317,21 +322,27 @@ import dataclasses as _dc
 
 _MAY = re.compile(r"^you may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
+_IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 
 
 def parse_clause(sentence: str) -> "Effect | None":
     """Like parse_effect, but recognizes the optional/conditional wrappers that dominate the tail:
-    'you may <effect>' -> the effect tagged cond='may'; 'if you do, <effect>' -> cond='if_you_did'
-    (it follows an optional). Abstains if the inner effect isn't grounded."""
+    'you may <effect>' -> cond='may'; 'if you do, <effect>' -> cond='if_you_did' (follows an optional);
+    'if <condition>, <effect>' -> cond=<condition slug> (a descriptive predicate, like a trigger slug).
+    Abstains if the inner effect isn't grounded."""
     s = sentence.strip().rstrip(".").strip()
     m = _MAY.match(s)
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond="may") if e else None
+        inner = parse_clause(m.group(1))
+        return _dc.replace(inner, cond="may") if inner and inner.cond == "-" else None
     m = _IF_YOU_DO.match(s)
     if m:
         e = parse_effect(m.group(1))
         return _dc.replace(e, cond="if_you_did") if e else None
+    m = _IF_COND.match(s)
+    if m:
+        e = parse_effect(m.group(2))
+        return _dc.replace(e, cond=ground.slug(m.group(1))) if e else None
     return parse_effect(s)
 
 
