@@ -58,6 +58,8 @@ def _ground_kw(token: str):
         return ("landwalk", s[:-4])
     if s.endswith("cycling") and s != "cycling" and "cycling" in _KW:   # §702.29 typecycling variants
         return ("cycling", s[:-len("cycling")].rstrip("_") or "land")
+    if s == "megamorph" and "morph" in _KW:                            # §702.37b — a variant of morph
+        return ("morph", "mega")
     if s in ("daybound", "nightbound") and "daybound_and_nightbound" in _KW:
         return ("daybound_and_nightbound", s)
     return None
@@ -102,6 +104,16 @@ def _kw_param(unit, ctx):
     'Enchant creature' -> kw=enchant arg=creature; 'Equip {S}' -> kw=equip arg={S};
     'Protection from red' -> kw=protection arg=from_red. Longest grounded keyword prefix wins."""
     body = unit.raw.rstrip(".").strip()
+    # a first-word VARIANT keyword (megamorph -> morph/mega, Plainscycling handled by _typecycling):
+    first = body.split()[0] if body.split() else ""
+    gv = _ground_kw(first)
+    if gv and gv[1] and " " in body:
+        kw, param = gv
+        arg = body[len(first):].strip()
+        facts = [f'card_keyword("{ctx["id"]}", "{kw}")', f'card_keyword_param("{ctx["id"]}", "{kw}", "{param}")']
+        if arg:
+            facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{ground.slug(arg)}")')
+        return CardOut(ctx["id"], facts, "kw_param")
     s = ground.slug(body)
     for kw in _KW_BY_LEN:
         if s == kw:
@@ -615,6 +627,13 @@ def _painland(unit, ctx):
     return CardOut(cid, [f'card_enters_tapped("{cid}", "unless_pay_{m.group(1)}_life")'], "etb_tapped")
 
 
+def _enters_prepared(unit, ctx):
+    """'~ enters prepared.' — gains the prepared designation as it enters (§722.3)."""
+    if not re.match(r"^~ enters prepared\.?$", unit.raw, re.I):
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "enters_prepared")'], "card_static")
+
+
 def _can_block_additional(unit, ctx):
     """'~ can block an additional creature[ each combat].' — a static blocking ability (§509)."""
     m = re.match(r"^~ can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
@@ -631,8 +650,8 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
-_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _can_block_additional, _cost_modifier, _cda,
-             _etb_tapped, _enters_with_counters, _doesnt_untap,
+_PATTERNS = [_kw_line, _typecycling, _kw_param, _painland, _enters_prepared, _can_block_additional,
+             _cost_modifier, _cda, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]

@@ -323,6 +323,11 @@ def _monarch(m):
     return Effect("become_monarch", "-", "you")
 
 
+@_t(r"^you take the initiative$")
+def _initiative(m):
+    return Effect("take_initiative", "-", "you")
+
+
 @_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})$")
 def _control(m):
     return Effect("gain_control", "-", _target(m.group(1)))

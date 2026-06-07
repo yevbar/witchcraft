@@ -95,6 +95,7 @@ _CORE_ACTIONS = frozenset({
     "choose",               # §601.2d/§700.2 — making a choice (a color, a creature type, …)
     "extra_combat",         # §505.1b — an additional combat phase
     "grant_ability",        # §613.6 — granting a quoted ability (effect-clause form)
+    "take_initiative",      # §726 — taking the initiative (a player designation)
 })
 
 
