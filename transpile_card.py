@@ -120,7 +120,7 @@ def _mana_ability(unit, ctx):
 
 
 # ---- effect bodies (shared by spell / activated / triggered) --------------------------------------
-_SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+", re.I)
+_SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+|,\s+(?=put\s)|\.\s+(?=then\s)", re.I)
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put)\b", re.I)
 
 

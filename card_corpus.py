@@ -25,7 +25,8 @@ _REMINDER = re.compile(r"\s*\([^()]*\)")
 _SYMBOL = re.compile(r"\{[^}]+\}")
 _INT = re.compile(r"\b\d+\b")
 # modern templating self-references; the card's own name is handled separately (it's per-card).
-_SELF = re.compile(r"\bthis (?:creature|card|permanent|spell|artifact|enchantment|land|planeswalker|token)\b", re.I)
+_SELF = re.compile(r"\bthis (?:creature|card|permanent|spell|artifact|enchantment|land|planeswalker|"
+                   r"token|aura|equipment|fortification|vehicle|saga|battle|class|room|emblem)\b", re.I)
 
 
 @dataclass(frozen=True)

@@ -34,7 +34,7 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current: TEMPLATE 35.3% · INSTANCE 57.6%** (cards.dl: ~24k cards, ~78k grounded facts,
+**Current: TEMPLATE 36.5% · INSTANCE 58.5%** (cards.dl: ~24k cards, ~80k grounded facts,
 conformance_fail=0). Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
 - `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
@@ -53,6 +53,9 @@ conformance_fail=0). Patterns landed:
 - flip_coin (§705), look top-N (§401), put_on_bottom (§401), return_to_battlefield (§614),
   cant_attack/block/be_blocked-this-turn (§508/509), sacrifice a/another <type>, permanent keyword
   grants ('It gains haste'), mana of the chosen color, modal 'Choose one or more —'
+- cant_be_regenerated (§701.19), search your library for <X> (§701.18), subject keyword-actions
+  ('it explores', 'it connives'), 'Then <effect>' discourse-lead strip, fetch sequences split on ', put'
+- broader self-reference normalization (this Aura/Equipment/Vehicle/Saga/… → ~)
 - ability-modifier clauses ('Activate only as a sorcery', 'triggers only once each turn') recorded as
   ability_modifier facts instead of blocking the body
 - `loyalty` planeswalker abilities `[+N]:`/`[−N]:` (§606); `saga_chapter` `I —`/`I, II —` (§714)

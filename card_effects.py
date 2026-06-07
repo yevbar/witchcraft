@@ -348,6 +348,33 @@ def _gains_perm(m):
     return Effect("grant_keyword", "-", "self", kw) if kw else None
 
 
+@_t(rf"^(?:({_TGT}|they) )?can't be regenerated$")
+def _cant_regen(m):
+    return Effect("cant_be_regenerated", "-", _target(m.group(1) or "it"))
+
+
+@_t(r"^search your library for ([^,]+?)$")
+def _search(m):
+    return Effect("search", "-", ground.slug(m.group(1)))
+
+
+@_t(rf"^put ({_TGT}) onto the battlefield( tapped)?$")
+def _to_battlefield(m):
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
+
+
+@_t(rf"^({_TGT}) (\w+)$")
+def _subject_action(m):
+    """A §701 keyword action performed by an object — 'it explores', 'it connives', 'that creature
+    investigates'. Third-person 's' is stripped to match the grounded action."""
+    base = ground.slug(m.group(2)).rstrip("s") or ground.slug(m.group(2))
+    if ground.slug(m.group(2)) in ground.keyword_actions():
+        base = ground.slug(m.group(2))
+    elif base not in ground.keyword_actions():
+        return None
+    return Effect(base, "-", _target(m.group(1)))
+
+
 def parse_effect(sentence: str) -> "Effect | None":
     """A single effect sentence -> grounded Effect, or None (abstain). Only emits if verb is grounded."""
     s = sentence.strip().rstrip(".").strip()
@@ -417,6 +444,7 @@ def parse_clause(sentence: str) -> "Effect | None":
     'if <condition>, <effect>' -> cond=<condition slug> (a descriptive predicate, like a trigger slug).
     Abstains if the inner effect isn't grounded."""
     s = sentence.strip().rstrip(".").strip()
+    s = re.sub(r"^then\s+", "", s, flags=re.I)        # discourse lead — 'Then shuffle' -> 'shuffle'
     m = _MAY.match(s)
     if m:
         inner = parse_clause(m.group(1))
