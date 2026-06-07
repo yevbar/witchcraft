@@ -74,22 +74,25 @@ and whose replacement body must parse into grounded effects, else abstain — qu
 top of its library" had emitted the `put_on_bottom` verb; now a distinct grounded `put_on_top`, §401.1).
 
 ### Honest ceiling (overnight run)
-Earlier climbed 44.5% → 50.1% per-card by capturing GENERAL cross-cutting families (keyword
-roster-loader fix, typecycling/landwalk/megamorph/multikicker variants, taplands, anthems,
-conditionals incl. trailing-if/unless-pay/until, granted abilities incl. in-body, cost modifiers,
-CDAs, leveler §711, Class §716, multi-sentence fallback, enters-the-battlefield normalization,
-faithful keyword grounding of prepared/initiative). All souffle-clean, 0 rules/cards collisions, no
-regressions; rules stay 100% (transpile.py untouched).
-The remaining ~50% is NOT addressable by general patterns: **2,937 cards are blocked by 2+ distinct
-rare clauses**, and the rest are a long tail of ~thousands of UNIQUE clauses (1–2 cards each) — bespoke
-multi-clause spells, transform-Saga chapters, storage lands, acorn/sticker (ticket) cards, and a few
-genuinely un-grounded mechanics (Specialize, Double team, Starting intensity — not in this CR). Pushing
-past here means either per-card hardcoding (against the "general grammar patterns" directive) or
-emitting lossy facts (against the prime directive). The faithful template ceiling is ~50–55% per-card;
-true 100% needs a Forge-scale curated DSL built card-by-card over a long horizon, or a stronger CR that
-defines the newest mechanics. Coverage continues incrementally but with sharply diminishing per-batch yield. Goal: 100%. Drive this by ranking uninterpreted clauses by CARDS-UNLOCKED (cards
-they SOLELY block), not raw frequency (`card_coverage.py` reports it; the blocker ranking is the
-worklist). cards.dl ~89k grounded facts, conformance_fail=0; validate.py: 0 rules/cards relation
+This run climbed **56.1% → 64.6%** per-card by exhausting the GENERAL cross-cutting families: the
+static-anthem subject grammar and "<subj> gets +N/+N and <conjunct>" rewrite-dispatch; §614
+replacement effects; **recursing every clause wrapper** (may / if-cond / if-you-do / unless / until /
+trailing-if) through a shared `_combine` so nested conditions stack instead of abstaining (the single
+biggest lever, +214); leading "As long as <cond>, <effect>" statics (rewrite→re-dispatch, +200);
+divided-damage and target-first "deals damage to X equal to Y"; zone-moves (put into hand/graveyard/
+battlefield, compound-split); scoped prevent-all-damage; bare/for-each/for-as-long-as pumps; §724
+end-the-turn, §506.4 remove-from-combat, §701.40 exert, §702 Station bands, Prototype, clone ETB,
+keyword-with-symbol-param ('ward {2}'); and many subject/target generalizations ('they', possessive
+controllers, 'you don't control', type-list targets). All souffle-clean, 0 rules/cards collisions,
+rules stay 100% (transpile.py untouched).
+What remains (~35%) is the genuine long tail: ~10.4k cards blocked by a single UNIQUE clause plus
+~1.8k blocked by 2+, dominated by heterogeneous triggered-ability BODIES (one bespoke effect each),
+acorn/sticker (ticket {TK}) cards, quantitative replacements ("twice that many / plus N"), becomes-a-
+creature-but-still-a-land back-references, and genuinely un-grounded mechanics (Specialize, Double
+team, Starting intensity, spellbook/draft — not in this CR). Pushing past here means either per-card
+hardcoding (against the "general grammar patterns" directive) or emitting lossy facts (against the
+prime directive). Continue by ranking uninterpreted clauses by CARDS-UNLOCKED (cards they SOLELY
+block), not raw frequency (`card_coverage.py` reports it; the blocker ranking is the worklist). cards.dl ~89k grounded facts, conformance_fail=0; validate.py: 0 rules/cards relation
 collisions. Faithful-or-abstain: keywords NOT in the §702/§701 roster (megamorph/specialize/prepared —
 not standalone CR headings) are abstained, never invented. Patterns landed:
 - `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
