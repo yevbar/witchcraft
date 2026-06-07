@@ -512,8 +512,24 @@ _SUBJ = (
         r"(?:you control|you own|your opponents control|an opponent controls|they control)"
         r"(?: (?:with|of|that are|that have|named|without|other than) [\w'+/{}., -]+?)?|"
     r"(?:other |all )?[\w'-]+ (?:creatures?|permanents?|tokens?)|"
-    r"creatures?|permanents?|you|players)"
+    r"creatures?|permanents?|you|players|it)"
 )
+
+
+_ASLONGAS = re.compile(r"^As long as (?P<cond>.+?), (?P<eff>.+?)\.?$", re.I)
+
+
+def _as_long_as(unit, ctx):
+    """'As long as <cond>, <effect>.' — a conditional static (§611). Rewrites the leading condition to
+    the trailing 'as long as' form the static handlers already understand and re-dispatches, so the
+    effect ('it gets +N/+N', 'Goblin creatures get +N/+N', '<subj> has <kw>') carries the condition.
+    Abstains if the effect itself doesn't ground."""
+    m = _ASLONGAS.match(unit.raw)
+    if not m:
+        return None
+    eff = m.group("eff").strip()
+    rebuilt = f"{eff[0].upper()}{eff[1:]} as long as {m.group('cond')}"
+    return _try_patterns(dataclasses.replace(unit, raw=rebuilt), ctx)
 
 _STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?"
@@ -887,7 +903,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_b
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _exert, _cast_as_flash, _alt_cost, _card_static,
-             _additional_cost, _static_pt,
+             _additional_cost, _as_long_as, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]
