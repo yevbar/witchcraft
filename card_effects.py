@@ -21,8 +21,8 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|target [\w ]+?|each [\w ]+?|all [\w ]+?|\w+ you control|that \w+|"
-        r"~|you|its controller|its owner|their controller)")
+_TGT = (r"(?:any target|target [\w ]+?|each [\w ]+?|all [\w ]+?|\w+ you control|"
+        r"enchanted \w+|equipped \w+|that \w+|~|it|you|its controller|its owner|their controller)")
 
 
 def _amount(s: str):
@@ -37,7 +37,11 @@ def _amount(s: str):
 def _target(s: str) -> str:
     s = s.strip().rstrip(".")
     if s == "~":
-        return "self"
+        return "self"                         # the card naming itself — reliably self
+    if s == "it":
+        return "it"                           # an anaphor (the trigger's subject etc.) — left for the
+        # engine to resolve from context; collapsing it to 'self' would be wrong (e.g. 'exile it' where
+        # 'it' is the sacrificed permanent, not this card).
     return ground.slug(s) or "self"
 
 
@@ -139,6 +143,21 @@ def _taputap(m):
 @_t(rf"^return ({_TGT}) to (?:its owner's hand|your hand|their owners' hands?|its owner's hands?)$")
 def _bounce(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
+
+
+@_t(rf"^attach (?:~|it) to ({_TGT})$")
+def _attach(m):
+    return Effect("attach", "-", _target(m.group(1)))
+
+
+@_t(r"^you become the monarch$")
+def _monarch(m):
+    return Effect("become_monarch", "-", "you")
+
+
+@_t(rf"^you (?:gain )?control ({_TGT})$")
+def _control(m):
+    return Effect("gain_control", "-", _target(m.group(1)))
 
 
 @_t(rf"^(\w+) ({_TGT})$")

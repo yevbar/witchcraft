@@ -17,11 +17,12 @@ Later slices (registered here as they land): mana abilities, activated "cost: ef
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 
 import ground
-from card_effects import parse_effect
+from card_effects import parse_effect, _TGT
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -35,6 +36,15 @@ class CardOut:
     pattern: str
     template: str = ""
     meta: dict = field(default_factory=dict)
+
+
+def _target_slug(s: str) -> str:
+    s = s.strip().rstrip(".")
+    if s == "~":
+        return "self"
+    if s == "it":
+        return "it"
+    return ground.slug(s) or "self"
 
 
 def _ground_kw(token: str):
@@ -208,6 +218,17 @@ def _spell(unit, ctx):
                    + _effect_facts(ctx["id"], aid, effects), "spell")
 
 
+def _static_control(unit, ctx):
+    """'You control enchanted <perm>.' — an Aura's static control-change (§613 layer 2 / §720)."""
+    m = re.match(r"^You (?:gain )?control (enchanted \w+)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
+                         f'effect("{cid}", "{aid}", 0, "gain_control", "-", "{ground.slug(m.group(1))}")'],
+                   "static_control")
+
+
 def _activated(unit, ctx):
     """'<cost>: <effect(s)>' — an activated ability (§602). Cost must look like a cost; effects parse."""
     m = re.match(r"^(?P<cost>[^:]{1,60}):\s*(?P<body>.+)$", unit.raw)
@@ -225,30 +246,75 @@ def _activated(unit, ctx):
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 
 
+_MODAL_HEAD = re.compile(r"^choose (one or both|up to one|up to two|up to three|one|two|three)\b", re.I)
+
+
 def _triggered(unit, ctx):
-    """'When/Whenever/At <event>, <effect(s)>' — a triggered ability (§603)."""
+    """'When/Whenever/At <event>, <effect(s)>' — a triggered ability (§603). A modal body
+    ('…, choose one —') records the trigger + modal marker; the modes follow as • options."""
     m = _TRIG.match(unit.raw)
     if not m:
         return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    trig = ground.slug(m.group("trig"))
+    head = [f'ability("{cid}", "{aid}", "triggered")', f'ability_trigger("{cid}", "{aid}", "{trig}")']
+    mh = _MODAL_HEAD.match(m.group("body"))
+    if mh:
+        return CardOut(cid, head + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
     effects = _parse_body(m.group("body"))
     if not effects:
         return None
-    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    trig = ground.slug(m.group("trig"))
-    return CardOut(cid, [f'ability("{cid}", "{aid}", "triggered")',
-                         f'ability_trigger("{cid}", "{aid}", "{trig}")']
-                   + _effect_facts(cid, aid, effects), "triggered")
+    return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
+
+
+def _etb_choose(unit, ctx):
+    """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e)."""
+    m = re.match(r"^As ~ enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
+
+
+# static player-rule modifications, each grounded: hand size §402.2, extra land §505.5b/§116.2a,
+# top-card play §601/§715, no max hand size §402.2.
+_STATIC_PLAYER = [
+    (r"^You have no maximum hand size\.?$", "no_maximum_hand_size"),
+    (r"^You may play an additional land on each of your turns\.?$", "extra_land_per_turn"),
+    (r"^You may play (?:an? )?additional lands? on each of your turns\.?$", "extra_land_per_turn"),
+    (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
+]
+
+
+def _static_player(unit, ctx):
+    for pat, tag in _STATIC_PLAYER:
+        if re.match(pat, unit.raw, re.I):
+            return CardOut(ctx["id"], [f'card_static_player("{ctx["id"]}", "{tag}")'], "static_player")
+    return None
+
+
+_STATIC_PT = re.compile(rf"^(?P<who>{_TGT}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
+                        rf"(?: and (?:has|gains?) (?P<kw>[\w, ]+?))?\.?$", re.I)
 
 
 def _static_pt(unit, ctx):
-    """'Equipped/Enchanted creature gets +N/+N.' — a static P/T grant (§613 layer 7c via equip/enchant)."""
-    m = re.match(r"^(Equipped|Enchanted) creature gets ([+-]\d+/[+-]\d+)\.?$", unit.raw)
+    """A static P/T grant with no duration — '<subject> get(s) +N/+N[ and has <keywords>].' (§613:
+    layer 7c P/T, layer 6 ability-adding). The absent 'until end of turn' is what makes it static;
+    one-shot 'until end of turn' pumps go to _spell/_activated via the effect engine instead."""
+    m = _STATIC_PT.match(unit.raw)
     if not m:
         return None
+    who = _target_slug(m.group("who"))
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    who = ground.slug(m.group(1) + " creature")
-    return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
-                         f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group(2)}", "{who}")'], "static_pt")
+    facts = [f'ability("{cid}", "{aid}", "static")',
+             f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{who}")']
+    if m.group("kw"):
+        grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
+        if not all(grounded):
+            return None                       # abstain rather than emit a partial grant
+        for i, (kw, _param) in enumerate(grounded, 1):
+            facts.append(f'effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}")')
+    return CardOut(cid, facts, "static_pt")
 
 
 def _etb_tapped(unit, ctx):
@@ -325,14 +391,31 @@ def _attacks_each_combat(unit, ctx):
 
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
-             _attacks_each_combat, _static_pt, _modal, _mode_option, _cant,
-             _mana_ability, _triggered, _activated, _spell]
+             _attacks_each_combat, _etb_choose, _static_player, _static_pt, _modal, _mode_option,
+             _cant, _mana_ability, _triggered, _activated, _spell, _static_control]
+
+# an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
+# 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
+# prefix FOLLOWED BY a trigger word (When/Whenever/At): that's the safe signal for a real ability word
+# and avoids the keyword-cost em-dash syntax ('Cumulative upkeep — Pay {1}', 'Buyback — {cost}'), Saga
+# chapters, die tables, loyalty, and the modal header. A grounded keyword prefix is never stripped.
+_ABILITY_WORD = re.compile(r"^(?P<word>[A-Z][a-z][\w'’-]*(?: [A-Z]?[\w'’-]+){0,3})\s+—\s+"
+                           r"(?P<rest>(?:When|Whenever|At) .+)$")
+
+
+def _strip_ability_word(raw: str) -> str:
+    m = _ABILITY_WORD.match(raw)
+    if m and _ground_kw(m.group("word")) is None:
+        return m.group("rest")
+    return raw
 
 
 def transpile_unit(unit, ctx) -> "CardOut | None":
     """Interpret one ability unit; first faithful pattern wins, else None (abstain)."""
+    stripped = _strip_ability_word(unit.raw)
+    u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
     for fn in _PATTERNS:
-        out = fn(unit, ctx)
+        out = fn(u, ctx)
         if out:
             out.template = unit.template
             return out

@@ -70,6 +70,9 @@ _CORE_ACTIONS = frozenset({
     "draw", "deal_damage", "gain_life", "lose_life", "add_mana", "put_counter", "return_to_hand",
     "modify_pt",            # §613.3c/613.4c layer 7c — power/toughness-changing continuous effect
     "tap", "untap",         # §701.21 tap_and_untap keyword action; §107.5 tap symbol; §502 untap step
+    "gain_control",         # §613.3a layer 2 / §720 — control-changing continuous effect
+    "become_monarch",       # §720 the monarch (§725.3 at_most_one monarch)
+    "grant_keyword",        # §613.3b/613.6 layer 6 — ability-adding continuous effect
 })
 
 
