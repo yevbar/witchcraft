@@ -21,9 +21,10 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|up to \w+ target[\w ]*?|target [\w ]+?|each [\w ]+?|all [\w ]+?|"
+_TGT = (r"(?:any target|up to \w+ target[\w' ]*?|target [\w' ]+?|another target [\w' ]+?|"
+        r"each [\w' ]+?|all [\w' ]+?|"
         r"(?:\w+ )?\w+ (?:you control|your opponents control|an opponent controls|they control)|"
-        r"enchanted \w+|equipped \w+|the exiled cards?|those \w+|that \w+|"
+        r"enchanted \w+|equipped \w+|the exiled cards?|those \w+|that [\w']+|"
         r"~|it|you|its controller|its owner|their controller)")
 
 
@@ -267,9 +268,10 @@ def _cast_plain(m):
     return Effect("cast", "-", _target(m.group(1)))
 
 
-@_t(r"^put a ([\w ]+?) card from your hand onto the battlefield$")
+@_t(r"^put a ([\w ]+?) card from your hand onto the battlefield( tapped)?$")
 def _put_from_hand(m):
-    return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card", "from_hand")
+    return Effect("return_to_battlefield", "-", ground.slug(m.group(1)) + "_card",
+                  "from_hand_tapped" if m.group(2) else "from_hand")
 
 
 @_t(rf"^(?:({_TGT}) )?loses? that much life$")
@@ -521,11 +523,32 @@ def _discard_that(m):
     return Effect("discard", "that_amount", _target(m.group(1)))
 
 
-@_t(rf"^(?:it |~ )?gains? ([\w ]+?)$")
+@_t(rf"^(?:({_TGT}) )?gains? ([\w ]+?)$")
 def _gains_perm(m):
-    """'It gains haste' / '~ gains trample' with NO duration — a permanent keyword grant (§613)."""
-    kw = _kw_ok(m.group(1))
-    return Effect("grant_keyword", "-", "self", kw) if kw else None
+    """'<target> gains <kw>' with NO duration — a permanent keyword grant (§613)."""
+    kw = _kw_ok(m.group(2))
+    return Effect("grant_keyword", "-", _target(m.group(1) or "~"), kw) if kw else None
+
+
+@_t(rf"^({_TGT}) sacrifices? (a|an|one|two|three|\w+) (.+)$")
+def _sacrifice_subj(m):
+    return Effect("sacrifice", "-", _target(m.group(1)), ground.slug(m.group(2) + " " + m.group(3)))
+
+
+@_t(rf"^have ({_TGT}) deals? (\w+) damage to ({_TGT})$")
+def _have_deal(m):
+    n = _amount(m.group(2))
+    return Effect("deal_damage", n if n is not None else "X", _target(m.group(3)), "by_" + _target(m.group(1)))
+
+
+@_t(rf"^have ({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn$")
+def _have_get(m):
+    return Effect("modify_pt", m.group(2), _target(m.group(1)))
+
+
+@_t(rf"^tap or untap ({_TGT})$")
+def _tap_or_untap(m):
+    return Effect("untap", "-", _target(m.group(1)), "or_tap")
 
 
 @_t(rf"^(?:({_TGT}|they) )?can't be regenerated$")
