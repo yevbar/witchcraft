@@ -455,6 +455,29 @@ def _combat_restriction(unit, ctx):
     return None
 
 
+_GRANTED = re.compile(
+    r'^(?P<who>~|enchanted \w+|equipped \w+|(?:\w+ )?\w+ you control|other [\w ]+?|'
+    r'target [\w ]+?|each [\w ]+?|all [\w ]+?) (?:has|have|gains?) "(?P<ab>.+)"'
+    r'(?P<dur> until end of turn)?\.?$', re.I | re.S)
+
+
+def _granted_ability(unit, ctx):
+    """'<subject> has/gains "<ability>" [until end of turn].' — granting a quoted ability (§613.6).
+    The granted ability is recorded as a slug of its (already self-normalized) text — coarse but
+    faithful; its 'self' resolves to whoever holds it. Only WHOLE-unit grants are handled here, since
+    a quoted ability's internal punctuation would corrupt the body splitters."""
+    m = _GRANTED.match(unit.raw)
+    if not m:
+        return None
+    ab = ground.slug(m.group("ab"))[:160]
+    if not ab:
+        return None
+    cid = ctx["id"]
+    dur = "until_end_of_turn" if m.group("dur") else "-"
+    return CardOut(cid, [f'card_grants_ability("{cid}", "{_target_slug(m.group("who"))}", "{ab}", "{dur}")'],
+                   "granted_ability")
+
+
 def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '<subject> has/have <keywords>.' (§613 layer 6): an Aura's
     'Enchanted creature has flying.', an anthem's 'Other creatures you control have trample.'"""
@@ -511,8 +534,8 @@ def _attacks_each_combat(unit, ctx):
 
 _PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
-             _static_grant, _modal, _mode_option, _cant, _combat_restriction, _loyalty, _saga_chapter,
-             _mana_ability, _triggered, _activated, _spell, _static_control]
+             _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
+             _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
