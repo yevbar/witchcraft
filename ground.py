@@ -96,6 +96,7 @@ _CORE_ACTIONS = frozenset({
     "extra_combat",         # §505.1b — an additional combat phase
     "grant_ability",        # §613.6 — granting a quoted ability (effect-clause form)
     "take_initiative",      # §726 — taking the initiative (a player designation)
+    "skip",                 # §500.7/§504 — skipping a step/phase/turn
 })
 
 

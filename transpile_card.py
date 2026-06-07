@@ -393,13 +393,18 @@ def _static_player(unit, ctx):
     return None
 
 
-# card-level static declarations (commander/companion variants, §903/§702.124/§702.139)
+# card-level static declarations (commander/companion variants §903; static combat requirements §508/509)
 _CARD_STATIC = [
     (r"^~ can be your commander\.?$", "can_be_commander"),
     (r"^~ can't be your commander\.?$", "cant_be_commander"),
     (r"^Doctor's companion\.?$", "doctors_companion"),
     (r"^Choose a Background\.?$", "choose_a_background"),
     (r"^Partner\.?$", "partner"),
+    (r"^~ must be blocked if able\.?$", "must_be_blocked"),
+    (r"^All creatures able to block ~ do so\.?$", "lure"),
+    (r"^~ can't attack or block alone\.?$", "cant_attack_or_block_alone"),
+    (r"^~ attacks? alone\.?$", "attacks_alone"),
+    (r"^~ can attack as though it didn't have defender\.?$", "can_attack_despite_defender"),
 ]
 
 

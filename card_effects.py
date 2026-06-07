@@ -328,6 +328,11 @@ def _initiative(m):
     return Effect("take_initiative", "-", "you")
 
 
+@_t(r"^skip your (draw step|next draw step|untap step|combat phase|next combat phase|draw)$")
+def _skip(m):
+    return Effect("skip", "-", ground.slug(m.group(1)))
+
+
 @_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})$")
 def _control(m):
     return Effect("gain_control", "-", _target(m.group(1)))
