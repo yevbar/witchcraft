@@ -34,11 +34,27 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**Current (slice 1–2): TEMPLATE 3.8% · INSTANCE 25.8%.** Patterns landed:
-- `kw_line` — `Flying` / `Flying, vigilance` / `First strike` → `card_keyword` (§702)
-- `kw_param` — `Enchant creature` / `Equip {S}` / `Ward {S}` → `card_keyword` + `card_keyword_param`
-- `mana_ability` — `{T}: Add {G}` → `card_mana_ability` + `card_adds_mana` (§605/§107), abstaining on
-  variable production (`Add {G} for each …`)
+**Current: TEMPLATE 14.1% · INSTANCE 40.6%** (cards.dl: 19,006 cards, 46,731 grounded facts,
+conformance_fail=0). Patterns landed:
+- `kw_line` / `kw_param` — keyword abilities incl. landwalk variants & daybound/nightbound families → §702
+- `mana_ability` — `{T}: Add {G}` → §605/§107, abstaining on variable production
+- `spell` / `activated` / `triggered` — ability decomposition (§602/§603); bodies parsed by the shared
+  **effect engine** `card_effects.py` into grounded `(verb, amount, target)` tuples
+- effect verbs grounded in §701 keyword actions + verified core actions (draw/deal_damage/gain_life/
+  modify_pt/tap/…); targets normalized (any_target, target_creature, all_creatures, creatures_you_control, …)
+- `modal` + `mode_option` (§700.2), `cant` restrictions (§508/509/601), `static_pt` (§613),
+  `etb_tapped` / `enters_with_counters` (§614/§122), `doesnt_untap` (§502), `attacks_each_combat` (§508)
+
+The interpreter REQUIRES every effect sub-clause in a unit to parse, else abstains the whole unit (no
+half-facts) — e.g. Wrath of God abstains because "They can't be regenerated" isn't yet handled.
+
+## Simulation (sim.py) — the facts are executable
+`sim.py` is a small reviewable shim: it loads cards.dl, builds a tiny game state, and runs ONE handler
+per grounded verb (no per-card logic). The demo executes real cards across varied mechanics — Llanowar
+Elves taps for green; Lightning Bolt kills a Grizzly Bears (damage→death) and burns a player; Divination
+draws two; Giant Growth pumps +3/+3; Healing Salve's modal "gain 3 life". Cards whose text wasn't
+interpreted simply have no facts to run (faithful — never faked). This is the executable proof that the
+grounded fact IR is the substrate for the eventual C++ engine.
 
 ## Worklist (top uncovered templates, by instance count — the high-leverage next slices)
 1. `~ enters tapped.` (502) — ETB self-replacement → ground in §614/§603

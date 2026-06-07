@@ -26,10 +26,9 @@ def build() -> tuple[str, dict]:
     by_pattern = collections.Counter()
     for c in card_corpus.load_cards():
         cid = ground.slug(c["name"])
-        ctx = {"id": cid, "card": c}
         emitted = False
-        for u in card_corpus.units_of(c):
-            o = transpile_unit(u, ctx)
+        for seq, u in enumerate(card_corpus.units_of(c)):
+            o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
             if not o:
                 continue
             by_pattern[o.pattern] += 1
@@ -50,6 +49,18 @@ def build() -> tuple[str, dict]:
     p.decl("card_keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])
     p.decl("card_mana_ability", [("card", "symbol"), ("cost", "symbol")])
     p.decl("card_adds_mana", [("card", "symbol"), ("cost", "symbol"), ("produces", "symbol")])
+    p.decl("ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")])
+    p.decl("ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
+    p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
+    p.decl("effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"),
+                      ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol")])
+    p.decl("mode_option", [("card", "symbol"), ("aid", "symbol")])
+    p.decl("card_modal", [("card", "symbol"), ("mode", "symbol")])
+    p.decl("card_cant", [("card", "symbol"), ("action", "symbol")])
+    p.decl("card_doesnt_untap", [("card", "symbol"), ("who", "symbol")])
+    p.decl("card_attacks_each_combat", [("card", "symbol")])
+    p.decl("card_enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
+    p.decl("card_enters_tapped", [("card", "symbol")])
     p.blank()
     for cid, nm in sorted(names.items()):
         p.fact(f'card_name("{cid}", "{nm}")')
@@ -57,7 +68,10 @@ def build() -> tuple[str, dict]:
     for f in facts:
         p.fact(f)
     p.blank()
-    p.output("card_keyword", "card_keyword_param", "card_mana_ability", "card_adds_mana")
+    p.output("card_keyword", "card_keyword_param", "card_mana_ability", "card_adds_mana",
+             "ability", "ability_cost", "ability_trigger", "effect", "mode_option", "card_modal",
+             "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
+             "card_enters_tapped")
     p.blank()
     p.comment("conformance — a grounded keyword the rules define (§702.9) on a known card")
     p.conformance(

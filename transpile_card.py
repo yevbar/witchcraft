@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 
 import ground
+from card_effects import parse_effect
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -36,17 +37,36 @@ class CardOut:
     meta: dict = field(default_factory=dict)
 
 
+def _ground_kw(token: str):
+    """Map a keyword token to (grounded_keyword, param|None), or None. Handles the families the rules
+    abstract: a §702.14 landwalk variant ('Swampwalk' -> landwalk/swamp) and §702's combined
+    daybound_and_nightbound (cards print 'Daybound'/'Nightbound' separately)."""
+    s = ground.slug(token)
+    if s in _KW:
+        return (s, None)
+    if s.endswith("walk") and "landwalk" in _KW:
+        return ("landwalk", s[:-4])
+    if s in ("daybound", "nightbound") and "daybound_and_nightbound" in _KW:
+        return ("daybound_and_nightbound", s)
+    return None
+
+
 def _kw_line(unit, ctx):
     """The whole unit is one keyword, or a comma-list of keywords, ALL grounded in §702.
-    'Flying' / 'Flying, vigilance' / 'First strike'. If any comma-part isn't a grounded keyword
-    (e.g. 'Protection from red, white, and blue'), abstain so _kw_param can handle it."""
+    'Flying' / 'Flying, vigilance' / 'First strike' / 'Swampwalk'. If any comma-part isn't a grounded
+    keyword (e.g. 'Protection from red, white, and blue'), abstain so _kw_param can handle it."""
     parts = [p.strip() for p in unit.raw.rstrip(".").split(",") if p.strip()]
     if not parts:
         return None
-    kws = [ground.slug(p) for p in parts]
-    if not all(k in _KW for k in kws):
+    grounded = [_ground_kw(p) for p in parts]
+    if not all(grounded):
         return None
-    return CardOut(ctx["id"], [f'card_keyword("{ctx["id"]}", "{k}")' for k in kws], "kw_line")
+    facts = []
+    for kw, param in grounded:
+        facts.append(f'card_keyword("{ctx["id"]}", "{kw}")')
+        if param:
+            facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{param}")')
+    return CardOut(ctx["id"], facts, "kw_line")
 
 
 def _kw_param(unit, ctx):
@@ -126,7 +146,187 @@ def _mana_ability(unit, ctx):
     return CardOut(cid, facts, "mana_ability", meta={"cost": cost, "produces": prod})
 
 
-_PATTERNS = [_kw_line, _kw_param, _mana_ability]
+# ---- effect bodies (shared by spell / activated / triggered) --------------------------------------
+_SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+", re.I)
+_COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put)\b", re.I)
+
+
+def _parse_body(text: str):
+    """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
+    Splits on sentence boundaries and simple 'and'/'then' conjunctions; abstains on anything else."""
+    out = []
+    for sentence in re.split(r"(?<=[.])\s+", text.strip()):
+        sentence = sentence.strip().rstrip(".")
+        if not sentence:
+            continue
+        e = parse_effect(sentence)
+        if e:
+            out.append(e)
+            continue
+        parts = _SPLIT_AND.split(sentence)
+        if len(parts) < 2:
+            return None
+        for p in parts:
+            e = parse_effect(p)
+            if not e:
+                return None
+            out.append(e)
+    return out or None
+
+
+def _effect_facts(cid, aid, effects):
+    return [f'effect("{cid}", "{aid}", {i}, "{e.verb}", "{e.amount}", "{e.target}")'
+            for i, e in enumerate(effects)]
+
+
+def _cost_ok(cost: str) -> bool:
+    if '"' in cost or len(cost) > 60 or ":" in cost:
+        return False
+    for part in cost.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if re.fullmatch(r"(\{[^}]+\}|[+\-]?\d+|[TQ]|\s)+", part) or _COST_VERB.match(part):
+            continue
+        return False
+    return True
+
+
+def _types(ctx) -> set:
+    return set((ctx.get("card") or {}).get("types") or [])
+
+
+def _spell(unit, ctx):
+    """An instant/sorcery one-shot: the whole line is effect(s) with no cost/trigger prefix."""
+    if not ({"Instant", "Sorcery"} & _types(ctx)):
+        return None
+    effects = _parse_body(unit.raw)
+    if not effects:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    return CardOut(ctx["id"], [f'ability("{ctx["id"]}", "{aid}", "spell")']
+                   + _effect_facts(ctx["id"], aid, effects), "spell")
+
+
+def _activated(unit, ctx):
+    """'<cost>: <effect(s)>' — an activated ability (§602). Cost must look like a cost; effects parse."""
+    m = re.match(r"^(?P<cost>[^:]{1,60}):\s*(?P<body>.+)$", unit.raw)
+    if not m or not _cost_ok(m.group("cost")):
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'ability("{cid}", "{aid}", "activated")',
+                         f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
+                   + _effect_facts(cid, aid, effects), "activated")
+
+
+_TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
+
+
+def _triggered(unit, ctx):
+    """'When/Whenever/At <event>, <effect(s)>' — a triggered ability (§603)."""
+    m = _TRIG.match(unit.raw)
+    if not m:
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    trig = ground.slug(m.group("trig"))
+    return CardOut(cid, [f'ability("{cid}", "{aid}", "triggered")',
+                         f'ability_trigger("{cid}", "{aid}", "{trig}")']
+                   + _effect_facts(cid, aid, effects), "triggered")
+
+
+def _static_pt(unit, ctx):
+    """'Equipped/Enchanted creature gets +N/+N.' — a static P/T grant (§613 layer 7c via equip/enchant)."""
+    m = re.match(r"^(Equipped|Enchanted) creature gets ([+-]\d+/[+-]\d+)\.?$", unit.raw)
+    if not m:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    who = ground.slug(m.group(1) + " creature")
+    return CardOut(cid, [f'ability("{cid}", "{aid}", "static")',
+                         f'effect("{cid}", "{aid}", 0, "modify_pt", "{m.group(2)}", "{who}")'], "static_pt")
+
+
+def _etb_tapped(unit, ctx):
+    """'~ enters tapped.' — an ETB replacement (§614) that the permanent enters tapped."""
+    if not re.match(r"^~ enters tapped\.?$", unit.raw):
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_enters_tapped("{cid}")'], "etb_tapped")
+
+
+def _modal(unit, ctx):
+    """'Choose one —' / 'Choose one or both —' — a modal spell/ability header (§700.2)."""
+    m = re.match(r"^Choose (one or both|up to one|up to two|up to three|one|two|three)\s*[—–-]?\s*$",
+                 unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_modal("{cid}", "{ground.slug(m.group(1))}")'], "modal")
+
+
+def _mode_option(unit, ctx):
+    """'• <effect>' — one mode of a modal spell/ability; its body is a normal effect clause."""
+    m = re.match(r"^[•·∙]\s*(?P<body>.+)$", unit.raw)
+    if not m:
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"mode{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
+
+
+# grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
+_CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
+         "attack or block": "attack_or_block", "be countered": "be_countered",
+         "be regenerated": "be_regenerated", "be sacrificed": "be_sacrificed"}
+
+
+def _cant(unit, ctx):
+    """'~ can't <X>.' — a static restriction grounded in combat/§701 rules (no over-claim: a fixed set)."""
+    m = re.match(r"^~ can't (.+?)\.?$", unit.raw)
+    if not m or m.group(1).lower() not in _CANT:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_cant("{cid}", "{_CANT[m.group(1).lower()]}")'], "cant")
+
+
+def _enters_with_counters(unit, ctx):
+    """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
+    m = re.match(r"^~ enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it\.?$", unit.raw)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{ground.slug(m.group(1))}")'],
+                   "enters_with_counters")
+
+
+def _doesnt_untap(unit, ctx):
+    """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502)."""
+    m = re.match(r"^(~|Enchanted creature|Equipped creature) doesn't untap during "
+                 r"(?:its controller's|your|their) untap step\.?$", unit.raw)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_doesnt_untap("{cid}", "{ground.slug(m.group(1)) or "self"}")'], "doesnt_untap")
+
+
+def _attacks_each_combat(unit, ctx):
+    """'~ attacks each combat if able.' — a combat requirement (§508)."""
+    if not re.match(r"^~ attacks each combat if able\.?$", unit.raw):
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
+
+
+_PATTERNS = [_kw_line, _kw_param, _etb_tapped, _enters_with_counters, _doesnt_untap,
+             _attacks_each_combat, _static_pt, _modal, _mode_option, _cant,
+             _mana_ability, _triggered, _activated, _spell]
 
 
 def transpile_unit(unit, ctx) -> "CardOut | None":

@@ -21,20 +21,20 @@ from transpile_card import transpile_unit
 
 
 def measure():
-    reps: dict[str, card_corpus.Unit] = {}
+    reps: dict[str, tuple] = {}
     freq = collections.Counter()
     for c in card_corpus.load_cards():
         for u in card_corpus.units_of(c):
             freq[u.template] += 1
-            reps.setdefault(u.template, u)
+            reps.setdefault(u.template, (u, c))
 
     cov_t = 0
     inst_total = sum(freq.values())
     inst_cov = 0
     by_pattern = collections.Counter()
     uncovered = collections.Counter()
-    for tmpl, u in reps.items():
-        ctx = {"id": ground.slug(u.card)}
+    for tmpl, (u, c) in reps.items():
+        ctx = {"id": ground.slug(u.card), "card": c, "seq": 0}
         o = transpile_unit(u, ctx)
         if o:
             cov_t += 1

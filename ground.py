@@ -62,6 +62,24 @@ def colors() -> frozenset:
     return frozenset(symbol_color().values()) | {"colorless"}
 
 
+# Core game actions the rules define OUTSIDE the §701 keyword-action roster, each verified present as a
+# term in the generated rules datalog (so emitting them stays grounded — no inventing). Citations are
+# the rule facts that define them: draw §120/turn_based_action("draw"); deal_damage §120 (permission/
+# damage_result); gain_life/lose_life §119/§120.3f (damage_result …"gain_life"); add_mana §106/§605.
+_CORE_ACTIONS = frozenset({
+    "draw", "deal_damage", "gain_life", "lose_life", "add_mana", "put_counter", "return_to_hand",
+    "modify_pt",            # §613.3c/613.4c layer 7c — power/toughness-changing continuous effect
+    "tap", "untap",         # §701.21 tap_and_untap keyword action; §107.5 tap symbol; §502 untap step
+})
+
+
+@lru_cache(maxsize=1)
+def effect_verbs() -> frozenset:
+    """Verbs a card effect may use: the §701 keyword actions plus the verified core game actions.
+    Anything outside this set is abstained — a card can't do something the rules don't define."""
+    return keyword_actions() | _CORE_ACTIONS
+
+
 def slug(text: str) -> str:
     """Normalize a card-text term to the rules' slug form ('First strike' -> 'first_strike')."""
     return re.sub(r"[^a-z0-9]+", "_", text.strip().lower()).strip("_")
