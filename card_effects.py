@@ -360,6 +360,21 @@ def _new_targets(m):
     return Effect("choose_new_targets", "-", "copy")
 
 
+@_t(r"^choose (?:a|an|one) ([\w ]+?)$")
+def _choose(m):
+    return Effect("choose", "-", ground.slug(m.group(1)))
+
+
+@_t(rf"^({_TGT}) reveals? their hand$")
+def _reveal_hand(m):
+    return Effect("reveal", "-", _target(m.group(1)), "hand")
+
+
+@_t(rf"^({_TGT}) doesn't untap during (?:its controller's|your|their)( next)? untap step$")
+def _doesnt_untap_eff(m):
+    return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
+
+
 @_t(r"^cast (.+?) without paying (?:its|their) mana costs?$")
 def _cast_free(m):
     return Effect("cast", "-", _target(m.group(1)), "without_paying_mana_cost")
@@ -469,6 +484,7 @@ _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they)
 _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
                       r"the next end step|the next turn's end step)|at end of combat|"
                       r"at the beginning of the next turn)$", re.I)
+_UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 
 
 def _kw_ok(phrase: str):
@@ -542,6 +558,12 @@ def parse_clause(sentence: str) -> "Effect | None":
     if m:
         e = parse_effect(m.group(1))
         return _dc.replace(e, cond="delayed") if e else None
+    m = _UNTIL.match(s)
+    if m:
+        inner = parse_clause(m.group(2))
+        if not inner:
+            return None
+        return inner if inner.cond != "-" else _dc.replace(inner, cond="until_" + ground.slug(m.group(1)))
     return parse_effect(s)
 
 
