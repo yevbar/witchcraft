@@ -76,6 +76,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(?:one|a) mana of any color in your commander's color identity", w, re.I)
     if m:
         return ["commander_color_identity"]      # §903.4 color identity restricts which colors
+    m = re.fullmatch(r"(?:one|a) mana of any (?:color|type) that a land (you control|an opponent controls) could produce", w, re.I)
+    if m:
+        return ["land_could_produce_" + ground.slug(m.group(1))]
     return None
 
 
@@ -631,9 +634,10 @@ def _play(m):
     return Effect("play", "-", _target(m.group(1)))
 
 
-@_t(r"^you may play (?:an additional|up to (?:one|two|\w+) additional) lands?(?: this turn)?$")
+@_t(r"^play (?:an additional|up to (?:one|two|\w+) additional) lands?(?: this turn)?$")
 def _extra_land(m):
-    """'You may play an additional land this turn' — a one-shot extra-land permission (§116.2a/§505.5b)."""
+    """'[You may] play an additional land this turn' — a one-shot extra-land permission (§116.2a/
+    §505.5b). The 'you may' prefix is handled by the wrapper layer, so this matches the bare verb."""
     return Effect("play", "-", "you", "additional_land_this_turn")
 
 
