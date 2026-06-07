@@ -173,6 +173,39 @@ def _mana_ability(unit, ctx):
 
 # ---- effect bodies (shared by spell / activated / triggered) --------------------------------------
 _SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+|,\s+(?=put\s)|,\s+(?=reveal\s)|\.\s+(?=then\s)", re.I)
+
+from card_effects import _PREDICATE_LEADS
+
+_STRONG_SPLIT = re.compile(r",?\s+then\s+|\.\s+", re.I)        # sequence/sentence boundaries: always split
+_AND_SPLIT = re.compile(r"\s*,\s+and\s+|\s+and\s+|,\s+(?=put |reveal |draw )", re.I)
+
+
+def _is_predicate(part: str) -> bool:
+    """True if a fragment opens a NEW effect (a player/pronoun subject or a grounded verb) rather than
+    continuing a noun phrase ('hand and graveyard', 'flying and trample' do NOT)."""
+    w = (part.split() or [""])[0].lower().rstrip("s")
+    return w in _PREDICATE_LEADS or w in ground.effect_verbs() or (w + "s") in ground.effect_verbs()
+
+
+def _smart_split(s: str):
+    """Split a clause into effect-parts, breaking on ', then'/'. ' always but on ' and '/' , and ' ONLY
+    when the right side is itself an effect — so noun conjunctions ('hand and graveyard', 'hexproof and
+    trample', 'artifacts and enchantments') stay intact while effect conjunctions ('draw a card and you
+    gain 2 life', 'target creature gets +1/+1 and target creature gets -1/-1') split. The right side
+    counts as an effect if it's a bare predicate continuation OR it parses on its own."""
+    parts = []
+    for chunk in _STRONG_SPLIT.split(s):
+        if not chunk or not chunk.strip():
+            continue
+        pieces = _AND_SPLIT.split(chunk)
+        merged = [pieces[0]]
+        for nxt in pieces[1:]:
+            if nxt and (_is_predicate(nxt) or parse_clause(nxt) is not None):
+                merged.append(nxt)
+            else:                                      # noun conjunction — rejoin with ' and '
+                merged[-1] = merged[-1] + " and " + nxt
+        parts += merged
+    return [p for p in parts if p and p.strip()]
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|"
                         r"waterbend|earthbend|airbend|collect)\b", re.I)
 
@@ -282,7 +315,7 @@ def _parse_body(text: str):
         # protect intra-phrase ' and ' that is NOT a conjunction of effects ('base power and toughness',
         # 'power and toughness') so the splitter doesn't tear the phrase apart.
         masked = re.sub(r"power and toughness", "power\x00and\x00toughness", masked, flags=re.I)
-        parts = [_unmask(p.replace("\x00", " "), q) for p in _SPLIT_AND.split(masked)]
+        parts = [_unmask(p.replace("\x00", " "), q) for p in _smart_split(masked)]
         if len(parts) >= 2:
             subj = _leading_subject(parts[0])          # for 'X A, then B' the later predicates share X
             sub, ok = [], True

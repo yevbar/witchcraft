@@ -25,6 +25,7 @@ _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|"
         r"target (?:[\w']+, )+(?:or |and )?[\w']+(?: with [\w' ]+?)?|"   # type-list target: 'target artifact, creature, or land [with flying]'
         r"(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
+        r"(?:other |another |all )?[\w' -]+? (?:you control|your opponents control|an opponent controls|they control) (?:with|of|that are|that have|named) [\w' +/-]+?|"   # qualified subset
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
@@ -563,6 +564,28 @@ def _draw_that_many(m):
     return Effect("draw", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
+# amount-EXPRESSION variants for the card-flow verbs (faithful subject + amount): 'up to N',
+# 'equal to <X>', 'as many … as <X>', 'half X' — discovered via the spaCy gap analysis but
+# implemented as precise regex (spaCy dropped the subject/amount).
+@_t(rf"^(?:({_TGT}) )?(draws?|mills?) (up to \w+ cards?|cards? equal to .+?|as many cards as .+?|half(?: of)? .+?)$")
+def _flow_amount(m):
+    """'<player> draws/mills <amount-expr>' — 'up to N', 'cards equal to <X>', 'as many cards as <X>',
+    'half [of] <X>' — faithful subject + amount. (spaCy-discovered gap, regex-implemented.)"""
+    verb = "draw" if m.group(2).lower().startswith("draw") else "mill"
+    expr = m.group(3).strip()
+    mm = re.match(r"up to (\w+) cards?$", expr, re.I)
+    if mm:
+        n = _amount(mm.group(1))
+        amt = "up_to_" + (str(n) if n is not None else ground.slug(mm.group(1)))
+    elif re.match(r"cards? equal to ", expr, re.I):
+        amt = "equal_to_" + ground.slug(re.sub(r"^cards? equal to ", "", expr, flags=re.I))
+    elif re.match(r"as many cards as ", expr, re.I):
+        amt = "as_many_as_" + ground.slug(re.sub(r"^as many cards as ", "", expr, flags=re.I))
+    else:
+        amt = "half_" + ground.slug(re.sub(r"^half(?: of)? ", "", expr, flags=re.I))
+    return Effect(verb, amt, _target(m.group(1) or "you"))
+
+
 @_t(rf"^(?:({_TGT}) )?gains? (twice |half )?that much life( plus \d+| minus \d+)?$")
 def _gain_that_much(m):
     return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
@@ -1083,6 +1106,7 @@ def parse_effect(sentence: str) -> "Effect | None":
 import dataclasses as _dc
 
 _MAY = re.compile(r"^you may (.+)$", re.I)
+_SUBJ_MAY = re.compile(rf"^({_TGT}) may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
@@ -1203,6 +1227,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _MAY.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "may")
+    m = _SUBJ_MAY.match(s)            # '<subject> may <effect>' — reattach subject, mark optional
+    if m:
+        return _combine(parse_clause(f"{m.group(1)} {m.group(2)}"), "may")
     m = _IF_YOU_DO.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "if_you_did")
