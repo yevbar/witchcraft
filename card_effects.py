@@ -248,15 +248,30 @@ def _prevent(m):
     return Effect("prevent_damage", n if n is not None else "X", _target(m.group(2)))
 
 
-# bare §701 keyword actions with no target (investigate, populate, proliferate, …).
-_BARE_ACTIONS = {"investigate", "populate", "proliferate", "scry", "surveil", "explore",
-                 "manifest", "amass", "incubate", "connive", "convoke"}
-
-
-@_t(r"^(\w+)$")
-def _bare_action(m):
+@_t(r"^([\w' ]+?) (\d+|one|two|three|four|five|x)$")
+def _kwaction_n(m):
+    """A §701 keyword action that takes a number — 'Monstrosity 3', 'Amass 2', 'Proliferate'… ."""
     v = ground.slug(m.group(1))
-    return Effect(v, "-", "you") if v in _BARE_ACTIONS else None
+    n = _amount(m.group(2))
+    return Effect(v, n if n is not None else "-", "you") if v in ground.keyword_actions() else None
+
+
+@_t(r"^([\w' ]+)$")
+def _bare_action(m):
+    """A bare §701 keyword action with no target — 'investigate', 'venture into the dungeon',
+    'the ring tempts you', 'open an attraction'…  Whole clause must slug to a grounded action."""
+    v = ground.slug(m.group(1))
+    return Effect(v, "-", "you") if v in ground.keyword_actions() else None
+
+
+@_t(rf"^(?:({_TGT}) )?draws? that many cards$")
+def _draw_that_many(m):
+    return Effect("draw", "that_amount", _target(m.group(1) or "you"))
+
+
+@_t(rf"^(?:({_TGT}) )?gains? that much life$")
+def _gain_that_much(m):
+    return Effect("gain_life", "that_amount", _target(m.group(1) or "you"))
 
 
 @_t(rf"^attach (?:~|it) to ({_TGT})$")
