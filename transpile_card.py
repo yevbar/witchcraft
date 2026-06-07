@@ -347,6 +347,27 @@ def _activated(unit, ctx):
     return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
 
 
+_REPL = re.compile(r"^If (?P<cond>.+? would .+?), (?P<repl>.+?) instead\.?$", re.I | re.S)
+
+
+def _replacement(unit, ctx):
+    """'If <X> would <event>, <replacement> instead.' — a §614 replacement effect. The replaced event
+    is recorded as a descriptive slug (like a trigger condition) on a 'replacement'-kind ability, and
+    the replacement body must parse into grounded effects (else abstain). Quantitative replacements
+    ('… twice that many …', '… plus N …') don't ground and so faithfully fall through to abstention."""
+    m = _REPL.match(unit.raw)
+    if not m or '"' in unit.raw:
+        return None
+    effects = _parse_body(m.group("repl"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    ev = ground.slug(m.group("cond"))
+    head = [f'card_ability("{cid}", "{aid}", "replacement")',
+            f'card_ability_trigger("{cid}", "{aid}", "{ev}")']
+    return CardOut(cid, head + _effect_facts(cid, aid, effects), "replacement")
+
+
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 
 
@@ -771,8 +792,8 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _painland,
              _doesnt_untap,
              _attacks_each_combat, _etb_choose, _static_player, _card_static, _additional_cost, _static_pt,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
-             _loyalty, _saga_chapter, _mana_ability, _triggered, _activated, _spell, _static_control,
-             _static_effect]
+             _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
+             _static_control, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a

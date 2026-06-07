@@ -54,8 +54,8 @@ text"). Normalization: strip reminder text, self-ref→`~`, symbols→`{S}`, int
 Corpus: 34,128 unique cards, 33,771 with oracle text → 62,860 ability-unit instances, ~35,000 unique
 templates (a long tail, bigger than rules).
 
-**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 59.0%**
-(20,125 / 34,128).
+**HEADLINE METRIC — CARDS FULLY INGESTED (every oracle line parses, no partial credit): 59.1%**
+(20,180 / 34,128).
 
 ### Latest batch (cross-cutting families)
 Climbed 56.1% → 59.0% per-card by broadening the static-anthem SUBJECT grammar (`_SUBJ`: multi-word
@@ -67,7 +67,11 @@ reveal-from-among-them, skip-step, and §700.2 choose-from templates; a **Protot
 keyword handler; "during your turn" static P/T; and a faithful last-resort `_static_effect` fallback
 for bare grounded static lines (gated to REFUSE replacement effects "…would…instead", die/level table
 rows, and conditionals — those parse only lossily, so we abstain per the prime directive). All
-souffle-clean, 0 collisions, no regressions.
+souffle-clean, 0 collisions, no regressions. Then added §614 **replacement effects** ("If X would
+EVENT, REPLACEMENT instead" → a `replacement`-kind ability whose replaced event is a descriptive slug
+and whose replacement body must parse into grounded effects, else abstain — quantitative replacements
+"twice that many / plus N" faithfully fall through) and fixed a latent faithfulness bug ("put it on
+top of its library" had emitted the `put_on_bottom` verb; now a distinct grounded `put_on_top`, §401.1).
 
 ### Honest ceiling (overnight run)
 Earlier climbed 44.5% → 50.1% per-card by capturing GENERAL cross-cutting families (keyword

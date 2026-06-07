@@ -459,7 +459,7 @@ def _put_bottom_tgt(m):
 
 @_t(rf"^put ({_TGT}) on top of (?:its owner's|their owner's|your) library$")
 def _put_top_tgt(m):
-    return Effect("put_on_bottom", "-", _target(m.group(1)), "top")
+    return Effect("put_on_top", "-", _target(m.group(1)))
 
 
 @_t(r"^look at the top (?:(\w+) )?cards? of your library$")

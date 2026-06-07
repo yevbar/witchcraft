@@ -104,6 +104,7 @@ _CORE_ACTIONS = frozenset({
     "fight",                # §701.12 — the fight keyword action (also in §701 roster; kept explicit)
     "put_in_hand",          # §400.7/§402 — moving a (looked-at/revealed) card into a hand
     "put_in_graveyard",     # §400.7/§404 — moving a card into a graveyard (e.g. 'put the rest into your graveyard')
+    "put_on_top",           # §401.1 — the library is ordered; putting a card on its top
 })
 
 
