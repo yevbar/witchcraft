@@ -124,6 +124,30 @@ _SPLIT_AND = re.compile(r"\s+and\s+|,\s+then\s+|,\s+and\s+", re.I)
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put)\b", re.I)
 
 
+# ability-modifier clauses — timing/frequency restrictions (§602.5/§603), not effects. Recognized and
+# recorded as ability_modifier facts so they don't block the effect body from parsing.
+_MODIFIERS = [
+    (re.compile(r"^activate (?:this ability )?only as a sorcery$", re.I), "activate_sorcery_speed"),
+    (re.compile(r"^activate (?:this ability )?only once each turn$", re.I), "activate_once_per_turn"),
+    (re.compile(r"^activate (?:this ability )?only during your turn$", re.I), "activate_your_turn_only"),
+    (re.compile(r"^activate (?:this ability )?only any time you could cast a sorcery$", re.I), "activate_sorcery_speed"),
+    (re.compile(r"^this ability triggers only once each turn$", re.I), "triggers_once_per_turn"),
+]
+
+
+def _split_modifiers(text: str):
+    """Partition a body's sentences into (effect_text, [modifier_tags]) — pulling out timing/frequency
+    restriction clauses so the remaining effect text can parse on its own."""
+    keep, tags = [], []
+    for sent in re.split(r"(?<=[.])\s+", text.strip()):
+        s = sent.strip().rstrip(".")
+        if not s:
+            continue
+        tag = next((t for pat, t in _MODIFIERS if pat.match(s)), None)
+        (tags.append(tag) if tag else keep.append(sent))
+    return " ".join(keep).strip(), tags
+
+
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
     Splits on sentence boundaries and simple 'and'/'then' conjunctions; abstains on anything else."""
@@ -197,13 +221,15 @@ def _activated(unit, ctx):
     m = re.match(r"^(?P<cost>[^:]{1,60}):\s*(?P<body>.+)$", unit.raw)
     if not m or not _cost_ok(m.group("cost")):
         return None
-    effects = _parse_body(m.group("body"))
+    body, mods = _split_modifiers(m.group("body"))
+    effects = _parse_body(body) if body else None
     if not effects:
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    return CardOut(cid, [f'ability("{cid}", "{aid}", "activated")',
-                         f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
-                   + _effect_facts(cid, aid, effects), "activated")
+    facts = [f'ability("{cid}", "{aid}", "activated")',
+             f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
+    facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "activated")
 
 
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
@@ -224,9 +250,11 @@ def _triggered(unit, ctx):
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:
         return CardOut(cid, head + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
-    effects = _parse_body(m.group("body"))
+    body, mods = _split_modifiers(m.group("body"))
+    effects = _parse_body(body) if body else None
     if not effects:
         return None
+    head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
 
 

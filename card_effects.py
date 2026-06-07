@@ -128,16 +128,38 @@ def _exile(m):
     return Effect("exile", "-", _target(m.group(1)))
 
 
-@_t(rf"^(?:(target [\w ]+?|each [\w ]+?|you) )?gains? (\w+) life$")
+@_t(rf"^(?:({_TGT}) )?gains? (\w+) life$")
 def _gain(m):
     n = _amount(m.group(2))
     return Effect("gain_life", n, _target(m.group(1) or "you")) if n is not None else None
 
 
-@_t(rf"^(?:(target [\w ]+?|each [\w ]+?|you) )?loses? (\w+) life$")
+@_t(rf"^(?:({_TGT}) )?loses? (\w+) life$")
 def _lose(m):
     n = _amount(m.group(2))
     return Effect("lose_life", n, _target(m.group(1) or "you")) if n is not None else None
+
+
+@_t(rf"^put ({_TGT}) into your hand$")
+def _to_hand(m):
+    return Effect("return_to_hand", "-", _target(m.group(1)))
+
+
+@_t(rf"^return ({_TGT}) from your graveyard to your hand$")
+def _regrowth(m):
+    return Effect("return_to_hand", "-", _target(m.group(1)), "from_graveyard")
+
+
+@_t(r"^exile the top (?:(\w+) )?cards? of your library$")
+def _exile_top(m):
+    n = _amount(m.group(1)) if m.group(1) else 1
+    return Effect("exile", n, "top_of_library") if n is not None else None
+
+
+@_t(r"^reveal the top (?:(\w+) )?cards? of your library$")
+def _reveal_top(m):
+    n = _amount(m.group(1)) if m.group(1) else 1
+    return Effect("reveal", n, "top_of_library") if n is not None else None
 
 
 @_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn$")

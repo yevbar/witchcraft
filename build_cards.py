@@ -52,6 +52,7 @@ def build() -> tuple[str, dict]:
     p.decl("ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")])
     p.decl("ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
     p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
+    p.decl("ability_modifier", [("card", "symbol"), ("aid", "symbol"), ("modifier", "symbol")])
     p.decl("effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"),
                       ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol"), ("extra", "symbol")])
     p.decl("mode_option", [("card", "symbol"), ("aid", "symbol")])
@@ -71,7 +72,8 @@ def build() -> tuple[str, dict]:
         p.fact(f)
     p.blank()
     p.output("card_keyword", "card_keyword_param", "card_mana_ability", "card_adds_mana",
-             "ability", "ability_cost", "ability_trigger", "effect", "mode_option", "card_modal",
+             "ability", "ability_cost", "ability_trigger", "ability_modifier", "effect", "mode_option",
+             "card_modal",
              "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
              "card_enters_tapped", "card_etb_choose", "card_static_player")
     p.blank()
