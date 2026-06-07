@@ -135,6 +135,12 @@ def _draw_tgt(m):
     return Effect("draw", n, _target(who)) if n is not None else None
 
 
+@_t(rf"^(?:({_TGT}) )?draws? (a card|\w+) cards? for each (.+?)$")
+def _draw_foreach(m):
+    base = "1" if m.group(2) in ("a", "a card") else (str(_amount(m.group(2))) if _amount(m.group(2)) is not None else ground.slug(m.group(2)))
+    return Effect("draw", base + "_per_" + ground.slug(m.group(3)), _target(m.group(1) or "you"))
+
+
 @_t(rf"^(?:~|.+?) deals (\w+|\d+) damage to ({_TGT})$")
 def _damage(m):
     n = _amount(m.group(1))
@@ -885,7 +891,12 @@ _EOT_PUMP_CANT = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of tu
 
 def _eot_compound(s: str):
     """A compound until-end-of-turn buff -> MULTIPLE effects: '<t> gets +N/+N and gains trample …' or
-    '<t> gains flying and lifelink …'. Abstains unless every granted word is a real §702 keyword."""
+    '<t> gains flying and lifelink …'. Abstains unless every granted word is a real §702 keyword.
+    Normalizes a LEADING 'Until end of turn, …' to the suffix form first — otherwise the body splitter
+    would peel '… and gains trample' into a subject-less clause and (wrongly) grant it to self."""
+    lead = re.match(r"^until end of turn,\s+(.+)$", s, re.I)
+    if lead and "until end of turn" not in lead.group(1).lower():
+        s = lead.group(1) + " until end of turn"
     m = _EOT_PUMP_CANT.match(s)
     if m:
         who = _target(m.group(1))
