@@ -827,31 +827,22 @@ def parse_clause(sentence: str) -> "Effect | None":
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
     m = _MAY.match(s)
     if m:
-        inner = parse_clause(m.group(1))
-        return _dc.replace(inner, cond="may") if inner and inner.cond == "-" else None
+        return _combine(parse_clause(m.group(1)), "may")
     m = _IF_YOU_DO.match(s)
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond="if_you_did") if e else None
+        return _combine(parse_clause(m.group(1)), "if_you_did")
     m = _IF_COND.match(s)
     if m:
-        inner = parse_clause(m.group(2))         # recurse so 'if X, you may Y' / 'if X, Y until …' work
-        if not inner:
-            return None
-        base = ground.slug(m.group(1))
-        return _dc.replace(inner, cond=base if inner.cond == "-" else inner.cond + "__if_" + base)
+        return _combine(parse_clause(m.group(2)), ground.slug(m.group(1)), suffix=True)
     m = _UNLESS_PAY.match(s)
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond="unless_pay_" + ground.slug(m.group(2))) if e else None
+        return _combine(parse_clause(m.group(1)), "unless_pay_" + ground.slug(m.group(2)))
     m = _UNLESS.match(s)
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond="unless_" + ground.slug(m.group(2))) if e else None
+        return _combine(parse_clause(m.group(1)), "unless_" + ground.slug(m.group(2)))
     m = _DELAYED.match(s)
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond="delayed") if e else None
+        return _combine(parse_clause(m.group(1)), "delayed")
     m = _UNTIL.match(s)
     if m:
         inner = parse_clause(m.group(2))
@@ -863,9 +854,20 @@ def parse_clause(sentence: str) -> "Effect | None":
         return e
     m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
     if m:
-        e = parse_effect(m.group(1))
-        return _dc.replace(e, cond=ground.slug(m.group(2))) if e else None
+        return _combine(parse_clause(m.group(1)), ground.slug(m.group(2)), suffix=True)
     return None
+
+
+def _combine(inner, cond, suffix=False):
+    """Attach a wrapper condition to an already-parsed inner clause. If the inner clause already carries
+    a condition (e.g. a nested 'you may'), keep both by joining them ('<inner>__if_<cond>' for the
+    if-style wrappers, '<cond>__<inner>' otherwise) so no grounded condition is silently dropped."""
+    if not inner:
+        return None
+    if inner.cond == "-":
+        return _dc.replace(inner, cond=cond)
+    joined = inner.cond + "__if_" + cond if suffix else cond + "__" + inner.cond
+    return _dc.replace(inner, cond=joined)
 
 
 if __name__ == "__main__":
