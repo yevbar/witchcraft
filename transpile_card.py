@@ -538,8 +538,16 @@ def _static_pt(unit, ctx):
 
 
 def _etb_tapped(unit, ctx):
-    """'~ enters tapped[ unless <condition>].' — an ETB replacement (§614). The tapland family's
-    'unless …' condition is recorded as a descriptive slug (cross-cutting across the many variants)."""
+    """'~ enters tapped[ unless <condition>]' / '~ enters tapped with N <kind> counters on it.' — an
+    ETB replacement (§614). The 'unless …' condition is a descriptive slug (cross-cutting across the
+    tapland variants); the 'with N counters' form also emits the counter-placement fact."""
+    mc = re.match(r"^~ enters tapped with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it\.?$",
+                  unit.raw, re.I)
+    if mc:
+        cid = ctx["id"]
+        return CardOut(cid, [f'card_enters_tapped("{cid}", "-")',
+                             f'card_enters_with_counters("{cid}", "{ground.slug(mc.group(2))}", "{ground.slug(mc.group(1))}")'],
+                       "etb_tapped")
     m = re.match(r"^~ enters tapped(?: unless (.+?))?\.?$", unit.raw)
     if not m:
         return None

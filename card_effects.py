@@ -134,6 +134,12 @@ def _damage_equal(m):
     return Effect("deal_damage", "equal_to_" + ground.slug(m.group(1)), _target(m.group(2)))
 
 
+@_t(rf"^({_TGT}) deals damage to itself equal to (.+?)$")
+def _damage_self(m):
+    """'<creature> deals damage to itself equal to <amount>' — self-directed damage (§120)."""
+    return Effect("deal_damage", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1)), "itself")
+
+
 @_t(rf"^({_TGT}) reveals? the top (?:(\w+) )?cards? of (?:their|its owner's|your) library$")
 def _subject_reveal_top(m):
     n = _amount(m.group(2)) if m.group(2) else 1
@@ -264,6 +270,12 @@ def _put_counter(m):
     n = _amount(m.group(1))
     return Effect("put_counter", n if n is not None else "X", _target(m.group(3)),
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
+
+
+@_t(rf"^put (its|all|all of its) counters on ({_TGT})$")
+def _move_counters(m):
+    """'Put its/all counters on <target>' — moving existing counters (§122) to another permanent."""
+    return Effect("put_counter", ground.slug(m.group(1)), _target(m.group(2)), "moved")
 
 
 @_t(rf"^put that many ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
@@ -457,8 +469,9 @@ def _put_bottom_tgt(m):
     return Effect("put_on_bottom", "-", _target(m.group(1)))
 
 
-@_t(rf"^put ({_TGT}) on top of (?:its owner's|their owner's|your) library$")
+@_t(rf"^put ({_TGT}) on top(?: of (?:its owner's|their owner's|your) library)?$")
 def _put_top_tgt(m):
+    # the bare 'put that card on top' form (after a shuffle) refers to the library top by §401 default.
     return Effect("put_on_top", "-", _target(m.group(1)))
 
 
