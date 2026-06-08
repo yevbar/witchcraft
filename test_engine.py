@@ -28,6 +28,10 @@ def _spell(name: str) -> Card:
     return Card(name, Counter(), set(), set(), None, None)
 
 
+def _perm(ctrl: int, types: set, p: int = 0, t: int = 0, name: str = "X") -> Perm:
+    return Perm(Card(name, Counter(), set(types), set(), p, t), ctrl, sick=False)
+
+
 CHECKS: list[tuple[str, bool]] = []
 
 
@@ -195,6 +199,63 @@ def run() -> None:
     g._do(g.p[0], g.p[1], "return_to_battlefield", "-", "it", "from_graveyard_tapped", None)
     check("reanimate from_graveyard_tapped enters tapped",
           len(g.p[0].bf) == 1 and g.p[0].bf[0].tapped)
+
+    # --- faithfulness to the datalog's type / ownership / plurality ---
+
+    # destroy all_creatures is a board wipe across both sides
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]
+    g.p[1].bf = [_perm(1, {"Creature"}, 3, 3), _perm(1, {"Creature"}, 1, 1)]
+    g._do(g.p[0], g.p[1], "destroy", "-", "all_creatures", "-", None)
+    check("destroy all_creatures wipes both sides", not g.p[0].bf and not g.p[1].bf)
+
+    # destroy target_land destroys a land, not the strongest creature
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 5, 5, "Bear"), _perm(1, {"Land"}, 0, 0, "Forest")]
+    g._do(g.p[0], g.p[1], "destroy", "-", "target_land", "-", None)
+    check("destroy target_land hits the land", [p.card.name for p in g.p[1].bf] == ["Bear"])
+
+    # deal_damage 'you' is self-damage (was hitting the opponent)
+    g = _game(); g._do(g.p[0], g.p[1], "deal_damage", "2", "you", "-", None)
+    check("deal_damage 'you' damages controller", g.p[0].life == 18 and g.p[1].life == 20)
+
+    # deal_damage each_creature hits every creature on both sides
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]; g.p[1].bf = [_perm(1, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "deal_damage", "2", "each_creature", "-", None)
+    check("deal_damage each_creature hits all creatures",
+          g.p[0].bf[0].dmg == 2 and g.p[1].bf[0].dmg == 2)
+
+    # deal_damage each_creature_and_each_player hits creatures AND both players
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]; g.p[1].bf = [_perm(1, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "deal_damage", "1", "each_creature_and_each_player", "-", None)
+    check("deal_damage each_creature_and_each_player hits creatures+players",
+          g.p[0].bf[0].dmg == 1 and g.p[1].bf[0].dmg == 1 and g.p[0].life == 19 and g.p[1].life == 19)
+
+    # sacrifice respects the object type in the extra slot (a_land -> a land)
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 3, 3, "Bear"), _perm(0, {"Land"}, 0, 0, "Forest")]
+    g._do(g.p[0], g.p[1], "sacrifice", "1", "a_land", "-", None)
+    check("sacrifice a_land sacrifices a land", [p.card.name for p in g.p[0].bf] == ["Bear"])
+
+    # sacrifice respects the count
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, i, i, f"c{i}") for i in (1, 2, 3)]
+    g._do(g.p[0], g.p[1], "sacrifice", "2", "a_creature", "-", None)
+    check("sacrifice count=2 sacrifices two", len(g.p[0].bf) == 1)
+
+    # modify_pt anthem (creatures_you_control) boosts every own creature
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 1, 1), _perm(0, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "modify_pt", "+1/+1", "creatures_you_control", "-", None)
+    check("modify_pt anthem boosts all own creatures",
+          g.p[0].bf[0].power == 2 and g.p[0].bf[1].power == 3)
+
+    # a negative modify_pt reads as enemy removal (debuff the opponent)
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 3, 3, "foe")]
+    g._do(g.p[0], g.p[1], "modify_pt", "-2/-2", "target_creature", "-", None)
+    check("modify_pt shrink targets the opponent", g.p[1].bf[0].power == 1)
+
+    # a variable boost (X/X, +1/+0_per_…) is abstained on, not guessed or crashed
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2, "Mine")]
+    for bad in ("+X/+X", "-X/-X", "+1/+0_per_samurai_or_warrior_you_control"):
+        g._do(g.p[0], g.p[1], "modify_pt", bad, "self", "-", g.p[0].bf[0])
+    check("modify_pt variable boost is a no-op (no crash, no guess)",
+          g.p[0].bf[0].power == 2 and g.p[0].bf[0].toughness == 2)
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

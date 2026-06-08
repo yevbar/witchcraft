@@ -48,6 +48,10 @@ HANDLED_VERBS = frozenset({
 # (the other slot carries the duration, e.g. "until_end_of_turn").
 _KEYWORDS = ground.keyword_abilities()
 
+# permanent-type words that appear in target specs -> the Card.types token they select.
+_PERM_TYPES = {"creature": "Creature", "land": "Land", "artifact": "Artifact",
+               "enchantment": "Enchantment", "planeswalker": "Planeswalker", "battle": "Battle"}
+
 
 def parse_cost(mana_cost: str | None) -> Counter:
     """'{3}{W}{W}' -> Counter(generic=3, W=2). Hybrid/Phyrexian simplified to generic (documented)."""
@@ -275,14 +279,37 @@ class Game:
             return []
         return list(cs) if self._mass(tgt) else [max(cs, key=lambda p: p.power)]
 
+    def _perm_targets(self, pl, opp, tgt, pred=None):
+        """Permanents hit by a permanent-scoped target spec, faithful to its type, ownership, and
+        plurality:
+          - type words (creature/land/artifact/…) filter by Card.types; none/'permanent' -> any permanent
+          - ownership: '…you_control' -> your side; 'opponent'/'you_don_t_control' -> the opponent;
+            otherwise (e.g. 'all creatures') both sides
+          - a mass spec (all/each/…) hits every match; a single spec hits the opponent's strongest match
+            (removal heuristic), or your own when the spec says 'you_control'."""
+        types = {_PERM_TYPES[w] for w in tgt.split("_") if w in _PERM_TYPES}
+
+        def ok(p):
+            return p.card.is_permanent and (not types or p.card.types & types) and (pred is None or pred(p))
+
+        yours = "you_control" in tgt or tgt.endswith("_you_control")
+        foes = "opponent" in tgt or "you_don_t_control" in tgt
+        if self._mass(tgt):
+            sides = [pl] if (yours and not foes) else [opp] if (foes and not yours) else [pl, opp]
+            return [p for s in sides for p in s.bf if ok(p)]
+        side = pl if (yours and not foes) else opp
+        cands = [p for p in side.bf if ok(p)]
+        return [max(cands, key=lambda p: p.power)] if cands else []
+
     def _do(self, pl, opp, verb, amt, tgt, extra, source):
         n = int(amt) if str(amt).lstrip("-").isdigit() else 0
         if verb == "deal_damage":
-            ec = self._pick_enemy_creature(opp)
-            if "creature" in tgt and ec:
-                ec.dmg += n; self.log(f"{n} damage to {ec.card.name}", 2)
-            else:
-                opp.life -= n; self.log(f"{n} damage to {opp.name} (life {opp.life})", 2)
+            if any(w in tgt for w in ("creature", "permanent", "planeswalker")):
+                for p in self._perm_targets(pl, opp, tgt, pred=lambda x: "Creature" in x.card.types):
+                    p.dmg += n; self.log(f"{n} damage to {p.card.name}", 2)
+            if any(w in tgt for w in ("player", "opponent")) or tgt in ("you", "any_target"):
+                for who in self._players(pl, opp, tgt, default=[opp]):   # any_target -> face (opp)
+                    who.life -= n; self.log(f"{n} damage to {who.name} (life {who.life})", 2)
         elif verb == "draw":
             for who in self._players(pl, opp, tgt, default=[pl]):
                 self._draw(who, n or 1)
@@ -290,12 +317,13 @@ class Game:
             pl.life += n; self.log(f"{pl.name} gains {n} (life {pl.life})", 2)
         elif verb == "lose_life":
             opp.life -= n; self.log(f"{opp.name} loses {n} (life {opp.life})", 2)
-        elif verb == "modify_pt" and "/" in str(amt):
-            dp, dt = (int(x) for x in amt.replace("+", " ").split("/"))
-            who = source or (pl.creatures()[0] if pl.creatures() else None)
-            if "target" in tgt or who is None:
-                who = max(pl.creatures(), key=lambda p: p.power, default=None)
-            if who:
+        elif verb == "modify_pt" and self._parse_boost(amt):
+            dp, dt = self._parse_boost(amt)
+            if source in pl.bf and tgt in ("self", "it", "enchanted_creature", "equipped_creature"):
+                hit = [source]                              # the source / the creature it's attached to
+            else:                                           # a shrink (negative) reads as enemy removal; a pump as your own
+                hit = self._targets(pl if dp + dt >= 0 else opp, tgt)
+            for who in hit:
                 who.boost = (who.boost[0] + dp, who.boost[1] + dt)
                 self.log(f"{who.card.name} gets {amt} (now {who.power}/{who.toughness})", 2)
         elif verb == "put_counter" and "/" in extra:
@@ -304,18 +332,17 @@ class Game:
                 who.counters += n or 1
                 self.log(f"{who.card.name} gets a +1/+1 counter (now {who.power}/{who.toughness})", 2)
         elif verb == "destroy":
-            ec = self._pick_enemy_creature(opp)
-            if ec:
-                self._destroy(ec); self.log(f"destroys {ec.card.name}", 2)
+            for p in self._perm_targets(pl, opp, tgt):      # all_creatures -> board wipe; target_land -> a land; etc.
+                self._destroy(p); self.log(f"destroys {p.card.name}", 2)
         elif verb == "add_mana":
             for c in extra.split("_"):
                 pl.pool[_COLOR.get(c, "C")] += 1
         elif verb == "exile":
-            if any(z in tgt for z in ("graveyard", "hand", "library")):
+            if any(z in tgt for z in ("graveyard", "hand", "library", "top_of")):
                 return                            # zone-internal manipulation, not a board removal
-            for ec in self._targets(opp, tgt):
-                opp.bf.remove(ec); opp.exile.append(ec.card)
-                self.log(f"exiles {ec.card.name}", 2)
+            for p in self._perm_targets(pl, opp, tgt):
+                self.p[p.ctrl].bf.remove(p); self.p[p.ctrl].exile.append(p.card)
+                self.log(f"exiles {p.card.name}", 2)
         elif verb == "gain_control":
             ec = self._pick_enemy_creature(opp)
             if ec:                                # steal it: new controller, freshly summoning-sick
@@ -325,9 +352,18 @@ class Game:
         elif verb == "sacrifice":
             if tgt in ("it", "self"):                          # the source sacrifices itself (if still here)
                 victims = [(pl, source)] if source in pl.bf else []
-            else:                                              # each named player sacrifices their weakest
-                victims = [(who, min(who.creatures(), key=lambda p: p.power, default=None))
-                           for who in self._players(pl, opp, tgt, default=[pl])]
+            else:
+                spec = extra if extra not in ("-", "") else tgt   # object type lives in extra ("a_land") or tgt
+                types = {_PERM_TYPES[w] for w in spec.split("_") if w in _PERM_TYPES}
+
+                def loseable(p, src=source):
+                    return (p.card.is_permanent and (not types or p.card.types & types)
+                            and not ("another" in spec and p is src))
+
+                victims = []
+                for who in self._players(pl, opp, tgt, default=[pl]):  # each named player sacrifices their weakest match(es)
+                    pool = sorted((p for p in who.bf if loseable(p)), key=lambda p: p.power)
+                    victims += [(who, v) for v in pool[:max(n, 1)]]
             for who, v in victims:
                 if v:
                     who.bf.remove(v); who.grave.append(v.card)
@@ -413,6 +449,18 @@ class Game:
                 self.log(f"{mine.card.name} fights {ec.card.name}", 2)
                 self.sba()
         # remaining grounded verbs (scry, search, counter, …) are no-ops in this minimal engine
+
+    @staticmethod
+    def _parse_boost(amt: str):
+        """A '+p/+t' modifier as an (int, int) pair, or None if either side is variable (X/X,
+        +1/+0_per_…) — a boost we can't evaluate is abstained on rather than guessed."""
+        parts = str(amt).replace("+", "").split("/")
+        if len(parts) != 2:
+            return None
+        try:
+            return int(parts[0]), int(parts[1])
+        except ValueError:
+            return None
 
     def _make_token(self, spec: str) -> Card | None:
         """Build a Card from a 'P_T_color[_and_color]_subtype…_creature' token spec (the §111 token
