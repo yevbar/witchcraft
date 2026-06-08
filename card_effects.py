@@ -1114,6 +1114,14 @@ def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
+@_t(rf"^({_TGT}) becomes? a copy of ({_TGT}|that card|the chosen card)(?:, except (.+?))?(?: until end of turn)?$")
+def _becomes_copy(m):
+    """'<target> becomes a copy of <X>[, except <mods>]' — a §707 copy effect (clones, Vesuva, etc.);
+    the copied object and any 'except' overrides are recorded as a faithful slug."""
+    extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
+    return Effect("becomes", "-", _target(m.group(1)), extra)
+
+
 @_t(rf"^({_TGT}) (?:becomes?|is|are) (?:an? )?(\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
 def _becomes(m):
     """'<target> becomes a N/N [colors/types] [creature] [until end of turn]' — animate / set P/T
@@ -1335,6 +1343,13 @@ def _cant_prevent(m):
 def _spend_as(m):
     """'spend mana as though it were mana of any color [to cast …]' — a §106.6 mana-spending permission."""
     return Effect("spend_mana_as", "-", "you", "any_color")
+
+
+@_t(r"^mana of any (?:type|color) can be spent to (?:cast|play) (.+?)$")
+def _mana_any_for(m):
+    """'Mana of any type can be spent to cast <X>' — the §106.6 spend-as permission scoped to a spell/
+    card (often the rider on an impulse-cast); the scope is a faithful slug."""
+    return Effect("spend_mana_as", "-", "you", "any_color_for_" + ground.slug(m.group(1)))
 
 
 @_t(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT))

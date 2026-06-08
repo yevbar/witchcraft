@@ -24,6 +24,75 @@ from dataclasses import dataclass, field
 
 import ground
 from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production, _is_compound_object
+from card_effects import Effect
+
+
+# ---- dependency-graph fallback (spaCy) ---------------------------------------------------------
+# When the curated regex templates fail, read the clause's DEPENDENCY GRAPH instead of its surface
+# string: find a verb we trust (an UNAMBIGUOUS lemma -> grounded verb map — no 'gain'/'put'/'deal'
+# whose sense is positional), then capture its grammatical arguments (direct object, the 'to/into/onto'
+# prep that names a zone). This recovers word-order variants the positional regex can't ('Return to the
+# battlefield X', 'Exile, then return …') without trusting spaCy to CHOOSE the verb. Lazy-loaded so the
+# model only initialises if a clause actually reaches the fallback.
+_DEP_VERB = {"return": None, "exile": "exile", "destroy": "destroy", "tap": "tap", "untap": "untap",
+             "sacrifice": "sacrifice", "regenerate": "regenerate", "counter": "counter",
+             "goad": "goad", "detain": "detain", "scry": "scry", "mill": "mill"}
+_DEP_ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
+             "library": "return_to_hand", "graveyard": "put_in_graveyard"}
+
+
+def _spacy_effect(clause: str):
+    """Dependency-graph extraction for a single grounded verb + object (+ zone). Returns an Effect or
+    None — deliberately STRICT so a mis-parse or a non-imperative use never yields a wrong fact:
+      • the verb must be the clause ROOT (not buried in a subordinate/relative clause);
+      • the clause must be a bare imperative — no subject (no nsubj), no negation, no modal/'unless';
+      • no conjunction or second clause hanging off the verb (cc/conj/advcl/ccomp) — those would drop
+        content ('destroy that creature AND ~');
+      • the verb + its single direct object must SPAN the whole clause (every non-punct token sits in
+        the verb's subtree) so nothing is silently dropped;
+      • 'return' additionally needs a 'to/into <zone>' prepositional object."""
+    nlp = _dep_nlp()
+    if nlp is None or re.search(r"\b(can't|cannot|can not|n't|not|unless|would|may|if|whenever|when|"
+                               r"additional cost|rather than|as though|for each)\b", clause, re.I):
+        return None
+    doc = nlp(clause)
+    root = next((t for t in doc if t.dep_ == "ROOT"), None)
+    if root is None or root.lemma_.lower() not in _DEP_VERB or root.pos_ != "VERB":
+        return None
+    deps = {ch.dep_ for ch in root.children}
+    if deps & {"nsubj", "nsubjpass", "neg", "cc", "conj", "advcl", "ccomp", "csubj", "mark", "aux"}:
+        return None
+    obj = next((ch for ch in root.children if ch.dep_ in ("dobj", "obj")), None)
+    if obj is None or any(ch.dep_ in ("cc", "conj") for ch in obj.children):
+        return None
+    # the verb must head the entire clause — no token outside its subtree (else content is dropped)
+    span = {t.i for t in root.subtree}
+    if any(t.i not in span for t in doc if not t.is_punct):
+        return None
+    obj_slug = ground.slug(" ".join(t.text for t in obj.subtree if t.dep_ != "punct"))
+    # a leading preposition/conjunction in the object means the parse mis-attached it — abstain.
+    if not obj_slug or len(obj_slug) > 80 or re.match(r"^(to|from|of|with|at|into|onto|and|or)_", obj_slug):
+        return None
+    lem = root.lemma_.lower()
+    if lem == "return":
+        zone = None
+        for ch in root.children:
+            if ch.dep_ in ("prep", "dative") and ch.text.lower() in ("to", "into", "onto"):
+                sub = {t.text.lower() for t in ch.subtree}
+                zone = next((z for w, z in _DEP_ZONE.items() if w in sub), None)
+                if zone:
+                    break
+        return Effect(zone, "-", obj_slug) if zone else None
+    return Effect(_DEP_VERB[lem], "-", obj_slug)
+
+
+@functools.lru_cache(maxsize=1)
+def _dep_nlp():
+    try:
+        import transpile
+        return transpile._NLP
+    except Exception:
+        return None
 
 _KW = ground.keyword_abilities()
 # longest keyword first, so "cumulative_upkeep" wins over a hypothetical "cumulative" prefix.
@@ -417,6 +486,10 @@ def _parse_body(text: str):
         if dmg:
             out.extend(dmg)
             continue
+        dep = _spacy_effect(sentence)           # LAST RESORT: dependency-graph verb+object extraction
+        if dep:
+            out.append(dep)
+            continue
         return None
     return out or None
 
@@ -445,7 +518,8 @@ def _multi_damage(sentence):
 
 
 _DIST_SUBJ = re.compile(rf"^({_TGT}) and ((?:up to \w+ other |another |[\w' -]+? )?{_TGT}) (?:each )?"
-                        r"(gains?|gets?|haves?|has|deals?|becomes?|are|is|can't|attacks?|blocks?) (.+)$", re.I)
+                        r"(gains?|gets?|haves?|has|deals?|becomes?|are|is|can't|attacks?|blocks?|"
+                        r"phases?|fight|fights|don't|doesn't) (.+)$", re.I)
 
 
 def _distribute_subjects(sentence):
@@ -909,6 +983,12 @@ def _etb_tapped(unit, ctx):
     if m:
         cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
         return CardOut(ctx["id"], [f'card_enters_tapped("{ctx["id"]}", "{cond}")'], "etb_tapped")
+    # '~ enters tapped and doesn't untap during your/its controller's untap step' (Leviathan, Traxos…).
+    m = re.match(r"^~ enters tapped and (?:doesn't|does not) untap during "
+                 r"(?:its controller's|your|their) (?:next )?untap step\.?$", unit.raw, re.I)
+    if m:
+        cid = ctx["id"]
+        return CardOut(cid, [f'card_enters_tapped("{cid}", "-")', f'card_doesnt_untap("{cid}", "self")'], "etb_tapped")
     # leading-conditional tapland: 'If <cond>, ~ enters tapped.' (Cave of the Frost Dragon family).
     m = re.match(r"^If (.+?), ~ enters tapped\.?$", unit.raw, re.I)
     if not m:
@@ -1114,7 +1194,7 @@ def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
     [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
     first strike', 'Other creatures you control have trample as long as you control a Forest'."""
-    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have|gains?) (?P<kw>[\w,{{}} ]+?)"
+    m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have|gains?|is|are) (?P<kw>[\w,{{}} ]+?)"
                  rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
         return None
