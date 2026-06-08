@@ -250,6 +250,31 @@ class Game:
         cs = opp.creatures()
         return max(cs, key=lambda p: p.power) if cs else None
 
+    def _players(self, pl, opp, tgt, default):
+        """The player(s) a player-scoped target hits. `default` is the verb's natural subject when
+        tgt names no player (you draw; a targeted player ≈ the opponent in a 2-player game). Handles
+        each_player (both), each_opponent/each_other_player (the opponent), you, and target/that_player."""
+        if tgt in ("you", "yourself"):
+            return [pl]
+        if "each" in tgt or "all_player" in tgt or "both_player" in tgt:
+            return [opp] if ("opponent" in tgt or "other" in tgt) else [pl, opp]
+        if "opponent" in tgt or tgt.startswith(("target_player", "that_player")):
+            return [opp]
+        return default
+
+    def _mass(self, tgt):
+        """Whether a creature-scoped target is plural (all/each/creatures …) rather than a single pick."""
+        return tgt.startswith(("all", "each", "creatures", "those", "every")) or \
+            "_creatures" in tgt or "any_number" in tgt
+
+    def _targets(self, who, tgt, pred=None):
+        """The creatures a creature-scoped target hits: every matching creature of `who` for a mass
+        spec, else the single strongest. `pred` filters candidates (e.g. only untapped)."""
+        cs = [c for c in who.creatures() if pred is None or pred(c)]
+        if not cs:
+            return []
+        return list(cs) if self._mass(tgt) else [max(cs, key=lambda p: p.power)]
+
     def _do(self, pl, opp, verb, amt, tgt, extra, source):
         n = int(amt) if str(amt).lstrip("-").isdigit() else 0
         if verb == "deal_damage":
@@ -259,8 +284,8 @@ class Game:
             else:
                 opp.life -= n; self.log(f"{n} damage to {opp.name} (life {opp.life})", 2)
         elif verb == "draw":
-            who = opp if tgt.startswith("target_player") and False else pl
-            self._draw(who, n or 1)
+            for who in self._players(pl, opp, tgt, default=[pl]):
+                self._draw(who, n or 1)
         elif verb == "gain_life":
             pl.life += n; self.log(f"{pl.name} gains {n} (life {pl.life})", 2)
         elif verb == "lose_life":
@@ -288,8 +313,7 @@ class Game:
         elif verb == "exile":
             if any(z in tgt for z in ("graveyard", "hand", "library")):
                 return                            # zone-internal manipulation, not a board removal
-            ec = self._pick_enemy_creature(opp)
-            if ec:
+            for ec in self._targets(opp, tgt):
                 opp.bf.remove(ec); opp.exile.append(ec.card)
                 self.log(f"exiles {ec.card.name}", 2)
         elif verb == "gain_control":
@@ -299,45 +323,49 @@ class Game:
                 pl.bf.append(ec)
                 self.log(f"{pl.name} gains control of {ec.card.name}", 2)
         elif verb == "sacrifice":
-            who = opp if ("opponent" in tgt or "each_other" in tgt) else pl
-            victim = (source if (source in who.bf and tgt in ("it", "self"))
-                      else min(who.creatures(), key=lambda p: p.power, default=None))
-            if victim:
-                who.bf.remove(victim); who.grave.append(victim.card)
-                self.log(f"{who.name} sacrifices {victim.card.name}", 2)
+            if tgt in ("it", "self"):                          # the source sacrifices itself (if still here)
+                victims = [(pl, source)] if source in pl.bf else []
+            else:                                              # each named player sacrifices their weakest
+                victims = [(who, min(who.creatures(), key=lambda p: p.power, default=None))
+                           for who in self._players(pl, opp, tgt, default=[pl])]
+            for who, v in victims:
+                if v:
+                    who.bf.remove(v); who.grave.append(v.card)
+                    self.log(f"{who.name} sacrifices {v.card.name}", 2)
         elif verb == "tap":
-            cand = [c for c in opp.creatures() if not c.tapped]
-            if tgt.startswith("all"):
-                for c in cand:
-                    c.tapped = True
-                if cand:
-                    self.log(f"taps {len(cand)} of {opp.name}'s creatures", 2)
-            elif cand:
-                t = max(cand, key=lambda p: p.power); t.tapped = True
-                self.log(f"taps {t.card.name}", 2)
+            hit = self._targets(opp, tgt, pred=lambda c: not c.tapped)
+            for c in hit:
+                c.tapped = True
+            if hit:
+                self.log(f"taps {hit[0].card.name}" if len(hit) == 1
+                         else f"taps {len(hit)} of {opp.name}'s creatures", 2)
         elif verb == "untap":
             if tgt == "self" and source:
                 source.tapped = False
             else:
-                cand = [c for c in pl.creatures() if c.tapped]
-                if cand:
-                    t = max(cand, key=lambda p: p.power); t.tapped = False
-                    self.log(f"untaps {t.card.name}", 2)
+                hit = self._targets(pl, tgt, pred=lambda c: c.tapped)
+                for c in hit:
+                    c.tapped = False
+                if hit:
+                    self.log(f"untaps {hit[0].card.name}" if len(hit) == 1
+                             else f"untaps {len(hit)} creatures", 2)
         elif verb == "mill":
-            who = pl if tgt in ("you", "yourself") else opp
-            moved = 0
-            while moved < (n or 1) and who.library:
-                who.grave.append(who.library.pop()); moved += 1
-            if moved:
-                self.log(f"{who.name} mills {moved}", 2)
+            for who in self._players(pl, opp, tgt, default=[opp]):
+                moved = 0
+                while moved < (n or 1) and who.library:
+                    who.grave.append(who.library.pop()); moved += 1
+                if moved:
+                    self.log(f"{who.name} mills {moved}", 2)
         elif verb == "discard":
-            who = pl if tgt in ("you", "yourself") else opp
-            dropped = 0
-            for _ in range(n or 1):
-                if who.hand:
-                    who.grave.append(who.hand.pop()); dropped += 1
-            if dropped:
-                self.log(f"{who.name} discards {dropped} (hand {len(who.hand)})", 2)
+            empties_hand = amt in ("all", "their_hand", "its_hand", "your_hand")
+            for who in self._players(pl, opp, tgt, default=[opp]):
+                k = len(who.hand) if empties_hand else (n or 1)
+                dropped = 0
+                for _ in range(k):
+                    if who.hand:
+                        who.grave.append(who.hand.pop()); dropped += 1
+                if dropped:
+                    self.log(f"{who.name} discards {dropped} (hand {len(who.hand)})", 2)
         elif verb == "create":
             tok = self._make_token(extra)
             if tok and n > 0:
@@ -346,11 +374,15 @@ class Game:
                 self.log(f"{pl.name} creates {n} {tok.name}", 2)
         elif verb == "grant_keyword":
             kw = extra if extra in _KEYWORDS else (amt if amt in _KEYWORDS else None)
-            who = source if (source in pl.bf and tgt in ("it", "self")) else \
-                max(pl.creatures(), key=lambda p: p.power, default=None)
-            if kw and who:
-                (who.granted_eot if amt == "until_end_of_turn" else who.granted).add(kw)
-                self.log(f"{who.card.name} gains {kw}", 2)
+            if kw:
+                hit = ([source] if (source in pl.bf and tgt in ("it", "self"))
+                       else self._targets(pl, tgt))
+                bucket = "granted_eot" if amt == "until_end_of_turn" else "granted"
+                for who in hit:
+                    getattr(who, bucket).add(kw)
+                if hit:
+                    self.log(f"{hit[0].card.name} gains {kw}" if len(hit) == 1
+                             else f"{len(hit)} creatures gain {kw}", 2)
         elif verb == "return_to_hand":
             if extra == "from_graveyard" or "graveyard" in tgt:    # recur from graveyard, not a bounce
                 card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
@@ -371,7 +403,7 @@ class Game:
                 card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
                 if card:
                     pl.grave.remove(card)
-                    pl.bf.append(Perm(card, self.p.index(pl), sick=True, tapped=(extra == "tapped")))
+                    pl.bf.append(Perm(card, self.p.index(pl), sick=True, tapped=("tapped" in extra)))
                     self.log(f"{pl.name} reanimates {card.name}", 2)
         elif verb == "fight":
             mine = source if (source in pl.bf) else max(pl.creatures(), key=lambda p: p.power, default=None)

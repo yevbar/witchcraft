@@ -153,6 +153,49 @@ def run() -> None:
     check("fight kills the 2/2 and damages our 3/3",
           not g.p[1].bf and mine.dmg == 2)
 
+    # --- multi-player / mass-target routing (regressions fixed in the review pass) ---
+
+    # each_player makes BOTH players sacrifice (not just the controller)
+    g = _game(); g.p[0].bf = [_creature(0)]; g.p[1].bf = [_creature(1)]
+    g._do(g.p[0], g.p[1], "sacrifice", "-", "each_player", "a_creature", None)
+    check("sacrifice each_player hits both players", not g.p[0].bf and not g.p[1].bf)
+
+    # each_player draw — both draw
+    g = _game()
+    for pp in g.p:
+        pp.library = [_spell(f"L{i}") for i in range(3)]
+    g._do(g.p[0], g.p[1], "draw", "1", "each_player", "-", None)
+    check("draw each_player draws for both", len(g.p[0].hand) == 1 and len(g.p[1].hand) == 1)
+
+    # draw target_player routes to the opponent, not the controller
+    g = _game()
+    for pp in g.p:
+        pp.library = [_spell(f"L{i}") for i in range(3)]
+    g._do(g.p[0], g.p[1], "draw", "1", "target_player", "-", None)
+    check("draw target_player routes to opponent", not g.p[0].hand and len(g.p[1].hand) == 1)
+
+    # discard "all" empties the hand (not just one card)
+    g = _game(); g.p[0].hand = [_spell(f"H{i}") for i in range(4)]
+    g._do(g.p[0], g.p[1], "discard", "all", "you", "-", None)
+    check("discard 'all' empties the hand", not g.p[0].hand and len(g.p[0].grave) == 4)
+
+    # mass grant — every creature in the set gets the keyword, not only the strongest
+    g = _game(); g.p[0].bf = [_creature(0, 1, 1, "Sml"), _creature(0, 5, 5, "Big")]
+    g._do(g.p[0], g.p[1], "grant_keyword", "trample", "creatures_you_control", "-", None)
+    check("mass grant_keyword hits the whole set",
+          all(c.has("trample") for c in g.p[0].bf))
+
+    # mass tap — taps every enemy creature
+    g = _game(); g.p[1].bf = [_creature(1, 1, 1), _creature(1, 4, 4)]
+    g._do(g.p[0], g.p[1], "tap", "-", "all_creatures", "-", None)
+    check("mass tap taps every enemy creature", all(c.tapped for c in g.p[1].bf))
+
+    # reanimate honors a 'from_graveyard_tapped' rider (substring, not exact match)
+    g = _game(); g.p[0].grave = [Card("Z", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_battlefield", "-", "it", "from_graveyard_tapped", None)
+    check("reanimate from_graveyard_tapped enters tapped",
+          len(g.p[0].bf) == 1 and g.p[0].bf[0].tapped)
+
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
