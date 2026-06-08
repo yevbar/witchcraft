@@ -663,6 +663,9 @@ _CARD_STATIC = [
     (r"^You don't lose the game for (?:having an empty library|drawing from an empty library)\.?$", "dont_lose_from_empty_library"),
     (r"^Cards in graveyards can't be the targets of spells or abilities\.?$", "graveyard_cards_untargetable"),
     (r"^~ is the chosen (?:type|color) in addition to its other (?:types|colors)\.?$", "is_chosen_type_added"),
+    (r"^Spells with the chosen name can't be cast\.?$", "spells_with_chosen_name_cant_be_cast"),
+    (r"^Activated abilities of sources with the chosen name can't be activated unless they're mana abilities\.?$",
+     "abilities_of_chosen_name_cant_be_activated"),
     (r"^Creatures entering don't cause abilities to trigger\.?$", "creatures_entering_dont_trigger"),
     (r"^Permanents entering the battlefield don't cause abilities to trigger\.?$", "permanents_entering_dont_trigger"),
 ]
@@ -705,7 +708,7 @@ def _as_long_as(unit, ctx):
     rebuilt = f"{eff[0].upper()}{eff[1:]} as long as {m.group('cond')}"
     return _try_patterns(dataclasses.replace(unit, raw=rebuilt), ctx)
 
-_STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)"
+_STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?:an additional )?(?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w,{{}} ]+?))?"
                         rf"(?: (?P<conn>as long as|for each) (?P<cond>.+?))?\.?$", re.I)
 

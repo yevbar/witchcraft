@@ -288,10 +288,11 @@ def _boost_aslongas(m):
     return Effect("modify_pt", m.group(2), _target(m.group(1)), "for_as_long_as_" + ground.slug(m.group(3)))
 
 
-@_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X))$")
+@_t(rf"^({_TGT}) gets? (?:an additional )?([+-](?:\d+|X)/[+-](?:\d+|X))$")
 def _boost_bare(m):
     # bare P/T delta with no stated duration — the duration (if any) is supplied by a wrapper such as
-    # _UNTIL ('Until end of turn, <X> gets +N/+N'); on its own it is a continuous modify_pt.
+    # _UNTIL ('Until end of turn, <X> gets +N/+N'); on its own it is a continuous modify_pt. 'an
+    # additional' (stacking conditional anthems) is semantically the same continuous P/T boost.
     return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
 
 
@@ -789,6 +790,13 @@ def _put_bottom(m):
     return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
 
 
+@_t(rf"^put ({_TGT}) into (?:its owner's|their owner's|your) library (\w+) from the top$")
+def _put_library_position(m):
+    """'Put <X> into its owner's library Nth from the top' — §401 library placement at a specific
+    depth (Bury in Books, Temporal Spring). Position recorded in the extra slot."""
+    return Effect("put_on_top", "-", _target(m.group(1)), m.group(2).lower() + "_from_top")
+
+
 @_t(rf"^put ({_TGT}) on the bottom of (?:its owner's|their owner's|your) library$")
 def _put_bottom_tgt(m):
     return Effect("put_on_bottom", "-", _target(m.group(1)))
@@ -1059,10 +1067,11 @@ def _base_pt(m):
     return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) every creature type(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:is|are|becomes?) every (creature|basic land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$")
 def _all_types(m):
-    """'<target> is every creature type' — a §205 changeling-style all-types effect."""
-    return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
+    """'<target> is every creature/basic land type' — a §205 all-types effect (changeling / Dryad of
+    the Ilysian Grove omni-land)."""
+    return Effect("becomes", "-", _target(m.group(1)), "every_" + ground.slug(m.group(2)) + "_type")
 
 
 @_t(rf"^({_TGT}) (?:is|are|becomes?) an? ((?:white|blue|black|red|green|colorless)(?: (?:and )?(?:white|blue|black|red|green|colorless))* [\w' -]+?)(?: in addition to its other (?:types and colors|colors and types|types|colors))?(?: until end of turn)?$")
