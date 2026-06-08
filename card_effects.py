@@ -1072,6 +1072,13 @@ def _becomes_color_type(m):
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
 
+@_t(rf"^({_TGT}) (?:is|are) also an? ([\w' ,-]+?)(?: in addition to its other types)?(?: until end of turn)?$")
+def _type_also(m):
+    """'<target> is also a <type(s)>' (e.g. 'is also a Cleric, Rogue, Warrior, and Wizard') — a §205
+    type ADDITION continuous effect; the added type(s) recorded as a faithful slug."""
+    return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+
+
 @_t(rf"^({_TGT}) (?:is|are|becomes?) the chosen (color|type)(?: until end of turn)?$")
 def _becomes_chosen(m):
     """'<target> is the chosen color/type' — a §105/§205 set to a previously chosen color or type."""

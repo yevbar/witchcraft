@@ -659,6 +659,8 @@ _CARD_STATIC = [
     (r"^You don't lose the game for (?:having an empty library|drawing from an empty library)\.?$", "dont_lose_from_empty_library"),
     (r"^Cards in graveyards can't be the targets of spells or abilities\.?$", "graveyard_cards_untargetable"),
     (r"^~ is the chosen (?:type|color) in addition to its other (?:types|colors)\.?$", "is_chosen_type_added"),
+    (r"^Creatures entering don't cause abilities to trigger\.?$", "creatures_entering_dont_trigger"),
+    (r"^Permanents entering the battlefield don't cause abilities to trigger\.?$", "permanents_entering_dont_trigger"),
 ]
 
 
@@ -793,21 +795,34 @@ def _etb_tapped(unit, ctx):
     return CardOut(cid, [f'card_enters_tapped("{cid}", "{cond}")'], "etb_tapped")
 
 
+def _ability_activation_static(unit, ctx):
+    """'Activated abilities of <X> can't be activated [unless <cond>].' — a §602.5 activation
+    restriction (Cursed Totem, Linvala, Pithing Needle family). Affected class is a descriptive slug."""
+    m = re.match(r"^Activated abilities of (.+?) can't be activated(?: unless (.+?))?\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    tag = "activated_abilities_of_" + ground.slug(m.group(1)) + "_cant_be_activated" + \
+          ("_unless_" + ground.slug(m.group(2)) if m.group(2) else "")
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+
+
 def _enters_tapped_others(unit, ctx):
     """'<types> [your opponents control] enter [the battlefield] tapped.' — a §614 static that taps a
     class of OTHER permanents as they enter (Kismet / Frozen Aether / Imposing Sovereign family). The
     affected class + scope is a faithful descriptive slug; emitted card-level since it's not on ~ itself."""
     m = re.match(r"^((?:[A-Za-z]+, )*(?:[A-Za-z]+,? and )?[A-Za-z]+)"
-                 r"( your opponents control| an opponent controls)? enters?(?: the battlefield)? tapped\.?$",
+                 r"( your opponents control| an opponent controls| you control)? "
+                 r"enters?(?: the battlefield)? (tapped|untapped)\.?$",
                  unit.raw, re.I)
     if not m:
         return None
     types = ground.slug(m.group(1))
     if types in ("it", "they", "this", "that"):            # ~/it ETB is _etb_tapped's job, not this
         return None
-    scope = "opponents_" if m.group(2) else ""
+    scope = {" your opponents control": "opponents_", " an opponent controls": "opponents_",
+             " you control": "you_", None: ""}[m.group(2)]
     cid = ctx["id"]
-    return CardOut(cid, [f'card_static("{cid}", "{scope}{types}_enter_tapped")'], "card_static")
+    return CardOut(cid, [f'card_static("{cid}", "{scope}{types}_enter_{m.group(3).lower()}")'], "card_static")
 
 
 def _modal(unit, ctx):
@@ -1267,7 +1282,8 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_b
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
-             _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others, _modal, _mode_option, _cant, _combat_restriction,
+             _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
+             _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]
 
