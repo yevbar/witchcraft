@@ -260,10 +260,12 @@ def _clash(m):
     return Effect("clash", "-", "you")
 
 
-@_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X)) until end of turn$")
+@_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X)) (until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)$")
 def _boost(m):
     # P/T delta may be a §107.3 variable X ('-X/-X'); recorded verbatim, still grounded in modify_pt.
-    return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
+    # Non-default durations (§611) are kept in the cond slot so the boost's lifetime isn't lost.
+    dur = "-" if m.group(3).lower() == "until end of turn" else ground.slug(m.group(3))
+    return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)), "-", dur)
 
 
 @_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) or ([+-]\d+/[+-]\d+)(?: until end of turn)?$")

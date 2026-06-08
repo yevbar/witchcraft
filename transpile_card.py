@@ -878,11 +878,19 @@ _CRESTR = [
     (r"can't attack unless (.+)", "cant_attack_unless_"),
     (r"can't block unless (.+)", "cant_block_unless_"),
     (r"attacks each combat if able if (.+)", "attacks_each_combat_if_"),
+    # §115.6 targeting restrictions and §303/§301 attach restrictions — descriptive grounded slugs.
+    (r"can't be the targets? of (.+)", "cant_be_target_of_"),
+    (r"can be attached only to (.+)", "can_be_attached_only_to_"),
+    (r"can only attack (.+)", "can_only_attack_"),
+    (r"can only block (.+)", "can_only_block_"),
+    (r"can't have (.+)", "cant_have_"),
     # generic trailing captures (after the specific shapes above) — a §508/§509 restriction with any
     # qualifier, recorded as a descriptive slug rather than abstaining.
     (r"can't be blocked (.+)", "cant_be_blocked_"),
     (r"can't block (.+)", "cant_block_"),
     (r"can't attack (.+)", "cant_attack_"),
+    (r"can't be (.+)", "cant_be_"),                 # can't be copied/equipped/enchanted by X/regenerated …
+    (r"can only (.+)", "can_only_"),                # can only attack/block alone, etc.
 ]
 
 
@@ -890,6 +898,7 @@ def _combat_restriction(unit, ctx):
     """'<subject> can('t) <combat-verb> <qualifier>.' — a static combat restriction with a condition
     (§508/§509). The qualifier is recorded as a descriptive slug (like a trigger/condition slug)."""
     m = re.match(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent|"
+                 r"enchanted artifact|enchanted land|enchanted player|that creature|that permanent|"
                  r"creatures|all creatures|creature spells) (can.+?)\.?$",
                  unit.raw, re.I)
     if not m:
