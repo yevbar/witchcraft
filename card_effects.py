@@ -778,6 +778,17 @@ def _retain_mana(m):
     return Effect("retain_mana", "-", "you")
 
 
+@_t(r"^the (\w+) cost is equal to its mana cost$")
+def _granted_keyword_cost(m):
+    """'The <keyword> cost is equal to its mana cost.' — the cost specification that accompanies a
+    granted alternative-cost keyword (flashback/scavenge/retrace … §702). Grounds only if the keyword
+    is in the §702 roster; recorded as that keyword grant with a cost-equals-mana-cost descriptor."""
+    kw = ground.slug(m.group(1))
+    if kw not in ground.keyword_abilities():
+        return None
+    return Effect("grant_keyword", kw, "it", "cost_equals_mana_cost")
+
+
 @_t(r"^sacrifice (a|an|another|two|three) ([\w ~']+?)$")
 def _sacrifice_a(m):
     n = _amount(m.group(1))

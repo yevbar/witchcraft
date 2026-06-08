@@ -689,6 +689,7 @@ _SUBJ = (
         r"(?:you control|you own|your opponents control|an opponent controls|they control|your team controls|a player controls|each player controls)"
         r"(?: (?:with|of|that are|that have|named|without|other than) [\w'+/{}., -]+?)?|"
     r"(?:other |all )?[\w'-]+ (?:creatures?|permanents?|tokens?)|"
+    r"each of (?:those|the|them)(?: [\w'-]+)?|"
     r"creatures?|permanents?|you|players|it)"
 )
 
