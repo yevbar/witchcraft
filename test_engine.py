@@ -296,6 +296,20 @@ def run() -> None:
     g._do(g.p[0], g.p[1], "return_to_hand", "-", "them", "-", None)
     check("return_to_hand 'them' bounces all", not g.p[1].bf and len(g.p[1].hand) == 2)
 
+    # explicit ownership in the spec wins over the sign heuristic: a +1/+1 counter on
+    # "each creature target opponent controls" buffs the OPPONENT, not your own board
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2, "Mine")]
+    g.p[1].bf = [_perm(1, {"Creature"}, 2, 2, "Theirs")]
+    g._do(g.p[0], g.p[1], "put_counter", "1", "each_creature_target_opponent_controls", "+1/+1", None)
+    check("put_counter honors opponent-ownership over sign",
+          g.p[0].bf[0].counters == 0 and g.p[1].bf[0].counters == 1)
+
+    # and a -1/-1 counter on "each creature you control" shrinks YOUR own board (ownership over sign)
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 3, 3)]; g.p[1].bf = [_perm(1, {"Creature"}, 3, 3)]
+    g._do(g.p[0], g.p[1], "put_counter", "1", "each_creature_you_control", "-1/-1", None)
+    check("put_counter honors you-control over sign",
+          g.p[0].bf[0].counters == -1 and g.p[1].bf[0].counters == 0)
+
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

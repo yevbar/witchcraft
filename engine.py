@@ -279,26 +279,34 @@ class Game:
             return []
         return list(cs) if self._mass(tgt) else [max(cs, key=lambda p: p.power)]
 
+    def _owner_side(self, pl, opp, tgt, default):
+        """The side a target spec names by ownership: '…you_control' -> you; 'opponent'/'you_don_t_control'
+        -> the opponent; otherwise `default` (side-neutral specs like 'target_creature')."""
+        yours = "you_control" in tgt or tgt.endswith("_you_control")
+        foes = "opponent" in tgt or "you_don_t_control" in tgt
+        if yours and not foes:
+            return pl
+        if foes and not yours:
+            return opp
+        return default
+
     def _perm_targets(self, pl, opp, tgt, pred=None):
         """Permanents hit by a permanent-scoped target spec, faithful to its type, ownership, and
         plurality:
           - type words (creature/land/artifact/…) filter by Card.types; none/'permanent' -> any permanent
-          - ownership: '…you_control' -> your side; 'opponent'/'you_don_t_control' -> the opponent;
-            otherwise (e.g. 'all creatures') both sides
-          - a mass spec (all/each/…) hits every match; a single spec hits the opponent's strongest match
-            (removal heuristic), or your own when the spec says 'you_control'."""
+          - ownership via _owner_side; a side-neutral mass spec hits both sides, a side-neutral single
+            spec hits the opponent's strongest match (the removal heuristic)
+          - a mass spec (all/each/…) hits every match; a single spec hits one."""
         types = {_PERM_TYPES[w] for w in tgt.split("_") if w in _PERM_TYPES}
 
         def ok(p):
             return p.card.is_permanent and (not types or p.card.types & types) and (pred is None or pred(p))
 
-        yours = "you_control" in tgt or tgt.endswith("_you_control")
-        foes = "opponent" in tgt or "you_don_t_control" in tgt
+        side = self._owner_side(pl, opp, tgt, None)
         if self._mass(tgt):
-            sides = [pl] if (yours and not foes) else [opp] if (foes and not yours) else [pl, opp]
+            sides = [side] if side else [pl, opp]
             return [p for s in sides for p in s.bf if ok(p)]
-        side = pl if (yours and not foes) else opp
-        cands = [p for p in side.bf if ok(p)]
+        cands = [p for p in (side or opp).bf if ok(p)]
         return [max(cands, key=lambda p: p.power)] if cands else []
 
     def _do(self, pl, opp, verb, amt, tgt, extra, source):
@@ -331,8 +339,8 @@ class Game:
             per = dp if dp == dt else (1 if dp + dt >= 0 else -1)
             if source in pl.bf and tgt in ("self", "it"):
                 hit = [source]
-            else:                                           # +1/+1 grows your own; -1/-1 shrinks the enemy
-                hit = self._targets(pl if per >= 0 else opp, tgt)
+            else:                                           # ownership in the spec wins; sign is the fallback
+                hit = self._targets(self._owner_side(pl, opp, tgt, pl if per >= 0 else opp), tgt)
             for who in hit:
                 who.counters += (n or 1) * per
                 self.log(f"{who.card.name} gets a {extra} counter (now {who.power}/{who.toughness})", 2)
@@ -432,8 +440,9 @@ class Game:
         elif verb == "return_to_hand":
             # a "card" target (vs a "permanent"/"creature") names a graveyard object, not a battlefield one
             if extra == "from_graveyard" or "graveyard" in tgt or tgt.endswith(("_card", "_cards")):
-                card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
-                if card:
+                types = {_PERM_TYPES[w] for w in tgt.split("_") if w in _PERM_TYPES}
+                card = next((c for c in reversed(pl.grave) if not types or (c.types & types)), None)
+                if card:                                       # match the named type (creature card …), else any card
                     pl.grave.remove(card); pl.hand.append(card)
                     self.log(f"{pl.name} returns {card.name} to hand", 2)
             elif source in pl.bf + opp.bf and tgt in ("it", "self", "that_card"):
