@@ -384,6 +384,23 @@ def _put_counter_equal(m):
     return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), kind)
 
 
+@_t(r"^distribute (\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? among (.+?)$")
+def _distribute_counters(m):
+    """'Distribute N <kind> counters among <targets>' — §122 counter placement spread over multiple
+    targets; the target set is a faithful slug, 'distributed' recorded in the cond slot."""
+    n = _amount(m.group(1))
+    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
+    return Effect("put_counter", n if n is not None else "X", _target(m.group(3)), kind, "distributed")
+
+
+@_t(rf"^(?:({_TGT}) )?gets? (a|an|one|two|three|x|\w+) (poison|energy|experience) counters?$")
+def _gets_counter(m):
+    """'<player> gets N poison/energy/experience counters' — §122 player counters gained via 'get'
+    (poison §104.3d/§122.1, energy §107.16, experience §122). Subject defaults to you."""
+    n = _amount(m.group(2))
+    return Effect("put_counter", n if n is not None else "X", _target(m.group(1) or "you"), m.group(3).lower())
+
+
 @_t(r"^put (up to \w+|a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
 def _put_counter(m):
     """'Put N <kind> counter(s) on <object>' — the object captured as a faithful noun-phrase slug
@@ -452,13 +469,16 @@ def _create_equal(m):
     return Effect("create", "equal_to_" + ground.slug(m.group(2)), "token", ground.slug(m.group(1)))
 
 
-@_t(r"^(?:you )?create (a|an|one|two|three|x|\w+) (.+?) tokens?(?: for each (.+?))?(?: .*)?$")
+@_t(rf"^(?:({_TGT}) )?creates? (a|an|one|two|three|x|\w+) (.+?) tokens?(?: for each (.+?))?(?: .*)?$")
 def _create_token(m):
-    n = _amount(m.group(1))
+    n = _amount(m.group(2))
     amt = (n if n is not None else "X")
-    if m.group(3):
-        amt = f"{amt}_per_{ground.slug(m.group(3))}"
-    return Effect("create", amt, "token", ground.slug(m.group(2)))
+    if m.group(4):
+        amt = f"{amt}_per_{ground.slug(m.group(4))}"
+    # the creator (group 1) defaults to the controller; a non-default creator is kept in the cond slot.
+    creator = _target(m.group(1)) if m.group(1) and m.group(1).lower() != "you" else "-"
+    cond = "creator_" + creator if creator != "-" else "-"
+    return Effect("create", amt, "token", ground.slug(m.group(3)), cond)
 
 
 @_t(r"^(?:you )?(lose|win) the game$")
