@@ -30,7 +30,7 @@ _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
         r"(?:the )?(?:defending|attacking|active|target) player|"
-        r"~|it|them|they|you|its controller|its owner|their controller)")
+        r"~|it|them|they|her|him|you|its controller|its owner|their controller)")
 
 
 def _amount(s: str):
@@ -721,16 +721,32 @@ def _put_top_tgt(m):
     return Effect("put_on_top", "-", _target(m.group(1)))
 
 
+@_t(r"^put (.+?)(?: from your hand)? on (top|the bottom) of (?:your|their|its owner's) library(?: in any order)?$")
+def _put_cards_library(m):
+    """'Put <cards> [from your hand] on top/bottom of your library [in any order]' — §401 library
+    placement of a set of cards (object as a faithful slug)."""
+    if _is_compound_object(m.group(1)):
+        return None
+    return Effect("put_on_top" if m.group(2).lower() == "top" else "put_on_bottom", "-", ground.slug(m.group(1)))
+
+
 @_t(r"^look at the top (?:(\w+) )?cards? of your library$")
 def _look_top(m):
     n = _amount(m.group(1)) if m.group(1) else 1
     return Effect("look", n, "top_of_library") if n is not None else None
 
 
-@_t(rf"^({_TGT}) can't (be blocked|block|attack)(?: ({_TGT}))? this turn$")
+@_t(rf"^({_TGT}) can't (be blocked|block or be blocked|attack or block|block|attack)(?: ({_TGT}))? this turn$")
 def _cant_combat(m):
     extra = _target(m.group(3)) if m.group(3) else "-"
     return Effect("cant_" + m.group(2).replace(" ", "_"), "-", _target(m.group(1)), extra)
+
+
+@_t(r"^((?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?) can't (be blocked|attack or block|block|attack)(?: this turn)?$")
+def _cant_combat_set(m):
+    """'<creature set> can't block/attack [this turn]' — a §508/§509 combat restriction on a subset
+    ('Creatures without flying can't block this turn')."""
+    return Effect("cant_" + m.group(2).replace(" ", "_"), "-", ground.slug(m.group(1)))
 
 
 @_t(rf"^return ({_TGT}) from your graveyard to the battlefield( tapped)?$")
@@ -810,11 +826,11 @@ def _extra_turn(m):
     return Effect("extra_turn", n if n is not None else "-", _target(m.group(1) or "you"))
 
 
-@_t(r"^(?:you )?choose (?:a|an|one|two|three|up to \w+|x) ([\w ]+?) from (?:it|among them|them|that player's hand|its owner's hand|target [\w ]+?)$")
+@_t(r"^(?:you )?choose (?:a|an|one|two|three|up to \w+|x)(?: ([\w ]+?))? (?:from|of) (?:it|among them|them|those|that player's hand|its owner's hand|target [\w ]+?)$")
 def _choose_from(m):
-    """'[You] choose <quantifier> <card-kind> from it/among them/a hand' — a §700.2 choice over a set
-    of cards (the 'look at … and choose …' family)."""
-    return Effect("choose", "-", "you", ground.slug(m.group(1)))
+    """'[You] choose <quantifier> [<card-kind>] from/of it/among them/those/a hand' — a §700.2 choice
+    over a set ('choose one of them', 'choose two cards from it')."""
+    return Effect("choose", "-", "you", ground.slug(m.group(1)) if m.group(1) else "from_set")
 
 
 @_t(rf"^({_TGT}) reveals? their hand$")
@@ -898,7 +914,7 @@ def _extra_land(m):
     return Effect("play", "-", "you", "additional_land_this_turn")
 
 
-@_t(rf"^return ({_TGT}) to the battlefield(?: transformed)?(?: under (?:its owner's|your) control)?( tapped)?$")
+@_t(rf"^return ({_TGT}) to the battlefield(?: transformed)?(?: under [\w' ]+? control)?( tapped)?$")
 def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 

@@ -84,6 +84,7 @@ _CORE_ACTIONS = frozenset({
     "put_on_bottom",        # §401.1 — the library is ordered; putting cards on its bottom
     "return_to_battlefield",  # §614/§111 — putting a card onto the battlefield (reanimation)
     "cant_attack", "cant_block", "cant_be_blocked",   # §508/§509 — combat restrictions as effects
+    "cant_attack_or_block", "cant_block_or_be_blocked",  # §508/§509 — combined combat restrictions
     "cant_be_regenerated",  # §701.19 — a 'can't be regenerated' restriction
     "search",               # §701.18 search (also a keyword action, but kept explicit for 'search your library')
     "copy",                 # §707 — copying a spell/object
