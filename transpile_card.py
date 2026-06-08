@@ -457,6 +457,10 @@ def _replacement(unit, ctx):
     the replacement body must parse into grounded effects (else abstain). Quantitative replacements
     ('… twice that many …', '… plus N …') don't ground and so faithfully fall through to abstention."""
     m = _REPL.match(unit.raw)
+    if not m:
+        # §615 prevention replacements don't use 'instead' ('If damage would be dealt to ~, prevent
+        # that damage[. <extra effect>].'); the replacement begins with 'prevent'.
+        m = re.match(r"^If (?P<cond>.+? would .+?), (?P<repl>prevent .+?)\.?$", unit.raw, re.I | re.S)
     if not m or '"' in unit.raw:
         return None
     effects = _parse_body(m.group("repl"))

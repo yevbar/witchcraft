@@ -580,11 +580,11 @@ def _fog(m):
     return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
 
 
-@_t(r"^prevent (that damage|the next (\w+) damage)$")
+@_t(r"^prevent (that damage|the next (\w+) damage|(\w+) of that damage)$")
 def _prevent_that(m):
-    """'Prevent that damage' / 'Prevent the next N damage' (§615) — the consequent of an 'if damage
-    would be dealt …' clause; the wrapper supplies the condition."""
-    n = _amount(m.group(2)) if m.group(2) else None
+    """'Prevent that damage' / 'Prevent the next N damage' / 'Prevent N of that damage' (§615) — the
+    consequent of an 'if damage would be dealt …' clause; the wrapper supplies the condition."""
+    n = _amount(m.group(2) or m.group(3)) if (m.group(2) or m.group(3)) else None
     return Effect("prevent_damage", n if n is not None else "that", "-")
 
 
