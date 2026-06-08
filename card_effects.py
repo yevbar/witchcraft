@@ -991,10 +991,10 @@ def _still_land(m):
     return Effect("becomes", "-", "it", "still_a_land")
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment)s?)(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment|Plains|Island|Swamp|Mountain|Forest)s?)(?: until end of turn)?$")
 def _becomes_type(m):
-    """'<target> is/becomes a[n] <permanent type> [until end of turn]' — a §205 card-type set/change
-    (restricted to permanent-type words so it can't false-match a P/T or arbitrary noun)."""
+    """'<target> is/becomes a[n] <permanent/land type> [until end of turn]' — a §205 card-type set/
+    change (restricted to type words so it can't false-match a P/T or arbitrary noun)."""
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
 

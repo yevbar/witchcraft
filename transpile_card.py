@@ -648,8 +648,13 @@ _CARD_STATIC = [
      "enchanted_cant_attack_block_or_activate"),
     (r"^You may cast ~ as though it had flash\.?$", "cast_as_though_flash"),
     (r"^You may cast creature spells as though they had flash\.?$", "creature_spells_as_though_flash"),
+    (r"^You may cast spells as though they had flash\.?$", "cast_spells_as_though_flash"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
     (r"^You may choose the same mode more than once\.?$", "modal_repeat_allowed"),
+    (r"^You don't lose the game for having \w+ or less life\.?$", "dont_lose_from_life"),
+    (r"^You don't lose the game for (?:having an empty library|drawing from an empty library)\.?$", "dont_lose_from_empty_library"),
+    (r"^Cards in graveyards can't be the targets of spells or abilities\.?$", "graveyard_cards_untargetable"),
+    (r"^~ is the chosen (?:type|color) in addition to its other (?:types|colors)\.?$", "is_chosen_type_added"),
 ]
 
 
@@ -1015,7 +1020,7 @@ def _cost_modifier(unit, ctx):
         sc = ground.slug(m.group(3)) if m.group(3) else "-"
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "self", "{sc}")'],
                        "cost_modifier")
-    m = re.match(r"^([\w' ]*?spells?(?: you cast)?(?: from [\w' ]+?)?) cost ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
+    m = re.match(r"^((?:the first )?[\w' ]*?spells?(?: you cast)?(?: each turn| this turn| from [\w' ]+?)?) costs? ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
     if m:
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
                             f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
