@@ -267,9 +267,9 @@ class Game:
         return default
 
     def _mass(self, tgt):
-        """Whether a creature-scoped target is plural (all/each/creatures …) rather than a single pick."""
+        """Whether a target is plural (all/each/creatures/them …) rather than a single pick."""
         return tgt.startswith(("all", "each", "creatures", "those", "every")) or \
-            "_creatures" in tgt or "any_number" in tgt
+            "_creatures" in tgt or "any_number" in tgt or tgt in ("them", "they")
 
     def _targets(self, who, tgt, pred=None):
         """The creatures a creature-scoped target hits: every matching creature of `who` for a mass
@@ -326,11 +326,18 @@ class Game:
             for who in hit:
                 who.boost = (who.boost[0] + dp, who.boost[1] + dt)
                 self.log(f"{who.card.name} gets {amt} (now {who.power}/{who.toughness})", 2)
-        elif verb == "put_counter" and "/" in extra:
-            who = source or max(pl.creatures(), key=lambda p: p.power, default=None)
-            if who:
-                who.counters += n or 1
-                self.log(f"{who.card.name} gets a +1/+1 counter (now {who.power}/{who.toughness})", 2)
+        elif verb == "put_counter" and self._parse_boost(extra):
+            dp, dt = self._parse_boost(extra)               # +1/+1 -> (1,1); -1/-1 -> (-1,-1)
+            per = dp if dp == dt else (1 if dp + dt >= 0 else -1)
+            if source in pl.bf and tgt in ("self", "it"):
+                hit = [source]
+            else:                                           # +1/+1 grows your own; -1/-1 shrinks the enemy
+                hit = self._targets(pl if per >= 0 else opp, tgt)
+            for who in hit:
+                who.counters += (n or 1) * per
+                self.log(f"{who.card.name} gets a {extra} counter (now {who.power}/{who.toughness})", 2)
+            if per < 0:
+                self.sba()                                  # -1/-1 counters can be lethal
         elif verb == "destroy":
             for p in self._perm_targets(pl, opp, tgt):      # all_creatures -> board wipe; target_land -> a land; etc.
                 self._destroy(p); self.log(f"destroys {p.card.name}", 2)
@@ -344,11 +351,14 @@ class Game:
                 self.p[p.ctrl].bf.remove(p); self.p[p.ctrl].exile.append(p.card)
                 self.log(f"exiles {p.card.name}", 2)
         elif verb == "gain_control":
-            ec = self._pick_enemy_creature(opp)
-            if ec:                                # steal it: new controller, freshly summoning-sick
-                opp.bf.remove(ec); ec.ctrl = self.p.index(pl); ec.sick = True; ec.tapped = False
-                pl.bf.append(ec)
-                self.log(f"{pl.name} gains control of {ec.card.name}", 2)
+            if tgt not in ("self", "it", "that_card"):     # self/it name the source or a prior object we can't resolve
+                for ec in self._perm_targets(pl, opp, tgt):
+                    if ec.ctrl == self.p.index(pl):        # already ours -> nothing to gain
+                        continue
+                    self.p[ec.ctrl].bf.remove(ec)
+                    ec.ctrl = self.p.index(pl); ec.sick = True; ec.tapped = False
+                    pl.bf.append(ec)
+                    self.log(f"{pl.name} gains control of {ec.card.name}", 2)
         elif verb == "sacrifice":
             if tgt in ("it", "self"):                          # the source sacrifices itself (if still here)
                 victims = [(pl, source)] if source in pl.bf else []
@@ -420,7 +430,8 @@ class Game:
                     self.log(f"{hit[0].card.name} gains {kw}" if len(hit) == 1
                              else f"{len(hit)} creatures gain {kw}", 2)
         elif verb == "return_to_hand":
-            if extra == "from_graveyard" or "graveyard" in tgt:    # recur from graveyard, not a bounce
+            # a "card" target (vs a "permanent"/"creature") names a graveyard object, not a battlefield one
+            if extra == "from_graveyard" or "graveyard" in tgt or tgt.endswith(("_card", "_cards")):
                 card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
                 if card:
                     pl.grave.remove(card); pl.hand.append(card)
@@ -429,11 +440,11 @@ class Game:
                 owner = self.p[source.ctrl]
                 owner.bf.remove(source); owner.hand.append(source.card)
                 self.log(f"{source.card.name} returns to {owner.name}'s hand", 2)
-            else:                                                  # bounce strongest enemy creature
-                ec = self._pick_enemy_creature(opp)
-                if ec:
-                    opp.bf.remove(ec); opp.hand.append(ec.card)
-                    self.log(f"bounces {ec.card.name} to {opp.name}'s hand", 2)
+            else:                                                  # bounce the targeted permanent(s) to owner's hand
+                for p in self._perm_targets(pl, opp, tgt):
+                    owner = self.p[p.ctrl]
+                    owner.bf.remove(p); owner.hand.append(p.card)
+                    self.log(f"bounces {p.card.name} to {owner.name}'s hand", 2)
         elif verb == "return_to_battlefield":
             if "graveyard" in tgt or "graveyard" in extra:         # reanimation (flicker needs an exile step we don't model)
                 card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)

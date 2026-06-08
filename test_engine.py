@@ -257,6 +257,45 @@ def run() -> None:
     check("modify_pt variable boost is a no-op (no crash, no guess)",
           g.p[0].bf[0].power == 2 and g.p[0].bf[0].toughness == 2)
 
+    # --- fidelity pass on put_counter / gain_control / return_to_hand ---
+
+    # -1/-1 counters shrink the OPPONENT (and can be lethal), not grow your own
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 1, 1, "foe")]
+    g._do(g.p[0], g.p[1], "put_counter", "2", "target_creature", "-1/-1", None)
+    check("-1/-1 counters shrink+kill the enemy", not g.p[1].bf)
+
+    # +1/+1 counter on the source grows it
+    g = _game(); src = _perm(0, {"Creature"}, 2, 2, "mine"); g.p[0].bf = [src]
+    g._do(g.p[0], g.p[1], "put_counter", "1", "self", "+1/+1", src)
+    check("+1/+1 counter on self grows it", src.power == 3 and src.toughness == 3)
+
+    # each_creature_you_control gets a counter (mass)
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 1, 1), _perm(0, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "put_counter", "1", "each_creature_you_control", "+1/+1", None)
+    check("put_counter each_creature_you_control is mass",
+          g.p[0].bf[0].power == 2 and g.p[0].bf[1].power == 3)
+
+    # gain_control steals a non-creature permanent (artifact)
+    g = _game(); g.p[1].bf = [_perm(1, {"Artifact"}, 0, 0, "Relic")]
+    g._do(g.p[0], g.p[1], "gain_control", "-", "target_artifact", "-", None)
+    check("gain_control steals an artifact", [p.card.name for p in g.p[0].bf] == ["Relic"])
+
+    # gain_control of 'self' is a no-op (names the source, can't resolve to a steal)
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 3, 3)]
+    g._do(g.p[0], g.p[1], "gain_control", "-", "self", "-", None)
+    check("gain_control 'self' steals nothing", not g.p[0].bf and len(g.p[1].bf) == 1)
+
+    # return_to_hand bounces a non-creature permanent
+    g = _game(); g.p[1].bf = [_perm(1, {"Land"}, 0, 0, "Forest")]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "target_permanent", "-", None)
+    check("return_to_hand bounces any permanent type",
+          not g.p[1].bf and any(c.name == "Forest" for c in g.p[1].hand))
+
+    # 'them' bounces every targeted permanent (plural)
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 2, 2, "x"), _perm(1, {"Creature"}, 3, 3, "y")]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "them", "-", None)
+    check("return_to_hand 'them' bounces all", not g.p[1].bf and len(g.p[1].hand) == 2)
+
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
