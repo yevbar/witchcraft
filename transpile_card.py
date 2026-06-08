@@ -1127,12 +1127,15 @@ def _cost_modifier(unit, ctx):
     """Cost-reduction / -increase statics (§118.9): '~ costs {S} less to cast [if <cond>]',
     '<X> spells you cast cost {S} less to cast', '~ costs {S} more to cast for each …'."""
     cid = ctx["id"]
-    m = re.match(r"^~ costs ((?:\{[^}]+\})+|\d+) (less|more) to cast(?: (.+?))?\.?$", unit.raw, re.I)
+    # leading 'If <cond>, ' or 'where X is …' / 'for each …' riders are kept in the scope/cond slot.
+    m = re.match(r"^(?:If (?P<cond>.+?), )?~ costs ((?:\{[^}]+\})+|\d+) (less|more) to cast(?:,? (.+?))?\.?$",
+                 unit.raw, re.I)
     if m:
-        sc = ground.slug(m.group(3)) if m.group(3) else "-"
-        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "self", "{sc}")'],
+        sc = ground.slug(m.group(4)) if m.group(4) else \
+            ("if_" + ground.slug(m.group("cond")) if m.group("cond") else "-")
+        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", "self", "{sc}")'],
                        "cost_modifier")
-    m = re.match(r"^((?:the first )?[\w' ]*?spells?(?: you cast)?(?: each turn| this turn| from [\w' ]+?)?) costs? ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
+    m = re.match(r"^([\w'~ ]*?spells?[\w'~ ]*?) costs? ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
     if m:
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
                             f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
