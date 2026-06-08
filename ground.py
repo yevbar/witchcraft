@@ -111,6 +111,7 @@ _CORE_ACTIONS = frozenset({
     "retain_mana",          # §500.4 — an effect letting unspent mana survive a step/phase ending
     "get_emblem",           # §114 — an effect that gives a player an emblem
     "phase_out", "phase_in",  # §702.26/§502.15 — phasing a permanent out of / into existence
+    "must_block", "must_attack", "must_be_blocked",  # §508/§509 — combat requirements
 })
 
 

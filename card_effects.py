@@ -77,6 +77,9 @@ def _mana_production(what: str):
     m = re.fullmatch(r"(one|two|three|four|five|six) mana in any combination of colors", w, re.I)
     if m:
         return ["any_combination"] * _NUMWORD[m.group(1).lower()]
+    m = re.fullmatch(r"([\dx]+) mana in any combination of (?:colors|\{[^}]+\}(?: and/or \{[^}]+\})*)", w, re.I)
+    if m:                                            # 'X mana in any combination of {W} and/or {U}' etc.
+        return ["any_combination_" + (m.group(1).lower())]
     m = re.fullmatch(r"(?:one|a) mana of any color in your commander's color identity", w, re.I)
     if m:
         return ["commander_color_identity"]      # §903.4 color identity restricts which colors
@@ -662,14 +665,32 @@ def _verb_target(m):
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
-@_t(r"^pay ((?:\{[^}]+\})+|\w+ life|any amount of (?:\{[^}]+\}|mana))( to end this effect)?$")
+@_t(rf"^(?:({_TGT}) )?pays? ((?:\{{[^}}]+\}})+|\w+ life|any amount of (?:\{{[^}}]+\}}|mana))( to end this effect)?$")
 def _pay(m):
-    return Effect("pay", ground.slug(m.group(1)), "you", "to_end_effect" if m.group(2) else "-")
+    return Effect("pay", ground.slug(m.group(2)), _target(m.group(1) or "you"), "to_end_effect" if m.group(3) else "-")
 
 
 @_t(r"^flip a coin( until you lose a flip)?$")
 def _flip(m):
     return Effect("flip_coin", "until_lose" if m.group(1) else "-", "you")
+
+
+@_t(rf"^({_TGT}) blocks ({_TGT}) (?:this turn |this combat )?if able$")
+def _must_block_tgt(m):
+    """'<A> blocks <B> this turn if able' — a §509 block requirement directed at a creature."""
+    return Effect("must_block", "-", _target(m.group(1)), _target(m.group(2)))
+
+
+@_t(rf"^({_TGT}) must be blocked(?: this turn| this combat)?(?: if able)?$")
+def _must_be_blocked(m):
+    """'<X> must be blocked [this turn] [if able]' — a §509 block requirement (lure-like)."""
+    return Effect("must_be_blocked", "-", _target(m.group(1)))
+
+
+@_t(rf"^({_TGT}) attacks?(?: each combat| this turn)? if able$")
+def _must_attack(m):
+    """'<X> attacks [each combat/this turn] if able' — a §508 attack requirement."""
+    return Effect("must_attack", "-", _target(m.group(1)))
 
 
 @_t(r"^(?:you )?don't lose this mana as steps and phases end$")
