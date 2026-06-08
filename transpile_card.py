@@ -468,9 +468,10 @@ def _replacement(unit, ctx):
     ('… twice that many …', '… plus N …') don't ground and so faithfully fall through to abstention."""
     m = _REPL.match(unit.raw)
     if not m:
-        # §615 prevention replacements don't use 'instead' ('If damage would be dealt to ~, prevent
-        # that damage[. <extra effect>].'); the replacement begins with 'prevent'.
-        m = re.match(r"^If (?P<cond>.+? would .+?), (?P<repl>prevent .+?)\.?$", unit.raw, re.I | re.S)
+        # §615 prevention/regeneration replacements don't use 'instead' ('If damage would be dealt to ~,
+        # prevent that damage[. …].' / 'If ~ would be destroyed, regenerate it.'); the replacement body
+        # begins with 'prevent' or 'regenerate'.
+        m = re.match(r"^If (?P<cond>.+? would .+?), (?P<repl>(?:prevent|regenerate) .+?)\.?$", unit.raw, re.I | re.S)
     if not m or '"' in unit.raw:
         return None
     effects = _parse_body(m.group("repl"))
@@ -673,6 +674,12 @@ _CARD_STATIC = [
     (r"^You don't lose the game for (?:having an empty library|drawing from an empty library)\.?$", "dont_lose_from_empty_library"),
     (r"^Cards in graveyards can't be the targets of spells or abilities\.?$", "graveyard_cards_untargetable"),
     (r"^~ is the chosen (?:type|color) in addition to its other (?:types|colors)\.?$", "is_chosen_type_added"),
+    (r"^X can't be (\d+)\.?$", "x_cant_be_"),                   # §107.3 constraint on the chosen X value
+    (r"^No more than one creature can attack each combat\.?$", "max_one_attacker_each_combat"),
+    (r"^No more than one creature can block each combat\.?$", "max_one_blocker_each_combat"),
+    (r"^(?:Each player|Players) can cast spells only any time they could cast a sorcery\.?$", "cast_only_as_sorcery"),
+    (r"^Your opponents can cast spells only any time they could cast a sorcery\.?$", "opponents_cast_only_as_sorcery"),
+    (r"^Each opponent can cast spells only any time they could cast a sorcery\.?$", "opponents_cast_only_as_sorcery"),
     (r"^Spells with the chosen name can't be cast\.?$", "spells_with_chosen_name_cant_be_cast"),
     (r"^Activated abilities of sources with the chosen name can't be activated unless they're mana abilities\.?$",
      "abilities_of_chosen_name_cant_be_activated"),
@@ -683,8 +690,11 @@ _CARD_STATIC = [
 
 def _card_static(unit, ctx):
     for pat, tag in _CARD_STATIC:
-        if re.match(pat, unit.raw, re.I):
-            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+        m = re.match(pat, unit.raw, re.I)
+        if m:
+            # a tag ending in '_' with a capturing pattern keeps the captured value (e.g. 'x_cant_be_0')
+            full = tag + ground.slug(m.group(1)) if (tag.endswith("_") and m.groups()) else tag
+            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{full}")'], "card_static")
     return None
 
 

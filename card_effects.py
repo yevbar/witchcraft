@@ -441,6 +441,18 @@ def _create_copy(m):
     return Effect("create", amt, "token", extra)
 
 
+@_t(r"^create (a|one|two|three|x|\w+) cop(?:y|ies) of (.+?)(?:, except (.+?))?$")
+def _create_copy_of(m):
+    """'Create [N] copy/copies of <X>[, except <mods>]' — a §707 token copy of a card/permanent (the
+    'token that's a copy' wording elided, e.g. 'Create a copy of the chosen card')."""
+    if _is_compound_object(m.group(2)):
+        return None
+    n = _amount(m.group(1))
+    amt = n if n is not None else "X"
+    extra = "copy_of_" + ground.slug(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
+    return Effect("create", amt, "token", extra)
+
+
 @_t(r"^discard your hand$")
 def _discard_hand(m):
     return Effect("discard", "all", "you")
