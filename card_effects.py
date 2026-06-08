@@ -333,7 +333,7 @@ _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(r"^return (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
+@_t(rf"^(?:{_TGT} )?returns? (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
 def _return_zone(m):
     """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
     faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
@@ -401,10 +401,10 @@ def _gets_counter(m):
     return Effect("put_counter", n if n is not None else "X", _target(m.group(1) or "you"), m.group(3).lower())
 
 
-@_t(r"^put (up to \w+|a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
+@_t(rf"^(?:{_TGT} )?puts? (up to \w+|a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
 def _put_counter(m):
-    """'Put N <kind> counter(s) on <object>' — the object captured as a faithful noun-phrase slug
-    (compound-guarded so '… and <effect>' splits instead of being swallowed)."""
+    """'[<player>] put(s) N <kind> counter(s) on <object>' — the object captured as a faithful noun-
+    phrase slug (compound-guarded so '… and <effect>' splits instead of being swallowed)."""
     if _is_compound_object(m.group(3)):
         return None
     q = m.group(1).lower()
@@ -582,10 +582,11 @@ def _draw_additional(m):
     return Effect("draw", n if n is not None else 1, _target(m.group(1) or "you"), "additional")
 
 
-@_t(rf"^(?:({_TGT}) )?looks? at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
+@_t(rf"^(?:({_TGT}) )?looks? at (?:the top (?:(\w+) )?cards? of )?({_TGT}|their|his or her)(?:'s)? (?:hand|library)$")
 def _look_at(m):
     n = _amount(m.group(2)) if m.group(2) else 1
-    return Effect("look", n if n is not None else 1, _target(m.group(3)), "by_" + _target(m.group(1)) if m.group(1) else "-")
+    owner = "their" if m.group(3).lower() in ("their", "his or her") else _target(m.group(3))
+    return Effect("look", n if n is not None else 1, owner, "by_" + _target(m.group(1)) if m.group(1) else "-")
 
 
 @_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?) until end of turn$")
@@ -970,7 +971,7 @@ def _amass(m):
     return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
 
 
-@_t(r"^(?:you |each player )?choose (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")
+@_t(rf"^(?:{_TGT} )?choose(?:s)? (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")
 def _choose(m):
     """'Choose <quantifier> <thing>' — a §700.2 choice (a color, a creature type, target(s), …). The
     chosen thing is a faithful noun-phrase slug; the quantifier is folded into it."""
