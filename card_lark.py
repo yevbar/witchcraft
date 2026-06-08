@@ -32,10 +32,11 @@ _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
 _GRAMMAR = r"""
 start: imper
 
-imper: VERB quant? obj zonephrase?     -> imperative
+imper: VERB quant? obj zonephrase? trailer?     -> imperative
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 zwords: (WORD | TOPREP)+
+trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
 quant: QUANT
 obj: (WORD | TOPREP | ZONE)+
 
@@ -43,7 +44,9 @@ VERB: %(verbs)s
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 ZONE.2: /\b(?:hand|battlefield|library|graveyard)\b/
-WORD: /[\w',+\/-]+/
+BOUND.3: /\b(?:until|unless|for each)\b/
+WORD: /[\w',+\/~*-]+/
+NUM: /[0-9]+/
 
 %%ignore /\s+/
 """
@@ -77,6 +80,11 @@ class _ToEffect(Transformer):
         z = next((zz for w, zz in _ZONE.items() if w in sub), None)
         return _Zone(z)
 
+    def trailer(self, *toks):
+        # a trailing wrapper ('until ~ leaves', 'for each …') — the LEAF stops at the object; the
+        # parse_clause wrapper chain handles the wrapper. Marker so imperative() drops it.
+        return _Trailer()
+
     def imperative(self, verb, *rest):
         verb = str(verb).lower()
         quant = next((str(a) for a in rest if isinstance(a, _Quant)), None)
@@ -97,6 +105,10 @@ class _ToEffect(Transformer):
 class _Zone:
     def __init__(self, verb):
         self.verb = verb
+
+
+class _Trailer:
+    pass
 
 
 _T = _ToEffect()
