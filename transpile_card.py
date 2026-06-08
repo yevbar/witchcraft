@@ -18,6 +18,7 @@ Later slices (registered here as they land): mana abilities, activated "cost: ef
 from __future__ import annotations
 
 import dataclasses
+import functools
 import re
 from dataclasses import dataclass, field
 
@@ -329,7 +330,8 @@ _CLARIFICATION = re.compile(r"^This effect doesn't remove (?:~|it|[\w' -]+?)$", 
 
 _COMMA_LIST_SPLIT = re.compile(r",\s+(?=(?:put|reveal|draw|mill|discard|gain|lose|exile|destroy|create|"
                                r"tap|untap|sacrifice|return|scry|shuffle|search|counter|copy|prevent|"
-                               r"regenerate|goad|detain)s?\s)", re.I)
+                               r"regenerate|goad|detain|attach|cast|play|surveil|investigate|proliferate|"
+                               r"populate|venture|amass|connive|explore|fight|then)s?\s)", re.I)
 
 
 def _comma_resplit(part, subj):
@@ -1152,6 +1154,18 @@ def _cast_as_flash(unit, ctx):
     m = re.match(r"^You may cast (.+?) as though they had flash\.?$", unit.raw, re.I)
     if m:
         return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "cast_{ground.slug(m.group(1))}_as_flash")'], "card_static")
+    # 'The next <spell class> you cast this turn can be cast as though it had flash.' — one-shot flash grant.
+    m = re.match(r"^The next (.+?) you cast this turn can be cast as though it had flash\.?$", unit.raw, re.I)
+    if m:
+        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "next_{ground.slug(m.group(1))}_as_flash")'], "card_static")
+    # 'The first/next <spell class> you cast each/this turn has <keyword[ N]>.' — grants a §702 keyword
+    # to a scoped spell; grounds only if the keyword is in the §702 roster.
+    m = re.match(r"^The (first|next) (.+?) you cast (?:each|this) turn has ([\w ]+?)\.?$", unit.raw, re.I)
+    if m:
+        kw = _ground_kw(m.group(3).strip())
+        if kw and kw[0]:
+            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{m.group(1).lower()}_{ground.slug(m.group(2))}_has_{kw[0]}")'],
+                           "card_static")
     return None
 
 
@@ -1402,6 +1416,30 @@ def _try_patterns(u, ctx):
     return None
 
 
+# words a legendary's short name must NOT be before we dare substitute it with ~ (a self-reference):
+# §702 keywords, the five colours, card types/supertypes, and a few common nouns that double as names.
+@functools.lru_cache(maxsize=1)
+def _shortname_blocklist() -> frozenset:
+    types = {"creature", "artifact", "enchantment", "land", "planeswalker", "instant", "sorcery",
+             "battle", "legendary", "basic", "snow", "token", "permanent", "spell", "player", "card",
+             "wall", "fog", "counterspell", "shatter", "ornithopter", "juggernaut", "control"}
+    return frozenset(ground.keyword_abilities()) | ground.colors() | types
+
+
+def _short_name(card) -> str | None:
+    """The self-reference short name of a legendary card (the part before the first comma), or None if
+    it's missing, too short, or collides with a rules word (so substituting ~ would be unsafe)."""
+    if "Legendary" not in (card.get("supertypes") or []):
+        return None
+    short = re.split(r",", card.get("name", ""), 1)[0].strip()
+    if len(short) < 3 or ground.slug(short) in _shortname_blocklist():
+        return None
+    # also block when ANY word of a multi-word short name is a rules word ('Wall of Omens' -> 'Wall')
+    if any(ground.slug(w) in _shortname_blocklist() for w in short.split()):
+        return None
+    return short
+
+
 def transpile_unit(unit, ctx) -> "CardOut | None":
     """Interpret one ability unit; first faithful pattern wins, else None (abstain).
     Fallback: a multi-sentence line whose EVERY sentence is independently a whole ability (e.g.
@@ -1409,22 +1447,40 @@ def transpile_unit(unit, ctx) -> "CardOut | None":
     stripped = _strip_ability_word(unit.raw)
     u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
     out = _try_patterns(u, ctx)
+    if not out:
+        out = _multi_sentence(u, ctx)
+    # SHORT-NAME FALLBACK (all-or-nothing): a legendary that refers to itself by its short name
+    # ('Heliod isn't a creature', 'Ghave enters with five +1/+1 counters') never matched ~-anchored
+    # patterns. Only on a FAILED parse, substitute the (collision-guarded) short name with ~ and retry;
+    # keep the result only if it now grounds, so a passing card can never regress.
+    if not out:
+        short = _short_name(ctx.get("card") or {})
+        if short and re.search(r"\b" + re.escape(short) + r"\b", u.raw):
+            sub_raw = re.sub(r"\b" + re.escape(short) + r"(?:'s)?\b",
+                             lambda m: "~'s" if m.group(0).endswith("'s") else "~", u.raw)
+            su = dataclasses.replace(u, raw=sub_raw)
+            out = _try_patterns(su, ctx) or _multi_sentence(su, ctx)
     if out:
         out.template = unit.template
         return out
-    sents = _sentences(u.raw)
-    if len(sents) >= 2:
-        facts, ok = [], True
-        for j, sent in enumerate(sents):
-            sub = dataclasses.replace(u, raw=sent.rstrip("."))
-            so = _try_patterns(sub, {**ctx, "seq": f"{ctx.get('seq', 0)}_{j}"})
-            if not so:
-                ok = False
-                break
-            facts += so.facts
-        if ok:
-            return CardOut(ctx["id"], facts, "multi", template=unit.template)
     return None
+
+
+def _multi_sentence(u, ctx) -> "CardOut | None":
+    """A multi-sentence line whose EVERY sentence is independently a whole ability — interpret each and
+    merge (no half-credit)."""
+    sents = _sentences(u.raw)
+    if len(sents) < 2:
+        return None
+    facts, ok = [], True
+    for j, sent in enumerate(sents):
+        sub = dataclasses.replace(u, raw=sent.rstrip("."))
+        so = _try_patterns(sub, {**ctx, "seq": f"{ctx.get('seq', 0)}_{j}"})
+        if not so:
+            ok = False
+            break
+        facts += so.facts
+    return CardOut(ctx["id"], facts, "multi") if ok else None
 
 
 if __name__ == "__main__":

@@ -934,7 +934,7 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(r"^put (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?(?: with (?:\w+) [\w/+ ]*?counters? on it)?$")
+@_t(r"^(?:you |they )?puts? (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?(?: with (?:\w+) [\w/+ ]*?counters? on it)?$")
 def _reanimate_put(m):
     """'Put <card> [from a graveyard/hand/exile] onto the battlefield [under <controller>'s control]
     [tapped] [attached to <X>]' — reanimation / put-into-play (§614). Object captured as a faithful
@@ -1046,6 +1046,13 @@ def _as_though_combat(m):
     return Effect("grant_ability", "-", _target(m.group(1)), "can_" + ground.slug(m.group(2)))
 
 
+@_t(rf"^(?:({_TGT}) )?can block (an additional creature|any number of creatures|up to \w+ additional creatures|an additional \w+ creatures?)(?: this turn| each combat)?$")
+def _can_block_more(m):
+    """'<subj> can block an additional creature / any number of creatures [this turn/each combat]' — a
+    §509 multi-block permission, recorded as a §613.6 ability grant."""
+    return Effect("grant_ability", "-", _target(m.group(1) or "self"), "can_block_" + ground.slug(m.group(2)))
+
+
 @_t(r"^cast (.+?) without paying (?:its|their) mana costs?$")
 def _cast_free(m):
     return Effect("cast", "-", _target(m.group(1)), "without_paying_mana_cost")
@@ -1139,6 +1146,13 @@ def _becomes_type(m):
     noun). A 'for as long as' duration (§611) is kept in the cond slot."""
     cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
+
+
+@_t(rf"^({_TGT}) (?:isn't|aren't|is not|are not) an? ([\w' -]+?)(?: until end of turn)?$")
+def _becomes_not(m):
+    """'<target> isn't a <type>' — a §205 type REMOVAL (devotion gods that aren't creatures below
+    threshold, 'isn't a creature'); recorded as a 'not_<type>' becomes effect."""
+    return Effect("becomes", "-", _target(m.group(1)), "not_" + ground.slug(m.group(2)))
 
 
 @_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness (\d+/\d+)(?: in addition to its other types)?(?: until end of turn)?$")
