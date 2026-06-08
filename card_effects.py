@@ -474,13 +474,15 @@ def _that_amt(mult, plus):
     return a
 
 
-@_t(rf"^(?:({_TGT}) )?loses? (twice |half )?that much life( plus \d+| minus \d+)?$")
+@_t(rf"^(?:({_TGT}) )?loses? (twice |half )?that much life( plus \w+| minus \w+)?$")
 def _lose_that_much(m):
     return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^(?:({_TGT}) )?discards? (\w+) cards?(?: at random)?$")
+@_t(rf"^(?:({_TGT}) )?discards? (\w+|any number of) cards?(?: at random)?$")
 def _discard(m):
+    if m.group(2).lower() == "any number of":
+        return Effect("discard", "any", _target(m.group(1) or "you"))
     n = _amount(m.group(2))
     return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
 
@@ -559,7 +561,7 @@ def _bare_action(m):
     return Effect(v, "-", "you") if v in ground.keyword_actions() else None
 
 
-@_t(rf"^(?:({_TGT}) )?draws? (twice |half )?that many cards( plus \d+| minus \d+)?$")
+@_t(rf"^(?:({_TGT}) )?draws? (twice |half )?that many cards( plus \w+| minus \w+)?$")
 def _draw_that_many(m):
     return Effect("draw", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
@@ -586,7 +588,7 @@ def _flow_amount(m):
     return Effect(verb, amt, _target(m.group(1) or "you"))
 
 
-@_t(rf"^(?:({_TGT}) )?gains? (twice |half )?that much life( plus \d+| minus \d+)?$")
+@_t(rf"^(?:({_TGT}) )?gains? (twice |half )?that much life( plus \w+| minus \w+)?$")
 def _gain_that_much(m):
     return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
@@ -984,6 +986,12 @@ def _fight(m):
     return Effect("fight", "-", _target(m.group(1)), _target(m.group(2)))
 
 
+@_t(rf"^(?:then )?({_TGT}) fight each other$")
+def _fight_each(m):
+    """'<those creatures> fight each other' — a reciprocal §701.12 fight."""
+    return Effect("fight", "-", _target(m.group(1)), "each_other")
+
+
 @_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?)$")
 def _gains_perm(m):
     """'<target> gains/has <kw>' with NO duration — a permanent keyword grant (§613)."""
@@ -1012,7 +1020,7 @@ def _tap_or_untap(m):
     return Effect("untap", "-", _target(m.group(1)), "or_tap")
 
 
-@_t(rf"^(?:({_TGT}|they) )?can't be regenerated$")
+@_t(rf"^(?:(a creature destroyed this way|{_TGT}|they) )?can't be regenerated$")
 def _cant_regen(m):
     return Effect("cant_be_regenerated", "-", _target(m.group(1) or "it"))
 
