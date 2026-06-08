@@ -931,14 +931,14 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(r"^put (.+?)( from [\w' ]+? graveyard)? onto the battlefield(?: under [\w' ]+? control)?( tapped)?$")
+@_t(r"^put (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?$")
 def _reanimate_put(m):
-    """'Put <card> [from a graveyard] onto the battlefield [under <controller>'s control] [tapped]' —
-    reanimation / put-into-play (§614). Object captured as a faithful slug; compound-guarded. The
-    source ('from … graveyard') and tapped state are recorded only when actually stated."""
+    """'Put <card> [from a graveyard/hand/exile] onto the battlefield [under <controller>'s control]
+    [tapped] [attached to <X>]' — reanimation / put-into-play (§614). Object captured as a faithful
+    slug; compound-guarded. The source and tapped state are recorded only when actually stated."""
     if _is_compound_object(m.group(1)):
         return None
-    src = "from_graveyard" if m.group(2) else "-"
+    src = "from_" + m.group(2).strip().split()[-1] if m.group(2) else "-"
     extra = (src + "_tapped").lstrip("-_") if (src != "-" and m.group(3)) else (
         "tapped" if m.group(3) else src)
     return Effect("return_to_battlefield", "-", _target(m.group(1)), extra)
@@ -1104,7 +1104,7 @@ def _return_bf(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(rf"^({_TGT}) (?:becomes?|is|are) an? (\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) (?:an? )?(\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
 def _becomes(m):
     """'<target> becomes a N/N [colors/types] [creature] [until end of turn]' — animate / set P/T
     & types (§613.3 / §205). The type tail is recorded as a descriptive slug."""
@@ -1202,10 +1202,13 @@ def _lose_specific(m):
     return Effect("lose_abilities", "-", _target(m.group(1)), "_".join(kws)) if kws else None
 
 
-@_t(r"^(?:it|~) enters with (\w+) ([+-]\d+/[+-]\d+) counters? on it$")
+@_t(rf"^(?:({_TGT}) )?enters with (\w+) (?:additional )?([+-]\d+/[+-]\d+|[\w]+) counters? on it$")
 def _enters_counters_eff(m):
-    n = _amount(m.group(1))
-    return Effect("put_counter", n if n is not None else 1, "self", m.group(2))
+    """'<X> enters with N [additional] <kind> counter(s) on it' — an ETB counter placement (§614/§122),
+    used both standalone and inside replacement wrappers ('If …, that creature enters with …')."""
+    n = _amount(m.group(2))
+    kind = m.group(3) if "/" in m.group(3) else ground.slug(m.group(3))
+    return Effect("put_counter", n if n is not None else 1, _target(m.group(1) or "self"), kind, "on_enter")
 
 
 @_t(rf"^remove (a|an|one|two|three|all|any number of|x|\w+) (?:([+-]\d+/[+-]\d+|[\w ]+?) )?counters? from ({_TGT})$")
@@ -1443,9 +1446,13 @@ _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
 _UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
 _DELAYED_LEAD = re.compile(r"^at (the beginning of [\w' ]+?|end of combat|the next [\w' ]+?), (.+)$", re.I)
+_WHEN_LEAD = re.compile(r"^(?:when|whenever) (.+? (?:dies|leaves the battlefield|enters|attacks|blocks|"
+                        r"deals (?:combat )?damage[\w' ]*?|is dealt damage|would [\w' ]+?|becomes [\w' ]+?|"
+                        r"casts? [\w' ]+?|taps? [\w' ]+?)(?: this turn| next turn)?), (.+)$", re.I)
 _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
                       r"the next end step|your next end step|the next turn's end step|your upkeep)|"
                       r"at end of combat|at the beginning of the next turn)$", re.I)
+_NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 
@@ -1534,7 +1541,9 @@ def parse_clause(sentence: str) -> "Effect | None":
                s, flags=re.I)                                    # expand leading contraction
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
     s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
+    s = re.sub(r"^(they|those [\w-]+|these [\w-]+) each\b", r"\1", s, flags=re.I)  # 'They each get +N/+N' -> 'They get'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
+    s = re.sub(r"^instead,?\s+", "", s, flags=re.I)             # replacement lead — 'instead draw a card' -> 'draw a card'
     s = re.sub(r",? rounded (?:up|down)$", "", s, flags=re.I)    # 'mill half their library, rounded down'
     s = re.sub(r" this way$| that way$", "", s, flags=re.I)      # anaphoric tail — 'exile the cards revealed this way'
     # trailing variable definition '…, where X is <count>' (§107.3) — parse the head and fold the
@@ -1594,6 +1603,12 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _DELAYED_LEAD.match(s)        # leading delayed trigger: 'At the beginning of the next end step, <effect>'
     if m:
         return _combine(parse_clause(m.group(2)), "delayed_" + ground.slug(m.group(1)))
+    m = _WHEN_LEAD.match(s)           # nested/delayed trigger: 'When <event>, <effect>' inside a body
+    if m:
+        return _combine(parse_clause(m.group(2)), "when_" + ground.slug(m.group(1)))
+    m = _NEXT_TIME.match(s)           # one-shot replacement: 'The next time <X> would <event>, <repl>'
+    if m:
+        return _combine(parse_clause(m.group(2)), "next_time_" + ground.slug(m.group(1)))
     m = _UNTIL.match(s)
     if m:
         inner = parse_clause(m.group(2))

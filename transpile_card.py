@@ -296,7 +296,7 @@ def _has_leading_subject(part: str) -> bool:
     return not _BARE_PRED.match(part.strip())
 
 
-_WRAPPER = re.compile(r"^(?P<w>if you do|you may|if (?!you do\b)[^,]+?),?\s+(?P<rest>.+)$", re.I)
+_WRAPPER = re.compile(r"^(?P<w>if you do|you may|if (?!you do\b)[^,]+?|until (?:end of turn|your next turn|end of combat)),?\s+(?P<rest>.+)$", re.I)
 
 
 def _peel_wrapper(sentence):
@@ -308,7 +308,14 @@ def _peel_wrapper(sentence):
     if not m or len(_smart_split(m.group("rest"))) < 2:
         return None
     w = m.group("w").lower()
-    cond = "if_you_did" if w == "if you do" else ("may" if w == "you may" else ground.slug(w[3:]))
+    if w == "if you do":
+        cond = "if_you_did"
+    elif w == "you may":
+        cond = "may"
+    elif w.startswith("until "):
+        cond = "until_" + ground.slug(w[6:])
+    else:
+        cond = ground.slug(w[3:])
     return cond, m.group("rest")
 
 
