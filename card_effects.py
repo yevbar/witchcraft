@@ -1037,11 +1037,13 @@ def _still_land(m):
     return Effect("becomes", "-", "it", "still_a_land")
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment|Plains|Island|Swamp|Mountain|Forest)s?)(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment|Plains|Island|Swamp|Mountain|Forest)s?)(?: in addition to its other types)?(?: until end of turn| for as long as (.+?))?$")
 def _becomes_type(m):
-    """'<target> is/becomes a[n] <permanent/land type> [until end of turn]' — a §205 card-type set/
-    change (restricted to type words so it can't false-match a P/T or arbitrary noun)."""
-    return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+    """'<target> is/becomes a[n] <permanent/land type> [until end of turn | for as long as <cond>]' —
+    a §205 card-type set/change (restricted to type words so it can't false-match a P/T or arbitrary
+    noun). A 'for as long as' duration (§611) is kept in the cond slot."""
+    cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
+    return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
 
 
 @_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness (\d+/\d+)(?: in addition to its other types)?(?: until end of turn)?$")

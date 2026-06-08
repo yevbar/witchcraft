@@ -940,6 +940,32 @@ def _granted_ability(unit, ctx):
                    "granted_ability")
 
 
+_GRANT_KW_AB = re.compile(rf'^(?P<who>{_SUBJ}) (?:has|have|gains?) (?P<kw>[\w,{{}} ]+?) and '
+                          r'"(?P<ab>.+)"(?P<dur> until end of turn)?\.?$', re.I | re.S)
+
+
+def _grant_kw_and_ability(unit, ctx):
+    """'<subject> has <keyword(s)> and "<quoted ability>".' — an Aura/Equipment §613.6 grant of BOTH a
+    keyword AND a quoted ability (Bequeathal, Underworld Rage-Hound auras …). Emits one grant_keyword
+    effect per keyword plus a card_grants_ability; abstains unless every keyword grounds."""
+    m = _GRANT_KW_AB.match(unit.raw)
+    if not m:
+        return None
+    grounded = [_ground_kw(k.strip()) for k in re.split(r",| and ", m.group("kw")) if k.strip()]
+    if not grounded or not all(grounded):
+        return None
+    ab = ground.slug(m.group("ab"))[:160]
+    if not ab:
+        return None
+    who, cid, aid = _target_slug(m.group("who")), ctx["id"], f"a{ctx.get('seq', 0)}"
+    facts = [f'card_ability("{cid}", "{aid}", "static")']
+    facts += [f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
+              for i, (kw, _p) in enumerate(grounded)]
+    dur = "until_end_of_turn" if m.group("dur") else "-"
+    facts.append(f'card_grants_ability("{cid}", "{who}", "{ab}", "{dur}")')
+    return CardOut(cid, facts, "granted_ability")
+
+
 def _static_grant(unit, ctx):
     """A static keyword grant with no P/T — '[During your turn, ]<subject> has/have <keywords>
     [as long as <cond>].' (§613 layer 6): 'Enchanted creature has flying', 'During your turn, ~ has
@@ -1241,7 +1267,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_b
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
-             _granted_ability, _static_grant, _static_conjuncts, _enters_tapped_others, _modal, _mode_option, _cant, _combat_restriction,
+             _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]
 
