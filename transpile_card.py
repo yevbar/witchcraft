@@ -1074,14 +1074,24 @@ def _enters_prepared(unit, ctx):
 
 
 def _can_block_additional(unit, ctx):
-    """'~ can block an additional creature[ each combat]' / '~ can block any number of creatures.' —
-    a static blocking ability (§509)."""
-    if re.match(r"^~ can block any number of creatures\.?$", unit.raw, re.I):
+    """'<subject> can block an additional creature[ each combat]' / 'can block any number of creatures'
+    — a static blocking ability (§509). Subject is ~ or a creature subset."""
+    sub = r"(?:~|each creature you control|creatures you control)"
+    if re.match(rf"^{sub} can block any number of creatures\.?$", unit.raw, re.I):
         return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_any_number")'], "card_static")
-    m = re.match(r"^~ can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
+    m = re.match(rf"^{sub} can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
     if not m:
         return None
     return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_additional")'], "card_static")
+
+
+def _assigns_toughness(unit, ctx):
+    """'<subject> assigns combat damage equal to its toughness rather than its power' — the §510 Doran-
+    style damage-assignment characteristic (scope coarse; the mechanic is recorded card-level)."""
+    if not re.match(r"^(?:~|each creature you control|creatures you control|each creature) assigns? "
+                    r"combat damage equal to its toughness rather than its power\.?$", unit.raw, re.I):
+        return None
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "assigns_combat_damage_as_toughness")'], "card_static")
 
 
 def _attacks_each_combat(unit, ctx):
@@ -1095,7 +1105,7 @@ def _attacks_each_combat(unit, ctx):
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
+             _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
