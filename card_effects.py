@@ -333,7 +333,7 @@ _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(rf"^(?:{_TGT} )?returns? (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
+@_t(rf"^(?:{_TGT} )?returns? (.+?) to (?:its |their |your |his or her |the |a |an |owners?'? |owner's )*(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
 def _return_zone(m):
     """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
     faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
@@ -1558,6 +1558,16 @@ def parse_clause(sentence: str) -> "Effect | None":
             if inner.extra == "-":
                 return _dc.replace(inner, extra=f"per_{per}")
             return inner
+    # leading 'For each <X>, <effect>' (§107.3) — the effect happens once per X; fold the per-scaling
+    # into the amount (or extra) exactly like the trailing for-each form.
+    mfl = re.match(r"^for each (.+?), (.+)$", s, re.I)
+    if mfl:
+        inner = parse_clause(mfl.group(2))
+        if inner:
+            per = ground.slug(mfl.group(1))
+            if str(inner.amount) not in ("-", "X"):
+                return _dc.replace(inner, amount=f"{inner.amount}_per_{per}")
+            return _dc.replace(inner, extra=f"per_{per}") if inner.extra == "-" else inner
     m = _MAY.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "may")
