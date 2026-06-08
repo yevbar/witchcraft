@@ -545,10 +545,11 @@ def _gain_kw_eot(m):
     return Effect("grant_keyword", "until_end_of_turn", _target(m.group(1) or "~"), kw)
 
 
-@_t(rf"^prevent the next (\w+) damage that would be dealt to ({_TGT}) this turn$")
+@_t(rf"^prevent the next (\w+) damage that would be dealt (?:this turn )?to (any number of targets|{_TGT})(?: this turn)?$")
 def _prevent(m):
     n = _amount(m.group(1))
-    return Effect("prevent_damage", n if n is not None else "X", _target(m.group(2)))
+    tgt = "any_number_of_targets" if m.group(2).lower() == "any number of targets" else _target(m.group(2))
+    return Effect("prevent_damage", n if n is not None else "X", tgt)
 
 
 @_t(rf"^the next (\w+) damage that would be dealt to ({_TGT}) this turn is dealt to ({_TGT})(?: instead)?$")
@@ -761,10 +762,11 @@ def _must_be_blocked(m):
     return Effect("must_be_blocked", "-", _target(m.group(1)))
 
 
-@_t(rf"^({_TGT}) attacks?(?: each combat| this turn)? if able$")
+@_t(rf"^({_TGT}) attacks?(?: (?!each combat|this turn|this combat)({_TGT}))?(?: each combat| this turn| this combat)? if able$")
 def _must_attack(m):
-    """'<X> attacks [each combat/this turn] if able' — a §508 attack requirement."""
-    return Effect("must_attack", "-", _target(m.group(1)))
+    """'<X> attacks [<player>] [each combat/this turn/this combat] if able' — a §508 attack
+    requirement, optionally directed at a specific player/planeswalker."""
+    return Effect("must_attack", "-", _target(m.group(1)), _target(m.group(2)) if m.group(2) else "-")
 
 
 @_t(r"^(?:you |players )?don't lose (?:this|unspent|all unspent)?\s*(?:\w+ )?mana as steps and phases end$")

@@ -552,6 +552,10 @@ def _as_enters(unit, ctx):
     abstain). Modeled as a triggered ability on the 'enters' event, reusing the effect engine."""
     m = re.match(r"^As (?:~|it) enters, (?P<body>.+)$", unit.raw, re.I)
     if not m:
+        # trailing form: '<body> as ~ enters.' (e.g. 'If it's neither day nor night, it becomes day as
+        # ~ enters.') — same §614.12 as-enters ability with the body before the clause.
+        m = re.match(r"^(?P<body>.+?) as (?:~|it) enters\.?$", unit.raw, re.I)
+    if not m:
         return None
     effects = _parse_body(m.group("body"))
     if not effects:
@@ -722,24 +726,52 @@ def _static_pt(unit, ctx):
     return CardOut(cid, facts, "static_pt")
 
 
+# a conjunct in 'gets +N/+N, <c1>, <c2>, and <cN>' begins with one of these static predicates; a
+# comma/and that is NOT followed by one (e.g. 'has flying, first strike, and trample') stays joined.
+_PRED_LEAD = re.compile(r"^(?:has|have|is|are|can't|cant|can|gains?|becomes?|doesn't|don't|loses?|must|"
+                        r"attacks?|blocks?)\b", re.I)
+
+
+def _split_conjuncts(rest):
+    """Split 'has intimidate, and is a black Zombie' into ['has intimidate', 'is a black Zombie'] —
+    breaking only at a ', '/' and ' whose right side starts a NEW static predicate, so a keyword list
+    inside one conjunct ('has flying, first strike, and trample') is left intact."""
+    parts = re.split(r"(,\s+and\s+|,\s+|\s+and\s+)", rest)
+    out, cur, i = [], parts[0], 1
+    while i < len(parts):
+        sep, nxt = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+        if _PRED_LEAD.match(nxt.strip()):
+            out.append(cur)
+            cur = nxt
+        else:
+            cur = cur + sep + nxt
+        i += 2
+    out.append(cur)
+    return [p.strip() for p in out if p.strip()]
+
+
 def _anthem_conjunct(unit, ctx):
-    """'<subject> gets +N/+N and <conjunct>.' where the conjunct is a SECOND grounded static — a
-    restriction ('can't block'), 'doesn't untap …', 'is goaded', or a quoted ability. Emits the P/T
-    plus the conjunct interpreted by re-dispatching '<subject> <conjunct>'. Runs AFTER _static_pt
-    (which already owns the plain 'and has <keyword>' form); abstains if the conjunct doesn't ground."""
-    m = re.match(rf"^(?P<subj>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+) and (?P<rest>.+?)\.?$", unit.raw, re.I)
+    """'<subject> gets +N/+N[, <conjunct>]*[, and <conjunct>].' where each conjunct is a SECOND grounded
+    static — a keyword grant ('has flying'), restriction ('can't block'), 'doesn't untap …', a type/
+    color set ('is a black Zombie'), or a quoted ability. Emits the P/T plus every conjunct interpreted
+    by re-dispatching '<subject> <conjunct>'. Runs AFTER _static_pt (which owns the plain 'and has
+    <keyword>' form); abstains if ANY conjunct doesn't ground (prime directive — no partial grant)."""
+    m = re.match(rf"^(?P<subj>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
     subj = m.group("subj")
-    # dispatch the conjunct under a DISTINCT seq so its ability/effect ids never collide with the P/T's
-    bo = _try_patterns(dataclasses.replace(unit, raw=f"{subj[0].upper()}{subj[1:]} {m.group('rest')}"),
-                       {**ctx, "seq": f"{ctx.get('seq', 0)}b"})
-    if not bo:
-        return None
+    extra = []
+    for j, conj in enumerate(_split_conjuncts(m.group("rest"))):
+        # dispatch each conjunct under a DISTINCT seq so ability/effect ids never collide
+        bo = _try_patterns(dataclasses.replace(unit, raw=f"{subj[0].upper()}{subj[1:]} {conj}"),
+                           {**ctx, "seq": f"{ctx.get('seq', 0)}{chr(98 + j)}"})
+        if not bo:
+            return None
+        extra += bo.facts
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "static")',
              f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{_target_slug(subj)}", "-", "-")']
-    return CardOut(cid, facts + bo.facts, "static_pt")
+    return CardOut(cid, facts + extra, "static_pt")
 
 
 def _etb_tapped(unit, ctx):
@@ -759,6 +791,23 @@ def _etb_tapped(unit, ctx):
     cid = ctx["id"]
     cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
     return CardOut(cid, [f'card_enters_tapped("{cid}", "{cond}")'], "etb_tapped")
+
+
+def _enters_tapped_others(unit, ctx):
+    """'<types> [your opponents control] enter [the battlefield] tapped.' — a §614 static that taps a
+    class of OTHER permanents as they enter (Kismet / Frozen Aether / Imposing Sovereign family). The
+    affected class + scope is a faithful descriptive slug; emitted card-level since it's not on ~ itself."""
+    m = re.match(r"^((?:[A-Za-z]+, )*(?:[A-Za-z]+,? and )?[A-Za-z]+)"
+                 r"( your opponents control| an opponent controls)? enters?(?: the battlefield)? tapped\.?$",
+                 unit.raw, re.I)
+    if not m:
+        return None
+    types = ground.slug(m.group(1))
+    if types in ("it", "they", "this", "that"):            # ~/it ETB is _etb_tapped's job, not this
+        return None
+    scope = "opponents_" if m.group(2) else ""
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_static("{cid}", "{scope}{types}_enter_tapped")'], "card_static")
 
 
 def _modal(unit, ctx):
@@ -840,7 +889,8 @@ _CRESTR = [
 def _combat_restriction(unit, ctx):
     """'<subject> can('t) <combat-verb> <qualifier>.' — a static combat restriction with a condition
     (§508/§509). The qualifier is recorded as a descriptive slug (like a trigger/condition slug)."""
-    m = re.match(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent) (can.+?)\.?$",
+    m = re.match(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent|"
+                 r"creatures|all creatures|creature spells) (can.+?)\.?$",
                  unit.raw, re.I)
     if not m:
         return None
@@ -1150,13 +1200,39 @@ def _attacks_each_combat(unit, ctx):
     return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
+def _static_conjuncts(unit, ctx):
+    """GENERAL compound static: '<subject> <p1>, <p2>, and <pN>.' where each predicate is itself a
+    grounded static (has-keyword / is-a-type / can't-restriction / doesn't-untap). Catches the
+    has+type-set, has+restriction, etc. compounds the single-predicate handlers miss. Runs LATE (after
+    _static_grant/_static_pt own the simple shapes); abstains unless EVERY conjunct grounds — and only
+    fires on 2+ conjuncts, so it never competes with the specific single-predicate handlers."""
+    if {"Instant", "Sorcery"} & _types(ctx) or ":" in unit.raw or unit.raw.lstrip().startswith('"'):
+        return None
+    m = re.match(rf"^(?P<subj>{_SUBJ}) (?P<rest>(?:has|have|is|are|can't|gains?|becomes?|doesn't|don't|"
+                 rf"loses?) .+?)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    conjs = _split_conjuncts(m.group("rest"))
+    if len(conjs) < 2:
+        return None
+    subj = m.group("subj")
+    facts = []
+    for j, conj in enumerate(conjs):
+        bo = _try_patterns(dataclasses.replace(unit, raw=f"{subj[0].upper()}{subj[1:]} {conj}"),
+                           {**ctx, "seq": f"{ctx.get('seq', 0)}{chr(98 + j)}"})
+        if not bo:
+            return None
+        facts += bo.facts
+    return CardOut(ctx["id"], facts, "static_grant")
+
+
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
              _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
-             _granted_ability, _static_grant, _modal, _mode_option, _cant, _combat_restriction,
+             _granted_ability, _static_grant, _static_conjuncts, _enters_tapped_others, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _static_effect]
 
