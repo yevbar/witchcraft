@@ -542,6 +542,11 @@ def _as_enters(unit, ctx):
 # top-card play §601/§715, no max hand size §402.2.
 _STATIC_PLAYER = [
     (r"^You have no maximum hand size\.?$", "no_maximum_hand_size"),
+    (r"^Players have no maximum hand size\.?$", "players_no_maximum_hand_size"),
+    (r"^Your opponents have no maximum hand size\.?$", "opponents_no_maximum_hand_size"),
+    (r"^Your opponents can't cast spells during your turn\.?$", "opponents_cant_cast_during_your_turn"),
+    (r"^Players can't gain life\.?$", "players_cant_gain_life"),
+    (r"^Your opponents can't gain life\.?$", "opponents_cant_gain_life"),
     (r"^You may play an additional land on each of your turns\.?$", "extra_land_per_turn"),
     (r"^You may play (?:an? )?additional lands? on each of your turns\.?$", "extra_land_per_turn"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
