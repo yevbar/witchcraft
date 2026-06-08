@@ -29,7 +29,7 @@ _TGT = (r"(?:any target|up to \w+ target[\w' -]*?|any number of target[\w' -]*?|
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
-        r"(?:the )?(?:defending|attacking|active|target) player|"
+        r"(?:the )?(?:defending|attacking|active|target|chosen) player|the player|each player|that player's controller|"
         r"~|it|them|they|her|him|you|its controller|its owner|their controller)")
 
 
@@ -735,9 +735,9 @@ def _must_attack(m):
     return Effect("must_attack", "-", _target(m.group(1)))
 
 
-@_t(r"^(?:you )?don't lose this mana as steps and phases end$")
+@_t(r"^(?:you |players )?don't lose (?:this|unspent|all unspent)?\s*(?:\w+ )?mana as steps and phases end$")
 def _retain_mana(m):
-    """'you don't lose this mana as steps and phases end' — a §500.4 mana-retention rider (rituals)."""
+    """'you don't lose [this/unspent/<color>] mana as steps and phases end' — §500.4 mana retention."""
     return Effect("retain_mana", "-", "you")
 
 

@@ -966,18 +966,23 @@ def _cast_as_flash(unit, ctx):
     as-though, §601). Any trailing rider ('if you pay {2} more', 'If you cast it any time a sorcery
     couldn't…') is recorded as a descriptive slug suffix — coarse but faithful."""
     m = re.match(r"^You may cast ~ as though it had flash(?:[.,]? (.+?))?\.?$", unit.raw, re.I)
-    if not m:
-        return None
-    tag = "cast_as_though_flash" + ("_" + ground.slug(m.group(1)) if m.group(1) else "")
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+    if m:
+        tag = "cast_as_though_flash" + ("_" + ground.slug(m.group(1)) if m.group(1) else "")
+        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+    # 'You may cast <X> spells as though they had flash' — a flash-grant scoped to a spell class.
+    m = re.match(r"^You may cast (.+?) as though they had flash\.?$", unit.raw, re.I)
+    if m:
+        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "cast_{ground.slug(m.group(1))}_as_flash")'], "card_static")
+    return None
 
 
 def _alt_cost(unit, ctx):
-    """'You may pay <cost> rather than pay ~'s mana cost.' — an alternative casting cost (§118.9/§601)."""
-    m = re.match(r"^You may pay (.+?) rather than pay ~'s mana cost\.?$", unit.raw, re.I)
+    """'You may [pay/return/remove …] rather than pay <X>'s/the mana cost [for … spells].' — an
+    alternative casting cost (§118.9/§601). The alternative and what it replaces are slugged."""
+    m = re.match(r"^You may (.+?) rather than pay (~'s mana cost|its mana cost|the mana cost(?: for [\w' ]+?)?|the equip cost[\w' ]*?)(?:[,.].*)?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "alt_cost_{ground.slug(m.group(1))}")'], "card_static")
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "alt_cost_{ground.slug(m.group(1))}_for_{ground.slug(m.group(2))}")'], "card_static")
 
 
 def _enters_with_counters(unit, ctx):
