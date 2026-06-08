@@ -1067,9 +1067,27 @@ def _tap_or_untap(m):
     return Effect("untap", "-", _target(m.group(1)), "or_tap")
 
 
-@_t(rf"^(?:(a creature destroyed this way|{_TGT}|they) )?can't be regenerated$")
+@_t(rf"^(?:(a creature destroyed this way|{_TGT}|they) )?can't be regenerated(?: this turn)?$")
 def _cant_regen(m):
     return Effect("cant_be_regenerated", "-", _target(m.group(1) or "it"))
+
+
+@_t(r"^damage can't be prevented(?: this turn)?$")
+def _cant_prevent(m):
+    """'Damage can't be prevented this turn' — a §615 damage-prevention lockout."""
+    return Effect("cant_prevent_damage", "-", "-")
+
+
+@_t(r"^(?:you )?(?:may )?spend mana as though it were mana of any (?:color|type)(?: to cast .+?)?$")
+def _spend_as(m):
+    """'spend mana as though it were mana of any color [to cast …]' — a §106.6 mana-spending permission."""
+    return Effect("spend_mana_as", "-", "you", "any_color")
+
+
+@_t(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT))
+def _lure(m):
+    """'All creatures able to block <X> this turn do so' — a §509 lure block requirement on a target."""
+    return Effect("lure", "-", _target(m.group(1)))
 
 
 @_t(r"^search your library for ([^,]+?)$")
@@ -1079,13 +1097,14 @@ def _search(m):
     return Effect("search", "-", ground.slug(m.group(1)))
 
 
-@_t(r"^search ([\w' ,/-]+?(?:graveyard|hand|library|exile)[\w' ,/-]*?) for ([^,]+?)$")
+@_t(rf"^(?:({_TGT}) )?(?:may )?search(?:es)? ([\w' ,/-]+?(?:graveyard|hand|library|exile)[\w' ,/-]*?) for ([^,]+?)$")
 def _search_zones(m):
-    """'Search <player>'s graveyard, hand, and/or library for <X>' — a §701.18 search across zones; the
-    searched zones are recorded as a slug, the sought card as the target."""
-    if _is_compound_object(m.group(2)):
+    """'[<player>] search[es] <…graveyard/hand/library…> for <X>' — a §701.18 search across zones; the
+    searcher (if named) and searched zones are recorded, the sought card as the target."""
+    if _is_compound_object(m.group(3)):
         return None
-    return Effect("search", "-", ground.slug(m.group(2)), ground.slug(m.group(1)))
+    who = _target(m.group(1)) if m.group(1) else "you"
+    return Effect("search", "-", ground.slug(m.group(3)), ground.slug(m.group(2)) + ("_by_" + who if who != "you" else ""))
 
 
 @_t(rf"^put ({_TGT}) onto the battlefield( tapped)?$")
