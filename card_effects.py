@@ -333,7 +333,7 @@ _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(rf"^(?:{_TGT} )?returns? (.+?) to (?:its |their |your |his or her |the |a |an |owners?'? |owner's )*(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
+@_t(rf"^(?:{_TGT} )?returns? (.+?) to (?:its |their |your |his or her |the |a |an |owners?'? |owner's )*(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?(?: with \w+ [\w/+ ]*?counters? on it)?(?: at the beginning of [\w' ]+?)?$")
 def _return_zone(m):
     """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
     faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
@@ -881,21 +881,24 @@ def _put_library_position(m):
     return Effect("put_on_top", "-", _target(m.group(1)), m.group(2).lower() + "_from_top")
 
 
-@_t(rf"^put ({_TGT}) on the bottom of (?:its owner's|their owner's|your) library$")
+_LIB_OWNER = r"(?:your|their|its owner's|their owners?'|that player's|his or her|the|a)"
+
+
+@_t(rf"^put ({_TGT}) on the bottom of {_LIB_OWNER} library$")
 def _put_bottom_tgt(m):
     return Effect("put_on_bottom", "-", _target(m.group(1)))
 
 
-@_t(rf"^put ({_TGT}) on top(?: of (?:its owner's|their owner's|your) library)?(?: in any order)?$")
+@_t(rf"^put ({_TGT}) on top(?: of {_LIB_OWNER} library)?(?: in any order)?$")
 def _put_top_tgt(m):
     # the bare 'put that card on top' form (after a shuffle) refers to the library top by §401 default.
     # 'in any order' is the §401 reorder rider when placing multiple cards (Goblin/Dwarven Recruiter).
     return Effect("put_on_top", "-", _target(m.group(1)))
 
 
-@_t(r"^put (.+?)(?: from your hand)? on (top|the bottom) of (?:your|their|its owner's) library(?: in any order)?$")
+@_t(rf"^put (.+?)(?: from your hand)? on (top|the bottom) of {_LIB_OWNER} (?:libraries|library)(?: in (?:any|a random) order)?$")
 def _put_cards_library(m):
-    """'Put <cards> [from your hand] on top/bottom of your library [in any order]' — §401 library
+    """'Put <cards> [from your hand] on top/bottom of <owner>'s library [in any order]' — §401 library
     placement of a set of cards (object as a faithful slug)."""
     if _is_compound_object(m.group(1)):
         return None
@@ -931,7 +934,7 @@ def _reanimate(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
-@_t(r"^put (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?$")
+@_t(r"^put (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?(?: with (?:\w+) [\w/+ ]*?counters? on it)?$")
 def _reanimate_put(m):
     """'Put <card> [from a graveyard/hand/exile] onto the battlefield [under <controller>'s control]
     [tapped] [attached to <X>]' — reanimation / put-into-play (§614). Object captured as a faithful
@@ -1087,7 +1090,7 @@ def _roll_sided(m):
     return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
 
 
-@_t(r"^play (that card|those cards|them|it|~|the (?:top|exiled) cards?[\w ]*?|that [\w ]+?)(?: this turn| until [\w ' ]+)?$")
+@_t(rf"^(?:{_TGT} )?plays? (that card|those cards|them|it|~|the (?:top|exiled) cards?[\w ]*?|the top card of (?:their|your|his or her) library|that [\w ]+?)(?: this turn| until [\w ' ]+| if able)?$")
 def _play(m):
     return Effect("play", "-", _target(m.group(1)))
 
@@ -1453,6 +1456,7 @@ _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|
                       r"the next end step|your next end step|the next turn's end step|your upkeep)|"
                       r"at end of combat|at the beginning of the next turn)$", re.I)
 _NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$", re.I)
+_HAVE = re.compile(rf"^have ({_TGT}) (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 
@@ -1618,6 +1622,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     e = parse_effect(s)
     if e:
         return e
+    m = _HAVE.match(s)             # causative 'have <X> <effect>' — FALLBACK (specific have-templates win
+    if m:                         # first in parse_effect); reattach the subject so <X> performs the effect
+        return parse_clause(f"{m.group(1)} {m.group(2)}")
     m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
     if m:
         return _combine(parse_clause(m.group(1)), ground.slug(m.group(2)), suffix=True)
