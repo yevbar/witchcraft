@@ -639,6 +639,7 @@ _CARD_STATIC = [
     (r"^~ can attack(?: this turn)? as though it didn't have defender\.?$", "can_attack_despite_defender"),
     (r"^If ~ is in your opening hand, you may begin the game with it on the battlefield\.?$", "opening_hand_to_battlefield"),
     (r"^Play with the top card of your library revealed\.?$", "play_with_top_revealed"),
+    (r"^Players play with the top card of their libraries revealed\.?$", "players_play_top_revealed"),
     (r"^You may play lands from your graveyard\.?$", "play_lands_from_graveyard"),
     (r"^A deck can have any number of cards named ~\.?$", "any_number_in_deck"),
     (r"^It's still a land\.?$", "still_a_land"),

@@ -634,6 +634,19 @@ def _day_night(m):
     return Effect("becomes_" + m.group(1).lower(), "-", "-")
 
 
+@_t(rf"^({_TGT}) assigns no combat damage this turn$")
+def _no_combat_damage(m):
+    """'<X> assigns no combat damage this turn' — a §510.1c damage-assignment effect."""
+    return Effect("assign_no_combat_damage", "-", _target(m.group(1)))
+
+
+@_t(rf"^the next time a source of your choice would deal damage to ({_TGT}) this turn, prevent that damage$")
+def _prevent_next_source(m):
+    """'The next time a source of your choice would deal damage to <X> this turn, prevent that damage'
+    — a §615 prevention shield."""
+    return Effect("prevent_damage", "next", _target(m.group(1)))
+
+
 @_t(r'^you get an emblem with "(.+)"$')
 def _emblem(m):
     """'You get an emblem with "<ability>"' — an emblem (§114); the granted ability is slugged."""
