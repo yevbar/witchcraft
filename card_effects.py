@@ -612,6 +612,13 @@ def _redirect(m):
     return Effect("redirect_damage", n if n is not None else "X", _target(m.group(3)), "from_" + _target(m.group(2)))
 
 
+@_t(rf"^all (combat )?damage that would be dealt to ({_TGT})(?: this turn| by [\w' -]+?)? is dealt to ({_TGT})(?: instead)?$")
+def _redirect_all(m):
+    """'All [combat] damage that would be dealt to <A> is dealt to <B> instead' — a §614.9 blanket
+    damage redirection (Pariah / Palisade Giant / Maze of Ith family)."""
+    return Effect("redirect_damage", "all" + ("_combat" if m.group(1) else ""), _target(m.group(3)), "from_" + _target(m.group(2)))
+
+
 @_t(rf"^change the targets? of ({_TGT})(?: with a single target)?$")
 def _change_targets(m):
     """'Change the target(s) of <spell/ability>' — §115.7 target change."""
@@ -853,6 +860,13 @@ def _sacrifice_a(m):
     return Effect("sacrifice", n if isinstance(n, int) else "-", ground.slug(m.group(1) + " " + m.group(2)))
 
 
+@_t(rf"^({_TGT}) sacrifices? (it|that [\w]+|them|those [\w]+)$")
+def _sacrifice_subj(m):
+    """'<player> sacrifices it/that creature/them' — a §701.17 sacrifice directed at a named permanent
+    by an explicit player (e.g. 'Its controller sacrifices it')."""
+    return Effect("sacrifice", "-", _target(m.group(2)), "by_" + _target(m.group(1)))
+
+
 @_t(r"^put (.+?) on the bottom(?: of your library)?(?: in (?:a |any )?(?:random )?order)?$")
 def _put_bottom(m):
     # 'of your library' is the §401 default zone and may be elided ('put the rest on the bottom …').
@@ -1039,9 +1053,9 @@ def _experience(m):
     return Effect("put_counter", n if n is not None else 1, "you", "experience")
 
 
-@_t(r"^you gain life equal to (.+?)$")
+@_t(rf"^(?:({_TGT}) )?gains? life equal to (.+?)$")
 def _gain_equal(m):
-    return Effect("gain_life", "equal_to_" + ground.slug(m.group(1)), "you")
+    return Effect("gain_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
 
 
 @_t(rf"^(?:({_TGT}) )?loses? life equal to (.+?)$")
