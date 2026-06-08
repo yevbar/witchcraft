@@ -118,6 +118,7 @@ _CORE_ACTIONS = frozenset({
     "lure",                 # §509 — all able creatures must block (lure requirement)
     "redirect_damage",      # §614.9 — redirecting damage that would be dealt to a new recipient
     "change_targets",       # §115.7/§706 — changing the target(s) of a spell or ability
+    "becomes_day", "becomes_night",  # §726 — the day/night designation changes
 })
 
 

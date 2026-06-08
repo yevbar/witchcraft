@@ -366,13 +366,14 @@ def _put_counter_equal(m):
     return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), kind)
 
 
-@_t(r"^put (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
+@_t(r"^put (up to \w+|a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?)$")
 def _put_counter(m):
     """'Put N <kind> counter(s) on <object>' — the object captured as a faithful noun-phrase slug
     (compound-guarded so '… and <effect>' splits instead of being swallowed)."""
     if _is_compound_object(m.group(3)):
         return None
-    n = _amount(m.group(1))
+    q = m.group(1).lower()
+    n = ("up_to_" + (str(_amount(q[6:])) if _amount(q[6:]) is not None else q[6:])) if q.startswith("up to ") else _amount(m.group(1))
     return Effect("put_counter", n if n is not None else "X", _target(m.group(3)),
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
 
@@ -540,6 +541,13 @@ def _change_targets(m):
     return Effect("change_targets", "-", _target(m.group(1)))
 
 
+@_t(rf"^({_TGT})'s owner puts? it on (?:their choice of )?the top or(?: the)? bottom of their library$")
+def _owner_puts(m):
+    """'<X>'s owner puts it on their choice of the top or bottom of their library' (§401) — owner-choice
+    library placement."""
+    return Effect("put_on_top", "-", _target(m.group(1)), "owner_choice_top_or_bottom")
+
+
 @_t(r"^prevent all (combat )?damage that would be dealt this turn$")
 def _fog(m):
     return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
@@ -618,6 +626,12 @@ def _attach(m):
 @_t(r"^you become the monarch$")
 def _monarch(m):
     return Effect("become_monarch", "-", "you")
+
+
+@_t(r"^(?:if it's neither day nor night, )?it becomes (day|night)(?: as ~ enters)?$")
+def _day_night(m):
+    """'It becomes day/night' — a §726 day-and-night designation change."""
+    return Effect("becomes_" + m.group(1).lower(), "-", "-")
 
 
 @_t(r'^you get an emblem with "(.+)"$')
@@ -749,6 +763,11 @@ def _put_cards_library(m):
 def _look_top(m):
     n = _amount(m.group(1)) if m.group(1) else 1
     return Effect("look", n, "top_of_library") if n is not None else None
+
+
+@_t(r"^look at that many cards from the top of your library$")
+def _look_that_many(m):
+    return Effect("look", "that_amount", "top_of_library")
 
 
 @_t(rf"^({_TGT}) can't (be blocked|block or be blocked|attack or block|block|attack)(?: ({_TGT}))? this turn$")
