@@ -1,5 +1,35 @@
 # Plan: migrate the card interpreter from regex to the spaCy/lark (rules) pipeline
 
+## STATUS LOG (lark-primary migration, faithful-replacement / Option A)
+
+The card leaf is now **lark-first** (`card_effects.parse_clause`: `_lark_leaf(s) or parse_effect(s)`).
+Each family below was flipped only after the regex-leaf oracle (`migrate_check.py`) showed lark is
+faithful-or-better (identical tuples, or differences that are strict improvements, **0 lossy**), with
+souffle conformance=0, 0 isolation collisions, coverage held, and end-to-end spot-checks clean. The
+production wrapper chain (`_MAY`/`_IF`/`_UNLESS`/`_UNTIL`/`for each`) still runs ABOVE the leaf, so
+lark grounds the clean residue and the wrappers become `cond`/`extra` — which is why lark often beats
+the bare regex leaf (e.g. `each player may draw a card` → `draw/each_player` + `cond=may`, vs the regex
+leaf's lossy `target=each_player_may`).
+
+- **Object verbs** (destroy/exile/tap/untap/sacrifice/counter/regenerate/goad/detain) — lark-primary.
+  Grammar `oclause`; abstains on the structured `exile top N of library`, suspend-style `with N
+  counters on it`, and coordinated `or/and …` leads (defer to regex convention).
+- **RETURN** (return_to_hand/return_to_battlefield/put_on_top/put_in_graveyard) — lark-primary.
+  CONSISTENT from/to split: object stops at from/to, source→`extra=from_<zone>`, dest→verb. Fixes the
+  regex's inconsistent gluing (`target_creature_card_from_your_graveyard`) and outright garbage
+  (`target=from_your_graveyard`). Oracle: 241 identical + 120 differ (ALL improvements) + 0 lossy.
+  Abstains on comma multi-object lists and object-internal `to` (`attached to it`, `equal to X`).
+- **Player-count verbs** (draw/mill/scry/surveil/gain_life/lose_life/discard) — lark-primary.
+  Grammar `pclause`: subject is a PLAYER (closed allow-list `_PLAYER`, defaults `you`), the NP is the
+  AMOUNT, and the object word disambiguates the verb (gain/lose need `life`; draw/mill/discard need
+  `card[s]`; scry/surveil take a bare number). Handles `up to N`/`any number of`/`at random` for
+  discard. Oracle: 280 identical + **0 differ**; the cases the bare regex leaf grounds lossily
+  (`each_player_may`, `each_player_who_controls_…`) lark correctly abstains on, and the wrapper chain
+  feeds it clean residue in production. Net +~5 cards.
+
+Next families (per the staged plan below): player-target object verbs (subject-first destroy/sacrifice),
+P/T grants (`modify_pt`), then the wrapper chain itself (move `_MAY`/`_IF`/`_UNLESS` onto the parse).
+
 ## 0. Why, and the honest target shape
 
 The card side (`card_effects.py` 183 `@_t(regex)` templates + `transpile_card.py` 51 unit

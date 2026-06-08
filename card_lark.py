@@ -29,11 +29,25 @@ _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
+# player-count verbs: the subject is a PLAYER and the NP after the verb is the AMOUNT. The trailing
+# object word disambiguates the grounded verb (gain/lose need 'life'; draw/mill/discard need 'card[s]';
+# scry/surveil take a bare number). Defaults subject to 'you' (imperative mood).
+_PVERB = {"draw": "draw", "draws": "draw", "mill": "mill", "mills": "mill",
+          "scry": "scry", "scries": "scry", "surveil": "surveil",
+          "gain": "gain_life", "gains": "gain_life", "lose": "lose_life", "loses": "lose_life",
+          "discard": "discard", "discards": "discard"}
+_NEEDS_CARD = {"draw", "mill", "discard"}
+_NEEDS_LIFE = {"gain_life", "lose_life"}
+
 _GRAMMAR = r"""
-start: rclause | oclause
+start: rclause | oclause | pclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
+pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
+
+psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
+pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 fromphrase: FROM zwords? ZONE          -> source
@@ -45,6 +59,7 @@ objall: (WORD | TOPREP | ZONE | FROM)+
 
 RVERB: "return"
 OVERB: %(verbs)s
+PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|discards|discard)\b/
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 FROM.2: /\bfrom\b/
@@ -74,6 +89,19 @@ _COORD = re.compile(r"^(?:or|and)\s", re.I)        # 'tap or untap …' — a co
 _UPTOQ = re.compile(r"\bup to (?:one|two|three|four|five|that many|x|[0-9]+)\b", re.I)
 
 
+# a player subject for the count verbs is a CLOSED phrase; anything else (a swallowed first clause,
+# a 'may'/'who'/'unless' wrapper, a coordinated 'X and Y') means the greedy psubj over-matched -> abstain
+# and let the regex wrapper/split chain own it (faithful-or-abstain).
+_PLAYER = re.compile(
+    r"^(?:~|you|they|it|them|"
+    r"target player|target opponent|"
+    r"each player|each opponent|each other player|"
+    r"that player|that opponent|the player|another player|those players|these players|"
+    r"(?:the )?(?:defending|attacking|active|chosen) player|"
+    r"its controller|its owner|"
+    r"[\w'-]+(?: [\w'-]+)*'s controller)$", re.I)
+
+
 def _ret_ambiguous(s: str) -> bool:
     if "," in s:
         return True                            # coordinated multi-object list
@@ -90,6 +118,14 @@ class _Quant(str):
 class _Source:
     def __init__(self, zone):
         self.zone = zone
+
+
+class _Subj(str):
+    pass
+
+
+class _Body(str):
+    pass
 
 
 @v_args(inline=True)
@@ -160,6 +196,57 @@ class _ToEffect(Transformer):
         if verb in _SIMPLE:
             return Effect(_SIMPLE[verb], "-", _target(otext))
         return None
+
+    def psubj(self, *toks):
+        return _Subj(" ".join(str(t) for t in toks))
+
+    def pbody(self, *toks):
+        return _Body(" ".join(str(t) for t in toks))
+
+    def pcount(self, *args):
+        subj = next((str(a) for a in args if isinstance(a, _Subj)), None)
+        body = next((str(a) for a in args if isinstance(a, _Body)), "")
+        verb = next((str(a).lower() for a in args if not isinstance(a, (_Subj, _Body))), "")
+        g = _PVERB.get(verb)
+        if g is None:
+            return None
+        if subj is not None and not _PLAYER.match(subj.strip()):
+            return None                        # greedy psubj swallowed non-player text -> abstain
+        body = body.strip().lower()
+        if "for each" in body or body.endswith("per turn") or " per " in body:
+            return None                        # per-X amount or per-turn limit -> regex chain owns it
+        who = _target(subj) if subj else "you"
+        if g in _NEEDS_LIFE:
+            if not body.endswith("life"):
+                return None                    # 'gain control'/'gains flying' is NOT gain_life
+            amt_s = body[:-4].strip()
+        elif g in _NEEDS_CARD:
+            if body.endswith("at random"):
+                body = body[:-len("at random")].strip()   # regex drops 'at random'
+            m = re.match(r"^(.*?)\s*cards?$", body)
+            if not m:
+                return None                    # 'discard their hand'/'discard your hand' -> other template
+            amt_s = m.group(1).strip()
+        else:                                  # scry / surveil — bare number, no object word
+            amt_s = body
+        if amt_s == "any number of":
+            return Effect("discard", "any", who) if g == "discard" else None
+        up_to = amt_s.startswith("up to ")
+        if up_to:
+            amt_s = amt_s[6:].strip()
+        if amt_s in ("a", "an"):
+            n = 1
+        elif amt_s == "":
+            return None
+        else:
+            n = _amount(amt_s)
+        if n is None:
+            return None
+        if g == "discard":
+            return Effect("discard", n, who, "up_to" if up_to else "-")
+        if up_to:
+            return None                        # 'up to N' only modeled for discard in the regex
+        return Effect(g, n, who)
 
 
 class _Zone:
