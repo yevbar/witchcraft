@@ -40,18 +40,21 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause
+start: rclause | oclause | pclause | dclause | mclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
+mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
 dsrc: (WORD | QUANT)+                   // damage source (DROPPED — implicit self, matching the regex)
 damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
 dtarget: (WORD | QUANT | NUM | ZONE)+   // target NP (no TOPREP: an internal 'to' -> abstain to regex)
+mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
+mdur: MDUR
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 fromphrase: FROM zwords? ZONE          -> source
@@ -66,6 +69,9 @@ OVERB: %(verbs)s
 PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|discards|discard)\b/
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
+GETS.2: /\bgets?\b/
+PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
+MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 FROM.2: /\bfrom\b/
@@ -142,6 +148,10 @@ class _Amt(str):
 
 
 class _Tgt(str):
+    pass
+
+
+class _Dur(str):
     pass
 
 
@@ -235,6 +245,34 @@ class _ToEffect(Transformer):
         if re.search(r"\b(?:and|then|gains?|draws?|loses?|deals?)\b", tgt) or "," in tgt:
             return None                        # coordinated/multi-clause target -> regex chain owns it
         return Effect("deal_damage", n, _target(tgt))
+
+    def mtgt(self, *toks):
+        return _Tgt(" ".join(str(t) for t in toks))
+
+    def mdur(self, tok):
+        return _Dur(str(tok))
+
+    def boost(self, *args):
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        pt = next((str(a) for a in args if re.match(r"^[+-]", str(a))), None)   # the P/T delta
+        if tgt is None or pt is None:
+            return None
+        tgt = tgt.strip().lower()
+        if _MULTICLAUSE.search(tgt) or "," in tgt:
+            return None                        # multi-clause subject -> regex chain owns it
+        perpetual = tgt.endswith(" perpetually")
+        if perpetual:
+            tgt = tgt[:-len(" perpetually")].strip()   # '<X> perpetually gets …' -> cond=perpetual
+        cond = "-"
+        if dur:
+            if perpetual:
+                return None                    # both a duration and 'perpetually' -> ambiguous, abstain
+            d = dur.strip().lower()
+            cond = "-" if d == "until end of turn" else ground.slug(d)
+        elif perpetual:
+            cond = "perpetual"
+        return Effect("modify_pt", pt.replace(" ", "").upper(), _target(tgt), "-", cond)   # X stays uppercase
 
     def psubj(self, *toks):
         return _Subj(" ".join(str(t) for t in toks))
