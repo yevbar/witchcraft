@@ -116,6 +116,8 @@ _CORE_ACTIONS = frozenset({
     "cant_prevent_damage",  # §615 — an effect that damage can't be prevented
     "spend_mana_as",        # §106.6 — spending mana as though it were another color/type
     "lure",                 # §509 — all able creatures must block (lure requirement)
+    "redirect_damage",      # §614.9 — redirecting damage that would be dealt to a new recipient
+    "change_targets",       # §115.7/§706 — changing the target(s) of a spell or ability
 })
 
 

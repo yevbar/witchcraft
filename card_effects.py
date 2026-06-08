@@ -526,6 +526,20 @@ def _prevent(m):
     return Effect("prevent_damage", n if n is not None else "X", _target(m.group(2)))
 
 
+@_t(rf"^the next (\w+) damage that would be dealt to ({_TGT}) this turn is dealt to ({_TGT})(?: instead)?$")
+def _redirect(m):
+    """'The next N damage that would be dealt to <A> this turn is dealt to <B> instead' — a §614.9
+    damage redirection; recorded as redirect_damage from A to B."""
+    n = _amount(m.group(1))
+    return Effect("redirect_damage", n if n is not None else "X", _target(m.group(3)), "from_" + _target(m.group(2)))
+
+
+@_t(rf"^change the targets? of ({_TGT})(?: with a single target)?$")
+def _change_targets(m):
+    """'Change the target(s) of <spell/ability>' — §115.7 target change."""
+    return Effect("change_targets", "-", _target(m.group(1)))
+
+
 @_t(r"^prevent all (combat )?damage that would be dealt this turn$")
 def _fog(m):
     return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
@@ -665,9 +679,10 @@ def _verb_target(m):
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?pays? ((?:\{{[^}}]+\}})+|\w+ life|any amount of (?:\{{[^}}]+\}}|mana))( to end this effect)?$")
+@_t(rf"^(?:({_TGT}) )?pays? ((?:\{{[^}}]+\}})+|\w+ life|any amount of (?:\{{[^}}]+\}}|mana))( to end this effect| any number of times)?$")
 def _pay(m):
-    return Effect("pay", ground.slug(m.group(2)), _target(m.group(1) or "you"), "to_end_effect" if m.group(3) else "-")
+    extra = "to_end_effect" if m.group(3) and "end" in m.group(3) else ("repeatable" if m.group(3) else "-")
+    return Effect("pay", ground.slug(m.group(2)), _target(m.group(1) or "you"), extra)
 
 
 @_t(r"^flip a coin( until you lose a flip)?$")
