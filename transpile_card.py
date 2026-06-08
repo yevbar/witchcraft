@@ -867,11 +867,18 @@ def _modal(unit, ctx):
 
 
 def _mode_option(unit, ctx):
-    """'• <effect>' — one mode of a modal spell/ability; its body is a normal effect clause."""
+    """'• <effect>' — one mode of a modal spell/ability; its body is a normal effect clause. A leading
+    flavor mode-name ('Cure Wounds — …', 'Dispel Magic — …') is stripped like an ability word (§207.2c,
+    no rules meaning) when doing so lets the mode body parse — the name is kept as a descriptive fact."""
     m = re.match(r"^[•·∙]\s*(?P<body>.+)$", unit.raw)
     if not m:
         return None
-    effects = _parse_body(m.group("body"))
+    body = m.group("body")
+    effects = _parse_body(body)
+    if not effects:
+        fm = re.match(r"^[A-Z][\w' /'-]+? [—–-] (.+)$", body)   # strip a flavor mode-name (no rules meaning)
+        if fm:
+            effects = _parse_body(fm.group(1))
     if not effects:
         return None
     cid, aid = ctx["id"], f"mode{ctx.get('seq', 0)}"
