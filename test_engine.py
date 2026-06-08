@@ -110,6 +110,49 @@ def run() -> None:
     check("_make_token thopter is Artifact Creature",
           bool(th) and {"Artifact", "Creature"} <= th.types and th.power == 1)
 
+    # grant_keyword — keyword pulled from the right slot; until_end_of_turn wears off at cleanup
+    g = _game(); src = _creature(0, 2, 2, "Mine"); g.p[0].bf = [src]
+    g._do(g.p[0], g.p[1], "grant_keyword", "until_end_of_turn", "self", "flying", None)
+    check("grant_keyword until-EOT grants to source (temporary)",
+          src.has("flying") and "flying" in src.granted_eot and "flying" not in src.granted)
+    g._do(g.p[0], g.p[1], "grant_keyword", "trample", "enchanted_creature", "-", None)
+    check("grant_keyword no-duration grants permanently",
+          src.has("trample") and "trample" in src.granted)
+    src.granted_eot.clear()
+    check("until-EOT grant cleared at cleanup, permanent stays",
+          not src.has("flying") and src.has("trample"))
+
+    # return_to_hand — bounce an enemy creature to its owner's hand
+    g = _game(); g.p[1].bf = [_creature(1, 3, 3, "Big")]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "target_creature", "-", None)
+    check("return_to_hand bounces enemy to hand",
+          not g.p[1].bf and any(c.name == "Big" for c in g.p[1].hand))
+
+    # return_to_hand 'it' — source returns to its own controller's hand
+    g = _game(); src = _creature(0, 1, 1, "Self"); g.p[0].bf = [src]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "it", "-", src)
+    check("return_to_hand 'it' returns source to owner hand",
+          not g.p[0].bf and any(c.name == "Self" for c in g.p[0].hand))
+
+    # return_to_hand from graveyard — recur a creature card to hand
+    g = _game(); g.p[0].grave = [_spell("Junk"), Card("Beast", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "target_creature_card", "from_graveyard", None)
+    check("return_to_hand from graveyard recurs a creature",
+          any(c.name == "Beast" for c in g.p[0].hand) and len(g.p[0].grave) == 1)
+
+    # return_to_battlefield — reanimate a creature card from graveyard, summoning-sick
+    g = _game(); g.p[0].grave = [Card("Zombie", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_battlefield", "-", "target_creature_card_from_your_graveyard", "-", None)
+    check("return_to_battlefield reanimates from graveyard",
+          len(g.p[0].bf) == 1 and g.p[0].bf[0].card.name == "Zombie" and g.p[0].bf[0].sick)
+
+    # fight — source deals its power to an enemy creature and takes the enemy's power back
+    g = _game(); mine = _creature(0, 3, 3, "Mine"); g.p[0].bf = [mine]
+    g.p[1].bf = [_creature(1, 2, 2, "Foe")]
+    g._do(g.p[0], g.p[1], "fight", "-", "it", "target_creature_you_don_t_control", mine)
+    check("fight kills the 2/2 and damages our 3/3",
+          not g.p[1].bf and mine.dmg == 2)
+
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
