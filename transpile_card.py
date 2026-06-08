@@ -409,8 +409,56 @@ def _parse_body(text: str):
         if multi:                       # split didn't fully parse — fall back to the whole-clause parse
             out.extend(multi)
             continue
+        dist = _distribute_subjects(sentence)   # '<A> and <B> [each] <predicate>' -> effect on each
+        if dist:
+            out.extend(dist)
+            continue
+        dmg = _multi_damage(sentence)           # '<src> deals N to A, M to B, and K to C' -> per-target
+        if dmg:
+            out.extend(dmg)
+            continue
         return None
     return out or None
+
+
+_MULTI_DMG = re.compile(r"^(?P<src>~|it|that \w+|this \w+) deals (?P<segs>\d+ damage to .+?, \d+ damage to .+)$", re.I)
+
+
+def _multi_damage(sentence):
+    """'<source> deals N damage to A, M damage to B[, and K damage to C]' (Arc Lightning / Fiery
+    Cannonade family) -> one grounded deal_damage per recipient. All-or-nothing: every segment must
+    ground or it abstains."""
+    m = _MULTI_DMG.match(sentence)
+    if not m:
+        return None
+    src, segs = m.group("src"), m.group("segs")
+    out = []
+    for seg in re.split(r",\s+(?:and\s+)?", segs):
+        seg = seg.strip()
+        if not re.match(r"^\d+ damage to ", seg, re.I):
+            return None
+        e = parse_clause(f"{src} deals {seg}")
+        if not e:
+            return None
+        out.append(e)
+    return out
+
+
+_DIST_SUBJ = re.compile(rf"^({_TGT}) and ((?:up to \w+ other |another |[\w' -]+? )?{_TGT}) (?:each )?"
+                        r"(gains?|gets?|haves?|has|deals?|becomes?|are|is|can't|attacks?|blocks?) (.+)$", re.I)
+
+
+def _distribute_subjects(sentence):
+    """'<A> and <B> [each] <predicate>' (two subjects sharing one effect, e.g. 'it and Zombies you
+    control gain deathtouch') -> the predicate parsed once per subject. All-or-nothing: both must
+    ground or it abstains, so it never regresses a passing card."""
+    m = _DIST_SUBJ.match(sentence)
+    if not m:
+        return None
+    verb, rest = m.group(3), m.group(4)
+    a = parse_clause(f"{m.group(1)} {verb} {rest}")
+    b = parse_clause(f"{m.group(2)} {verb} {rest}")
+    return [a, b] if (a and b) else None
 
 
 def _effect_facts(cid, aid, effects):

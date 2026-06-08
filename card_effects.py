@@ -21,14 +21,14 @@ _NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "x": "X"}
 
 # a target noun phrase the templates share. Order matters (longest first inside the alternation).
-_TGT = (r"(?:any target|up to \w+ target[\w' -]*?|any number of target[\w' -]*?|"
+_TGT = (r"(?:any target|another target|a (?:second|third|fourth|fifth) target|up to \w+ target[\w' -]*?|any number of target[\w' -]*?|"
         r"target (?:[\w']+, )+(?:or |and )?[\w']+(?: with [\w' ]+?)?|"   # type-list target: 'target artifact, creature, or land [with flying]'
         r"(?:\w+ )?target [\w' -]+?|"
         r"each [\w' -]+?|all [\w' -]+?|(?:attacking|blocking) [\w' -]+?|"
         r"(?:other |another |all )?[\w' -]+? (?:you control|your opponents control|an opponent controls|they control) (?:with|of|that are|that have|named) [\w' +/-]+?|"   # qualified subset
         r"(?:[\w-]+ )?[\w-]+ (?:you control|you don't control|your opponents control|an opponent controls|they control)|"
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
-        r"that [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
+        r"(?:that|the) [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
         r"(?:the )?(?:defending|attacking|active|target|chosen) player|the player|each player|that player's controller|"
         r"~|it|them|they|her|him|you|its controller|its owner|their controller)")
 
