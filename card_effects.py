@@ -1141,7 +1141,11 @@ def _put_among_bf(m):
 _OBJ_VERBS = frozenset({"exile", "destroy", "tap", "untap", "sacrifice", "regenerate", "goad", "detain",
                         "counter", "transform", "populate", "fight", "behold", "suspect", "abandon",
                         "cloak", "double", "triple", "blight", "meld", "convert", "exchange"})
-_OBJ_BAD = re.compile(r" and | or |[:;,]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bthen\b", re.I)
+# structural markers that make a generic object capture unsafe (a colon-cost, scaling, or condition) —
+# but NOT ' and '/' or ', which are handled by the predicate-aware _is_compound_object (so type unions
+# like 'instant or sorcery card', 'artifacts and enchantments' stay intact while effect conjunctions
+# split).
+_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b", re.I)
 
 
 @_t(r"^(\w+) (.+?)$")
@@ -1151,7 +1155,7 @@ def _generic_object_verb(m):
     on compound/nested/qualified objects (and/or/comma/colon/equal-to/…) so it can't emit a lossy fact;
     those need a specific template. Runs after every specific pattern."""
     v = ground.slug(m.group(1))
-    if v not in _OBJ_VERBS or _OBJ_BAD.search(m.group(2)):
+    if v not in _OBJ_VERBS or _OBJ_BAD.search(m.group(2)) or _is_compound_object(m.group(2)):
         return None
     return Effect(v, "-", ground.slug(m.group(2)))
 
