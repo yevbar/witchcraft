@@ -9,7 +9,14 @@ corpus plus its grounded facts (keywords, abilities, effects) from datalog/cards
 knows the rules-grounded vocabulary — one handler per verb, basic-land mana per §305.6, the turn
 structure per §5. Cards whose text wasn't interpreted just act as their vanilla characteristics.
 
-Run: python3 build_cards.py && python3 engine.py
+The engine executes the grounded verbs in HANDLED_VERBS (one branch in _do each); every other grounded
+verb still loads as data but resolves to a no-op. `engine.py audit` reports the execution coverage —
+the share of all grounded effect instances the engine actually runs — as the honest counterpart to
+coverage.py's interpretation %.
+
+Run: python3 build_cards.py && python3 engine.py        # play the demo game
+     python3 engine.py audit                            # report execution coverage
+     python3 test_engine.py                             # regression-check the verb handlers
 """
 
 from __future__ import annotations
@@ -27,6 +34,14 @@ import sim          # reuse the fact loader
 _BASIC = {"Plains": "W", "Island": "U", "Swamp": "B", "Mountain": "R", "Forest": "G"}
 _COLOR = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C"}
 _SYM = re.compile(r"\{([^}]+)\}")
+
+# the grounded effect verbs the engine actually EXECUTES (one branch in _do each). Everything the
+# interpreter grounds beyond this set still loads as data but resolves as a no-op — audit() reports
+# the gap so execution coverage is measured, not assumed.
+HANDLED_VERBS = frozenset({
+    "add_mana", "deal_damage", "destroy", "draw", "gain_life", "lose_life", "modify_pt", "put_counter",
+    "exile", "gain_control", "sacrifice", "tap", "untap", "mill", "discard", "create",
+})
 
 
 def parse_cost(mana_cost: str | None) -> Counter:
@@ -121,6 +136,7 @@ class Player:
     library: list = field(default_factory=list)
     bf: list = field(default_factory=list)        # battlefield Perms
     grave: list = field(default_factory=list)
+    exile: list = field(default_factory=list)     # exiled cards (§406) — out of the game
     pool: Counter = field(default_factory=Counter)
     lands_played: int = 0
 
@@ -262,7 +278,84 @@ class Game:
         elif verb == "add_mana":
             for c in extra.split("_"):
                 pl.pool[_COLOR.get(c, "C")] += 1
-        # other grounded verbs (scry, mill, exile, …) are no-ops in this minimal engine
+        elif verb == "exile":
+            if any(z in tgt for z in ("graveyard", "hand", "library")):
+                return                            # zone-internal manipulation, not a board removal
+            ec = self._pick_enemy_creature(opp)
+            if ec:
+                opp.bf.remove(ec); opp.exile.append(ec.card)
+                self.log(f"exiles {ec.card.name}", 2)
+        elif verb == "gain_control":
+            ec = self._pick_enemy_creature(opp)
+            if ec:                                # steal it: new controller, freshly summoning-sick
+                opp.bf.remove(ec); ec.ctrl = self.p.index(pl); ec.sick = True; ec.tapped = False
+                pl.bf.append(ec)
+                self.log(f"{pl.name} gains control of {ec.card.name}", 2)
+        elif verb == "sacrifice":
+            who = opp if ("opponent" in tgt or "each_other" in tgt) else pl
+            victim = (source if (source in who.bf and tgt in ("it", "self"))
+                      else min(who.creatures(), key=lambda p: p.power, default=None))
+            if victim:
+                who.bf.remove(victim); who.grave.append(victim.card)
+                self.log(f"{who.name} sacrifices {victim.card.name}", 2)
+        elif verb == "tap":
+            cand = [c for c in opp.creatures() if not c.tapped]
+            if tgt.startswith("all"):
+                for c in cand:
+                    c.tapped = True
+                if cand:
+                    self.log(f"taps {len(cand)} of {opp.name}'s creatures", 2)
+            elif cand:
+                t = max(cand, key=lambda p: p.power); t.tapped = True
+                self.log(f"taps {t.card.name}", 2)
+        elif verb == "untap":
+            if tgt == "self" and source:
+                source.tapped = False
+            else:
+                cand = [c for c in pl.creatures() if c.tapped]
+                if cand:
+                    t = max(cand, key=lambda p: p.power); t.tapped = False
+                    self.log(f"untaps {t.card.name}", 2)
+        elif verb == "mill":
+            who = pl if tgt in ("you", "yourself") else opp
+            moved = 0
+            while moved < (n or 1) and who.library:
+                who.grave.append(who.library.pop()); moved += 1
+            if moved:
+                self.log(f"{who.name} mills {moved}", 2)
+        elif verb == "discard":
+            who = pl if tgt in ("you", "yourself") else opp
+            dropped = 0
+            for _ in range(n or 1):
+                if who.hand:
+                    who.grave.append(who.hand.pop()); dropped += 1
+            if dropped:
+                self.log(f"{who.name} discards {dropped} (hand {len(who.hand)})", 2)
+        elif verb == "create":
+            tok = self._make_token(extra)
+            if tok and n > 0:
+                for _ in range(n):
+                    pl.bf.append(Perm(tok, self.p.index(pl), sick=True))
+                self.log(f"{pl.name} creates {n} {tok.name}", 2)
+        # remaining grounded verbs (scry, search, counter, …) are no-ops in this minimal engine
+
+    def _make_token(self, spec: str) -> Card | None:
+        """Build a Card from a 'P_T_color[_and_color]_subtype…_creature' token spec (the §111 token
+        descriptor the interpreter emits). Only creature tokens affect this engine's board; everything
+        else (Treasure, Food, copies, …) returns None and the create is a no-op."""
+        parts = spec.split("_")
+        if "creature" not in parts:
+            return None
+        parts = parts[:parts.index("creature")]          # drop any trailing rider clauses
+        nums = [int(x) for x in parts[:2] if x.lstrip("-").isdigit()]
+        if len(nums) < 2:
+            return None                                  # X/X or malformed P/T — abstain
+        rest = parts[2:]
+        subs = {x.capitalize() for x in rest if x not in _COLOR and x not in ("and", "artifact")}
+        types = {"Creature"} | ({"Artifact"} if "artifact" in rest else set())
+        name = (" ".join(sorted(subs)) or "Creature") + " Token"
+        return Card(name=name, cost=Counter(), types=types, subtypes=subs,
+                    power=nums[0], toughness=nums[1])
 
     def _draw(self, pl, k):
         for _ in range(k):
@@ -381,6 +474,28 @@ def _deck(cards, spec):
     return [cards[name] for name, n in spec for _ in range(n)]
 
 
+def audit():
+    """Execution coverage: of every grounded effect instance across the whole oracle, how many does
+    the engine actually execute vs no-op? This is the EXECUTION counterpart to coverage.py's
+    INTERPRETATION %, and the honest measure of the interpretation→execution gap."""
+    db = sim.load_db()
+    seen, run = Counter(), Counter()
+    for facts in db.values():
+        for ab in facts.get("abilities", {}).values():
+            for _seq, verb, *_ in ab.get("effects", []):
+                seen[verb] += 1
+                if verb in HANDLED_VERBS:
+                    run[verb] += 1
+    total, executed = sum(seen.values()), sum(run.values())
+    handled = sorted(HANDLED_VERBS & set(seen))
+    print(f"execution coverage: {executed}/{total} effect instances ({100 * executed / total:.1f}%)")
+    print(f"  {len(handled)} verbs executed, {len(set(seen) - HANDLED_VERBS)} distinct verbs still no-op")
+    print("  top no-op verbs (interpreted but not executed):")
+    for v, c in seen.most_common():
+        if v not in HANDLED_VERBS and c >= 100:
+            print(f"    {v:24} {c}")
+
+
 def demo():
     cards = load_deck_cards()
     # mono-color real-card decks (clean mana). Green ground beatdown vs blue flyers + burn-free control:
@@ -394,4 +509,8 @@ def demo():
 
 
 if __name__ == "__main__":
-    demo()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "audit":
+        audit()
+    else:
+        demo()
