@@ -312,6 +312,14 @@ def _peel_wrapper(sentence):
     return cond, m.group("rest")
 
 
+# Non-executable §613.1c persistence reminders: they clarify that a continuous effect that grants/sets
+# a characteristic does NOT cause its own source (an Aura) to fall off — they carry no executable effect
+# of their own, so the body splitter drops them rather than abstaining. Kept TIGHT (this exact reminder
+# family only) so real constraint clauses ('this effect reduces only colored mana', 'can't reduce below
+# one') still abstain — those carry simulation-relevant information.
+_CLARIFICATION = re.compile(r"^This effect doesn't remove (?:~|it|[\w' -]+?)$", re.I)
+
+
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
     Splits on sentence boundaries and simple 'and'/'then' conjunctions (quote-safe); else abstains."""
@@ -320,6 +328,8 @@ def _parse_body(text: str):
         sentence = sentence.rstrip(".")
         if not sentence:
             continue
+        if _CLARIFICATION.match(sentence):           # non-executable §613 persistence reminder — carries
+            continue                                 # no effect, so skip it (drop, never abstain on it)
         peeled = _peel_wrapper(sentence)             # 'If you do, <compound>' / 'You may <compound>'
         if peeled:
             cond, rest = peeled
@@ -796,11 +806,14 @@ def _etb_tapped(unit, ctx):
                              f'card_enters_with_counters("{cid}", "{ground.slug(mc.group(2))}", "{ground.slug(mc.group(1))}")'],
                        "etb_tapped")
     m = re.match(r"^~ enters tapped(?: unless (.+?))?\.?$", unit.raw)
+    if m:
+        cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
+        return CardOut(ctx["id"], [f'card_enters_tapped("{ctx["id"]}", "{cond}")'], "etb_tapped")
+    # leading-conditional tapland: 'If <cond>, ~ enters tapped.' (Cave of the Frost Dragon family).
+    m = re.match(r"^If (.+?), ~ enters tapped\.?$", unit.raw, re.I)
     if not m:
         return None
-    cid = ctx["id"]
-    cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
-    return CardOut(cid, [f'card_enters_tapped("{cid}", "{cond}")'], "etb_tapped")
+    return CardOut(ctx["id"], [f'card_enters_tapped("{ctx["id"]}", "if_{ground.slug(m.group(1))}")'], "etb_tapped")
 
 
 def _ability_activation_static(unit, ctx):
