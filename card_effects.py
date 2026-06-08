@@ -502,9 +502,10 @@ def _create_token(m):
     return Effect("create", amt, "token", ground.slug(m.group(3)), cond)
 
 
-@_t(r"^(?:you )?(lose|win) the game$")
+@_t(rf"^(?:({_TGT}) )?(?:loses?|lose|wins?|win) the game$")
 def _game_end(m):
-    return Effect(m.group(1).lower() + "_game", "-", "you")
+    verb = "win_game" if re.search(r"win", m.group(0), re.I) else "lose_game"
+    return Effect(verb, "-", _target(m.group(1) or "you"))
 
 
 @_t(rf"^(?:cast|play) ({_TGT}) for as long as it remains exiled(?:, and mana of any (?:type|color) can be spent to (?:cast|play) it)?$")
@@ -1361,7 +1362,7 @@ _OBJ_VERBS = frozenset({"exile", "destroy", "tap", "untap", "sacrifice", "regene
 # but NOT ' and '/' or ', which are handled by the predicate-aware _is_compound_object (so type unions
 # like 'instant or sorcery card', 'artifacts and enchantments' stay intact while effect conjunctions
 # split).
-_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b", re.I)
+_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
 
 
 @_t(r"^(\w+) (.+?)$")
@@ -1532,6 +1533,7 @@ def parse_clause(sentence: str) -> "Effect | None":
                "they are", "you're": "you are", "it’s": "it is", "they’re": "they are"}[m.group(1).lower()],
                s, flags=re.I)                                    # expand leading contraction
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
+    s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
     s = re.sub(r",? rounded (?:up|down)$", "", s, flags=re.I)    # 'mill half their library, rounded down'
     s = re.sub(r" this way$| that way$", "", s, flags=re.I)      # anaphoric tail — 'exile the cards revealed this way'

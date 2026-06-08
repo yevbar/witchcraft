@@ -330,6 +330,11 @@ def _parse_body(text: str):
             continue
         if _CLARIFICATION.match(sentence):           # non-executable §613 persistence reminder — carries
             continue                                 # no effect, so skip it (drop, never abstain on it)
+        # ability-word prefix (§207.2c, no rules meaning) on an effect clause: 'Ferocious — <effect>'.
+        # Strip it ONLY when the remainder then parses (so a real em-dash construction isn't mangled).
+        aw = re.match(r"^[A-Z][\w'/-]*(?: [A-Z'][\w'/-]*)* [—–] (.+)$", sentence)
+        if aw and not parse_clause(sentence) and _parse_body(aw.group(1)):
+            sentence = aw.group(1)
         peeled = _peel_wrapper(sentence)             # 'If you do, <compound>' / 'You may <compound>'
         if peeled:
             cond, rest = peeled
