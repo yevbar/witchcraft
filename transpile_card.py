@@ -565,9 +565,9 @@ def _as_enters(unit, ctx):
 # static player-rule modifications, each grounded: hand size §402.2, extra land §505.5b/§116.2a,
 # top-card play §601/§715, no max hand size §402.2.
 _STATIC_PLAYER = [
-    (r"^You have no maximum hand size\.?$", "no_maximum_hand_size"),
-    (r"^Players have no maximum hand size\.?$", "players_no_maximum_hand_size"),
-    (r"^Your opponents have no maximum hand size\.?$", "opponents_no_maximum_hand_size"),
+    (r"^You have no maximum hand size(?: for the rest of the game)?\.?$", "no_maximum_hand_size"),
+    (r"^Players have no maximum hand size(?: for the rest of the game)?\.?$", "players_no_maximum_hand_size"),
+    (r"^Your opponents have no maximum hand size(?: for the rest of the game)?\.?$", "opponents_no_maximum_hand_size"),
     (r"^Your opponents can't cast spells during your turn\.?$", "opponents_cant_cast_during_your_turn"),
     (r"^Players can't gain life\.?$", "players_cant_gain_life"),
     (r"^Your opponents can't gain life\.?$", "opponents_cant_gain_life"),
@@ -987,6 +987,13 @@ def _alt_cost(unit, ctx):
 
 def _enters_with_counters(unit, ctx):
     """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
+    # dynamic-count form: '… enters with a number of <kind> counters on it equal to <X>' (§122/§614).
+    md = re.match(r"^(?:~|it|That \w+) enters with a number of ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it "
+                  r"equal to (.+?)\.?$", unit.raw)
+    if md:
+        cid = ctx["id"]
+        return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(md.group(1))}", "equal_to_{ground.slug(md.group(2))}")'],
+                       "enters_with_counters")
     m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
                  r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
     if not m:

@@ -218,6 +218,14 @@ def _lose(m):
     return Effect("lose_life", n, _target(m.group(1) or "you")) if n is not None else None
 
 
+@_t(rf"^(?:({_TGT}) )?loses? half (?:your |their |his or her |its )?life(?:,? rounded (up|down))?$")
+def _lose_half(m):
+    """'<target> loses half [your/their] life[, rounded up/down]' — a fractional life loss (§119.4
+    rounding). Amount is the slug 'half' (with rounding) so the engine halves current life faithfully."""
+    amt = "half" + ("_rounded_" + m.group(2) if m.group(2) else "")
+    return Effect("lose_life", amt, _target(m.group(1) or "you"))
+
+
 @_t(rf"^put ({_TGT}) into your hand$")
 def _to_hand(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
@@ -256,6 +264,13 @@ def _clash(m):
 def _boost(m):
     # P/T delta may be a §107.3 variable X ('-X/-X'); recorded verbatim, still grounded in modify_pt.
     return Effect("modify_pt", m.group(2).replace(" ", ""), _target(m.group(1)))
+
+
+@_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) or ([+-]\d+/[+-]\d+)(?: until end of turn)?$")
+def _boost_choice(m):
+    """'<X> gets +N/-N or -N/+N [until end of turn]' — a §107.3 pump where the controller chooses one
+    of two deltas; both options recorded in the amount slug (still grounded in modify_pt)."""
+    return Effect("modify_pt", f"{m.group(2)}_or_{m.group(3)}", _target(m.group(1)))
 
 
 @_t(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn for each (.+?)$")
@@ -396,9 +411,14 @@ def _put_counter_many(m):
                   ground.slug(m.group(1)) if "/" not in m.group(1) else m.group(1))
 
 
-@_t(rf"^create a token that's a copy of ({_TGT})$")
+@_t(rf"^create (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:, except (?:it has |they have |it's |they're )?(.+?))?$")
 def _create_copy(m):
-    return Effect("create", 1, "token", "copy_of_" + _target(m.group(1)))
+    """'Create [N] token(s) that's a copy of <X>[, except <mods>]' — token copy creation (§111/§707).
+    The 'except' clause (added haste, altered P/T/color, granted abilities) is kept as a faithful slug."""
+    n = _amount(m.group(1))
+    amt = n if n is not None else "X"
+    extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
+    return Effect("create", amt, "token", extra)
 
 
 @_t(r"^discard your hand$")
@@ -483,12 +503,16 @@ def _lose_that_much(m):
     return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^(?:({_TGT}) )?discards? (\w+|any number of) cards?(?: at random)?$")
+@_t(rf"^(?:({_TGT}) )?discards? (\w+|any number of|up to \w+) cards?(?: at random)?$")
 def _discard(m):
-    if m.group(2).lower() == "any number of":
+    spec = m.group(2).lower()
+    if spec == "any number of":
         return Effect("discard", "any", _target(m.group(1) or "you"))
-    n = _amount(m.group(2))
-    return Effect("discard", n, _target(m.group(1) or "you")) if n is not None else None
+    up_to = spec.startswith("up to ")
+    n = _amount(spec[6:] if up_to else spec)
+    if n is None:
+        return None
+    return Effect("discard", n, _target(m.group(1) or "you"), "up_to" if up_to else "-")
 
 
 @_t(rf"^(?:({_TGT}) )?discards? (their hand|those cards|that card|all the cards in their hand)$")
@@ -496,7 +520,7 @@ def _discard_set(m):
     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
 
 
-@_t(r"^shuffle(?: your library| (?:it|them|.+?) into (?:your|its owner's|their owner's) library)?$")
+@_t(r"^shuffles?(?: your library| (?:it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$")
 def _shuffle(m):
     return Effect("shuffle", "-", "you")
 
@@ -618,9 +642,10 @@ def _gain_that_much(m):
     return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^attach (?:~|it) to ({_TGT})$")
+@_t(rf"^attach (~|it|{_TGT}) to ({_TGT})$")
 def _attach(m):
-    return Effect("attach", "-", _target(m.group(1)))
+    """'Attach <equipment/aura> to <target>' — the §701.3 attach keyword action."""
+    return Effect("attach", "-", _target(m.group(2)), _target(m.group(1)))
 
 
 @_t(r"^you become the monarch$")
@@ -706,8 +731,9 @@ def _verb_target(m):
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?pays? ((?:\{{[^}}]+\}})+|\w+ life|any amount of (?:\{{[^}}]+\}}|mana))( to end this effect| any number of times)?$")
+@_t(rf"^(?:({_TGT}) )?pays? ((?:(?:\w+|one or more|X) )?(?:\{{[^}}]+\}})+|\w+ life|any amount of (?:\{{[^}}]+\}}|mana))( to end this effect| any number of times)?$")
 def _pay(m):
+    # the optional leading count covers energy/mana paid by quantity ('pay eight {E}', 'pay one or more {E}').
     extra = "to_end_effect" if m.group(3) and "end" in m.group(3) else ("repeatable" if m.group(3) else "-")
     return Effect("pay", ground.slug(m.group(2)), _target(m.group(1) or "you"), extra)
 
@@ -721,6 +747,12 @@ def _flip(m):
 def _must_block_tgt(m):
     """'<A> blocks <B> this turn if able' — a §509 block requirement directed at a creature."""
     return Effect("must_block", "-", _target(m.group(1)), _target(m.group(2)))
+
+
+@_t(rf"^({_TGT}) blocks (?:this turn|this combat|each combat)?(?: if able)$")
+def _must_block_able(m):
+    """'<A> blocks this turn if able' — a §509 block requirement with no specific attacker."""
+    return Effect("must_block", "-", _target(m.group(1)))
 
 
 @_t(rf"^({_TGT}) must be blocked(?: this turn| this combat)?(?: if able)?$")
@@ -747,8 +779,9 @@ def _sacrifice_a(m):
     return Effect("sacrifice", n if isinstance(n, int) else "-", ground.slug(m.group(1) + " " + m.group(2)))
 
 
-@_t(r"^put (.+?) on the bottom of your library(?: in (?:a |any )?(?:random )?order)?$")
+@_t(r"^put (.+?) on the bottom(?: of your library)?(?: in (?:a |any )?(?:random )?order)?$")
 def _put_bottom(m):
+    # 'of your library' is the §401 default zone and may be elided ('put the rest on the bottom …').
     return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
 
 
@@ -757,9 +790,10 @@ def _put_bottom_tgt(m):
     return Effect("put_on_bottom", "-", _target(m.group(1)))
 
 
-@_t(rf"^put ({_TGT}) on top(?: of (?:its owner's|their owner's|your) library)?$")
+@_t(rf"^put ({_TGT}) on top(?: of (?:its owner's|their owner's|your) library)?(?: in any order)?$")
 def _put_top_tgt(m):
     # the bare 'put that card on top' form (after a shuffle) refers to the library top by §401 default.
+    # 'in any order' is the §401 reorder rider when placing multiple cards (Goblin/Dwarven Recruiter).
     return Effect("put_on_top", "-", _target(m.group(1)))
 
 
@@ -856,7 +890,7 @@ def _amass(m):
     return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
 
 
-@_t(r"^choose (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")
+@_t(r"^(?:you |each player )?choose (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")
 def _choose(m):
     """'Choose <quantifier> <thing>' — a §700.2 choice (a color, a creature type, target(s), …). The
     chosen thing is a faithful noun-phrase slug; the quantifier is folded into it."""
@@ -900,9 +934,17 @@ def _reveal_generic(m):
     return Effect("reveal", "-", "you", ground.slug(m.group(1)))
 
 
-@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|your|their)( next)? untap step(?: for as long as .+?)?$")
+@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|their controllers'|your|their)( next)? untap steps?(?: for as long as .+?)?$")
 def _doesnt_untap_eff(m):
     return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
+
+
+@_t(rf"^({_TGT}) can ((?:attack|block)\b[\w' -]*? as though (?:it|they) (?:had|didn't have|don't have) [\w' -]+?)$")
+def _as_though_combat(m):
+    """'<subj> can attack/block … as though it had/didn't have <ability>' — an §722 as-though combat
+    permission (e.g. attack despite §702.3 defender, block fliers as though it had reach). Recorded as
+    a §613.6 ability grant whose granted permission is a faithful descriptive slug — every term grounds."""
+    return Effect("grant_ability", "-", _target(m.group(1)), "can_" + ground.slug(m.group(2)))
 
 
 @_t(r"^cast (.+?) without paying (?:its|their) mana costs?$")
@@ -978,7 +1020,7 @@ def _becomes_choice(m):
     return Effect("becomes", "-", _target(m.group(1)), "chosen_" + ground.slug(m.group(2)))
 
 
-@_t(rf"^({_TGT}) becomes? (white|blue|black|red|green|colorless|all colors|the color of your choice)(?: in addition to its other colors)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|the color of your choice)(?: in addition to its other colors)?(?: until end of turn)?$")
 def _becomes_color(m):
     """'<target> becomes <color> [until end of turn]' — a §105/§613 color-change."""
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
@@ -1017,6 +1059,19 @@ def _all_types(m):
     return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
 
 
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ((?:white|blue|black|red|green|colorless)(?: (?:and )?(?:white|blue|black|red|green|colorless))* [\w' -]+?)(?: in addition to its other (?:types and colors|colors and types|types|colors))?(?: until end of turn)?$")
+def _becomes_color_type(m):
+    """'<target> is a <color(s)> <type(s)>' (e.g. 'is a black Zombie') — a §105/§205 colour-and-type
+    setting continuous effect (§613). Anchored on a color word so it can't match an arbitrary noun."""
+    return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) (?:is|are|becomes?) the chosen (color|type)(?: until end of turn)?$")
+def _becomes_chosen(m):
+    """'<target> is the chosen color/type' — a §105/§205 set to a previously chosen color or type."""
+    return Effect("becomes", "-", _target(m.group(1)), "chosen_" + m.group(2).lower())
+
+
 @_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]+?) in addition to its other (?:types|colors)(?: until end of turn)?$")
 def _type_add(m):
     """'<target> is a <type/color> in addition to its other types' — a §205/§105 type/color addition."""
@@ -1046,11 +1101,13 @@ def _enters_counters_eff(m):
     return Effect("put_counter", n if n is not None else 1, "self", m.group(2))
 
 
-@_t(rf"^remove (a|an|one|two|three|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT})$")
+@_t(rf"^remove (a|an|one|two|three|all|any number of|x|\w+) (?:([+-]\d+/[+-]\d+|[\w ]+?) )?counters? from ({_TGT})$")
 def _remove_counter(m):
     n = _amount(m.group(1))
-    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
-    return Effect("remove_counter", n if n is not None else 1, _target(m.group(3)), kind)
+    if n is None:
+        n = "all" if m.group(1).lower() == "all" else ("any" if m.group(1).lower() == "any number of" else "X")
+    kind = "-" if not m.group(2) else (m.group(2) if "/" in m.group(2) else ground.slug(m.group(2)))
+    return Effect("remove_counter", n, _target(m.group(3)), kind)
 
 
 @_t(rf"^({_TGT}) discards? that card$")
@@ -1081,6 +1138,12 @@ def _endure(m):
 def _fight(m):
     """'<A> fights <B>' — the §701.12 fight keyword action (each deals damage equal to its power to
     the other). Recorded as a single grounded fight effect between the two creatures."""
+    return Effect("fight", "-", _target(m.group(1)), _target(m.group(2)))
+
+
+@_t(rf"^have ({_TGT}) fight ({_TGT})$")
+def _have_fight(m):
+    """'Have <A> fight <B>' — the causative form of the §701.12 fight keyword action."""
     return Effect("fight", "-", _target(m.group(1)), _target(m.group(2)))
 
 
