@@ -327,6 +327,28 @@ def _peel_wrapper(sentence):
 _CLARIFICATION = re.compile(r"^This effect doesn't remove (?:~|it|[\w' -]+?)$", re.I)
 
 
+_COMMA_LIST_SPLIT = re.compile(r",\s+(?=(?:put|reveal|draw|mill|discard|gain|lose|exile|destroy|create|"
+                               r"tap|untap|sacrifice|return|scry|shuffle|search|counter|copy|prevent|"
+                               r"regenerate|goad|detain)s?\s)", re.I)
+
+
+def _comma_resplit(part, subj):
+    """Safely split a comma-list of predicates ('discards X, mills Y') into grounded effects: split on
+    ', ' before a known verb, parse each (reattaching `subj` when given). All-or-nothing — returns the
+    effect list only if EVERY sub-part grounds, else None, so it can never regress a passing card."""
+    bits = _COMMA_LIST_SPLIT.split(part)
+    if len(bits) < 2:
+        return None
+    out = []
+    for i, b in enumerate(bits):
+        b = b.strip()
+        e = parse_clause(f"{subj} {b}") if (subj and i > 0) else parse_clause(b)
+        if not e:
+            return None
+        out.append(e)
+    return out
+
+
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
     Splits on sentence boundaries and simple 'and'/'then' conjunctions (quote-safe); else abstains."""
@@ -372,6 +394,10 @@ def _parse_body(text: str):
                 if not e:
                     e = parse_clause(p)
                 if not e:
+                    resplit = _comma_resplit(p, subj if (subj and not _has_leading_subject(p)) else None)
+                    if resplit:                          # 'discards X, mills Y' -> two grounded effects
+                        sub.extend(resplit)
+                        continue
                     ok = False
                     break
                 sub.append(e)
@@ -1213,12 +1239,15 @@ def _class_level(unit, ctx):
 def _cda(unit, ctx):
     """A characteristic-defining ability (§604.3): \"~'s power [and toughness] (is|are) [each] equal to
     <X>\" — the P/T is defined by a game quantity, recorded as a descriptive slug."""
-    m = re.match(r"^~'s (power and toughness|power|toughness) (?:is|are) (?:each )?equal to (.+?)\.?$",
-                 unit.raw, re.I)
+    m = re.match(r"^(?:during (?P<dur>[\w' ]+?), )?~'s (power and toughness|power|toughness) "
+                 r"(?:is|are|becomes?) (?:each )?(?:equal to )?(.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_cda("{cid}", "{ground.slug(m.group(1))}", "{ground.slug(m.group(2))}")'], "cda")
+    val = ground.slug(m.group(3))
+    if m.group("dur"):
+        val += "_during_" + ground.slug(m.group("dur"))
+    return CardOut(cid, [f'card_cda("{cid}", "{ground.slug(m.group(2))}", "{val}")'], "cda")
 
 
 def _painland(unit, ctx):
