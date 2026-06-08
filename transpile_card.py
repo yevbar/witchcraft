@@ -608,6 +608,12 @@ def _static_player(unit, ctx):
     m = re.match(r"^You may spend (.+?) as though it were (.+?)\.?$", r, re.I)
     if m:
         return mk("spend_" + ground.slug(m.group(1)) + "_as_" + ground.slug(m.group(2)))
+    m = re.match(r"^You may (play lands(?: and cast (?:noncreature )?spells)?|cast (?:noncreature )?spells) from (.+?)\.?$", r, re.I)
+    if m:
+        return mk("may_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)))
+    m = re.match(r"^You may look at (?:and play )?(.+?)(?: for as long as .+?| this turn)?\.?$", r, re.I)
+    if m:
+        return mk("may_look_at_" + ground.slug(m.group(1)))
     return None
 
 
