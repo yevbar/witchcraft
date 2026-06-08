@@ -1554,6 +1554,24 @@ def _eot_compound(s: str):
     return None
 
 
+_LARK_LEAF = None
+
+
+def _lark_leaf(s):
+    """LARK-FIRST leaf parser for the migrated verb families (lazy-imported to avoid the import cycle:
+    card_lark imports card_effects). Returns an Effect for a clause shape lark has taken over, else
+    None (the regex leaf then handles it). This is how the card pipeline shifts off regex family-by-
+    family — cards are a formulaic sublanguage a CFG parses more faithfully than accreted regex."""
+    global _LARK_LEAF
+    if _LARK_LEAF is None:
+        try:
+            from card_lark import parse_clause_lark
+            _LARK_LEAF = parse_clause_lark
+        except Exception:
+            _LARK_LEAF = lambda _s: None
+    return _LARK_LEAF(s)
+
+
 def parse_clauses(sentence: str) -> "list | None":
     """parse a clause into one OR MORE effects (compound until-EOT buffs yield several); else None."""
     multi = _eot_compound(sentence.strip().rstrip("."))
@@ -1648,7 +1666,7 @@ def parse_clause(sentence: str) -> "Effect | None":
         if not inner:
             return None
         return inner if inner.cond != "-" else _dc.replace(inner, cond="until_" + ground.slug(m.group(1)))
-    e = parse_effect(s)
+    e = _lark_leaf(s) or parse_effect(s)   # LARK-FIRST leaf (migrated families); regex leaf as fallback
     if e:
         return e
     m = _HAVE.match(s)             # causative 'have <X> <effect>' — FALLBACK (specific have-templates win

@@ -30,17 +30,20 @@ _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "return_to_hand", "graveyard": "put_in_graveyard"}
 
 _GRAMMAR = r"""
-start: imper
+start: rclause | oclause
 
-imper: VERB quant? obj zonephrase? trailer?     -> imperative
+rclause: RVERB quant? obj zonephrase? trailer?   -> ret        // 'return': split the 'to <zone>'
+oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 zwords: (WORD | TOPREP)+
 trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
 quant: QUANT
 obj: (WORD | TOPREP | ZONE)+
+objall: (WORD | TOPREP | ZONE)+
 
-VERB: %(verbs)s
+RVERB: "return"
+OVERB: %(verbs)s
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 ZONE.2: /\b(?:hand|battlefield|library|graveyard)\b/
@@ -53,8 +56,15 @@ NUM: /[0-9]+/
 
 
 def _verb_alt():
-    vs = sorted(set(_SIMPLE) | {"return"}, key=len, reverse=True)
+    vs = sorted(_SIMPLE, key=len, reverse=True)
     return " | ".join('"%s"' % v for v in vs)
+
+
+# rider patterns lark defers to the regex (its convention is better there): the structured
+# 'exile the top N of <library>' form, and the suspend-style 'exile X with N counters on it'.
+_TOPLIB = re.compile(r"^the top (?:\w+ )?cards? of .*librar(?:y|ies)$", re.I)
+_WITHCTR = re.compile(r"\bwith \w+ [\w/+ ]*?counters? on it$", re.I)
+_COORD = re.compile(r"^(?:or|and)\s", re.I)        # 'tap or untap …' — a coordinated verb the leaf split wrong
 
 
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
@@ -72,6 +82,9 @@ class _ToEffect(Transformer):
     def obj(self, *toks):
         return " ".join(str(t) for t in toks)
 
+    def objall(self, *toks):
+        return " ".join(str(t) for t in toks)
+
     def zwords(self, *toks):
         return " ".join(str(t) for t in toks)
 
@@ -85,15 +98,28 @@ class _ToEffect(Transformer):
         # parse_clause wrapper chain handles the wrapper. Marker so imperative() drops it.
         return _Trailer()
 
-    def imperative(self, verb, *rest):
-        verb = str(verb).lower()
+    def _assemble(self, rest):
+        if any(isinstance(a, _Trailer) for a in rest):
+            return None, None, None            # trailing wrapper -> regex chain owns it
         quant = next((str(a) for a in rest if isinstance(a, _Quant)), None)
         zone = next((a for a in rest if isinstance(a, _Zone)), None)
         obj = next((a for a in rest if isinstance(a, str) and not isinstance(a, _Quant)), None)
-        otext = ((quant + " ") if quant else "") + (obj or "")
-        otext = otext.strip()
-        if verb == "return":
-            return Effect(zone.verb, "-", _target(otext)) if (zone and zone.verb) else None
+        otext = (((quant + " ") if quant else "") + (obj or "")).strip()
+        return quant, zone, otext
+
+    def ret(self, verb, *rest):
+        quant, zone, otext = self._assemble(rest)
+        if otext is None or zone is None or zone.verb is None:
+            return None                        # 'return' needs a 'to <zone>' to ground
+        return Effect(zone.verb, "-", _target(otext))
+
+    def imperative(self, verb, *rest):
+        verb = str(verb).lower()
+        quant, _zone, otext = self._assemble(rest)
+        if otext is None:
+            return None
+        if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext):
+            return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
             n = _amount(quant) if quant in ("a", "an", "another", "two", "three") else None
             return Effect("sacrifice", n if isinstance(n, int) else "-", _target(otext))
