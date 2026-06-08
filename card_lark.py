@@ -18,7 +18,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount
+from card_effects import Effect, _target, _amount, _is_compound_object
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -40,13 +40,14 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause
+start: rclause | oclause | pclause | dclause | mclause | cclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
+cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
@@ -55,6 +56,14 @@ damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
 dtarget: (WORD | QUANT | NUM | ZONE)+   // target NP (no TOPREP: an internal 'to' -> abstain to regex)
 mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
 mdur: MDUR
+csubj: (WORD | QUANT | NUM | ZONE)+     // a player phrase before 'put' (DROPPED — must be a clean player, else abstain)
+ccount: THATMANY | QUANT | WORD | NUM   // the counter count: 'a'/'two'/'up to N'/'that many'/N/X/word
+ckind: PTDELTA | ckwords               // the counter KIND: a P/T delta (kept verbatim) or word(s) -> slugged
+ckwords: WORD+                          // kind words; can't cross COUNTER (own terminal) -> stops at the counter
+// the object after 'on' spans to end but must NOT re-cross a structural 'counter'/'on'/'into'/'onto':
+// the regex binds the FIRST 'counter on', so a clause with a second one ('… and a +1/+1 counter on Y',
+// '… into your hand') is a run-on/zone-move -> no parse -> abstain to the regex (faithful-or-abstain).
+ctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+   // object after 'on' (spans to end)
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 fromphrase: FROM zwords? ZONE          -> source
@@ -70,6 +79,10 @@ PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|d
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
+PUT.3: /\bputs?\b/
+COUNTER.4: /\bcounters?\b/
+ONPREP.3: /\bon\b/
+THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
@@ -152,6 +165,22 @@ class _Tgt(str):
 
 
 class _Dur(str):
+    pass
+
+
+class _CSubj(str):
+    pass
+
+
+class _CCount(str):
+    pass
+
+
+class _CKind(str):
+    pass
+
+
+class _CTarget(str):
     pass
 
 
@@ -324,6 +353,93 @@ class _ToEffect(Transformer):
         if up_to:
             return None                        # 'up to N' only modeled for discard in the regex
         return Effect(g, n, who)
+
+    def csubj(self, *toks):
+        return _CSubj(" ".join(str(t) for t in toks))
+
+    def ccount(self, tok):
+        return _CCount(str(tok))
+
+    def ckwords(self, *toks):
+        return _CKind(" ".join(str(t) for t in toks))
+
+    def ckind(self, tok):
+        # PTDELTA arrives as a raw Token (no ckwords reduction); ckwords arrives already wrapped.
+        return tok if isinstance(tok, _CKind) else _CKind(str(tok))
+
+    def ctarget(self, *toks):
+        return _CTarget(" ".join(str(t) for t in toks))
+
+    def putctr(self, *args):
+        subj = next((str(a) for a in args if isinstance(a, _CSubj)), None)
+        count = next((str(a) for a in args if isinstance(a, _CCount)), None)
+        kind = next((str(a) for a in args if isinstance(a, _CKind)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _CTarget)), None)
+        if count is None or kind is None or tgt is None:
+            return None
+        # SUBJECT (regex's non-capturing '(?:<TGT> )?puts?' — DROPPED). Only own a clean player phrase;
+        # a compound/wrapper subject ('each player chooses … and puts', 'may') -> abstain to the regex.
+        if subj is not None:
+            s = subj.strip().lower()
+            if s.endswith(" may"):
+                s = s[:-4].strip()                # the 'may' wrapper is stripped above the leaf in prod
+            if not _PLAYER.match(s):
+                return None
+        count = count.strip().lower()
+        kind = kind.strip()
+        tgt = tgt.strip().lower()
+        # The dynamic lexer can still re-lex a 'counter'/'into'/'onto' as a bare WORD inside the kind or
+        # target span. The regex binds the FIRST 'counter on', so any such re-crossing means we mis-split
+        # a multi-counter list ('your choice of a vigilance counter, …'), or a zone-move ('… counters on
+        # them into your hand', '… onto the battlefield … counter on it') — abstain, the regex owns those.
+        kl = kind.lower()
+        if re.search(r"\bcounters?\b", kl) or re.search(r"\b(?:into|onto|battlefield|graveyard|library|hand)\b", kl):
+            return None
+        if "," in kind:
+            return None                           # regex kind span ([\w ]+?) is comma-free -> abstain on lists
+        if re.search(r"\b(?:into|onto)\b", tgt):
+            return None
+        # KIND: a P/T delta is kept verbatim (with the '/'); else slug the word(s). Regex's PTDELTA is
+        # digits-only ([+-]\d+/[+-]\d+), so '+x/+x' falls through to its [\w ]+? branch and FAILS to
+        # match -> abstain to stay faithful. A 'number of'/'same number' kind is the equal-to/copy form.
+        if "/" in kind:
+            if re.search(r"[a-z]", kind):
+                return None                       # '+x/+x' etc. — regex abstains here
+            kind_slug = kind
+        else:
+            if kind.startswith("number of") or "same number" in kind:
+                return None                       # 'put a number of … equal to' / copy form -> regex
+            kind_slug = ground.slug(kind)
+        # COUNT -> amount, faithful to `_put_counter`/`_put_counter_many`. The regex count is a SINGLE
+        # word (or 'up to <word>'); a multi-word QUANT ('any number of') the regex can't ground -> abstain.
+        if " " in count and not count.startswith("up to ") and count != "that many":
+            return None
+        if count == "that many":
+            if "/" not in kind:
+                return None                       # 'that many <named>' -> regex's lossy 'many_<kind>'/X path
+            amt = "that_amount"
+        elif count.startswith("up to "):
+            rest = count[6:].strip()
+            a = _amount(rest)
+            if a is None:
+                return None                       # 'up to that many' etc. — regex can't ground it
+            amt = "up_to_" + str(a)
+        else:
+            a = _amount(count)
+            amt = a if a is not None else "X"
+        # TARGET: a run-on object ('… and gain control of it') is a second effect; abstain so the
+        # splitter owns it (faithful to `_put_counter`'s `_is_compound_object` guard). Also abstain on
+        # a following clause the leaf must NOT swallow: a 'then'/'deals N damage' sequencer (the regex's
+        # ordered templates ground that as the OTHER verb — `_MULTICLAUSE`), an ' and it <verb>' run-on
+        # that `_is_compound_object` misses ('it' isn't a predicate-lead there), a ', where X is …' /
+        # 'for each …' scaling appendix, and an ' or remove … counter' alternative.
+        if _MULTICLAUSE.search(tgt) or _is_compound_object(tgt):
+            return None
+        if re.search(r"\band (?:it|they|you) \w", tgt):   # ' and it deals …' — a new clause the leaf split owns
+            return None
+        if ", where " in tgt or tgt.endswith(", where") or "for each " in tgt or " or remove " in tgt:
+            return None
+        return Effect("put_counter", amt, _target(tgt), kind_slug)
 
 
 class _Zone:
