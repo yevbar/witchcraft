@@ -41,7 +41,12 @@ _SYM = re.compile(r"\{([^}]+)\}")
 HANDLED_VERBS = frozenset({
     "add_mana", "deal_damage", "destroy", "draw", "gain_life", "lose_life", "modify_pt", "put_counter",
     "exile", "gain_control", "sacrifice", "tap", "untap", "mill", "discard", "create",
+    "grant_keyword", "return_to_hand", "return_to_battlefield", "fight",
 })
+
+# the §702 keyword roster — lets grant_keyword pick the keyword out of whichever slot holds it
+# (the other slot carries the duration, e.g. "until_end_of_turn").
+_KEYWORDS = ground.keyword_abilities()
 
 
 def parse_cost(mana_cost: str | None) -> Counter:
@@ -115,6 +120,8 @@ class Perm:
     boost: tuple = (0, 0)        # until-end-of-turn P/T
     counters: int = 0            # +1/+1 counters
     dmg: int = 0
+    granted: set = field(default_factory=set)        # keywords granted for the rest of the game
+    granted_eot: set = field(default_factory=set)    # keywords granted until end of turn
 
     @property
     def power(self):
@@ -125,7 +132,7 @@ class Perm:
         return (self.card.toughness or 0) + self.boost[1] + self.counters
 
     def has(self, kw):
-        return kw in self.card.keywords
+        return kw in self.card.keywords or kw in self.granted or kw in self.granted_eot
 
 
 @dataclass
@@ -337,6 +344,42 @@ class Game:
                 for _ in range(n):
                     pl.bf.append(Perm(tok, self.p.index(pl), sick=True))
                 self.log(f"{pl.name} creates {n} {tok.name}", 2)
+        elif verb == "grant_keyword":
+            kw = extra if extra in _KEYWORDS else (amt if amt in _KEYWORDS else None)
+            who = source if (source in pl.bf and tgt in ("it", "self")) else \
+                max(pl.creatures(), key=lambda p: p.power, default=None)
+            if kw and who:
+                (who.granted_eot if amt == "until_end_of_turn" else who.granted).add(kw)
+                self.log(f"{who.card.name} gains {kw}", 2)
+        elif verb == "return_to_hand":
+            if extra == "from_graveyard" or "graveyard" in tgt:    # recur from graveyard, not a bounce
+                card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
+                if card:
+                    pl.grave.remove(card); pl.hand.append(card)
+                    self.log(f"{pl.name} returns {card.name} to hand", 2)
+            elif source in pl.bf + opp.bf and tgt in ("it", "self", "that_card"):
+                owner = self.p[source.ctrl]
+                owner.bf.remove(source); owner.hand.append(source.card)
+                self.log(f"{source.card.name} returns to {owner.name}'s hand", 2)
+            else:                                                  # bounce strongest enemy creature
+                ec = self._pick_enemy_creature(opp)
+                if ec:
+                    opp.bf.remove(ec); opp.hand.append(ec.card)
+                    self.log(f"bounces {ec.card.name} to {opp.name}'s hand", 2)
+        elif verb == "return_to_battlefield":
+            if "graveyard" in tgt or "graveyard" in extra:         # reanimation (flicker needs an exile step we don't model)
+                card = next((c for c in reversed(pl.grave) if "Creature" in c.types), None)
+                if card:
+                    pl.grave.remove(card)
+                    pl.bf.append(Perm(card, self.p.index(pl), sick=True, tapped=(extra == "tapped")))
+                    self.log(f"{pl.name} reanimates {card.name}", 2)
+        elif verb == "fight":
+            mine = source if (source in pl.bf) else max(pl.creatures(), key=lambda p: p.power, default=None)
+            ec = self._pick_enemy_creature(opp)
+            if mine and ec:
+                self._fight(mine, ec)
+                self.log(f"{mine.card.name} fights {ec.card.name}", 2)
+                self.sba()
         # remaining grounded verbs (scry, search, counter, …) are no-ops in this minimal engine
 
     def _make_token(self, spec: str) -> Card | None:
@@ -439,9 +482,10 @@ class Game:
         self.combat(pl, opp)                                 # combat
         if not self.over:
             self._main(pl, opp)                              # main 2 (cast leftover)
-        for perm in pl.bf:                                   # cleanup: end-of-turn boosts wear off
+        for perm in pl.bf:                                   # cleanup: end-of-turn boosts/grants wear off
             perm.boost = (0, 0)
             perm.dmg = 0
+            perm.granted_eot.clear()
         self.active = 1 - self.active
 
     def _main(self, pl, opp):
