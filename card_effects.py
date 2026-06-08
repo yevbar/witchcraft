@@ -992,6 +992,12 @@ def _fight_each(m):
     return Effect("fight", "-", _target(m.group(1)), "each_other")
 
 
+@_t(rf"^({_TGT}) phases? (out|in)(?: until [\w' ]+)?$")
+def _phase(m):
+    """'<permanent> phases out/in' — phasing (§702.26/§502.15)."""
+    return Effect("phase_" + m.group(2).lower(), "-", _target(m.group(1)))
+
+
 @_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?)$")
 def _gains_perm(m):
     """'<target> gains/has <kw>' with NO duration — a permanent keyword grant (§613)."""

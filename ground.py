@@ -110,6 +110,7 @@ _CORE_ACTIONS = frozenset({
     "lose_abilities",       # §613.6 — a continuous effect that removes a permanent's abilities
     "retain_mana",          # §500.4 — an effect letting unspent mana survive a step/phase ending
     "get_emblem",           # §114 — an effect that gives a player an emblem
+    "phase_out", "phase_in",  # §702.26/§502.15 — phasing a permanent out of / into existence
 })
 
 
