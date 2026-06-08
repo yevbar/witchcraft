@@ -1122,7 +1122,7 @@ def _becomes_copy(m):
     return Effect("becomes", "-", _target(m.group(1)), extra)
 
 
-@_t(rf"^({_TGT}) (?:becomes?|is|are) (?:an? )?(\d+/\d+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) (?:an? )?([\dX*]+/[\dX*]+)([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$")
 def _becomes(m):
     """'<target> becomes a N/N [colors/types] [creature] [until end of turn]' — animate / set P/T
     & types (§613.3 / §205). The type tail is recorded as a descriptive slug."""
@@ -1134,7 +1134,7 @@ def _becomes_choice(m):
     return Effect("becomes", "-", _target(m.group(1)), "chosen_" + ground.slug(m.group(2)))
 
 
-@_t(rf"^({_TGT}) (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|the color of your choice)(?: in addition to its other colors)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|the color of your choice|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$")
 def _becomes_color(m):
     """'<target> becomes <color> [until end of turn]' — a §105/§613 color-change."""
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
@@ -1176,7 +1176,7 @@ def _base_pt(m):
     return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) every (creature|basic land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:is|are|becomes?) every (creature|basic land|nonbasic land|land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$")
 def _all_types(m):
     """'<target> is every creature/basic land type' — a §205 all-types effect (changeling / Dryad of
     the Ilysian Grove omni-land)."""

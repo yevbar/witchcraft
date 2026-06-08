@@ -979,9 +979,10 @@ def _etb_tapped(unit, ctx):
         return CardOut(cid, [f'card_enters_tapped("{cid}", "-")',
                              f'card_enters_with_counters("{cid}", "{ground.slug(mc.group(2))}", "{ground.slug(mc.group(1))}")'],
                        "etb_tapped")
-    m = re.match(r"^~ enters tapped(?: unless (.+?))?\.?$", unit.raw)
+    m = re.match(r"^~ enters tapped(?: unless (.+?))?(?: if (.+?))?\.?$", unit.raw)
     if m:
-        cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else "-"
+        cond = "unless_" + ground.slug(m.group(1)) if m.group(1) else \
+            ("if_" + ground.slug(m.group(2)) if m.group(2) else "-")
         return CardOut(ctx["id"], [f'card_enters_tapped("{ctx["id"]}", "{cond}")'], "etb_tapped")
     # '~ enters tapped and doesn't untap during your/its controller's untap step' (Leviathan, Traxos…).
     m = re.match(r"^~ enters tapped and (?:doesn't|does not) untap during "
