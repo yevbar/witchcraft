@@ -40,14 +40,18 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause
+start: rclause | oclause | pclause | dclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
+dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
+dsrc: (WORD | QUANT)+                   // damage source (DROPPED — implicit self, matching the regex)
+damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
+dtarget: (WORD | QUANT | NUM | ZONE)+   // target NP (no TOPREP: an internal 'to' -> abstain to regex)
 
 zonephrase: TOPREP zwords? ZONE        -> zone
 fromphrase: FROM zwords? ZONE          -> source
@@ -60,6 +64,8 @@ objall: (WORD | TOPREP | ZONE | FROM)+
 RVERB: "return"
 OVERB: %(verbs)s
 PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|discards|discard)\b/
+DEALS.2: /\bdeals?\b/
+DMG.2: /\bdamage\b/
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 FROM.2: /\bfrom\b/
@@ -82,6 +88,9 @@ def _verb_alt():
 _TOPLIB = re.compile(r"^the top (?:\w+ )?cards? of .*librar(?:y|ies)$", re.I)
 _WITHCTR = re.compile(r"\bwith \w+ [\w/+ ]*?counters? on it$", re.I)
 _COORD = re.compile(r"^(?:or|and)\s", re.I)        # 'tap or untap …' — a coordinated verb the leaf split wrong
+# an object that swallowed a following clause ('Destroy X, then ~ deals damage to Y') — the leaf must
+# stop at the first verb; abstain so the upstream sentence-splitter / wrapper chain owns the sequence.
+_MULTICLAUSE = re.compile(r"\bthen\b|\bdeals?\s+\S+\s+damage\b", re.I)
 
 # 'return' abstain guards: an object-internal preposition ('attached to it', 'equal to X') or a
 # coordinated multi-object list ('return A, B, and C to …') makes the flat from/to split ambiguous;
@@ -125,6 +134,14 @@ class _Subj(str):
 
 
 class _Body(str):
+    pass
+
+
+class _Amt(str):
+    pass
+
+
+class _Tgt(str):
     pass
 
 
@@ -188,7 +205,7 @@ class _ToEffect(Transformer):
         quant, _zone, otext = self._assemble(rest)
         if otext is None:
             return None
-        if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext):
+        if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext) or _MULTICLAUSE.search(otext):
             return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
             n = _amount(quant) if quant in ("a", "an", "another", "two", "three") else None
@@ -196,6 +213,28 @@ class _ToEffect(Transformer):
         if verb in _SIMPLE:
             return Effect(_SIMPLE[verb], "-", _target(otext))
         return None
+
+    def dsrc(self, *toks):
+        return _Subj(" ".join(str(t) for t in toks))   # the source is dropped (reuse _Subj marker)
+
+    def damamt(self, tok):
+        return _Amt(str(tok))
+
+    def dtarget(self, *toks):
+        return _Tgt(" ".join(str(t) for t in toks))
+
+    def deal(self, *args):
+        amt = next((str(a) for a in args if isinstance(a, _Amt)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        if amt is None or tgt is None:
+            return None
+        n = _amount(amt)
+        if n is None:
+            return None                        # non-numeric amount ('that much' etc) -> regex variant
+        tgt = tgt.strip().lower()
+        if re.search(r"\b(?:and|then|gains?|draws?|loses?|deals?)\b", tgt) or "," in tgt:
+            return None                        # coordinated/multi-clause target -> regex chain owns it
+        return Effect("deal_damage", n, _target(tgt))
 
     def psubj(self, *toks):
         return _Subj(" ".join(str(t) for t in toks))

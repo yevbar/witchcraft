@@ -27,8 +27,16 @@ leaf's lossy `target=each_player_may`).
   (`each_player_may`, `each_player_who_controls_…`) lark correctly abstains on, and the wrapper chain
   feeds it clean residue in production. Net +~5 cards.
 
-Next families (per the staged plan below): player-target object verbs (subject-first destroy/sacrifice),
-P/T grants (`modify_pt`), then the wrapper chain itself (move `_MAY`/`_IF`/`_UNLESS` onto the parse).
+- **deal_damage** (the single largest family, 1440 clauses) — lark-primary for the dominant shape
+  `<source> deals N damage to <target>` (grammar `dclause`; the source is DROPPED, matching the regex
+  convention of implicit self). Amount via `_amount` (N / X); abstains on the `equal to`/`that much`/
+  `divided`/`itself` variants (regex owns them) and on multi-target `… and M damage to …` /
+  multi-clause targets. Oracle: 551 identical + **0 differ**. Also added a `then`-sequencer guard to the
+  object imperative (`_MULTICLAUSE`) — this FIXED a pre-existing lossy fact where `oclause` crammed a
+  whole following clause into the object (`Destroy X, then ~ deals damage to Y`). Net +20 cards (82.3%).
+
+Next families (per the staged plan below): create-token, put_counter (needs the counter sublanguage),
+modify_pt / grant_keyword (P/T + keyword sublanguages), then the wrapper chain itself (`_MAY`/`_IF`).
 
 ## 0. Why, and the honest target shape
 
