@@ -27,25 +27,27 @@ _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap
            "sacrifice": "sacrifice", "counter": "counter", "regenerate": "regenerate",
            "goad": "goad", "detain": "detain"}
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
-         "library": "return_to_hand", "graveyard": "put_in_graveyard"}
+         "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 _GRAMMAR = r"""
 start: rclause | oclause
 
-rclause: RVERB quant? obj zonephrase? trailer?   -> ret        // 'return': split the 'to <zone>'
+rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 
 zonephrase: TOPREP zwords? ZONE        -> zone
+fromphrase: FROM zwords? ZONE          -> source
 zwords: (WORD | TOPREP)+
 trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
 quant: QUANT
-obj: (WORD | TOPREP | ZONE)+
-objall: (WORD | TOPREP | ZONE)+
+robj: (WORD | ZONE)+                    // return object stops at from/to
+objall: (WORD | TOPREP | ZONE | FROM)+
 
 RVERB: "return"
 OVERB: %(verbs)s
-QUANT.2: /\b(?:up to (?:one|two|three|four|five|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
+QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
+FROM.2: /\bfrom\b/
 ZONE.2: /\b(?:hand|battlefield|library|graveyard)\b/
 BOUND.3: /\b(?:until|unless|for each)\b/
 WORD: /[\w',+\/~*-]+/
@@ -66,6 +68,17 @@ _TOPLIB = re.compile(r"^the top (?:\w+ )?cards? of .*librar(?:y|ies)$", re.I)
 _WITHCTR = re.compile(r"\bwith \w+ [\w/+ ]*?counters? on it$", re.I)
 _COORD = re.compile(r"^(?:or|and)\s", re.I)        # 'tap or untap …' — a coordinated verb the leaf split wrong
 
+# 'return' abstain guards: an object-internal preposition ('attached to it', 'equal to X') or a
+# coordinated multi-object list ('return A, B, and C to …') makes the flat from/to split ambiguous;
+# defer to the regex (faithful-or-abstain). 'up to N' is a quant, not a dest prep, so strip it first.
+_UPTOQ = re.compile(r"\bup to (?:one|two|three|four|five|that many|x|[0-9]+)\b", re.I)
+
+
+def _ret_ambiguous(s: str) -> bool:
+    if "," in s:
+        return True                            # coordinated multi-object list
+    return len(re.findall(r"\b(?:to|into|onto)\b", _UPTOQ.sub(" ", s))) >= 2
+
 
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
@@ -74,12 +87,20 @@ class _Quant(str):
     pass
 
 
+class _Source:
+    def __init__(self, zone):
+        self.zone = zone
+
+
 @v_args(inline=True)
 class _ToEffect(Transformer):
     def quant(self, tok):
         return _Quant(str(tok))
 
     def obj(self, *toks):
+        return " ".join(str(t) for t in toks)
+
+    def robj(self, *toks):
         return " ".join(str(t) for t in toks)
 
     def objall(self, *toks):
@@ -92,6 +113,11 @@ class _ToEffect(Transformer):
         sub = " ".join(str(r) for r in rest).lower()        # zwords (optional) + ZONE
         z = next((zz for w, zz in _ZONE.items() if w in sub), None)
         return _Zone(z)
+
+    def source(self, frm, *rest):
+        sub = " ".join(str(r) for r in rest).lower()        # zwords (optional) + ZONE
+        w = next((w for w in _ZONE if w in sub), None)
+        return _Source(w)
 
     def trailer(self, *toks):
         # a trailing wrapper ('until ~ leaves', 'for each …') — the LEAF stops at the object; the
@@ -108,10 +134,18 @@ class _ToEffect(Transformer):
         return quant, zone, otext
 
     def ret(self, verb, *rest):
-        quant, zone, otext = self._assemble(rest)
-        if otext is None or zone is None or zone.verb is None:
-            return None                        # 'return' needs a 'to <zone>' to ground
-        return Effect(zone.verb, "-", _target(otext))
+        if any(isinstance(a, _Trailer) for a in rest):
+            return None                        # trailing wrapper -> regex chain owns it
+        quant = next((str(a) for a in rest if isinstance(a, _Quant)), None)
+        zone = next((a for a in rest if isinstance(a, _Zone)), None)
+        src = next((a for a in rest if isinstance(a, _Source)), None)
+        robj = next((a for a in rest if isinstance(a, str) and not isinstance(a, _Quant)), None)
+        if zone is None or zone.verb is None or robj is None:
+            return None                        # 'return' needs a 'to <zone>' + object to ground
+        otext = (((quant + " ") if quant else "") + robj).strip()
+        # CONSISTENT (faithful-replacement): object stops at from/to; source -> extra; dest -> verb.
+        extra = ("from_" + src.zone) if (src and src.zone) else "-"
+        return Effect(zone.verb, "-", _target(otext), extra)
 
     def imperative(self, verb, *rest):
         verb = str(verb).lower()
@@ -144,6 +178,8 @@ def parse_clause_lark(clause: str):
     """A card-effect clause -> Effect via the CFG, or None (abstain). Case-folded; the grammar owns the
     imperative core + zone-moves so far."""
     s = clause.strip().rstrip(".").lower()
+    if s.startswith("return ") and _ret_ambiguous(s):
+        return None                            # ambiguous from/to split — defer to regex
     try:
         tree = _PARSER.parse(s)
     except Exception:
