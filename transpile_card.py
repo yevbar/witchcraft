@@ -296,6 +296,22 @@ def _has_leading_subject(part: str) -> bool:
     return not _BARE_PRED.match(part.strip())
 
 
+_WRAPPER = re.compile(r"^(?P<w>if you do|you may|if (?!you do\b)[^,]+?),?\s+(?P<rest>.+)$", re.I)
+
+
+def _peel_wrapper(sentence):
+    """A leading clause-wrapper over a COMPOUND consequent ('If you do, draw a card and you gain 2
+    life'; 'You may exile X and draw Y') -> (cond, rest). Single-consequent wrappers are handled in
+    parse_clause; this catches the compound case the body splitter must expand. Returns None if no
+    wrapper or the consequent isn't actually compound."""
+    m = _WRAPPER.match(sentence)
+    if not m or len(_smart_split(m.group("rest"))) < 2:
+        return None
+    w = m.group("w").lower()
+    cond = "if_you_did" if w == "if you do" else ("may" if w == "you may" else ground.slug(w[3:]))
+    return cond, m.group("rest")
+
+
 def _parse_body(text: str):
     """A clause body -> list[Effect], requiring EVERY sub-effect to parse (else None — no half facts).
     Splits on sentence boundaries and simple 'and'/'then' conjunctions (quote-safe); else abstains."""
@@ -304,6 +320,14 @@ def _parse_body(text: str):
         sentence = sentence.rstrip(".")
         if not sentence:
             continue
+        peeled = _peel_wrapper(sentence)             # 'If you do, <compound>' / 'You may <compound>'
+        if peeled:
+            cond, rest = peeled
+            sub = _parse_body(rest)
+            if sub:
+                out.extend(dataclasses.replace(e, cond=(cond if e.cond == "-" else f"{cond}__{e.cond}"))
+                           for e in sub)
+                continue
         multi = parse_clauses(sentence)
         # Prefer a whole-clause parse UNLESS the sentence runs on into a second effect ('… and gain
         # control of it', '… then exile it'): a single-effect whole-parse there has swallowed the
