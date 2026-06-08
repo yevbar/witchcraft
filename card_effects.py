@@ -486,6 +486,13 @@ def _game_end(m):
     return Effect(m.group(1).lower() + "_game", "-", "you")
 
 
+@_t(rf"^(?:cast|play) ({_TGT}) for as long as it remains exiled(?:, and mana of any (?:type|color) can be spent to (?:cast|play) it)?$")
+def _cast_while_exiled(m):
+    """'You may cast/play <X> for as long as it remains exiled[, and mana of any type …]' — an
+    impulse-draw style exile-cast permission (§601.3e); 'while_exiled' kept in the extra slot."""
+    return Effect("cast", "-", _target(m.group(1)), "while_exiled")
+
+
 @_t(r"^cast (the copy|that card|it|~|that [\w ]+?)(?: this turn| without paying its mana cost)?$")
 def _cast_plain(m):
     return Effect("cast", "-", _target(m.group(1)))

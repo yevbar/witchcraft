@@ -852,7 +852,7 @@ def _modal(unit, ctx):
     ~, you may choose both instead.' (the commander rider recorded as a flag)."""
     m = re.match(r"^Choose (one or both|one or more|up to one|up to two|up to three|one|two|three)"
                  r"(?P<rand> at random)?\s*[—–-]?\s*"
-                 r"(?:\.\s*(?P<cmd>If you control a commander[^.]*\.))?"
+                 r"(?:\.\s*(?P<cmd>If .+?, (?:you may )?choose .+? instead\.))?"
                  r"(?:\s*(?P<rep>You may choose the same mode more than once\.))?$", unit.raw, re.I)
     if not m:
         return None
@@ -860,7 +860,8 @@ def _modal(unit, ctx):
     mode = ground.slug(m.group(1)) + ("_at_random" if m.group("rand") else "")
     facts = [f'card_modal("{cid}", "{mode}")']
     if m.group("cmd"):
-        facts.append(f'card_static("{cid}", "commander_choose_both")')
+        # conditional 'choose more' rider (commander / kicked / teamwork / max speed / …) — descriptive slug.
+        facts.append(f'card_static("{cid}", "{ground.slug(m.group("cmd"))[:120]}")')
     if m.group("rep"):
         facts.append(f'card_static("{cid}", "modal_repeat_allowed")')
     return CardOut(cid, facts, "modal")
