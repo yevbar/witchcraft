@@ -772,7 +772,7 @@ def _amass(m):
     return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
 
 
-@_t(r"^choose (a|an|one|two|three|up to \w+|one or more|any number of) (.+?)$")
+@_t(r"^choose (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")
 def _choose(m):
     """'Choose <quantifier> <thing>' — a §700.2 choice (a color, a creature type, target(s), …). The
     chosen thing is a faithful noun-phrase slug; the quantifier is folded into it."""
@@ -900,6 +900,13 @@ def _becomes_color(m):
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
 
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment)s?)(?: until end of turn)?$")
+def _becomes_type(m):
+    """'<target> is/becomes a[n] <permanent type> [until end of turn]' — a §205 card-type set/change
+    (restricted to permanent-type words so it can't false-match a P/T or arbitrary noun)."""
+    return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+
+
 @_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness (\d+/\d+)(?: in addition to its other types)?(?: until end of turn)?$")
 def _becomes_base_pt(m):
     """'<target> becomes/is a <colors/types> creature with base power and toughness N/N' — animate to a
@@ -1014,6 +1021,12 @@ def _sacrifice_subj(m):
 def _have_deal(m):
     n = _amount(m.group(2))
     return Effect("deal_damage", n if n is not None else "X", _target(m.group(3)), "by_" + _target(m.group(1)))
+
+
+@_t(rf"^have ({_TGT}) deals? damage equal to (.+?) to ({_TGT})$")
+def _have_deal_equal(m):
+    """'have <X> deal damage equal to <amount> to <Y>' — directed damage by another source (§120)."""
+    return Effect("deal_damage", "equal_to_" + ground.slug(m.group(2)), _target(m.group(3)), "by_" + _target(m.group(1)))
 
 
 @_t(rf"^have ({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn$")
