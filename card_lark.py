@@ -40,7 +40,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | cclause
+start: rclause | oclause | pclause | dclause | mclause | cclause | tclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -48,6 +48,13 @@ pclause: psubj? PVERB pbody                       -> pcount      // player-count
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
+tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
+
+ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
+cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
+cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
+cfeword: WORD | NUM | QUANT | PTDELTA    // first word may be a '+1/+1' counter kind (lexed as PTDELTA)
+ctail: (WORD | NUM | QUANT | TOPREP | FROM | ZONE | DEALS | DMG | GETS | PTDELTA | TOKEN | MDUR)*  -> ctail  // dropped (regex's trailing '.*')
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
@@ -75,6 +82,10 @@ objall: (WORD | TOPREP | ZONE | FROM)+
 
 RVERB: "return"
 OVERB: %(verbs)s
+CVERB.3: /\bcreates?\b/
+CCOUNT.3: /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)\b/
+TOKEN.4: /\btokens?\b/
+FOREACH.4: /\bfor each\b/
 PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|discards|discard)\b/
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -303,6 +314,64 @@ class _ToEffect(Transformer):
             cond = "perpetual"
         return Effect("modify_pt", pt.replace(" ", "").upper(), _target(tgt), "-", cond)   # X stays uppercase
 
+    def ccreator(self, *toks):
+        return _Creator(" ".join(str(t) for t in toks))
+
+    def cspec(self, *toks):
+        return _Spec(" ".join(str(t) for t in toks))
+
+    def cfeword(self, tok):
+        return _FEWord(str(tok))
+
+    def cforeach(self, _fe, word):
+        return word                              # pass the _FEWord up (the FOREACH literal is dropped)
+
+    def ctail(self, *toks):
+        return _CTail(" ".join(str(t) for t in toks))
+
+    def create(self, *args):
+        creator = next((a for a in args if isinstance(a, _Creator)), None)
+        spec = next((str(a) for a in args if isinstance(a, _Spec)), None)
+        fe = next((str(a) for a in args if isinstance(a, _FEWord)), None)
+        count = next((str(a).lower() for a in args
+                      if not isinstance(a, (_Creator, _Spec, _FEWord, _CTail))
+                      and re.fullmatch(r"(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)",
+                                       str(a).lower())), None)
+        if spec is None or count is None:
+            return None
+        sl = spec.lower()
+        # 'create a number of <spec> tokens equal to <X>' is the count-scaled _create_equal template
+        # (the count word is 'a' and the spec starts 'number of …') — defer to the regex.
+        if sl.startswith("number of"):
+            return None
+        # 'create a token that's a copy of …' / 'X tokens that are copies of …' is the _create_copy
+        # template; here cspec greedily ran past the real boundary to a LATER 'token' (e.g. 'artifact
+        # token you control') and would emit a garbled spec — defer to the regex copy handler.
+        if re.search(r"\b(?:token|tokens|copy|copies)\b", sl):
+            return None
+        # A comma or 'then' in the trailing remainder signals a multi-token list ('… token, a 2/2 …')
+        # or a sequenced second effect ('… token, then draw …') — the regex crams the whole run into
+        # the spec (lossy), and lark dropping it would drop conjuncts. Abstain: regex chain owns these.
+        tail = next((str(a) for a in args if isinstance(a, _CTail)), "")
+        if "," in tail or re.search(r"\bthen\b", tail):
+            return None
+        # CREATOR: closed player allow-list (reuse _PLAYER) — a greedy non-player prefix -> abstain.
+        cre = None
+        if creator is not None:
+            c = creator.strip().lower()
+            if c == "you":
+                cre = None                       # 'you' is the default controller (regex: cond='-')
+            elif _PLAYER.match(c):
+                cre = c
+            else:
+                return None                      # non-player creator phrase -> regex chain owns it
+        n = _amount(count)
+        amt = n if n is not None else "X"        # _amount('x') -> 'X'; digits/number words -> int
+        if fe is not None:
+            amt = f"{amt}_per_{ground.slug(fe)}"  # regex keeps only the first word of 'for each X'
+        cond = ("creator_" + _target(cre)) if cre else "-"
+        return Effect("create", amt, "token", ground.slug(spec), cond)
+
     def psubj(self, *toks):
         return _Subj(" ".join(str(t) for t in toks))
 
@@ -448,6 +517,22 @@ class _Zone:
 
 
 class _Trailer:
+    pass
+
+
+class _Creator(str):
+    pass
+
+
+class _Spec(str):
+    pass
+
+
+class _FEWord(str):
+    pass
+
+
+class _CTail(str):
     pass
 
 
