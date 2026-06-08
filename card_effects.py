@@ -315,7 +315,7 @@ _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(r"^return (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?( tapped)?$")
+@_t(r"^return (.+?) to [\w' ]*?(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?$")
 def _return_zone(m):
     """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
     faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
@@ -1221,6 +1221,7 @@ _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
 _UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
+_DELAYED_LEAD = re.compile(r"^at (the beginning of [\w' ]+?|end of combat|the next [\w' ]+?), (.+)$", re.I)
 _DELAYED = re.compile(r"^(.+?) (?:at the beginning of (?:the next turn's upkeep|your next upkeep|"
                       r"the next end step|your next end step|the next turn's end step|your upkeep)|"
                       r"at end of combat|at the beginning of the next turn)$", re.I)
@@ -1358,6 +1359,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _DELAYED.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "delayed")
+    m = _DELAYED_LEAD.match(s)        # leading delayed trigger: 'At the beginning of the next end step, <effect>'
+    if m:
+        return _combine(parse_clause(m.group(2)), "delayed_" + ground.slug(m.group(1)))
     m = _UNTIL.match(s)
     if m:
         inner = parse_clause(m.group(2))
