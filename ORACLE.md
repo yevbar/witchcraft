@@ -73,7 +73,33 @@ and whose replacement body must parse into grounded effects, else abstain — qu
 "twice that many / plus N" faithfully fall through) and fixed a latent faithfulness bug ("put it on
 top of its library" had emitted the `put_on_bottom` verb; now a distinct grounded `put_on_top`, §401.1).
 
-### Honest ceiling (overnight run)
+### Overnight session 2 (75.7% → 79.0%, +1,123 cards)
+Second overnight run, all souffle-clean (conformance_fail=0, 0 collisions), every batch spot-checked
+faithful. Biggest levers this run, in order of yield:
+- **Subject-broadening on common effect verbs** (the dominant lever, ~+190 across batches): token
+  creation (`Target player creates…`, `Each player creates… for each…`, +144), then shuffle / scry /
+  tap / gain-control / return / put-counter / choose / look all generalized from imperative-only to
+  accept any player subject (`that player puts a counter…`, `Each opponent chooses…`). Many effects
+  had `you`-only templates; cards routinely name a different actor.
+- **Generalized spell cost modifiers** (+63): any colour/type/scope-qualified spell class
+  (`White spells you cast`, `Spells your opponents cast that target ~`) + conditional/`where X is` riders.
+- **Flavor mode-name stripping** (+50): `• Cure Wounds — You gain 2 life` → strip the D&D/Warhammer
+  mode name like an ability word, then ground the real effect.
+- Conjunct statics (N-way `gets +N/+N, has X, and is a black Zombie`), §722 as-though combat
+  permissions, color+type setters, prevention/regeneration replacements without "instead", granted
+  keyword+quoted-ability, clarification-skip for non-executable §613 persistence reminders, generalized
+  modal "choose-more" riders, impulse-cast-while-exiled, poison/energy counters, and many small statics.
+
+**Plateau reached.** The effect / object-grammar / subject-grammar are now comprehensive — destroy/
+exile/return/counter/draw/mill with arbitrary objects and any player subject all parse. The remaining
+~7.2k failures are: ~1,050 genuinely un-grounded mechanics (stickers/{TK}, Specialize, perpetual/
+Alchemy, Seek, spellbook-draft, Starting intensity — not in this CR, must abstain) and a ~6.1k
+long tail of UNIQUE bespoke clauses (≤3 cards each, mostly one-off triggered-ability bodies). Honest
+max if every groundable card were done ≈ **96.9%** (34,128 − ~1,050 ungrounded). Pushing 79%→~97%
+from here is per-clause work yielding ~3 cards each — no broad levers remain. Next worklist: rank the
+single-blocker clauses by cards-unlocked and grind, or accept the ungrounded ceiling.
+
+### Honest ceiling (overnight run, session 1)
 This run climbed **56.1% → 64.6%** per-card by exhausting the GENERAL cross-cutting families: the
 static-anthem subject grammar and "<subj> gets +N/+N and <conjunct>" rewrite-dispatch; §614
 replacement effects; **recursing every clause wrapper** (may / if-cond / if-you-do / unless / until /
