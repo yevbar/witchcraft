@@ -900,6 +900,13 @@ def _becomes_color(m):
     return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
 
+@_t(r"^(?:it is|they are|this permanent is|those permanents are) still (?:an? )?lands?$")
+def _still_land(m):
+    """'It's still a land' / 'They're still lands' — the §305 type-retention clarification on an
+    animated land (it keeps being a land)."""
+    return Effect("becomes", "-", "it", "still_a_land")
+
+
 @_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|Aura|Equipment)s?)(?: until end of turn)?$")
 def _becomes_type(m):
     """'<target> is/becomes a[n] <permanent type> [until end of turn]' — a §205 card-type set/change
@@ -1244,6 +1251,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     'if <condition>, <effect>' -> cond=<condition slug> (a descriptive predicate, like a trigger slug).
     Abstains if the inner effect isn't grounded."""
     s = sentence.strip().rstrip(".").strip()
+    s = re.sub(r"^(it's|they're|you're|it’s|they’re)\b", lambda m: {"it's": "it is", "they're":
+               "they are", "you're": "you are", "it’s": "it is", "they’re": "they are"}[m.group(1).lower()],
+               s, flags=re.I)                                    # expand leading contraction
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
     s = re.sub(r",? rounded (?:up|down)$", "", s, flags=re.I)    # 'mill half their library, rounded down'
