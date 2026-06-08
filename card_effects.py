@@ -662,9 +662,9 @@ def _verb_target(m):
     return Effect(ground.slug(m.group(1)), "-", _target(m.group(2)))
 
 
-@_t(r"^pay ((?:\{[^}]+\})+|\w+ life)( to end this effect)?$")
+@_t(r"^pay ((?:\{[^}]+\})+|\w+ life|any amount of (?:\{[^}]+\}|mana))( to end this effect)?$")
 def _pay(m):
-    return Effect("pay", m.group(1).replace(" ", "_"), "you", "to_end_effect" if m.group(2) else "-")
+    return Effect("pay", ground.slug(m.group(1)), "you", "to_end_effect" if m.group(2) else "-")
 
 
 @_t(r"^flip a coin( until you lose a flip)?$")

@@ -983,6 +983,12 @@ def _cost_modifier(unit, ctx):
     if m:
         return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
                             f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
+    # '~'s/this ability costs {S} less to activate [for each …]' — activated-ability cost reduction
+    m = re.match(r"^(?:~'s abilities?|this ability|abilities you activate) costs? ((?:\{[^}]+\})+|\d+) (less|more) to activate(?: (.+?))?\.?$", unit.raw, re.I)
+    if m:
+        sc = ground.slug(m.group(3)) if m.group(3) else "-"
+        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "activated_ability", "{sc}")'],
+                       "cost_modifier")
     return None
 
 
