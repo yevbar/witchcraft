@@ -301,10 +301,10 @@ def _counter(m):
     return Effect("counter", "-", _target(m.group(1)))
 
 
-@_t(rf"^scry (\w+)$")
+@_t(rf"^(?:({_TGT}) )?scr(?:y|ies) (\w+)$")
 def _scry(m):
-    n = _amount(m.group(1))
-    return Effect("scry", n, "you") if n is not None else None
+    n = _amount(m.group(2))
+    return Effect("scry", n, _target(m.group(1) or "you")) if n is not None else None
 
 
 @_t(rf"^surveil (\w+)$")
@@ -319,7 +319,7 @@ def _mill(m):
     return Effect("mill", n, _target(m.group(1) or "you")) if n is not None else None
 
 
-@_t(rf"^(tap|untap) ({_TGT})$")
+@_t(rf"^(?:{_TGT} )?(tap|untap)s? ({_TGT})$")
 def _taputap(m):
     return Effect(m.group(1).lower(), "-", _target(m.group(2)))
 
@@ -582,10 +582,10 @@ def _draw_additional(m):
     return Effect("draw", n if n is not None else 1, _target(m.group(1) or "you"), "additional")
 
 
-@_t(rf"^look at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
+@_t(rf"^(?:({_TGT}) )?looks? at (?:the top (?:(\w+) )?cards? of )?({_TGT})(?:'s)? (?:hand|library)$")
 def _look_at(m):
-    n = _amount(m.group(1)) if m.group(1) else 1
-    return Effect("look", n if n is not None else 1, _target(m.group(2)))
+    n = _amount(m.group(2)) if m.group(2) else 1
+    return Effect("look", n if n is not None else 1, _target(m.group(3)), "by_" + _target(m.group(1)) if m.group(1) else "-")
 
 
 @_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?) until end of turn$")
@@ -745,6 +745,15 @@ def _control(m):
     return Effect("gain_control", "-", _target(m.group(1)),
                   "until_end_of_turn" if m.group(2) and "end of turn" in m.group(2) else
                   (ground.slug(m.group(2)) if m.group(2) else "-"))
+
+
+@_t(rf"^({_TGT}) gains? control of ({_TGT})( until end of turn| for as long as .+?)?$")
+def _control_subj(m):
+    """'<player> gains control of <X>' — §720 control-change with an explicit gaining player; the new
+    controller is recorded in the cond slot."""
+    dur = "until_end_of_turn" if m.group(3) and "end of turn" in m.group(3) else \
+        (ground.slug(m.group(3)) if m.group(3) else "-")
+    return Effect("gain_control", "-", _target(m.group(2)), "by_" + _target(m.group(1)), dur)
 
 
 def _is_compound_object(s: str) -> bool:
