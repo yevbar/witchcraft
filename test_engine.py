@@ -28,6 +28,10 @@ def _spell(name: str) -> Card:
     return Card(name, Counter(), set(), set(), None, None)
 
 
+def _perm(ctrl: int, types: set, p: int = 0, t: int = 0, name: str = "X") -> Perm:
+    return Perm(Card(name, Counter(), set(types), set(), p, t), ctrl, sick=False)
+
+
 CHECKS: list[tuple[str, bool]] = []
 
 
@@ -109,6 +113,149 @@ def run() -> None:
     th = g._make_token("1_1_colorless_thopter_artifact_creature")
     check("_make_token thopter is Artifact Creature",
           bool(th) and {"Artifact", "Creature"} <= th.types and th.power == 1)
+
+    # grant_keyword — keyword pulled from the right slot; until_end_of_turn wears off at cleanup
+    g = _game(); src = _creature(0, 2, 2, "Mine"); g.p[0].bf = [src]
+    g._do(g.p[0], g.p[1], "grant_keyword", "until_end_of_turn", "self", "flying", None)
+    check("grant_keyword until-EOT grants to source (temporary)",
+          src.has("flying") and "flying" in src.granted_eot and "flying" not in src.granted)
+    g._do(g.p[0], g.p[1], "grant_keyword", "trample", "enchanted_creature", "-", None)
+    check("grant_keyword no-duration grants permanently",
+          src.has("trample") and "trample" in src.granted)
+    src.granted_eot.clear()
+    check("until-EOT grant cleared at cleanup, permanent stays",
+          not src.has("flying") and src.has("trample"))
+
+    # return_to_hand — bounce an enemy creature to its owner's hand
+    g = _game(); g.p[1].bf = [_creature(1, 3, 3, "Big")]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "target_creature", "-", None)
+    check("return_to_hand bounces enemy to hand",
+          not g.p[1].bf and any(c.name == "Big" for c in g.p[1].hand))
+
+    # return_to_hand 'it' — source returns to its own controller's hand
+    g = _game(); src = _creature(0, 1, 1, "Self"); g.p[0].bf = [src]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "it", "-", src)
+    check("return_to_hand 'it' returns source to owner hand",
+          not g.p[0].bf and any(c.name == "Self" for c in g.p[0].hand))
+
+    # return_to_hand from graveyard — recur a creature card to hand
+    g = _game(); g.p[0].grave = [_spell("Junk"), Card("Beast", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_hand", "-", "target_creature_card", "from_graveyard", None)
+    check("return_to_hand from graveyard recurs a creature",
+          any(c.name == "Beast" for c in g.p[0].hand) and len(g.p[0].grave) == 1)
+
+    # return_to_battlefield — reanimate a creature card from graveyard, summoning-sick
+    g = _game(); g.p[0].grave = [Card("Zombie", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_battlefield", "-", "target_creature_card_from_your_graveyard", "-", None)
+    check("return_to_battlefield reanimates from graveyard",
+          len(g.p[0].bf) == 1 and g.p[0].bf[0].card.name == "Zombie" and g.p[0].bf[0].sick)
+
+    # fight — source deals its power to an enemy creature and takes the enemy's power back
+    g = _game(); mine = _creature(0, 3, 3, "Mine"); g.p[0].bf = [mine]
+    g.p[1].bf = [_creature(1, 2, 2, "Foe")]
+    g._do(g.p[0], g.p[1], "fight", "-", "it", "target_creature_you_don_t_control", mine)
+    check("fight kills the 2/2 and damages our 3/3",
+          not g.p[1].bf and mine.dmg == 2)
+
+    # --- multi-player / mass-target routing (regressions fixed in the review pass) ---
+
+    # each_player makes BOTH players sacrifice (not just the controller)
+    g = _game(); g.p[0].bf = [_creature(0)]; g.p[1].bf = [_creature(1)]
+    g._do(g.p[0], g.p[1], "sacrifice", "-", "each_player", "a_creature", None)
+    check("sacrifice each_player hits both players", not g.p[0].bf and not g.p[1].bf)
+
+    # each_player draw — both draw
+    g = _game()
+    for pp in g.p:
+        pp.library = [_spell(f"L{i}") for i in range(3)]
+    g._do(g.p[0], g.p[1], "draw", "1", "each_player", "-", None)
+    check("draw each_player draws for both", len(g.p[0].hand) == 1 and len(g.p[1].hand) == 1)
+
+    # draw target_player routes to the opponent, not the controller
+    g = _game()
+    for pp in g.p:
+        pp.library = [_spell(f"L{i}") for i in range(3)]
+    g._do(g.p[0], g.p[1], "draw", "1", "target_player", "-", None)
+    check("draw target_player routes to opponent", not g.p[0].hand and len(g.p[1].hand) == 1)
+
+    # discard "all" empties the hand (not just one card)
+    g = _game(); g.p[0].hand = [_spell(f"H{i}") for i in range(4)]
+    g._do(g.p[0], g.p[1], "discard", "all", "you", "-", None)
+    check("discard 'all' empties the hand", not g.p[0].hand and len(g.p[0].grave) == 4)
+
+    # mass grant — every creature in the set gets the keyword, not only the strongest
+    g = _game(); g.p[0].bf = [_creature(0, 1, 1, "Sml"), _creature(0, 5, 5, "Big")]
+    g._do(g.p[0], g.p[1], "grant_keyword", "trample", "creatures_you_control", "-", None)
+    check("mass grant_keyword hits the whole set",
+          all(c.has("trample") for c in g.p[0].bf))
+
+    # mass tap — taps every enemy creature
+    g = _game(); g.p[1].bf = [_creature(1, 1, 1), _creature(1, 4, 4)]
+    g._do(g.p[0], g.p[1], "tap", "-", "all_creatures", "-", None)
+    check("mass tap taps every enemy creature", all(c.tapped for c in g.p[1].bf))
+
+    # reanimate honors a 'from_graveyard_tapped' rider (substring, not exact match)
+    g = _game(); g.p[0].grave = [Card("Z", Counter(), {"Creature"}, set(), 2, 2)]
+    g._do(g.p[0], g.p[1], "return_to_battlefield", "-", "it", "from_graveyard_tapped", None)
+    check("reanimate from_graveyard_tapped enters tapped",
+          len(g.p[0].bf) == 1 and g.p[0].bf[0].tapped)
+
+    # --- faithfulness to the datalog's type / ownership / plurality ---
+
+    # destroy all_creatures is a board wipe across both sides
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]
+    g.p[1].bf = [_perm(1, {"Creature"}, 3, 3), _perm(1, {"Creature"}, 1, 1)]
+    g._do(g.p[0], g.p[1], "destroy", "-", "all_creatures", "-", None)
+    check("destroy all_creatures wipes both sides", not g.p[0].bf and not g.p[1].bf)
+
+    # destroy target_land destroys a land, not the strongest creature
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 5, 5, "Bear"), _perm(1, {"Land"}, 0, 0, "Forest")]
+    g._do(g.p[0], g.p[1], "destroy", "-", "target_land", "-", None)
+    check("destroy target_land hits the land", [p.card.name for p in g.p[1].bf] == ["Bear"])
+
+    # deal_damage 'you' is self-damage (was hitting the opponent)
+    g = _game(); g._do(g.p[0], g.p[1], "deal_damage", "2", "you", "-", None)
+    check("deal_damage 'you' damages controller", g.p[0].life == 18 and g.p[1].life == 20)
+
+    # deal_damage each_creature hits every creature on both sides
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]; g.p[1].bf = [_perm(1, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "deal_damage", "2", "each_creature", "-", None)
+    check("deal_damage each_creature hits all creatures",
+          g.p[0].bf[0].dmg == 2 and g.p[1].bf[0].dmg == 2)
+
+    # deal_damage each_creature_and_each_player hits creatures AND both players
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2)]; g.p[1].bf = [_perm(1, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "deal_damage", "1", "each_creature_and_each_player", "-", None)
+    check("deal_damage each_creature_and_each_player hits creatures+players",
+          g.p[0].bf[0].dmg == 1 and g.p[1].bf[0].dmg == 1 and g.p[0].life == 19 and g.p[1].life == 19)
+
+    # sacrifice respects the object type in the extra slot (a_land -> a land)
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 3, 3, "Bear"), _perm(0, {"Land"}, 0, 0, "Forest")]
+    g._do(g.p[0], g.p[1], "sacrifice", "1", "a_land", "-", None)
+    check("sacrifice a_land sacrifices a land", [p.card.name for p in g.p[0].bf] == ["Bear"])
+
+    # sacrifice respects the count
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, i, i, f"c{i}") for i in (1, 2, 3)]
+    g._do(g.p[0], g.p[1], "sacrifice", "2", "a_creature", "-", None)
+    check("sacrifice count=2 sacrifices two", len(g.p[0].bf) == 1)
+
+    # modify_pt anthem (creatures_you_control) boosts every own creature
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 1, 1), _perm(0, {"Creature"}, 2, 2)]
+    g._do(g.p[0], g.p[1], "modify_pt", "+1/+1", "creatures_you_control", "-", None)
+    check("modify_pt anthem boosts all own creatures",
+          g.p[0].bf[0].power == 2 and g.p[0].bf[1].power == 3)
+
+    # a negative modify_pt reads as enemy removal (debuff the opponent)
+    g = _game(); g.p[1].bf = [_perm(1, {"Creature"}, 3, 3, "foe")]
+    g._do(g.p[0], g.p[1], "modify_pt", "-2/-2", "target_creature", "-", None)
+    check("modify_pt shrink targets the opponent", g.p[1].bf[0].power == 1)
+
+    # a variable boost (X/X, +1/+0_per_…) is abstained on, not guessed or crashed
+    g = _game(); g.p[0].bf = [_perm(0, {"Creature"}, 2, 2, "Mine")]
+    for bad in ("+X/+X", "-X/-X", "+1/+0_per_samurai_or_warrior_you_control"):
+        g._do(g.p[0], g.p[1], "modify_pt", bad, "self", "-", g.p[0].bf[0])
+    check("modify_pt variable boost is a no-op (no crash, no guess)",
+          g.p[0].bf[0].power == 2 and g.p[0].bf[0].toughness == 2)
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
