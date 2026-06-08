@@ -425,6 +425,15 @@ def _move_counters(m):
     return Effect("put_counter", ground.slug(m.group(1)), _target(m.group(2)), "moved")
 
 
+@_t(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT}) (?:onto|to) ({_TGT})$")
+def _move_counter_from(m):
+    """'Move N <kind> counter(s) from <X> onto <Y>' — relocating counters between permanents (§122).
+    Source recorded in cond, destination is the target."""
+    n = _amount(m.group(1))
+    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
+    return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind, "moved_from_" + _target(m.group(3)))
+
+
 @_t(rf"^put that many ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")
 def _put_counter_many(m):
     return Effect("put_counter", "that_amount", _target(m.group(2)),
@@ -562,9 +571,9 @@ def _discard_set(m):
     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
 
 
-@_t(r"^shuffles?(?: your library| (?:it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$")
+@_t(rf"^(?:({_TGT}) )?shuffles?(?: (?:your|their|his or her) library| (?:it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$")
 def _shuffle(m):
-    return Effect("shuffle", "-", "you")
+    return Effect("shuffle", "-", _target(m.group(1) or "you"))
 
 
 @_t(rf"^(?:({_TGT}) )?draws? (an|a|\w+) additional cards?$")
@@ -1138,9 +1147,10 @@ def _type_also(m):
     return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) the chosen (color|type)(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:is|are|becomes?) the chosen (color|type)(?: in addition to its other (?:types|colors))?(?: until end of turn)?$")
 def _becomes_chosen(m):
-    """'<target> is the chosen color/type' — a §105/§205 set to a previously chosen color or type."""
+    """'<target> is the chosen color/type [in addition to its other types]' — a §105/§205 set to a
+    previously chosen color or type."""
     return Effect("becomes", "-", _target(m.group(1)), "chosen_" + m.group(2).lower())
 
 

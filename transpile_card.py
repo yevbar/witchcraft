@@ -675,6 +675,8 @@ _CARD_STATIC = [
     (r"^Cards in graveyards can't be the targets of spells or abilities\.?$", "graveyard_cards_untargetable"),
     (r"^~ is the chosen (?:type|color) in addition to its other (?:types|colors)\.?$", "is_chosen_type_added"),
     (r"^X can't be (\d+)\.?$", "x_cant_be_"),                   # §107.3 constraint on the chosen X value
+    (r"^(?:Each player|Players) can't draw more than one card each turn\.?$", "max_one_draw_each_turn"),
+    (r"^Each player can't cast more than one spell each turn\.?$", "max_one_spell_each_turn"),
     (r"^No more than one creature can attack each combat\.?$", "max_one_attacker_each_combat"),
     (r"^No more than one creature can block each combat\.?$", "max_one_blocker_each_combat"),
     (r"^(?:Each player|Players) can cast spells only any time they could cast a sorcery\.?$", "cast_only_as_sorcery"),
