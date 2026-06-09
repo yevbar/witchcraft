@@ -18,7 +18,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -40,13 +40,15 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | cclause | tclause
+start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
+gclause: gtgt? GVERB gkw mdur?                    -> grant       // '<target> gains/has <KEYWORD> [duration]'
+aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> has/gains "<ability>" [duration]'
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
 tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
 
@@ -63,6 +65,8 @@ damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
 dtarget: (WORD | QUANT | NUM | ZONE)+   // target NP (no TOPREP: an internal 'to' -> abstain to regex)
 mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
 mdur: MDUR
+gtgt: (WORD | QUANT | NUM)+             // the permanent/player receiving the grant (stops at gains/has/have)
+gkw: WORD (WORD | NUM | QUANT | TOPREP | FROM | ZONE)*   // keyword phrase: first token a plain WORD (so 'gains 3 life' -> pcount, not here)
 csubj: (WORD | QUANT | NUM | ZONE)+     // a player phrase before 'put' (DROPPED — must be a clean player, else abstain)
 ccount: THATMANY | QUANT | WORD | NUM   // the counter count: 'a'/'two'/'up to N'/'that many'/N/X/word
 ckind: PTDELTA | ckwords               // the counter KIND: a P/T delta (kept verbatim) or word(s) -> slugged
@@ -86,10 +90,12 @@ CVERB.3: /\bcreates?\b/
 CCOUNT.3: /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)\b/
 TOKEN.4: /\btokens?\b/
 FOREACH.4: /\bfor each\b/
-PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|gains|gain|loses|lose|discards|discard)\b/
+PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|loses|lose|discards|discard)\b/
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
+GVERB.3: /\b(?:gains?|has|have)\b/
+QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
 PUT.3: /\bputs?\b/
 COUNTER.4: /\bcounters?\b/
 ONPREP.3: /\bon\b/
@@ -139,6 +145,43 @@ _PLAYER = re.compile(
     r"(?:the )?(?:defending|attacking|active|chosen) player|"
     r"its controller|its owner|"
     r"[\w'-]+(?: [\w'-]+)*'s controller)$", re.I)
+
+
+# a grant keyword phrase is FAITHFUL only if it is a single clean §702 keyword (optionally with its
+# standard 'from/of' qualifier or a numeric parameter). The regex `_gains_perm` greedily slugs a
+# trailing duration/condition ('flying as long as …', 'haste until your next turn') or a multi-keyword
+# list ('hexproof and indestructible') into ONE extra — a LOSSY tuple. We ABSTAIN on those (the slug
+# would carry clause-junk), keeping only the clean grant; the regex fallback owns the lossy whole.
+_KW_LOSSY = re.compile(r"_until_|_as_long_as_|_this_turn|_this_combat|_during_|_for_as_long|"
+                       r"_unless_|_whenever_|_if_|_as_though_|_where_|_permanently$|_and_")
+
+
+# A faithful grant target is a NOUN PHRASE. Two ways the greedy `gtgt` over-matches and must abstain:
+#  (1) it binds to a clause-internal 'has/have' ("…didn't HAVE defender", "…as long as it HAS flying"),
+#      leaving verb material in the target;
+#  (2) the leaf is fed a sentence whose leading wrapper the production chain would have peeled but here
+#      hasn't ("Until end of turn, <t> gains …", "If …, <t> gains …", "When you do, … and it gains …"),
+#      so the target swallows a whole preceding clause.
+# Either way the target carries clause-level material no `_TGT` noun phrase holds -> abstain (the regex
+# leaf abstains too; in production the wrapper chain peels the lead and the clean residue re-enters).
+_TGT_BAD = re.compile(
+    r"^(?:until |if |when |whenever |at |for each|as you |after |during your turn\b)|"   # swallowed lead
+    r",|"                                                                                 # comma = two clauses
+    r"\b(?:has|have|gains?|gets?|can|could|can't|cannot|doesn't|didn't|assigns?|is|are|"
+    r"becomes?|loses?|create|creates?|return|returns?|exile|exiles?|put|puts?|destroy|"
+    r"destroys?|draws?|deals?|sacrifices?|adds?|attacks?|blocks?)\b|"                      # embedded verb
+    r"\bas long as\b|\bas though\b|\bin addition\b|\band they\b|\band it\b|\bexcept\b|\balso\b",
+    re.I)
+
+
+def _clean_kw(extra: str) -> bool:
+    """True iff `extra` (a slugged keyword grant) is a single faithful §702 keyword, not a lossy
+    duration/condition tail or a crammed multi-keyword list."""
+    if _KW_LOSSY.search(extra):
+        return False                           # duration/condition tail or 'kw and kw' list -> lossy
+    if "_or_" in extra and not extra.startswith("protection_from"):
+        return False                           # 'kw or kw' list (protection's own 'or from' is fine)
+    return True
 
 
 def _ret_ambiguous(s: str) -> bool:
@@ -371,6 +414,78 @@ class _ToEffect(Transformer):
             amt = f"{amt}_per_{ground.slug(fe)}"  # regex keeps only the first word of 'for each X'
         cond = ("creator_" + _target(cre)) if cre else "-"
         return Effect("create", amt, "token", ground.slug(spec), cond)
+
+    def gtgt(self, *toks):
+        return _Tgt(" ".join(str(t) for t in toks))
+
+    def gkw(self, *toks):
+        return _Body(" ".join(str(t) for t in toks))     # reuse _Body marker for the keyword phrase
+
+    def _grant_dur(self, tgt, dur):
+        """Resolve the (amount, cond, target-text) for a grant, handling the EOT duration and a trailing
+        'perpetually' adverb (cond=perpetual, mirroring `boost`). Returns None on an unsupported/ambiguous
+        duration so the regex fallback owns it; else (amount, cond, tgt_text)."""
+        t = (tgt.strip() if tgt else "")
+        perpetual = t.lower().endswith(" perpetually")
+        if perpetual:
+            t = t[:-len(" perpetually")].strip()       # '<X> perpetually gains …' -> cond=perpetual
+        amount, cond = "-", "-"
+        if dur is not None:
+            if perpetual or dur.strip().lower() != "until end of turn":
+                return None                            # other duration (regex slugs it, lossy) / both -> abstain
+            amount = "until_end_of_turn"
+        elif perpetual:
+            cond = "perpetual"
+        return amount, cond, t
+
+    def grant(self, *args):
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        phrase = next((str(a) for a in args if isinstance(a, _Body)), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        if phrase is None:
+            return None
+        # 'gain(s) <amount> life' is gain_life — the 'gain(s)' verb is now owned by this rule (removed
+        # from PVERB to kill the pcount<->grant ambiguity). Reproduce pcount's gain_life tuple exactly;
+        # abstain on a duration/perpetual or a non-player subject (pcount's domain handles only those).
+        toks = phrase.strip().lower().split()
+        if toks and toks[-1] == "life":
+            amt_s = " ".join(toks[:-1]).strip()
+            n = 1 if amt_s in ("a", "an") else (None if amt_s == "" else _amount(amt_s))
+            if n is None or dur is not None:
+                return None
+            t = tgt.strip().lower() if tgt else ""
+            if t and (t.endswith(" perpetually") or _TGT_BAD.search(t) or not _PLAYER.match(t)):
+                return None
+            return Effect("gain_life", n, _target(t) if t else "you")
+        kw = _kw_ok(phrase.strip())
+        if not kw or not _clean_kw(kw):
+            return None                          # not a clean single §702 keyword grant -> abstain
+        res = self._grant_dur(tgt, dur)
+        if res is None:
+            return None
+        amount, cond, ttext = res
+        if ttext and _TGT_BAD.search(ttext):
+            return None                          # target carries clause material (over-match) -> abstain
+        who = _target(ttext) if ttext else _target("~")
+        return Effect("grant_keyword", amount, who, kw, cond)
+
+    def grant_ab(self, *args):
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        quoted = next((str(a) for a in args
+                       if not isinstance(a, (_Tgt, _Dur)) and str(a).startswith('"')), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        if tgt is None or quoted is None or len(quoted) < 2:
+            return None
+        res = self._grant_dur(tgt, dur)
+        if res is None:
+            return None
+        amount, cond, ttext = res
+        if not ttext or _TGT_BAD.search(ttext):
+            return None                          # empty / clause-laden target -> abstain
+        ab = ground.slug(quoted[1:-1])[:160]      # strip the surrounding quotes (regex '"(.+)"')
+        if not ab:
+            return None
+        return Effect("grant_ability", amount, _target(ttext), ab, cond)
 
     def psubj(self, *toks):
         return _Subj(" ".join(str(t) for t in toks))
