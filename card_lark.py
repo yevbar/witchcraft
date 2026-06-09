@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -187,6 +187,35 @@ lkbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
 shclause.-2: shsubj? SH_SHUFFLE shbody?   -> shuffle
 shsubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'shuffle[s]' (the regex's optional <TGT>)
 shbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO)+
+
+// NEGATIVE STATICS (namespaced `ns`) — the §509/§508 combat prohibitions and the §502 no-untap static:
+//   cant_be_blocked : '<TGT> can't be blocked [this turn]'            (_cant_combat / _cant_combat_set)
+//   cant_block      : '<TGT> can't block [<TGT>] this turn' / '<set> can't block'  (same two templates)
+//   doesnt_untap    : "<TGT> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]"  (_doesnt_untap)
+// These are mid-clause-anchored shapes (a subject NP precedes the distinctive verb), so unlike the
+// leading-anchored families they cannot key on a clause-initial literal. Instead each rule keys on a
+// HIGH-PRIORITY distinctive terminal — NS_CANT ("can't") or NS_DUVERB ("doesn't/don't untap") — and
+// captures the surrounding subject/tail as FLAT token runs purely to consume the whole string. The
+// faithful parse is then the EXACT original template regex re-applied to the lowercased source in
+// `self._src` (frame-regex, like rcremove/dbl/pzput), so the grounded tuple is BYTE-IDENTICAL to
+// parse_effect's _cant_combat/_cant_combat_set/_doesnt_untap, or — when the frame rejects the clause
+// (an 'except by …'/conditional rider on the block forms, a non-_TGT subject, a 'this combat' variant)
+// — abstain. The transformer ONLY emits a verb in {cant_be_blocked, cant_block, doesnt_untap}: the
+// shared block template also grounds cant_attack/cant_attack_or_block/cant_block_or_be_blocked, which
+// are OTHER families, so those are filtered to None here (faithful-or-abstain).
+//
+// NEGATIVE rule priority: NS_CANT/NS_DUVERB are mid-clause, so a sentence ALSO parseable as another
+// family (an earlier @_t template could ground its lead differently) must yield to that parse; on a
+// pure negative-static clause there is no competitor and these rules still win. The frame regexes are
+// anchored ^…$ over the whole source, so the flat runs' exact tokenization is irrelevant to the slug.
+nsclause.-2: nssubj NS_CANT nsverb nstail?     -> nscant     // '<subj> can't <combat-verb> [<obj>] this turn'
+           | nssubj NS_DUVERB nstail           -> nsuntap    // "<subj> doesn't/don't untap during …"
+nssubj: (WORD | QUANT | NUM | ZONE)+           // the subject NP (validated by the frame regex's _TGT)
+nsverb: (WORD | ZONE)+                          // 'be blocked' / 'block' / 'attack' / 'block or be blocked' …
+nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA | MDUR)+  // 'this turn', 'during …', a rider
+
+NS_CANT.5: /\bcan't\b/                          // the §509/§508 prohibition modal (outranks WORD)
+NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static verb (outranks WORD)
 
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
@@ -577,6 +606,52 @@ def _sh_frame(full: str):
     return None
 
 
+# NEGATIVE-STATICS frames — the EXACT card_effects templates (`_cant_combat`, `_cant_combat_set`,
+# `_doesnt_untap`), recompiled here over the shared `_TGT`, applied to the lowercased source so the
+# grounded tuple is byte-identical to parse_effect (or abstain when the frame rejects the clause).
+_NS_CANT_FRAME = re.compile(                                                    # _cant_combat (registered FIRST)
+    r"^(" + _TGT + r") can't (be blocked|block or be blocked|attack or block|block|attack)"
+    r"(?: (" + _TGT + r"))? this turn$", re.I)
+_NS_CANT_SET_FRAME = re.compile(                                               # _cant_combat_set (registered after)
+    r"^((?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?) can't "
+    r"(be blocked|attack or block|block|attack)(?: this turn)?$", re.I)
+_NS_UNTAP_FRAME = re.compile(                                                  # _doesnt_untap
+    r"^(" + _TGT + r") (?:doesn't|don't) untap during "
+    r"(?:its controller's|their controller's|their controllers'|your|their)"
+    r"( next)? untap steps?(?: for as long as .+?)?$", re.I)
+
+# the block-template verb-slot -> grounded verb; ONLY the three negative-statics verbs are ours. The same
+# template ALSO grounds cant_attack / cant_attack_or_block / cant_block_or_be_blocked (OTHER families) ->
+# those slot values are absent from this map, so the transformer abstains (defers to the regex) on them.
+_NS_OURS = {"be blocked": "cant_be_blocked", "block": "cant_block"}
+
+
+def _ns_cant(src: str):
+    # reproduce parse_effect's template ORDER: _cant_combat (FIRST), then _cant_combat_set.
+    m = _NS_CANT_FRAME.match(src)
+    if m:
+        verb = _NS_OURS.get(m.group(2))
+        if verb is None:
+            return None                            # cant_attack / cant_attack_or_block / … -> not our family
+        extra = _target(m.group(3)) if m.group(3) else "-"
+        return Effect(verb, "-", _target(m.group(1)), extra)
+    m = _NS_CANT_SET_FRAME.match(src)
+    if m:
+        verb = _NS_OURS.get(m.group(2))
+        if verb is None:
+            return None                            # cant_attack / cant_attack_or_block -> not our family
+        return Effect(verb, "-", ground.slug(m.group(1)))
+    return None
+
+
+def _ns_untap(src: str):
+    m = _NS_UNTAP_FRAME.match(src)
+    if not m:
+        return None
+    # `_doesnt_untap`: extra='next' iff g1 present AND the optional ' next' matched, else '-'.
+    return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -698,6 +773,18 @@ class _RcBody(str):       # the flat 'remove …' clause run (re-parsed by the _
 
 
 class _DbBody(str):       # the flat 'double …' object run (guarded + slugged like the object-verb leaf)
+    pass
+
+
+class _NsSubj(str):       # the subject NP before a negative-static verb (value unused; frame regex re-parses src)
+    pass
+
+
+class _NsVerb(str):       # the combat verb after "can't" (value unused; frame regex re-parses src)
+    pass
+
+
+class _NsTail(str):       # the post-verb tail of a negative-static clause (value unused; frame re-parses src)
     pass
 
 
@@ -1274,6 +1361,34 @@ class _ToEffect(Transformer):
             return None                            # compound/run-on or structural marker -> regex
         tgt = _target(rest) if _DB_TGT.match(rest) else ground.slug(rest)
         return Effect("double", "-", tgt)
+
+    # --- NEGATIVE STATICS (cant_be_blocked / cant_block / doesnt_untap) -------
+    def nssubj(self, *toks):
+        return _NsSubj(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+
+    def nsverb(self, *toks):
+        return _NsVerb(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+
+    def nstail(self, *toks):
+        return _NsTail(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+
+    def nscant(self, *args):
+        # The rule only certifies this is a "<subj> can't <verb> …" clause; the faithful parse is the
+        # EXACT `_cant_combat`-then-`_cant_combat_set` frame applied to the lowercased source (so the
+        # tuple is byte-identical to parse_effect, or — on an 'except by …'/'this combat'/non-_TGT
+        # subject the frames reject, or a cant_attack/-or-block verb that isn't ours — abstain).
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        return _ns_cant(src.strip())
+
+    def nsuntap(self, *args):
+        # Same construction for "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] …":
+        # the `_doesnt_untap` frame over the source yields the byte-identical tuple, or abstains.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        return _ns_untap(src.strip())
 
     def bcmtgt(self, *toks):
         return _BcmTgt(" ".join(str(t) for t in toks))
