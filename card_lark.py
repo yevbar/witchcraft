@@ -41,12 +41,23 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
+     | deqclause | dteqclause | dtmclause | ddivclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
+
+// deal_damage VARIANTS (the basic dclause abstains on these — they lack a single-token amount before
+// 'damage', or carry an 'equal to <amount>' / 'that much' / 'divided' rider). The discriminator is
+// purely lexical: 'damage equal to … to …' (amount-first) vs 'damage to … equal to …' (target-first)
+// are disjoint by whether EQUALTO precedes or follows the 'to <target>' prep phrase.
+deqclause: dsrc DEALS DMG EQUALTO deqamt TOPREP dteqtgt          -> deal_eq   // 'deals damage equal to <amt> to <tgt>'
+dteqclause: dsrc DEALS DMG TOPREP dteqtgt EQUALTO dvamt          -> deal_teq  // 'deals damage to <tgt> equal to <amt>'
+dtmclause: dsrc DEALS THATMUCH DMG TOPREP dtarget               -> deal_tm   // 'deals that much damage to <tgt>'
+ddivclause: dsrc DEALS damamt DMG DIVIDED ddivtgt              -> deal_div  // 'deals N damage divided as you choose among <tgts>'
+
 gclause: gtgt? GVERB gkw mdur?                    -> grant       // '<target> gains/has <KEYWORD> [duration]'
 aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> has/gains "<ability>" [duration]'
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
@@ -62,7 +73,11 @@ psubj: (WORD | QUANT)+                  // a player phrase before the verb (you 
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
 dsrc: (WORD | QUANT)+                   // damage source (DROPPED — implicit self, matching the regex)
 damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
-dtarget: (WORD | QUANT | NUM | ZONE)+   // target NP (no TOPREP: an internal 'to' -> abstain to regex)
+dtarget: (WORD | QUANT | NUM | ZONE | EQUALTO)+   // basic target NP (no TOPREP: internal 'to' -> abstain). 'equal to' stays content here.
+dteqtgt: (WORD | QUANT | NUM | ZONE)+   // variant target NP — stops at TOPREP and at EQUALTO (the rider boundary)
+deqamt: (WORD | QUANT | NUM | ZONE)+    // amount-first amount: stops at the FIRST 'to' (regex non-greedy); an internal ' to ' -> won't parse -> abstain
+dvamt: (WORD | QUANT | NUM | ZONE | TOPREP | EQUALTO)+   // target-first amount: runs to end of string
+ddivtgt: (WORD | QUANT | NUM | ZONE | TOPREP | EQUALTO)+ // divided targets: run to end (grounded raw, like the regex)
 mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
 mdur: MDUR
 gtgt: (WORD | QUANT | NUM)+             // the permanent/player receiving the grant (stops at gains/has/have)
@@ -81,8 +96,8 @@ fromphrase: FROM zwords? ZONE          -> source
 zwords: (WORD | TOPREP)+
 trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
 quant: QUANT
-robj: (WORD | ZONE)+                    // return object stops at from/to
-objall: (WORD | TOPREP | ZONE | FROM)+
+robj: (WORD | ZONE | EQUALTO)+          // return object stops at from/to; 'equal to' stays content
+objall: (WORD | TOPREP | ZONE | FROM | EQUALTO)+   // object verbs: 'equal to' stays content ('destroy each … equal to N')
 
 RVERB: "return"
 OVERB: %(verbs)s
@@ -102,6 +117,9 @@ ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
+DIVIDED.4: /\bdivided as you choose among\b/
+THATMUCH.4: /\bthat much\b/
+EQUALTO.3: /\bequal to\b/
 QUANT.2: /\b(?:up to (?:one|two|three|four|five|that many|x|[0-9]+)|any number of|a|an|one|two|three|four|five|target|all|each|another|x)\b/
 TOPREP.2: /\b(?:to|into|onto)\b/
 FROM.2: /\bfrom\b/
@@ -218,6 +236,18 @@ class _Tgt(str):
     pass
 
 
+class _DTgt(str):      # a deal-variant target (amount-first / target-first 'equal to' forms)
+    pass
+
+
+class _EqAmt(str):     # an 'equal to <amount>' span (either ordering)
+    pass
+
+
+class _DivTgt(str):    # the 'divided as you choose among <targets>' span (raw-slugged)
+    pass
+
+
 class _Dur(str):
     pass
 
@@ -328,6 +358,79 @@ class _ToEffect(Transformer):
         if re.search(r"\b(?:and|then|gains?|draws?|loses?|deals?)\b", tgt) or "," in tgt:
             return None                        # coordinated/multi-clause target -> regex chain owns it
         return Effect("deal_damage", n, _target(tgt))
+
+    # --- deal_damage VARIANTS -------------------------------------------------
+    # span markers (distinct classes so the variant transformers pick the right slot)
+    def dteqtgt(self, *toks):
+        return _DTgt(" ".join(str(t) for t in toks))
+
+    def deqamt(self, *toks):
+        return _EqAmt(" ".join(str(t) for t in toks))
+
+    def dvamt(self, *toks):
+        return _EqAmt(" ".join(str(t) for t in toks))
+
+    def ddivtgt(self, *toks):
+        return _DivTgt(" ".join(str(t) for t in toks))
+
+    def _coord(self, s: str) -> bool:
+        # a coordinated / multi-clause span the regex would slug whole (lossy) — abstain (faithful-or-abstain)
+        return "," in s or bool(re.search(r"\b(?:and|then|gains?|draws?|loses?)\b", s))
+
+    def _tgt_wrapped(self, s: str) -> bool:
+        # the variant target swallowed a trailing wrapper / conditional clause ('… unless that player
+        # sacrifices it', '… if you do') — the regex's constrained _TGT wouldn't reach here; abstain.
+        return bool(re.search(r"\b(?:unless|if|until|whenever|where)\b", s))
+
+    def deal_eq(self, *args):           # 'deals damage equal to <amt> to <tgt>'
+        amt = next((str(a) for a in args if isinstance(a, _EqAmt)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _DTgt)), None)
+        if amt is None or tgt is None:
+            return None
+        amt, tgt = amt.strip(), tgt.strip()
+        if not amt or not tgt or self._coord(amt) or self._coord(tgt) or self._tgt_wrapped(tgt):
+            return None
+        if re.search(r"\b(?:to|into|onto)\b", amt):
+            return None                 # deqamt swallowed a 'to' as a WORD -> the split is wrong -> abstain
+        return Effect("deal_damage", "equal_to_" + ground.slug(amt), _target(tgt))
+
+    def deal_teq(self, *args):          # 'deals damage to <tgt> equal to <amt>'
+        amt = next((str(a) for a in args if isinstance(a, _EqAmt)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _DTgt)), None)
+        if amt is None or tgt is None:
+            return None
+        amt, tgt = amt.strip(), tgt.strip()
+        if tgt == "itself":
+            return None                 # 'X deals damage to itself equal to Y' is _damage_self (source-as-target); abstain
+        if not amt or not tgt or self._coord(amt) or self._coord(tgt) or self._tgt_wrapped(tgt):
+            return None
+        return Effect("deal_damage", "equal_to_" + ground.slug(amt), _target(tgt))
+
+    def deal_tm(self, *args):           # 'deals that much damage to <tgt>'
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        if tgt is None:
+            return None
+        tgt = tgt.strip().lower()
+        if not tgt or self._coord(tgt):
+            return None
+        return Effect("deal_damage", "that_amount", _target(tgt))
+
+    def deal_div(self, *args):          # 'deals N damage divided as you choose among <tgts>'
+        amt = next((str(a) for a in args if isinstance(a, _Amt)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _DivTgt)), None)
+        if amt is None or tgt is None:
+            return None
+        amt, tgt = amt.strip(), tgt.strip()
+        if not tgt:
+            return None
+        # the regex slugs the divided-target OPAQUELY (no coordination split), so 'and/or' lists are
+        # faithful here; only a genuine following clause ('then …') would be lossy (the splitter removed
+        # those already) — mirror the regex exactly.
+        if re.search(r"\bthen\b", tgt):
+            return None
+        n = _amount(amt)
+        amount = n if n is not None else ground.slug(amt)
+        return Effect("deal_damage", amount, ground.slug(tgt), "divided")   # target RAW-slugged (matches regex)
 
     def mtgt(self, *toks):
         return _Tgt(" ".join(str(t) for t in toks))
