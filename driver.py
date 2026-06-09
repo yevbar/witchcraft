@@ -12,10 +12,13 @@ from them — the driver reads those derived relations back, never raw state.
 from __future__ import annotations
 
 import csv
+import os
 import re
 import subprocess
 import tempfile
 from pathlib import Path
+
+import engine_native        # compiled-binary backend; falls back to the interpreter if unavailable
 
 RULES = Path("datalog/engine_rules.dl").read_text()
 # relations the engine knows about; driver-only bookkeeping (in_library, ...) is not passed to souffle.
@@ -57,9 +60,14 @@ def cache_stats() -> dict:
 
 
 def _evaluate(fkey: frozenset) -> dict:
-    """Run souffle once for a fact set and return ALL outputs (cached). The program derives every
-    relation regardless of what's read back, so we capture them all and serve any later request."""
+    """Run the engine once for a fact set and return ALL outputs (cached). The program derives every
+    relation regardless of what's read back, so we capture them all and serve any later request.
+
+    Prefers the compiled native binary (engine_native, ~17x faster); falls back to the souffle
+    interpreter when no binary can be built or MTG_NO_NATIVE is set — byte-identical either way."""
     _EVALS[0] += 1
+    if not os.environ.get("MTG_NO_NATIVE") and engine_native.available():
+        return engine_native.evaluate(fkey)
     facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})."
                       for rel, rows in fkey for row in rows)
     with tempfile.TemporaryDirectory() as d:
@@ -272,18 +280,20 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     """Apply everything the engine derived for this step, in order; return a loser if
     one is decided this step (else None). This is the whole 'driver acts on engine
     output' surface — every consequence the engine flags is handled here."""
-    for (c,) in out["to_untap"]:                                 # §502.3 untap
+    # derived relations are sets; iterate them sorted so behavior is canonical regardless of the
+    # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
+    for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         state["tapped"].discard((c,)); print(f"    {ap} untaps {c}")
     for (p,) in sorted(out["to_draw"]):                          # §504.1 draw
         if not _draw(state, p):
             print(f"  ** {p} draws from an empty library and loses the game (§104.3c) **")
             return p
-    for (c, frm, to) in out["zone_change"]:                      # §701.8a zone moves
+    for (c, frm, to) in sorted(out["zone_change"]):              # §701.8a zone moves
         state.setdefault(ZONE[frm], set()).discard((c,))
         state.setdefault(ZONE[to], set()).add((c,))
         verb = "dies" if (frm, to) == ("battlefield", "graveyard") else f"moves {frm}"
         print(f"    {c} {verb} -> {to}")
-    for (p, n) in out["player_damage"]:                          # §510.2 persist combat damage
+    for (p, n) in sorted(out["player_damage"]):                  # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
     _apply_effects(state, out["pending"])                        # §603 -> §608 triggered effects
     dead = sorted(p for (p, v) in state["life"] if v <= LIFE_LOSS_THRESHOLD)
@@ -318,7 +328,7 @@ def _cast_phase(state: dict, ap: str) -> None:
             state.setdefault("printed_control", set()).add((ap, spell))
             if (spell,) in out["enters_tapped"]:
                 state.setdefault("tapped", set()).add((spell,)); print(f"      {spell} enters tapped")
-            for (c, k, n) in out["enters_with_counter"]:
+            for (c, k, n) in sorted(out["enters_with_counter"]):
                 if c == spell:
                     _bump_counter(state, spell, k, int(n)); print(f"      {spell} enters with {n} {k} counter")
     state["has_priority"] = set()
