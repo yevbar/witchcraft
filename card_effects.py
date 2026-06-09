@@ -1603,7 +1603,13 @@ _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 
 def _kw_ok(phrase: str):
     kw = ground.slug(phrase)
-    return kw if (kw in ground.keyword_abilities() or kw.split("_")[0] in ground.keyword_abilities()) else None
+    if kw in ground.keyword_abilities() or kw.split("_")[0] in ground.keyword_abilities():
+        return kw
+    # §702.14 landwalk variants ('islandwalk'/'swampwalk'/…) ground as the 'landwalk' keyword — keep the
+    # specific slug (faithful: it IS a landwalk) so 'gets +N/+N and gains islandwalk' splits cleanly.
+    if kw.endswith("walk") and "landwalk" in ground.keyword_abilities():
+        return kw
+    return None
 
 
 def _kw_list(s: str):
