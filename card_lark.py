@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -134,6 +134,27 @@ rcbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | COUNTER | FROM | ZONE | THATMAN
 // objects defer to the regex.
 dbclause: DB_DOUBLE dbbody                   -> dbl
 dbbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> dbbody
+
+// ATTACH (§701.3) — 'attach <equipment/aura> to <creature>'. The regex `_attach`
+// (`^attach (~|it|<_TGT>) to (<_TGT>)$`) puts the MOVED object (g1) in EXTRA and the DESTINATION (g2)
+// in TARGET. We OWN that clean two-arg shape: a leading ATTACH terminal anchors a flat body run, and
+// the transformer slices 'attach <body>' from `_src` and applies the EXACT `_attach` frame regex
+// (byte-identical or abstain). Clauses where the object/destination split fails the frame (an
+// object-internal 'to', e.g. 'attach target Aura attached to a creature to another creature', or a
+// trailing-anaphor destination the frame's `<_TGT>` can't reach) fall through the frame -> abstain,
+// leaving the whole-object-slug `_generic_object_verb` form to the regex (faithful-or-abstain).
+// The body must carry the internal TOPREP ('to'), so atbody includes TOPREP; the frame regex then
+// owns the actual split (the LAST viable 'to') exactly as the regex non-greedy `_TGT` does.
+atclause: AT_ATTACH atbody                   -> atattach
+atbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+  -> atbody
+
+// TRANSFORM (§701.28) — 'transform <object>' -> transform(-, slug(<object>)), the exact mirror of the
+// DOUBLE family: grounded by the generic object-verb leaf (`_verb_target` then `_generic_object_verb`).
+// We OWN the clean imperative object shape and apply the SAME guards (_is_compound_object + _OBJ_BAD)
+// in the transformer; compound/run-on/'equal to'/'for each'/'unless'/'where'/'if' objects defer to the
+// regex. Bare 'transform' only (no 's'): a subject-form '<X> transforms' is left to the regex.
+tfclause: TF_TRANSFORM tfbody                 -> tftransform
+tfbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> tfbody
 
 // PUT-TO-ZONE family (§401/§400.7) — the zone-move verbs the 'return' family doesn't cover:
 // put_on_bottom / put_in_hand / put_on_top. We OWN the clean IMPERATIVE shapes (a leading 'put',
@@ -284,6 +305,8 @@ LK_LOOK.3: /\blooks?\b/               // 'look'/'looks' — the §701.x 'look at
 SH_SHUFFLE.3: /\bshuffles?\b/         // 'shuffle'/'shuffles' — the §701.19 shuffle verb (shuffle family; namespaced)
 AM_ADD.3: /\badds?\b/                 // 'add'/'adds' — the §106 mana-production verb (add_mana family; namespaced)
 AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUNDED — never a greedy .*; '{' '}' aren't in WORD)
+AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword action (attach family; namespaced; imperative only)
+TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -503,6 +526,21 @@ _AM_SYM = re.compile(r"\{[^}]*\}")
 
 def _am_upper_syms(s: str) -> str:
     return _AM_SYM.sub(lambda m: m.group(0).upper(), s)
+
+
+# ATTACH frame — the EXACT `_attach` template (`^attach (~|it|<_TGT>) to (<_TGT>)$`). The lark rule only
+# certifies the clause begins with 'attach'; this frame does the faithful split, so the grounded tuple is
+# byte-identical to the regex (MOVED object g1 -> EXTRA, DESTINATION g2 -> TARGET). A clause the frame
+# rejects (object-internal 'to', a destination outside `_TGT`, e.g. '… to Sokka'/'… to Balan') falls
+# through -> abstain, leaving the whole-object-slug `_generic_object_verb` form to the regex.
+_AT_FRAME = re.compile(r"^attach (~|it|" + _TGT + r") to (" + _TGT + r")$", re.I)
+
+# TRANSFORM — the exact mirror of DOUBLE. The generic object-verb leaf grounds 'transform <object>' as
+# transform(-, slug(<object>)); precedence is `_verb_target` (`^(\w+) (<_TGT>)$`, _target, article kept)
+# FIRST, else `_generic_object_verb` (slug). They coincide on every corpus clause; we mirror the
+# precedence (whole-`_TGT` object -> _target; else plain slug) and apply the same guards.
+_TF_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
+_TF_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 
 
 # SUBJECT-FIRST object verbs. `_SF_PLAYER` is the closed player allow-list (reuse the family-shared
@@ -825,6 +863,14 @@ class _AmLead(str):       # an optional player phrase before 'add[s]' (value unu
 
 
 class _AmRest(str):       # the mana-spec span after 'add[s]' (value unused; re-parsed from _src by the frame)
+    pass
+
+
+class _AtBody(str):       # the flat 'attach …' clause run (re-parsed by the _attach frame)
+    pass
+
+
+class _TfBody(str):       # the flat 'transform …' object run (guarded + slugged like the object-verb leaf)
     pass
 
 
@@ -1429,6 +1475,46 @@ class _ToEffect(Transformer):
         if src is None:
             return None
         return _ns_untap(src.strip())
+
+    # --- ATTACH ---------------------------------------------------------------
+    def atbody(self, *toks):
+        return _AtBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def atattach(self, *args):
+        # 'attach <obj> to <dest>' -> attach(-, _target(dest), _target(obj)) — the EXACT `_attach`
+        # template (MOVED object g1 -> EXTRA, DESTINATION g2 -> TARGET). The rule only certifies the
+        # clause begins with 'attach'; the faithful split is the `_attach` frame applied to the
+        # lowercased source, so the tuple is byte-identical to the regex (or, on a clause the frame
+        # rejects — object-internal 'to', a non-`_TGT` destination — abstain to the regex's
+        # whole-object-slug `_generic_object_verb` form).
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _AT_FRAME.match(src.strip())
+        if not m:
+            return None
+        return Effect("attach", "-", _target(m.group(2)), _target(m.group(1)))
+
+    # --- TRANSFORM (mirror of DOUBLE) -----------------------------------------
+    def tfbody(self, *toks):
+        return _TfBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def tftransform(self, *args):
+        # 'transform <object>' -> transform(-, slug(<object>)), faithful to the object-verb leaf. Slice
+        # the object from the lowercased source (after the leading 'transform '), apply the leaf's guards,
+        # and mirror the `_verb_target`-then-`_generic_object_verb` precedence (a whole-`_TGT` object keeps
+        # its article via `_target`; otherwise plain slug). They coincide on every corpus clause.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = re.match(r"^transform (.+)$", src.strip(), re.I)
+        if not m:
+            return None
+        rest = m.group(1)
+        if _TF_OBJ_BAD.search(rest) or _is_compound_object(rest):
+            return None                            # compound/run-on or structural marker -> regex
+        tgt = _target(rest) if _TF_TGT.match(rest) else ground.slug(rest)
+        return Effect("transform", "-", tgt)
 
     def bcmtgt(self, *toks):
         return _BcmTgt(" ".join(str(t) for t in toks))
