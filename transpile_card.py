@@ -1012,6 +1012,8 @@ _STATIC_PLAYER = [
     (r"^Players may play (?:an? )?additional lands? (?:on|during) each (?:of their turns|turn)\.?$", "each_player_extra_land_per_turn"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
     (r"^You may choose not to untap ~ during your untap step\.?$", "may_skip_untap"),
+    (r"^Players skip their untap steps?\.?$", "players_skip_untap_step"),
+    (r"^Players can't untap during their untap steps?\.?$", "players_cant_untap"),
     (r"^You play with your hand revealed\.?$", "you_play_hand_revealed"),
     (r"^Your opponents play with their hands revealed\.?$", "opponents_play_hands_revealed"),
     (r"^Players play with their hands revealed\.?$", "players_play_hands_revealed"),
@@ -1034,6 +1036,12 @@ def _static_player(unit, ctx):
     m = re.match(r"^You may play (\w+) additional lands? (?:on|during) each of your turns\.?$", r, re.I)
     if m and m.group(1).lower() not in ("an", "a"):
         return mk("extra_lands_per_turn_" + ground.slug(m.group(1)))
+    # §502.3 untap-step limit: 'Players can't untap more than one <thing> during their untap steps'
+    # (Smoke, Damping Field, Winter Moon), optionally gated by 'As long as ~ is untapped,' (Winter Orb).
+    m = re.match(r"^(?:As long as ~ is untapped, )?[Pp]layers can't untap more than one (.+?) "
+                 r"during their untap steps?\.?$", r, re.I)
+    if m:
+        return mk("players_cant_untap_more_than_one_" + ground.slug(m.group(1)))
     # capturing permission/restriction statics (§116/§118/§601) — the scope is a descriptive slug.
     m = re.match(r"^You can't cast (.+?)\.?$", r, re.I)
     if m:
@@ -1729,13 +1737,22 @@ def _cast_restriction(unit, ctx):
 
 
 def _doesnt_untap(unit, ctx):
-    """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502)."""
+    """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502).
+    Also the SET form 'Creatures with power 3 or greater / Nonbasic lands / Islands don't untap during
+    their controllers' untap steps' (Meekstone, Back to Basics, Choke, Intruder Alarm, Hokori): the
+    subject set is slugged faithfully into the same card_doesnt_untap target slot."""
+    cid = ctx["id"]
     m = re.match(r"^(~|Enchanted \w+|Equipped \w+|That creature|That permanent) doesn't untap "
                  r"during (?:its controller's|your|their)(?: next)? untap step\.?$", unit.raw, re.I)
-    if not m:
-        return None
-    cid = ctx["id"]
-    return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
+    if m:
+        return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
+    m = re.match(r"^(?P<subj>.+?) don't untap during (?:their controllers'|their) untap steps?\.?$",
+                 unit.raw, re.I)
+    if m:
+        subj = ground.slug(m.group("subj"))
+        if subj:
+            return CardOut(cid, [f'card_doesnt_untap("{cid}", "{subj}")'], "doesnt_untap")
+    return None
 
 
 def _cost_modifier(unit, ctx):
