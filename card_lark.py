@@ -18,7 +18,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT, _LIB_OWNER
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT, _LIB_OWNER, _mana_production
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -217,6 +217,21 @@ nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA 
 NS_CANT.5: /\bcan't\b/                          // the §509/§508 prohibition modal (outranks WORD)
 NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static verb (outranks WORD)
 
+// ADD_MANA family (§106/§605) — '[<player>] add[s] [an additional] <mana-spec>'. This family is
+// almost ENTIRELY a formal symbol-sublanguage: the clause STRUCTURE is trivial (optional subject,
+// the 'add' verb, an optional 'additional' modifier), and ALL the substance is the <mana-spec>, which
+// is the mana-symbol/colour formal language parsed by card_effects._mana_production (reused verbatim —
+// NOT re-implemented here). So the grammar's only job is to RECOGNIZE the clause (consume its tokens,
+// including the bounded mana-symbol terminal AM_MANASYM) so the transformer fires; the grounding is the
+// EXACT `_add_mana` regex frame (`_AM_FRAME` + `_mana_production`) applied to the source — byte-identical
+// or abstain. NEGATIVE rule priority defers to any competing family parse (Earley ambiguity); on a real
+// 'add <mana>' clause there is no competitor, so this still wins. amlead consumes an optional subject
+// phrase before 'add'; amrest consumes the spec to end (its value is unused — the span is re-parsed from
+// `_src` by the frame, so the slug is byte-identical to the regex, never a re-joined approximation).
+amclause.-2: amlead? AM_ADD amrest          -> amadd
+amlead: (WORD | QUANT | NUM)+               // optional player phrase before 'add[s]' (validated by the frame)
+amrest: (WORD | QUANT | NUM | AM_MANASYM)+  // the mana-spec span (re-parsed from source by _AM_FRAME)
+
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
 cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
@@ -267,6 +282,8 @@ RC_REMOVE.3: /\bremoves?\b/            // 'remove' — the §701.45/counter-remo
 DB_DOUBLE.3: /\bdouble\b/             // 'double' — the §107.16 doubling verb (double family; namespaced; not 'doubles', which the regex object-verb doesn't ground)
 LK_LOOK.3: /\blooks?\b/               // 'look'/'looks' — the §701.x 'look at' verb (look family; namespaced)
 SH_SHUFFLE.3: /\bshuffles?\b/         // 'shuffle'/'shuffles' — the §701.19 shuffle verb (shuffle family; namespaced)
+AM_ADD.3: /\badds?\b/                 // 'add'/'adds' — the §106 mana-production verb (add_mana family; namespaced)
+AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUNDED — never a greedy .*; '{' '}' aren't in WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -471,6 +488,21 @@ _RC_FRAME = re.compile(
 # can't ground those either — faithful-or-abstain).
 _DB_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
 _DB_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
+
+# ADD_MANA — the EXACT `_add_mana` template frame: an optional `_TGT` subject, the 'add[s]' verb, an
+# optional 'an additional'/'additional' modifier, then the mana-spec `(.+)`. The spec is parsed by
+# card_effects._mana_production (reused verbatim). `parse_clause_lark` LOWERCASES the clause, but
+# `_mana_production` looks up mana symbols in the §107.4 colour table by their UPPERCASE glyph ('{G}',
+# not '{g}') — so `_am_upper_syms` re-uppercases ONLY the inside of each '{…}' (English phrases stay
+# lowercase, which `_mana_production` matches case-insensitively). The grounded tuple is then byte-
+# identical to `_add_mana` (amount = len(prod), target = _target(subj or 'you'), extra = dedup-joined
+# colours) — or None (abstain) when `_mana_production` rejects the spec.
+_AM_FRAME = re.compile(rf"^(?:({_TGT}) )?adds? (?:an additional |additional )?(.+)$", re.I)
+_AM_SYM = re.compile(r"\{[^}]*\}")
+
+
+def _am_upper_syms(s: str) -> str:
+    return _AM_SYM.sub(lambda m: m.group(0).upper(), s)
 
 
 # SUBJECT-FIRST object verbs. `_SF_PLAYER` is the closed player allow-list (reuse the family-shared
@@ -785,6 +817,14 @@ class _NsVerb(str):       # the combat verb after "can't" (value unused; frame r
 
 
 class _NsTail(str):       # the post-verb tail of a negative-static clause (value unused; frame re-parses src)
+    pass
+
+
+class _AmLead(str):       # an optional player phrase before 'add[s]' (value unused; subject re-parsed by frame)
+    pass
+
+
+class _AmRest(str):       # the mana-spec span after 'add[s]' (value unused; re-parsed from _src by the frame)
     pass
 
 
@@ -1629,6 +1669,31 @@ class _ToEffect(Transformer):
         if src is None:
             return None
         return _sh_frame(src.strip())
+
+    # --- ADD_MANA -------------------------------------------------------------
+    def amlead(self, *toks):
+        return _AmLead(" ".join(str(t) for t in toks))    # value unused; presence consumes the subject
+
+    def amrest(self, *toks):
+        return _AmRest(" ".join(str(t) for t in toks))    # value unused; presence consumes the spec
+
+    def amadd(self, *args):
+        # The rule only certifies the clause is an 'add …' run; the faithful grounding is the EXACT
+        # `_add_mana` frame applied to the lowercased source — an optional `_TGT` subject + 'add[s]' +
+        # optional 'additional' + a mana-spec parsed by `_mana_production` (reused verbatim, with the
+        # mana-symbol glyphs re-uppercased so the §107.4 colour lookup matches). Byte-identical to the
+        # regex leaf, or abstain when `_mana_production` rejects the spec.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _AM_FRAME.match(src.strip())
+        if not m:
+            return None
+        prod = _mana_production(_am_upper_syms(m.group(2)))
+        if not prod:
+            return None
+        return Effect("add_mana", len(prod), _target(m.group(1) or "you"),
+                      "_".join(dict.fromkeys(prod)))
 
 
 class _Zone:
