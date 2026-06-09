@@ -727,6 +727,49 @@ def _land_type_set(unit, ctx):
     return CardOut(cid, facts, "land_type_set")
 
 
+_DMG_REDIRECT = re.compile(
+    r"^All damage that would be dealt to (?P<from>~|[\w' ]+?) is dealt to (?P<to>~|[\w' ]+?) instead\.?$", re.I)
+
+
+def _damage_redirect(unit, ctx):
+    """'All damage that would be dealt to <A> is dealt to <B> instead.' — a §614 damage-redirection
+    replacement static (Pariah, Pariah's Shield, Treacherous Link, Empyrial Archangel). The one-shot
+    '… this turn …' version is a spell (handled by _spell); this is the permanent/static form."""
+    if "this turn" in unit.raw.lower():
+        return None
+    m = _DMG_REDIRECT.match(unit.raw)
+    if not m:
+        return None
+    def ref(s):
+        s = s.strip()
+        return "self" if s in ("~", "it") else ground.slug(s)
+    frm, to = ref(m.group("from")), ref(m.group("to"))
+    if not frm or not to:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_damage_redirect("{cid}", "{frm}", "{to}")'], "damage_redirect")
+
+
+_LIFE_FLOOR = re.compile(
+    r"^(?:(?P<cond>If .+?|As long as .+?), )?damage that would reduce your life total to less than "
+    r"\d+ reduces it to (?P<floor>\d+) instead\.?$", re.I)
+
+
+def _life_floor(unit, ctx):
+    """'[<cond>, ]Damage that would reduce your life total to less than N reduces it to N instead.' —
+    a §614 life-total floor replacement (Ali from Cairo, Fortune Thief, Sustaining Spirit, and the
+    conditional Worship / Elderscale Wurm). The 'until end of turn' / triggered forms start with
+    When/Until and don't match this static anchor."""
+    m = _LIFE_FLOOR.match(unit.raw)
+    if not m:
+        return None
+    cond = ground.slug(m.group("cond")) if m.group("cond") else "-"
+    if not cond:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_life_floor("{cid}", {m.group("floor")}, "{cond}")'], "life_floor")
+
+
 def _static_effect(unit, ctx):
     """LAST-RESORT: a bare effect line on a permanent (no cost/trigger/keyword) that nonetheless parses
     fully into grounded effects — e.g. 'Skip your draw step.' This is the static analogue of _spell;
@@ -1956,7 +1999,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
-             _static_control, _prevent_static, _land_type_set, _static_effect]
+             _static_control, _prevent_static, _land_type_set, _damage_redirect, _life_floor, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a

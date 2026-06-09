@@ -109,6 +109,9 @@ def build() -> tuple[str, dict]:
     p.decl("card_etb_choose_option", [("card", "symbol"), ("option", "symbol")])
     # §305.7 land type-changing static: <scope> lands become <land_type>, replacing or in addition.
     p.decl("card_land_type_set", [("card", "symbol"), ("scope", "symbol"), ("land_type", "symbol"), ("mode", "symbol")])
+    # §614 replacement effects: damage redirection (A's damage dealt to B) and the life-total floor.
+    p.decl("card_damage_redirect", [("card", "symbol"), ("from", "symbol"), ("to", "symbol")])
+    p.decl("card_life_floor", [("card", "symbol"), ("floor", "number"), ("condition", "symbol")])
     p.decl("card_static_player", [("card", "symbol"), ("rule", "symbol")])
     p.decl("card_static", [("card", "symbol"), ("tag", "symbol")])
     p.decl("card_restriction", [("card", "symbol"), ("who", "symbol"), ("restriction", "symbol")])
@@ -135,7 +138,8 @@ def build() -> tuple[str, dict]:
              "card_ability", "card_ability_cost", "card_ability_trigger", "card_ability_modifier", "card_effect", "card_mode_option",
              "card_modal",
              "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
-             "card_enters_tapped", "card_etb_choose", "card_etb_choose_option", "card_land_type_set", "card_static_player", "card_additional_cost",
+             "card_enters_tapped", "card_etb_choose", "card_etb_choose_option", "card_land_type_set",
+             "card_damage_redirect", "card_life_floor", "card_static_player", "card_additional_cost",
              "card_static", "card_restriction", "card_grants_ability", "card_cost_modifier", "card_cda",
              "card_level", "card_class_level", "card_ticket_pt", "card_specialize",
              "card_intensity", "card_intensify", "card_augment", "card_poison_tolerance")
