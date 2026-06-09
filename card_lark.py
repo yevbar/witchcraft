@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause
+     | sfclause | rcclause | dbclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -118,6 +118,23 @@ sfclause.-2: sfsubj SF_VERB sfrest          -> subjverb
 sfsubj: (WORD | QUANT | NUM)+                // the acting player (validated as _PLAYER)
 sfrest: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR | DMG | PTDELTA | COUNTER | ONPREP)+
 
+// REMOVE_COUNTER — the mirror of put_counter (cclause/putctr): 'remove <count> [<kind>] counter[s]
+// from <target>' (_remove_counter). The whole clause is captured as a flat token run and re-parsed by
+// the SAME `_remove_counter` regex frame in the transformer (faithful BY CONSTRUCTION — byte-identical
+// or abstain). Reuses the shared COUNTER/FROM/PTDELTA/TOPREP/ZONE/QUANT terminals (no new ones). The
+// 'remove … from combat' / non-counter 'remove' clauses parse here too but the frame regex (which
+// REQUIRES 'counter[s] from <_TGT>') fails on them -> the transformer abstains, leaving them to the regex.
+rcclause: RC_REMOVE rcbody                  -> rcremove
+rcbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | COUNTER | FROM | ZONE | THATMANY)+  -> rcbody
+
+// DOUBLE — the §107.16/keyword-action 'double <object>' verb, grounded (like the regex) by the generic
+// object-verb leaf as double(-, slug(<object>)). We own the clean object shape and apply the EXACT
+// `_generic_object_verb`/`_verb_target` guards (_is_compound_object + _OBJ_BAD) in the transformer so
+// the output is identical-or-abstain; compound/run-on/'equal to'/'for each'/'unless'/'where'/'if'
+// objects defer to the regex.
+dbclause: DB_DOUBLE dbbody                   -> dbl
+dbbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> dbbody
+
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
 cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
@@ -164,6 +181,8 @@ PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|loses|lose|discards|dis
 RVREVEAL.3: /\breveals?\b/
 PVPREVENT.3: /\bprevent\b/
 SF_VERB.3: /\b(?:sacrifices?|exiles?)\b/     // subject-first object verbs (the SUBJECT precedes the verb)
+RC_REMOVE.3: /\bremoves?\b/            // 'remove' — the §701.45/counter-removal verb (remove_counter family; namespaced)
+DB_DOUBLE.3: /\bdouble\b/             // 'double' — the §107.16 doubling verb (double family; namespaced; not 'doubles', which the regex object-verb doesn't ground)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -350,6 +369,24 @@ _RV_SUBJ_HAND = re.compile(r"^their hand$", re.I)                               
 _PV_FOG = re.compile(r"^all (combat )?damage that would be dealt this turn$", re.I)                # _fog body
 _PV_NEXT = re.compile(r"^the next (\w+) damage that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent body
 
+# REMOVE_COUNTER frame — the EXACT `_remove_counter` template. The lark rule only certifies the clause
+# is a 'remove …' run; this frame (which REQUIRES 'counter[s] from <_TGT>') does the faithful parse, so
+# the grounded tuple is byte-identical to the regex (or, on a 'remove … from combat'/non-counter clause,
+# fails -> abstain). The target group is the real `_TGT` (anchored): a target that isn't a `_TGT` noun
+# phrase FAILS the frame, exactly as the regex abstains — no lossy net-new fact.
+_RC_FRAME = re.compile(
+    r"^remove (a|an|one|two|three|all|any number of|x|\w+) "
+    r"(?:([+-]\d+/[+-]\d+|[\w ]+?) )?counters? from (" + _TGT + r")$", re.I)
+
+# DOUBLE — the generic object-verb leaf grounds 'double <object>' as double(-, slug(<object>)). The
+# regex precedence is `_verb_target` (`^(\w+) (<_TGT>)$`, slugs the WHOLE object via _target, article
+# kept) FIRST, else `_generic_object_verb` (slug). They coincide on every corpus 'double' clause, but we
+# mirror the precedence exactly to stay identical-or-abstain. The guards are `_generic_object_verb`'s:
+# abstain on a compound/run-on object or an `_OBJ_BAD` structural marker (the regex object-verb leaf
+# can't ground those either — faithful-or-abstain).
+_DB_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
+_DB_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
+
 
 # SUBJECT-FIRST object verbs. `_SF_PLAYER` is the closed player allow-list (reuse the family-shared
 # `_PLAYER`); `_SF_SAC_NAMED` is `_sacrifice_subj` #1's exact object alternation `(it|that \w+|them|those
@@ -468,6 +505,14 @@ class _BcmTgt(str):       # the becomes target NP (the permanent being animated)
 
 
 class _BcmTail(str):      # the raw post-P/T span (kept only so the parse consumes it; g3 is sliced)
+    pass
+
+
+class _RcBody(str):       # the flat 'remove …' clause run (re-parsed by the _remove_counter frame)
+    pass
+
+
+class _DbBody(str):       # the flat 'double …' object run (guarded + slugged like the object-verb leaf)
     pass
 
 
@@ -1001,6 +1046,49 @@ class _ToEffect(Transformer):
         if ", where " in tgt or tgt.endswith(", where") or "for each " in tgt or " or remove " in tgt:
             return None
         return Effect("put_counter", amt, _target(tgt), kind_slug)
+
+    # --- REMOVE_COUNTER (mirror of putctr) ------------------------------------
+    def rcbody(self, *toks):
+        return _RcBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def rcremove(self, *args):
+        # The rule only certifies the clause is a 'remove …' run; the faithful parse is the EXACT
+        # `_remove_counter` frame applied to the lowercased source (so the output is byte-identical to
+        # the regex, or — on a 'remove … from combat'/non-counter clause, which the frame rejects —
+        # abstain). Mirrors `_remove_counter`'s count/kind/target logic line-for-line.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _RC_FRAME.match(src.strip())
+        if not m:
+            return None
+        n = _amount(m.group(1))
+        if n is None:
+            g1 = m.group(1).lower()
+            n = "all" if g1 == "all" else ("any" if g1 == "any number of" else "X")
+        kind = "-" if not m.group(2) else (m.group(2) if "/" in m.group(2) else ground.slug(m.group(2)))
+        return Effect("remove_counter", n, _target(m.group(3)), kind)
+
+    # --- DOUBLE ---------------------------------------------------------------
+    def dbbody(self, *toks):
+        return _DbBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def dbl(self, *args):
+        # 'double <object>' -> double(-, slug(<object>)), faithful to the object-verb leaf. Slice the
+        # object from the lowercased source (after the leading 'double '), apply the leaf's guards, and
+        # mirror the `_verb_target`-then-`_generic_object_verb` precedence (a whole-`_TGT` object keeps
+        # its article via `_target`; otherwise plain slug). They coincide on every corpus clause.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = re.match(r"^double (.+)$", src.strip(), re.I)
+        if not m:
+            return None
+        rest = m.group(1)
+        if _DB_OBJ_BAD.search(rest) or _is_compound_object(rest):
+            return None                            # compound/run-on or structural marker -> regex
+        tgt = _target(rest) if _DB_TGT.match(rest) else ground.slug(rest)
+        return Effect("double", "-", tgt)
 
     def bcmtgt(self, *toks):
         return _BcmTgt(" ".join(str(t) for t in toks))
