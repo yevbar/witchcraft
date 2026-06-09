@@ -41,7 +41,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -83,6 +83,26 @@ bcmclause: bcmtgt BCM_COP quant? BCM_PT bcmtail?   -> bcmbecomes
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
+
+// REVEAL — the structured 'reveal the top N cards of <owner> library' (imperative or subject-form) and
+// 'reveals their hand'. The clause body is captured as a flat token run and re-joined in the transformer,
+// which applies the same fixed-frame regex the templates use (faithful by construction) and slugs the
+// owner/subject via card_effects._target. A subject before the verb is allowed (closed _PLAYER phrase).
+// rvclause/pvclause carry NEGATIVE rule priority so that when a sentence is ALSO parseable as another
+// family (e.g. 'Whenever you reveal …, <src> deals N damage to <tgt>' — really a deal_damage clause
+// whose 'reveal' sits in a leading wrapper that the regex leaf swallows into dsrc), Earley's ambiguity
+// resolver prefers the competing (deal/…) parse, leaving the reveal/prevent grounding to the cases
+// where it is the ONLY parse. On a pure 'reveal the top …' / 'prevent the next …' clause there is no
+// competitor, so these rules still win. (The transformer additionally abstains on any non-frame body.)
+rvclause.-2: rvsubj? RVREVEAL rvbody       -> reveal
+rvsubj: (WORD | QUANT | NUM | ZONE)+        // player phrase before 'reveals' (validated as _PLAYER)
+rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
+
+// PREVENT_DAMAGE — the two clean dominant frames: 'prevent the next N damage that would be dealt
+// [this turn] to <target> [this turn]' (_prevent) and 'prevent all [combat] damage that would be dealt
+// this turn' (_fog). Body captured flat and parsed by the same frame regexes in the transformer.
+pvclause.-2: PVPREVENT pvbody               -> prevent
+pvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | DMG | EQUALTO | THATMANY | MDUR)+
 
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
@@ -127,6 +147,8 @@ CCOUNT.3: /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)\
 TOKEN.4: /\btokens?\b/
 FOREACH.4: /\bfor each\b/
 PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|loses|lose|discards|discard)\b/
+RVREVEAL.3: /\breveals?\b/
+PVPREVENT.3: /\bprevent\b/
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -298,6 +320,22 @@ _CHS_QUANTS = ({"a", "an", "one", "two", "three", "another", "target", "any numb
 _CHS_TGT = re.compile(r"(?i)^(?:" + _TGT + r")$")
 
 
+# REVEAL frame regexes — the EXACT fixed frames of the regex templates this rule replaces. The lark rule
+# only certifies the clause starts with 'reveal[s]' (and optionally a player subject); the faithful body
+# parse is these frames, so the grounded tuple is byte-identical to `_reveal_top`/`_subject_reveal_top`/
+# `_reveal_hand`. Anything outside these frames (the open-ended `_reveal_generic`/`_reveal_among`/
+# `_subject_obj_verb` slugs) is left to the regex (abstain) — faithful-or-abstain.
+_RV_TOP = re.compile(r"^the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$", re.I)          # _reveal_top
+_RV_SUBJ_TOP = re.compile(r"^the top (?:(\w+) )?cards? of (?:their|its owner's|your) library$", re.I)  # _subject_reveal_top body
+_RV_SUBJ_HAND = re.compile(r"^their hand$", re.I)                                                  # _reveal_hand body
+
+# PREVENT_DAMAGE frame regexes — the clean dominant frames (`_prevent`, `_fog`). The variable-scope
+# `_prevent_all_scoped`, the consequent `_prevent_that`, and the `_prevent_next_source` shield carry
+# open-ended `.+?` slugs; they stay with the regex (abstain).
+_PV_FOG = re.compile(r"^all (combat )?damage that would be dealt this turn$", re.I)                # _fog body
+_PV_NEXT = re.compile(r"^the next (\w+) damage that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent body
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -343,6 +381,18 @@ class _EqAmt(str):     # an 'equal to <amount>' span (either ordering)
 
 
 class _DivTgt(str):    # the 'divided as you choose among <targets>' span (raw-slugged)
+    pass
+
+
+class _RvSubj(str):    # a player subject before 'reveal[s]' (validated against _PLAYER)
+    pass
+
+
+class _RvBody(str):    # the reassembled reveal clause body (everything after 'reveal[s]')
+    pass
+
+
+class _PvBody(str):    # the reassembled prevent clause body (everything after 'prevent')
     pass
 
 
@@ -933,6 +983,81 @@ class _ToEffect(Transformer):
             return None                        # remainder isn't a clean 'with/until end of turn' -> abstain
         amount = str(pt).upper()               # P/T verbatim; input was lowercased so re-upper X ('x/x'->'X/X')
         return Effect("becomes", amount, _target(tgt), ground.slug(g3) or "-")
+
+    # --- REVEAL ---------------------------------------------------------------
+    def rvsubj(self, *toks):
+        return _RvSubj(" ".join(str(t) for t in toks))
+
+    def rvbody(self, *toks):
+        return _RvBody(" ".join(str(t) for t in toks))
+
+    def reveal(self, *args):
+        subj = next((str(a) for a in args if isinstance(a, _RvSubj)), None)
+        body = next((str(a) for a in args if isinstance(a, _RvBody)), None)
+        if body is None:
+            return None
+        body = body.strip().lower()
+        if subj is None:
+            # IMPERATIVE 'reveal the top N cards of <owner> library' (_reveal_top). Other imperative
+            # 'reveal <object>' shapes (_reveal_generic/_reveal_among) carry an open `.+?` slug -> abstain.
+            m = _RV_TOP.match(body)
+            if not m:
+                return None
+            n = _amount(m.group(1)) if m.group(1) else 1
+            if n is None:
+                return None                        # non-numeric count word -> regex's _reveal_generic owns it
+            owner = m.group(2).strip().lower()
+            tgt = "top_of_library" if owner == "your" else "top_of_" + ground.slug(owner) + "_library"
+            return Effect("reveal", n if n is not None else 1, tgt)
+        # SUBJECT-FORM. Only a clean closed player phrase (faithful; a swallowed/compound subject abstains).
+        s = subj.strip().lower()
+        if not _PLAYER.match(s):
+            return None
+        m = _RV_SUBJ_TOP.match(body)               # '<player> reveals the top N cards of their/your library'
+        if m:
+            n = _amount(m.group(1)) if m.group(1) else 1
+            return Effect("reveal", n if n is not None else 1, _target(s))
+        if _RV_SUBJ_HAND.match(body):              # '<player> reveals their hand'
+            return Effect("reveal", "-", _target(s), "hand")
+        return None                                # any other subject-reveal slug -> regex (_subject_obj_verb)
+
+    # --- PREVENT_DAMAGE -------------------------------------------------------
+    def pvbody(self, *toks):
+        return _PvBody(" ".join(str(t) for t in toks))
+
+    def prevent(self, *args):
+        body = next((str(a) for a in args if isinstance(a, _PvBody)), None)
+        if body is None:
+            return None
+        body = body.strip().lower()
+        if _PV_FOG.match(body):                    # 'all [combat] damage that would be dealt this turn' (_fog)
+            m = _PV_FOG.match(body)
+            return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
+        m = _PV_NEXT.match(body)                   # 'the next N damage that would be dealt [this turn] to <span>'
+        if not m:
+            return None                            # _prevent_all_scoped / _prevent_that / shield -> regex
+        n = _amount(m.group(1))
+        amt = n if n is not None else "X"
+        span = m.group(2).strip()
+        # Mirror the regex's optional trailing ' this turn': the template's `(?:this turn )?to … (?: this
+        # turn)?` consumes a LEADING 'this turn' (when the body reads 'dealt this turn to <span>') and then
+        # <span> has no trailing 'this turn'; otherwise the trailing ' this turn' is the optional suffix and
+        # is stripped off <span>. (When neither holds — junk after 'this turn' — span keeps it, matching the
+        # regex's greedy `_TGT` swallow, e.g. 'any target this turn by a source of your choice'.)
+        lead_this_turn = "dealt this turn to " in body
+        if not lead_this_turn and span.endswith(" this turn"):
+            span = span[:-len(" this turn")].strip()
+        # The regex's `_prevent` target is `(any number of targets|{_TGT})` — a clean NP that the `_TGT`
+        # alternatives can't reach across a comma, a '/', a 'divided as you choose' rider, or a ', where
+        # X is …' scaling appendix (those clauses make the template FAIL, so the regex abstains). Lark's
+        # WORD swallows them, which would emit a garbled target slug — a LOSSY net-new fact. Abstain.
+        if "," in span or "/" in span or "divided as you choose" in span or " where " in span:
+            return None
+        if span == "any number of targets":
+            tgt = "any_number_of_targets"          # _prevent's special-case
+        else:
+            tgt = _target(span)
+        return Effect("prevent_damage", str(amt) if isinstance(amt, int) else amt, tgt)
 
 
 class _Zone:
