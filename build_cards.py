@@ -22,21 +22,24 @@ from transpile_card import transpile_unit
 
 
 def _process_chunk(cards_chunk):
-    """Worker: transpile a CONTIGUOUS chunk of cards -> [(cid, escaped_name|None, [facts], by_pattern)].
-    Each card is independent. Facts stay in per-card emission order; the parent merges chunks IN ORDER
-    with a global first-seen dedup, so the result is byte-identical to a serial run."""
+    """Worker: transpile a CONTIGUOUS chunk of cards -> [(cid, escaped_name|None, [facts], by_pattern,
+    full)]. Each card is independent. Facts stay in per-card emission order; the parent merges chunks IN
+    ORDER with a global first-seen dedup, so the result is byte-identical to a serial run. `full` is the
+    fused COVERAGE metric — a card is fully ingested iff EVERY oracle unit grounds (an empty-unit card
+    counts as full, matching card_coverage); this lets one transpile pass yield facts AND coverage."""
     out = []
     for c in cards_chunk:
         cid = ground.slug(c["name"])
-        facts, bp, emitted = [], collections.Counter(), False
+        facts, bp, emitted, full = [], collections.Counter(), False, True
         for seq, u in enumerate(card_corpus.units_of(c)):
             o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
             if not o:
+                full = False
                 continue
             bp[o.pattern] += 1
             emitted = True
             facts.extend(o.facts)
-        out.append((cid, c["name"].replace('"', "'") if emitted else None, facts, dict(bp)))
+        out.append((cid, c["name"].replace('"', "'") if emitted else None, facts, dict(bp), full))
     return out
 
 
@@ -58,20 +61,23 @@ def _transpile_corpus():
     facts: list[str] = []
     seen = set()
     by_pattern = collections.Counter()
+    cards_full = 0
     for chunk in results:                       # chunks IN ORDER -> byte-identical to serial
-        for cid, name, cfacts, bp in chunk:
+        for cid, name, cfacts, bp, full in chunk:
             if name is not None:
                 names[cid] = name
+            if full:
+                cards_full += 1
             by_pattern.update(bp)
             for f in cfacts:
                 if f not in seen:
                     seen.add(f)
                     facts.append(f)
-    return names, facts, by_pattern
+    return names, facts, by_pattern, cards_full, len(cards)
 
 
 def build() -> tuple[str, dict]:
-    names, facts, by_pattern = _transpile_corpus()
+    names, facts, by_pattern, cards_full, cards_total = _transpile_corpus()
 
     p = Program()
     p.comment("cards.dl — grounded card-oracle facts, interpreted from MTGJSON oracle text. GENERATED.")
@@ -134,7 +140,8 @@ def build() -> tuple[str, dict]:
         [("expect_kw", [("card", "symbol"), ("keyword", "symbol")])],
         [("kw", "expect_kw(C, K)", "miss", "card_keyword(C, K)")])
     p.fact('expect_kw("serra_angel", "flying")')
-    return p.text(), {"cards_with_facts": len(names), "facts": len(facts), "by_pattern": dict(by_pattern)}
+    return p.text(), {"cards_with_facts": len(names), "facts": len(facts), "by_pattern": dict(by_pattern),
+                      "cards_full": cards_full, "cards_total": cards_total}
 
 
 def main() -> None:
@@ -143,6 +150,9 @@ def main() -> None:
     Path("datalog/cards.dl").write_text(src, encoding="utf-8")
     print(f"wrote datalog/cards.dl ({report['cards_with_facts']} cards, {report['facts']} facts, "
           f"by_pattern={report['by_pattern']})")
+    cf, ct = report["cards_full"], report["cards_total"]
+    # fused COVERAGE — computed in the SAME transpile pass as the facts (no separate card_coverage run).
+    print(f"  >>> CARDS FULLY INGESTED (every line parses): {cf}/{ct}  {100*cf/ct:.1f}%  <<<")
 
 
 if __name__ == "__main__":

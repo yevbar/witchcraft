@@ -22,6 +22,7 @@ Run: python3 build_cards.py && python3 validate.py
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -50,7 +51,9 @@ def isolation_check():
 def soundness_check():
     out = Path("/tmp/sfc_validate")
     out.mkdir(exist_ok=True)
-    r = subprocess.run(["souffle", "-D", str(out), str(_DL / "cards.dl")],
+    # -j N: run souffle's evaluation multi-threaded (the conformance pass over ~140k facts is the gate's
+    # long pole; the interpreter is single-threaded by default).
+    r = subprocess.run(["souffle", "-j", str(os.cpu_count() or 1), "-D", str(out), str(_DL / "cards.dl")],
                        capture_output=True, text=True, timeout=600)
     cf = out / "conformance_fail.csv"
     fails = len(cf.read_text().splitlines()) if cf.exists() else -1
