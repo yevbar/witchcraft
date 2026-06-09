@@ -41,7 +41,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -62,6 +62,16 @@ gclause: gtgt? GVERB gkw mdur?                    -> grant       // '<target> ga
 aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> has/gains "<ability>" [duration]'
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
 tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
+
+// BECOMES (the dominant 'animate to a N/N' shape): '<tgt> becomes/is/are [a] N/N <typetail>
+// [with <kw>] [until end of turn]'. We own ONLY this P/T-bearing shape (the `_becomes` template);
+// copy/color/base-pt/added/type variants stay with the regex (faithful-or-abstain). The whole
+// post-P/T span is captured raw and the regex's non-greedy g3 (type tail) is reconstructed exactly
+// in the transformer (`_bcm_g3`) — the 'with <kw>' and a trailing 'until end of turn' are stripped.
+bcmclause: bcmtgt BCM_COP quant? BCM_PT bcmtail?   -> bcmbecomes
+
+bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
+bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
 
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
@@ -116,6 +126,8 @@ COUNTER.4: /\bcounters?\b/
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
+BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
+BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 DIVIDED.4: /\bdivided as you choose among\b/
 THATMUCH.4: /\bthat much\b/
@@ -208,6 +220,32 @@ def _ret_ambiguous(s: str) -> bool:
     return len(re.findall(r"\b(?:to|into|onto)\b", _UPTOQ.sub(" ", s))) >= 2
 
 
+# the regex `_becomes` type tail is `([\w' -]*?)(?: with [\w, ]+?)?(?: until end of turn)?$` — a
+# NON-GREEDY g3. We reconstruct it EXACTLY: g3 is the shortest prefix of the post-P/T span T whose
+# every consumed char is in `[\w' -]` (so it can't cross a comma) such that the remainder matches
+# the optional ' with <kw>' + trailing ' until end of turn'. Returns None if no such split (the
+# clause isn't the clean pt shape — abstain). Validated tuple-identical on every pt clause.
+_BCM_G3CHAR = re.compile(r"[\w' -]")
+_BCM_REM = re.compile(r"^(?: with [\w, ]+?)?(?: until end of turn)?$", re.I)
+# The greedy `bcmtgt` can swallow a leading wrapper ('Until end of turn, …', 'If …, it', 'you may
+# have …') that the regex's anchored `_TGT` would never match — grounding those is LOSSY (wrong
+# target). Gate the target on the EXACT `_TGT` noun-phrase regex: only own clauses whose subject is a
+# legitimate `_TGT` (faithful-or-abstain). In production the wrapper chain peels the lead and re-feeds
+# the clean residue, so abstaining here loses nothing.
+from card_effects import _TGT as _BCM_TGT_SRC
+_BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
+
+
+def _bcm_g3(tail: str):
+    n = len(tail)
+    for i in range(0, n + 1):
+        if i > 0 and not _BCM_G3CHAR.match(tail[i - 1]):
+            break                              # g3 (`[\w' -]*`) can't include this char -> stop
+        if _BCM_REM.match(tail[i:]):
+            return tail[:i]
+    return None
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -265,6 +303,14 @@ class _CKind(str):
 
 
 class _CTarget(str):
+    pass
+
+
+class _BcmTgt(str):       # the becomes target NP (the permanent being animated)
+    pass
+
+
+class _BcmTail(str):      # the raw post-P/T span (kept only so the parse consumes it; g3 is sliced)
     pass
 
 
@@ -728,6 +774,41 @@ class _ToEffect(Transformer):
             return None
         return Effect("put_counter", amt, _target(tgt), kind_slug)
 
+    def bcmtgt(self, *toks):
+        return _BcmTgt(" ".join(str(t) for t in toks))
+
+    def bcmtail(self, *toks):
+        return _BcmTail(" ".join(str(t) for t in toks))    # value unused; presence consumes the span
+
+    def bcmbecomes(self, *args):
+        # '<tgt> becomes/is/are [a] N/N <typetail> [with <kw>] [until end of turn]' — the dominant
+        # `_becomes` animate. We OWN only this P/T-bearing shape; copy/color/base-pt/added/type
+        # variants stay with the regex. Output must be byte-identical to `_becomes`.
+        tgt = next((a for a in args if isinstance(a, _BcmTgt)), None)
+        # the P/T is the BCM_PT Token (kept raw so we can slice the original tail by its end_pos)
+        pt = next((a for a in args if not isinstance(a, (_BcmTgt, _BcmTail, _Quant))
+                   and "/" in str(a)), None)
+        quant = next((str(a) for a in args if isinstance(a, _Quant)), None)
+        if tgt is None or pt is None:
+            return None
+        if quant is not None and quant.strip().lower() not in ("a", "an"):
+            return None                        # regex's optional slot here is ONLY 'a'/'an' -> abstain
+        tgt = str(tgt).strip()
+        if not tgt or not _BCM_TGT.fullmatch(tgt):
+            return None                        # subject isn't a legitimate `_TGT` NP (swallowed wrapper) -> abstain
+        # slice the post-P/T span from the ORIGINAL (lowercased) source via the token's end position —
+        # this is exactly the regex's T (the string g3/with/until-end-of-turn consume). Reconstructing
+        # from joined tokens would lose original spacing/punctuation, so we slice instead.
+        src = getattr(self, "_src", None)
+        if src is None or not hasattr(pt, "end_pos") or pt.end_pos is None:
+            return None
+        tail = src[pt.end_pos:]
+        g3 = _bcm_g3(tail)
+        if g3 is None:
+            return None                        # remainder isn't a clean 'with/until end of turn' -> abstain
+        amount = str(pt).upper()               # P/T verbatim; input was lowercased so re-upper X ('x/x'->'X/X')
+        return Effect("becomes", amount, _target(tgt), ground.slug(g3) or "-")
+
 
 class _Zone:
     def __init__(self, verb):
@@ -767,6 +848,7 @@ def parse_clause_lark(clause: str):
         tree = _PARSER.parse(s)
     except Exception:
         return None
+    _T._src = s                                # the lowercased source, so bcmbecomes can slice the raw P/T tail
     e = _T.transform(tree)
     e = e.children[0] if hasattr(e, "children") else e
     return e if isinstance(e, Effect) else None
