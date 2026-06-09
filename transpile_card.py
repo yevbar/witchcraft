@@ -843,12 +843,37 @@ def _saga_chapter(unit, ctx):
 
 
 def _etb_choose(unit, ctx):
-    """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e)."""
+    """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e).
+
+    Two shapes:
+      - CATEGORY: 'choose a color' / 'choose a basic land type' -> card_etb_choose(cid, category)
+      - EXPLICIT options: 'choose Khans or Dragons' / 'choose odd or even' /
+        'choose Elemental, Elf, ..., or Treefolk' -> one card_etb_choose_option(cid, opt) each.
+    The controller makes the choice; only this "(~|it) enters, choose ..." subject is handled (the
+    'each player chooses' / 'an opponent chooses' / 'secretly choose' variants have a different
+    chooser and are left to abstain rather than mis-attribute who decides)."""
+    cid = ctx["id"]
     m = re.match(r"^As (?:~|it) enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
+    if m:
+        return CardOut(cid, [f'card_etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
+    m = re.match(r"^As (?:~|it) enters, choose (?P<opts>.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
-    cid = ctx["id"]
-    return CardOut(cid, [f'card_etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
+    opts_src = m.group("opts")
+    # only the "choose X or Y[, ...]" mode-pick is an explicit option set. "choose two abilities
+    # from among A, B, and C" is a DIFFERENT mechanic (choose-N, and-joined) — abstain on it and
+    # on any and-joined list rather than mangle the options into wrong slugs.
+    if "from among" in opts_src.lower() or re.search(r"\band\b", opts_src, re.I):
+        return None
+    # normalize "A or B" / "A, B, or C" / "A, B or C" to a comma list, then split.
+    opts_raw = re.sub(r",?\s+or\s+", ", ", opts_src)
+    opts = [o.strip() for o in opts_raw.split(",") if o.strip()]
+    if len(opts) < 2:                       # not an enumerated choice (e.g. 'choose two colors')
+        return None
+    slugs = [ground.slug(o) for o in opts]
+    if not all(slugs):                      # every option must ground to a clean slug, else abstain
+        return None
+    return CardOut(cid, [f'card_etb_choose_option("{cid}", "{s}")' for s in slugs], "etb_choose")
 
 
 def _as_enters(unit, ctx):

@@ -104,6 +104,9 @@ def build() -> tuple[str, dict]:
     p.decl("card_enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
     p.decl("card_enters_tapped", [("card", "symbol"), ("condition", "symbol")])
     p.decl("card_etb_choose", [("card", "symbol"), ("what", "symbol")])
+    # as-enters choice among an EXPLICIT option set ("choose Khans or Dragons", "choose odd or
+    # even") — one fact per literal option, vs card_etb_choose which names the CATEGORY chosen.
+    p.decl("card_etb_choose_option", [("card", "symbol"), ("option", "symbol")])
     p.decl("card_static_player", [("card", "symbol"), ("rule", "symbol")])
     p.decl("card_static", [("card", "symbol"), ("tag", "symbol")])
     p.decl("card_restriction", [("card", "symbol"), ("who", "symbol"), ("restriction", "symbol")])
@@ -130,7 +133,7 @@ def build() -> tuple[str, dict]:
              "card_ability", "card_ability_cost", "card_ability_trigger", "card_ability_modifier", "card_effect", "card_mode_option",
              "card_modal",
              "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
-             "card_enters_tapped", "card_etb_choose", "card_static_player", "card_additional_cost",
+             "card_enters_tapped", "card_etb_choose", "card_etb_choose_option", "card_static_player", "card_additional_cost",
              "card_static", "card_restriction", "card_grants_ability", "card_cost_modifier", "card_cda",
              "card_level", "card_class_level", "card_ticket_pt", "card_specialize",
              "card_intensity", "card_intensify", "card_augment", "card_poison_tolerance")
