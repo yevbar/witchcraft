@@ -41,7 +41,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -60,6 +60,17 @@ ddivclause: dsrc DEALS damamt DMG DIVIDED ddivtgt              -> deal_div  // '
 
 gclause: gtgt? GVERB gkw mdur?                    -> grant       // '<target> gains/has <KEYWORD> [duration]'
 aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> has/gains "<ability>" [duration]'
+
+// CHOOSE family (§700.2). Bare imperative 'choose <quant> <thing>' only; the regex `_choose` DROPS
+// any leading subject, so subject-prefixed forms are deferred to the regex (no leading-subject rule
+// here — abstaining is safe and avoids the greedy subject-swallow ambiguity). The chosen thing spans
+// to end as opaque tokens (rejoined to text and slugged, like the regex `(.+?)$`). 'choose' folds the
+// quant exactly: {a,an,one} -> q="", else q=slug(quant)+"_".
+chsclause: CHS_CHOOSE chsquant chsrest            -> chs
+chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
+chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
+chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
+      | DEALS | DMG | GETS | GVERB | PVERB | PUT | TOKEN | DIVIDED | THATMUCH | PTDELTA | MDUR | CCOUNT
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
 tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
 
@@ -121,6 +132,7 @@ DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
 GVERB.3: /\b(?:gains?|has|have)\b/
 QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
+CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
 PUT.3: /\bputs?\b/
 COUNTER.4: /\bcounters?\b/
 ONPREP.3: /\bon\b/
@@ -273,10 +285,31 @@ def _gc_dursplit(obj_full: str):
 _GC_TGT = re.compile(r"^(?:" + _BCM_TGT_SRC + r")$", re.I)
 
 
+# CHOOSE family. The EXACT quantifier set the regex `_choose` alternation `(a|an|one|two|three|up to
+# \w+|one or more|any number of|another|target|the)` SELECTS, minus alternatives it never reaches
+# ('one or more' is shadowed by 'one') and minus 'the'/'up to <non-numeric>' (rare / split-divergent).
+_CHS_UPTO = {"one", "two", "three", "four", "five", "x"}   # 'up to <N>' the shared QUANT can also yield
+_CHS_QUANTS = ({"a", "an", "one", "two", "three", "another", "target", "any number of"}
+               | {"up to " + n for n in _CHS_UPTO})
+# 'choose <obj>' is grounded by TWO regex templates in PRECEDENCE order: the generic `_verb_target`
+# (`^(\w+) (<_TGT>)$`) fires FIRST whenever the FULL object is a `_TGT` noun phrase, slugging it WHOLE
+# (article kept) via `_target`; only otherwise does `_choose` fire, folding the article (a/an/one -> "").
+# So an object that is itself a `_TGT` keeps its leading 'a/an/one'; one that isn't drops it. Mirror that.
+_CHS_TGT = re.compile(r"(?i)^(?:" + _TGT + r")$")
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
 class _Quant(str):
+    pass
+
+
+class _ChsQuant(str):     # the choose-family quantifier (folded into the chosen-thing slug)
+    pass
+
+
+class _ChsRest(str):      # the chosen-thing noun phrase (opaque, slugged like the regex `(.+?)$`)
     pass
 
 
@@ -345,6 +378,42 @@ class _BcmTail(str):      # the raw post-P/T span (kept only so the parse consum
 class _ToEffect(Transformer):
     def quant(self, tok):
         return _Quant(str(tok))
+
+    # --- CHOOSE family --------------------------------------------------------
+    def chstok(self, tok):
+        return str(tok)
+
+    def chsquant(self, tok):
+        return _ChsQuant(str(tok))
+
+    def chsrest(self, *toks):
+        return _ChsRest(" ".join(str(t) for t in toks))
+
+    def chs(self, *args):
+        quant = next((str(a) for a in args if isinstance(a, _ChsQuant)), None)
+        rest = next((str(a) for a in args if isinstance(a, _ChsRest)), None)
+        if quant is None or rest is None:
+            return None
+        quant = quant.strip().lower()
+        rest = rest.strip()
+        # Only own the quantifiers the regex `_choose` alternation actually selects (case-folded). The
+        # shared QUANT terminal is broader (four/five/all/each/x, 'up to that many'); restricting here
+        # keeps us identical-or-abstain — anything else defers to the regex.
+        if quant not in _CHS_QUANTS:
+            return None                            # 'four'/'five'/'all'/'x'/'up to that many' etc. -> regex
+        if not rest:
+            return None                            # empty chosen-thing (the modal 'choose one —' has '—')
+        # The regex's `(.+?)` is opaque text we rejoin from tokens; a char outside the WORD class
+        # (em-dash bullet of a MODAL list, a `{..}` mana symbol, a comma list) won't tokenize here ->
+        # abstain (defer to the regex / unit-handler layer, per the directive's modal carve-out).
+        full = (quant + " " + rest).strip()
+        if _is_compound_object(full) or _is_compound_object(rest):
+            return None                            # run-on second effect ('… then …', '… and <verb> …')
+        if _CHS_TGT.match(full):
+            # `_verb_target` precedence: the WHOLE object is a `_TGT` -> slug it via `_target`, article kept.
+            return Effect("choose", "-", _target(full))
+        q = "" if quant in ("a", "an", "one") else ground.slug(quant) + "_"
+        return Effect("choose", "-", q + ground.slug(rest))
 
     def obj(self, *toks):
         return " ".join(str(t) for t in toks)
