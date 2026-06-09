@@ -1142,6 +1142,46 @@ def _combat_restriction(unit, ctx):
     return None
 
 
+# A static GRANT of one-or-more QUOTED abilities to a SET of permanents (§613.6) — the anthem-shaped
+# sibling of _granted_ability, for subjects _GRANTED's narrow 'who' alternation misses ('Commander
+# creatures you own have …', 'Green creatures have …', soulbond 'each of those creatures has …',
+# 'Creatures you control with the chosen name have …'). The line is WHOLE-unit: '<set> has/have
+# "<ab1>"[ and "<ab2>"]*[ until end of turn].', optionally wrapped in a leading 'As long as <cond>, '
+# (soulbond, 'As long as you control a Demon, ~ has …'). Each quoted ability is recorded faithfully as
+# a slug of its self-normalized text; the wrapper condition rides the duration slot ('as_long_as_…').
+_GRANT_SET = re.compile(
+    rf'^(?:As long as (?P<cond>.+?), )?(?P<who>{_SUBJ}) (?:has|have) '
+    r'(?P<abs>"[^"]+"(?: and "[^"]+")*)'
+    r'(?P<dur> until end of turn)?\.?$', re.I | re.S)
+
+
+def _grant_quoted_to_set(unit, ctx):
+    """'<set of permanents> has/have "<quoted ability>"[ and "<quoted ability>"]*.' — a static §613.6
+    ability grant to a SUBSET of permanents (the anthem analogue of _granted_ability). Also covers the
+    soulbond wrapper 'As long as ~ is paired with another creature, each of those creatures has "…"'
+    and 'As long as <cond>, <subj> has "…"', recording the pairing/condition in the duration slot.
+    Emits one card_grants_ability per quoted ability; abstains if any quoted body slugs empty."""
+    if {"Instant", "Sorcery"} & _types(ctx):
+        return None
+    m = _GRANT_SET.match(unit.raw)
+    if not m:
+        return None
+    bodies = re.findall(r'"([^"]+)"', m.group("abs"))
+    abs_slugs = [ground.slug(b)[:160] for b in bodies]
+    if not abs_slugs or not all(abs_slugs):
+        return None
+    who = _target_slug(m.group("who"))
+    if m.group("cond"):
+        dur = "as_long_as_" + ground.slug(m.group("cond"))
+    elif m.group("dur"):
+        dur = "until_end_of_turn"
+    else:
+        dur = "-"
+    cid = ctx["id"]
+    facts = [f'card_grants_ability("{cid}", "{who}", "{ab}", "{dur}")' for ab in abs_slugs]
+    return CardOut(cid, facts, "grant_quoted_to_set")
+
+
 _GRANTED = re.compile(
     r'^(?P<who>~|enchanted \w+|equipped \w+|(?:\w+ )?\w+ you control|other [\w ]+?|'
     r'target [\w ]+?|each [\w ]+?|all [\w ]+?|it|they) (?:has|have|gains?) "(?P<ab>.+)"'
@@ -1601,7 +1641,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
-             _additional_cost, _as_long_as, _static_pt, _anthem_conjunct,
+             _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
