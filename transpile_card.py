@@ -668,6 +668,65 @@ def _spell(unit, ctx):
                    + _effect_facts(ctx["id"], aid, effects), "spell")
 
 
+_LAND_TYPE_NORM = {
+    "plains": "plains", "plain": "plains",
+    "island": "island", "islands": "island",
+    "swamp": "swamp", "swamps": "swamp",
+    "mountain": "mountain", "mountains": "mountain",
+    "forest": "forest", "forests": "forest",
+    "wastes": "wastes", "waste": "wastes",
+}
+_LANDTYPE_SET = re.compile(
+    r"^(?P<subj>Nonbasic lands?|All [A-Za-z]+|Each land|Lands you control|Enchanted land|~|Lands)"
+    r" (?:are|is) (?P<types>.+?)"
+    r"(?P<add> in addition to (?:its|their) other(?: land)? types)?\.?$", re.I)
+
+
+def _land_type_set(unit, ctx):
+    """'<lands> are/is <basic type(s)> [in addition to their other types].' — a §305.7 land
+    type-changing static (Blood Moon, Conversion, Yavimaya, Celestial Dawn, Lush Growth). Emits one
+    card_land_type_set(cid, scope, type, mode) per resulting basic type. Abstains unless the scope is
+    a recognized land set AND every result is a basic land type — so 'All creatures are black' or
+    'Enchanted land is the chosen type' fall through rather than mint a bogus land-type fact."""
+    m = _LANDTYPE_SET.match(unit.raw)
+    if not m:
+        return None
+    subj = m.group("subj").lower()
+    if subj.startswith("nonbasic land"):
+        scope = "nonbasic_lands"
+    elif subj == "each land":
+        scope = "each_land"
+    elif subj == "lands you control":
+        scope = "lands_you_control"
+    elif subj == "enchanted land":
+        scope = "enchanted_land"
+    elif subj == "~":
+        scope = "self"
+    elif subj == "lands":
+        scope = "all_lands"
+    elif subj.startswith("all "):
+        rest = subj[4:]
+        if rest == "lands":
+            scope = "all_lands"
+        else:
+            t = _LAND_TYPE_NORM.get(rest)
+            if not t:
+                return None                       # 'All creatures' / 'All Slivers' — not a land set
+            scope = "all_" + t
+    else:
+        return None
+    raw_types = re.sub(r"\b(?:a|an)\s+", "", m.group("types"), flags=re.I)
+    raw_types = re.sub(r",?\s+and\s+", ", ", raw_types)        # 'A, B, and C' / 'A and B' -> comma list
+    parts = [p.strip().rstrip(".").lower() for p in raw_types.split(",") if p.strip()]
+    types = [_LAND_TYPE_NORM.get(t) for t in parts]
+    if not types or not all(types):               # any non-basic-type result => not this static
+        return None
+    mode = "additional" if m.group("add") else "replace"
+    cid = ctx["id"]
+    facts = [f'card_land_type_set("{cid}", "{scope}", "{t}", "{mode}")' for t in dict.fromkeys(types)]
+    return CardOut(cid, facts, "land_type_set")
+
+
 def _static_effect(unit, ctx):
     """LAST-RESORT: a bare effect line on a permanent (no cost/trigger/keyword) that nonetheless parses
     fully into grounded effects — e.g. 'Skip your draw step.' This is the static analogue of _spell;
@@ -1897,7 +1956,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
-             _static_control, _prevent_static, _static_effect]
+             _static_control, _prevent_static, _land_type_set, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
