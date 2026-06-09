@@ -11,6 +11,8 @@ Run `python3 build_oracle_corpus.py` first (needs mtgjson/AllPrintings.json).
 from __future__ import annotations
 
 import collections
+import os
+from multiprocessing import Pool
 from pathlib import Path
 
 import card_corpus
@@ -19,26 +21,57 @@ from dlgen import Program
 from transpile_card import transpile_unit
 
 
-def build() -> tuple[str, dict]:
-    names: dict[str, str] = {}
-    facts: list[str] = []
-    seen = set()
-    by_pattern = collections.Counter()
-    for c in card_corpus.load_cards():
+def _process_chunk(cards_chunk):
+    """Worker: transpile a CONTIGUOUS chunk of cards -> [(cid, escaped_name|None, [facts], by_pattern)].
+    Each card is independent. Facts stay in per-card emission order; the parent merges chunks IN ORDER
+    with a global first-seen dedup, so the result is byte-identical to a serial run."""
+    out = []
+    for c in cards_chunk:
         cid = ground.slug(c["name"])
-        emitted = False
+        facts, bp, emitted = [], collections.Counter(), False
         for seq, u in enumerate(card_corpus.units_of(c)):
             o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
             if not o:
                 continue
-            by_pattern[o.pattern] += 1
+            bp[o.pattern] += 1
             emitted = True
-            for f in o.facts:
+            facts.extend(o.facts)
+        out.append((cid, c["name"].replace('"', "'") if emitted else None, facts, dict(bp)))
+    return out
+
+
+def _transpile_corpus():
+    """Run transpile over the whole corpus, parallelized across cards. Returns (names, facts, by_pattern)
+    IDENTICAL to the serial build: contiguous chunks + in-order merge + global first-seen dedup preserve
+    the exact serial fact order. Set CARD_JOBS=1 to force serial (e.g. for debugging)."""
+    cards = list(card_corpus.load_cards())
+    ncpu = os.cpu_count() or 1
+    nproc = max(1, min(int(os.environ.get("CARD_JOBS", ncpu)), ncpu))
+    if nproc == 1 or len(cards) < 200:
+        results = [_process_chunk(cards)]
+    else:
+        sz = (len(cards) + nproc - 1) // nproc
+        chunks = [cards[i:i + sz] for i in range(0, len(cards), sz)]
+        with Pool(nproc) as pool:
+            results = pool.map(_process_chunk, chunks)
+    names: dict[str, str] = {}
+    facts: list[str] = []
+    seen = set()
+    by_pattern = collections.Counter()
+    for chunk in results:                       # chunks IN ORDER -> byte-identical to serial
+        for cid, name, cfacts, bp in chunk:
+            if name is not None:
+                names[cid] = name
+            by_pattern.update(bp)
+            for f in cfacts:
                 if f not in seen:
                     seen.add(f)
                     facts.append(f)
-        if emitted:
-            names[cid] = c["name"].replace('"', "'")
+    return names, facts, by_pattern
+
+
+def build() -> tuple[str, dict]:
+    names, facts, by_pattern = _transpile_corpus()
 
     p = Program()
     p.comment("cards.dl — grounded card-oracle facts, interpreted from MTGJSON oracle text. GENERATED.")

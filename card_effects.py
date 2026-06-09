@@ -12,6 +12,7 @@ the rules-side content builders: a frame we don't recognize cleanly stays uncove
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 
@@ -1667,8 +1668,11 @@ def parse_clauses(sentence: str) -> "list | None":
     return [e] if e else None
 
 
+@functools.lru_cache(maxsize=None)
 def parse_clause(sentence: str) -> "Effect | None":
     """Like parse_effect, but recognizes the optional/conditional wrappers that dominate the tail:
+    MEMOIZED on the clause string (pure function — the result is consumed read-only into a fact, so
+    sharing the cached Effect is safe). The recursive inner-clause calls hit the same cache.
     'you may <effect>' -> cond='may'; 'if you do, <effect>' -> cond='if_you_did' (follows an optional);
     'if <condition>, <effect>' -> cond=<condition slug> (a descriptive predicate, like a trigger slug).
     Abstains if the inner effect isn't grounded."""

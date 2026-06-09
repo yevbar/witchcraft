@@ -13,6 +13,7 @@ clause shape is only owned here once `lark(clause) == regex(clause)` on every ca
 """
 from __future__ import annotations
 
+import functools
 import re
 
 from lark import Lark, Transformer, v_args
@@ -1810,9 +1811,11 @@ class _CTail(str):
 _T = _ToEffect()
 
 
+@functools.lru_cache(maxsize=None)
 def parse_clause_lark(clause: str):
     """A card-effect clause -> Effect via the CFG, or None (abstain). Case-folded; the grammar owns the
-    imperative core + zone-moves so far."""
+    imperative core + zone-moves so far. MEMOIZED on the clause string (the Earley parse is the per-clause
+    hot spot, and many clauses recur across cards) — pure, result consumed read-only."""
     s = clause.strip().rstrip(".").lower()
     if s.startswith("return ") and _ret_ambiguous(s):
         return None                            # ambiguous from/to split — defer to regex
