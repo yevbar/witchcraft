@@ -1007,6 +1007,73 @@ def _card_static(unit, ctx):
     return None
 
 
+# Mana-pool / spend-restriction RIDER sentences — almost always the TAIL sentence of a multi-sentence
+# 'Add {…}. <rider>' line whose mana-add grounds but whose rider didn't, so the WHOLE line failed
+# (e.g. Geosurge 'Add {R}…. Spend this mana only to cast artifact or creature spells.'; Jegantha
+# '{T}: Add {W}{U}{B}{R}{G}. This mana can't be spent to pay generic mana costs.'). Each is a §605/§106
+# constraint on mana already in a pool: spend-restriction (§106.1c), the §500.4 mana-emptying exemption
+# (Shizuko/Omnath 'you don't lose this mana as steps and phases end'), or a may-spend-any-type relaxation.
+# The grounded slug names WHICH constraint + its faithful condition tail (like _SPEND_RESTR already does
+# for the same family inside _split_modifiers); a wrong fact is avoided by anchoring the whole sentence.
+_MANA_RIDER = [
+    # spend-restriction: which spells/abilities this mana may pay for (matches _SPEND_RESTR's slug shape)
+    (r"^(?:spend|use) this mana only (?P<c>.+)$", "spend_only_"),
+    # this mana CAN'T pay for X / you can't spend this mana to X — the negative form
+    (r"^this mana can'?t be spent (?P<c>.+)$", "mana_cant_be_spent_"),
+    (r"^you can'?t spend this mana (?P<c>to .+)$", "mana_cant_be_spent_"),
+    # §500.4 mana-emptying exemption: the produced mana persists past the step/phase end (Shizuko/Omnath)
+    (r"^(?:until (?P<d1>[^,]+), )?(?:you|they) don'?t lose this mana(?P<c1> as steps[\w ]*end)$",
+     "dont_lose_this_mana"),
+    (r"^(?:until (?P<d2>[^,]+), )?(?:that|this) mana doesn'?t empty(?P<c2> from [\w' ]*mana pool)$",
+     "mana_doesnt_empty"),
+    # a may-spend-any-type relaxation tied to an exile-then-cast effect (Laughing Jasper Flint family)
+    (r"^mana of any type can be spent (?P<c>to .+)$", "mana_any_type_"),
+    # note the type of mana spent (a charge/filter setup — Jeweled Amulet)
+    (r"^note the type of mana spent to pay this (?:activation )?cost$", "note_mana_type_spent"),
+]
+
+
+# A 'can't be regenerated' rider — the TAIL sentence of a destroy/deal-damage line saying the affected
+# permanents can't regenerate (§701.15c). Almost always sentence 2 of '<destroy/damage>. <subj> can't
+# be regenerated[ this turn].' (Catastrophe, Incinerate, Mephitic Ooze, Balefire Dragon). The subject is
+# whatever the prior sentence destroyed/damaged ('that creature', 'creatures destroyed this way', 'it');
+# we record WHICH set + the this-turn scope as a faithful slug, so the whole line grounds.
+_CANT_REGEN = re.compile(
+    r"^(?P<subj>(?:a |the |that |those )?creatures?(?: dealt damage this way| destroyed this way)?"
+    r"|(?:an? |the |those )?(?:artifacts?|permanents?|lands?)(?: destroyed this way)?"
+    r"|the creature|it|they) can'?t be regenerated(?P<turn> this turn)?$", re.I)
+
+
+def _cant_regenerate(unit, ctx):
+    """'<subject> can't be regenerated[ this turn].' — a §701.15c no-regeneration rider (the tail of a
+    destroy/damage line). Emits a faithful card_static slug naming the affected set + scope."""
+    m = _CANT_REGEN.match(unit.raw.strip().rstrip("."))
+    if not m:
+        return None
+    subj = ground.slug(m.group("subj"))
+    scope = "_this_turn" if m.group("turn") else ""
+    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{subj}_cant_be_regenerated{scope}")'],
+                   "card_static")
+
+
+def _mana_rider(unit, ctx):
+    """A mana-pool / spend-restriction rider sentence (§106/§500.4/§605) — see _MANA_RIDER. Emits one
+    faithful card_static slug so the surrounding 'Add {…}. <rider>' line grounds as a whole."""
+    s = unit.raw.strip().rstrip(".")
+    for pat, tag in _MANA_RIDER:
+        m = re.match(pat, s, re.I)
+        if not m:
+            continue
+        gd = m.groupdict()
+        if tag.endswith("_") and gd.get("c"):                 # condition-carrying slug
+            full = tag + ground.slug(gd["c"])
+        else:                                                  # duration-prefixed pool-persistence slug
+            dur = next((gd[k] for k in ("d1", "d2") if gd.get(k)), None)
+            full = (f"until_{ground.slug(dur)}_" if dur else "") + tag
+        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{full[:120]}")'], "card_static")
+    return None
+
+
 # Static-anthem SUBJECT grammar — a SUBSET of permanents an always-on effect applies to (§613 layer
 # 6/7). Broader than _TGT (which is for spell targets): it admits multi-word adjective chains and a
 # trailing set-qualifier ('… of the chosen type', '… with flying', '… that are enchanted'). The set
@@ -1791,7 +1858,8 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
-             _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static,
+             _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static, _mana_rider,
+             _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
