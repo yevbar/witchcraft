@@ -1358,21 +1358,48 @@ def _lure(m):
     return Effect("lure", "-", _target(m.group(1)))
 
 
-@_t(r"^search your library for ([^,]+?)$")
+# a comma-separated ENUMERATION of multiple distinct sought cards ('a white card, a blue card, … and a
+# green card' / 'a Plains card, an Island card, …') — a SET search (§701.18), structurally different from
+# a single sought card that's one of a TYPE disjunction ('a basic Forest, Plains, or Island card'). We
+# ABSTAIN on the set form (no faithful single-target tuple) and OWN the disjunction form.
+_SEARCH_MULTI = re.compile(r" cards?,\s+(?:a |an )|\b(?:cards?|named .+) and (?:a |an )", re.I)
+# a captured search-object that runs on into a SECOND effect after a comma ('… card, exile that card',
+# '… card, put it into your hand') — the comma is an effect boundary, not part of the noun phrase. The
+# body splitter normally peels these, but guard here so the relaxed capture can't swallow a run-on.
+_SEARCH_RUNON = re.compile(r",\s+(?:" + "|".join(sorted(ground.effect_verbs() | _PREDICATE_LEADS)) + r")\b", re.I)
+
+
+def _is_single_sought_card(s: str) -> bool:
+    """True if a captured search-object is ONE faithful sought card — a (possibly type-disjunction,
+    possibly comma'd) noun phrase ending in 'card'/'cards', or a 'named <X>' phrase (whose name may
+    itself contain a comma, e.g. 'Chandra, Bold Pyromancer'). Abstains on multi-card enumerations and on
+    objects that run on into a second effect, so the relaxed comma capture stays faithful-or-abstain."""
+    if _is_compound_object(s) or _SEARCH_MULTI.search(s) or _SEARCH_RUNON.search(s):
+        return False
+    return bool(re.search(r"(?:cards?|named .+)$", s, re.I))
+
+
+@_t(r"^search your library for (.+?)$")
 def _search(m):
-    if _is_compound_object(m.group(1)):     # '… for a creature card and put it onto the battlefield'
-        return None                          # -> let the body splitter handle the second effect
-    return Effect("search", "-", ground.slug(m.group(1)))
+    obj = m.group(1)
+    if "," in obj and not _is_single_sought_card(obj):
+        return None                          # multi-card set / run-on '… and put it …' -> let splitter handle
+    if "," not in obj and _is_compound_object(obj):
+        return None
+    return Effect("search", "-", ground.slug(obj))
 
 
-@_t(rf"^(?:({_TGT}) )?(?:may )?search(?:es)? ([\w' ,/-]+?(?:graveyard|hand|library|exile)[\w' ,/-]*?) for ([^,]+?)$")
+@_t(rf"^(?:({_TGT}) )?(?:may )?search(?:es)? ([\w' ,/-]+?(?:graveyard|hand|library|exile)[\w' ,/-]*?) for (.+?)$")
 def _search_zones(m):
     """'[<player>] search[es] <…graveyard/hand/library…> for <X>' — a §701.18 search across zones; the
     searcher (if named) and searched zones are recorded, the sought card as the target."""
-    if _is_compound_object(m.group(3)):
+    obj = m.group(3)
+    if "," in obj and not _is_single_sought_card(obj):
+        return None
+    if "," not in obj and _is_compound_object(obj):
         return None
     who = _target(m.group(1)) if m.group(1) else "you"
-    return Effect("search", "-", ground.slug(m.group(3)), ground.slug(m.group(2)) + ("_by_" + who if who != "you" else ""))
+    return Effect("search", "-", ground.slug(obj), ground.slug(m.group(2)) + ("_by_" + who if who != "you" else ""))
 
 
 @_t(rf"^put ({_TGT}) onto the battlefield( tapped)?$")
