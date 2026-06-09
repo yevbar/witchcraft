@@ -327,21 +327,113 @@ def _taputap(m):
 
 @_t(rf"^return ({_TGT}) to (?:its owner's hand|your hand|their owners' hands?|its owner's hands?)$")
 def _bounce(m):
-    return Effect("return_to_hand", "-", _target(m.group(1)))
+    """'Return <X> [from <source>] to <owner>'s hand' — a §614 hand return. A trailing source zone on the
+    object ('from a graveyard', 'from the battlefield') is split off into extra as 'from_<zone>' (the
+    faithful-replacement convention — the object stops at 'from'), so the same bounce collapses to one
+    shape regardless of where the source clause sits."""
+    obj = m.group(1)
+    src = "-"
+    sm = re.search(r"\bfrom [\w' ]+? (graveyard|battlefield|exile|hand|library)$", obj, re.I)
+    if sm:
+        obj = obj[:sm.start()].strip()
+        src = "from_" + sm.group(1).lower()
+    return Effect("return_to_hand", "-", _target(obj), src)
 
 
 _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
              "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
 
-@_t(rf"^(?:{_TGT} )?returns? (.+?) to (?:its |their |your |his or her |the |a |an |owners?'? |owner's )*(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?(?: with \w+ [\w/+ ]*?counters? on it)?(?: at the beginning of [\w' ]+?)?$")
-def _return_zone(m):
-    """GENERIC 'Return <object> to <zone>' — hand/battlefield/library/graveyard (§614/§400). Object is a
-    faithful noun-phrase slug (compound-guarded); the destination picks the grounded verb. Runs after
-    the precise return templates."""
+# 'return <X> [from <zone>] to the battlefield [transformed] [under <controller>'s control] [tapped]
+# [and attacking [that player]] [with <counter spec>] [attached to <Y>]' — a §614 battlefield return.
+# These trailing words are faithful RETURN PARAMETERS (entry zone, orientation, controller, tapped/
+# attacking state, counters added on entry, attachment), folded into one composite `extra` slug in a
+# canonical order so the same return on many cards is one fact. Each piece is recorded ONLY when stated;
+# abstains on a compound object. Sits BEFORE the generic _return_zone (which would drop these details).
+_RET_BF = re.compile(
+    rf"^return ({_TGT})"
+    r"( from [\w' ]+? (?:graveyard|hand|exile))?"
+    r" to the battlefield"
+    r"(?P<mods> .+?)?"                          # free-form modifier tail, parsed piece by piece below
+    r"(?P<delay> at the beginning of [\w' ]+?)?$", re.I)
+# the individual battlefield-return modifiers (each faithful to §614), tried against the modifier tail.
+_RET_MODS = [
+    (re.compile(r"transformed", re.I), "transformed"),
+    (re.compile(r"\btapped\b", re.I), "tapped"),
+    (re.compile(r"and attacking", re.I), "attacking"),
+]
+
+
+@_t(_RET_BF.pattern)
+def _return_bf(m):
+    """'Return <X> [from <zone>] to the battlefield [transformed] [under <controller>'s control] [tapped]
+    [and attacking] [with <counter spec>] [attached to <Y>] [at the beginning of <step>]' — a battlefield
+    return (§614), typically a death/leaves trigger reanimating the just-departed object. The entry zone,
+    orientation, tapped/attacking state, counters added on entry, and an attachment target are each
+    recorded (when stated, in any order) as one composite `extra` slug in a fixed canonical order, so the
+    whole family collapses to a single shape. Abstains on a compound object or an unrecognized tail word."""
     if _is_compound_object(m.group(1)):
         return None
-    return Effect(_RET_DEST[m.group(2).lower()], "-", _target(m.group(1)), "tapped" if m.group(3) else "-")
+    bits = []
+    if m.group(2):                                   # ' from <…> graveyard/hand/exile'
+        bits.append("from_" + m.group(2).strip().split()[-1])
+    tail = (m.group("mods") or "").strip()
+    # peel each recognized modifier (the order in the TEXT is free; we re-emit in canonical order). A
+    # leftover non-empty tail with unrecognized words means abstain (don't silently drop information).
+    rest = " " + tail + " "
+    flags = []
+    for pat, tag in _RET_MODS:
+        if pat.search(rest):
+            flags.append(tag)
+            rest = pat.sub(" ", rest)
+    rest = re.sub(r"\bunder (?:your|its owner's|his owner's|her owner's|their owners?'|that player's) control\b",
+                  " ", rest, flags=re.I)
+    cm = re.search(r"with (?:a|(\w+)) ([\w/+ -]*?) ?counters? on it", rest, re.I)
+    counter = None
+    if cm:
+        n = _amount(cm.group(1)) if cm.group(1) else 1
+        raw_kind = (cm.group(2) or "").strip()
+        kind = raw_kind if "/" in raw_kind else ground.slug(raw_kind)   # keep '±N/±N' literal (counter convention)
+        counter = "with_" + (str(n) if n is not None else "x") + ("_" + kind if kind else "") + "_counter"
+        rest = re.sub(r"with (?:a|\w+) [\w/+ -]*? ?counters? on it", " ", rest, flags=re.I)
+    am = re.search(r"attached to ([\w' ~,/-]+)", rest, re.I)
+    attach = None
+    if am:
+        attach = "attached_to_" + ground.slug(am.group(1).strip())
+        rest = re.sub(r"attached to [\w' ~,/-]+", " ", rest)
+    if rest.strip():                                 # unrecognized words remain — abstain rather than guess
+        return None
+    # canonical order: transformed, tapped, attacking, counter, attach
+    for tag in ("transformed", "tapped", "attacking"):
+        if tag in flags:
+            bits.append(tag)
+    if counter:
+        bits.append(counter)
+    if attach:
+        bits.append(attach)
+    if m.group("delay"):                             # '… at the beginning of <step>' — a delayed return (§603.7)
+        bits.append("delayed_" + ground.slug(m.group("delay").strip()[len("at the beginning of "):]))
+    return Effect("return_to_battlefield", "-", _target(m.group(1)), "_".join(bits) if bits else "-")
+
+
+@_t(rf"^(?:{_TGT} )?returns? (.+?) to (?:its |their |your |his or her |the |a |an |owners?'? |owner's )*(hand|battlefield|library|graveyard)s?(?: under [\w' ]+ control)?(?: attached to [\w' ]+?)?( tapped)?(?: with \w+ [\w/+ ]*?counters? on it)?(?: at the beginning of [\w' ]+?)?$")
+def _return_zone(m):
+    """GENERIC 'Return <object> [from <source>] to <zone>' — hand/battlefield/library/graveyard
+    (§614/§400). Object is a faithful noun-phrase slug (compound-guarded); the destination picks the
+    grounded verb. A trailing 'from <…> graveyard/hand/exile/library' SOURCE on the object is split off
+    into extra as 'from_<zone>' (the faithful-replacement convention — object stops at 'from'), so the
+    same return collapses to one shape regardless of where the source clause sits. Runs after the precise
+    return templates."""
+    if _is_compound_object(m.group(1)):
+        return None
+    obj = m.group(1)
+    src = None
+    sm = re.search(r"\bfrom [\w' ]+? (graveyard|hand|exile|library)$", obj, re.I)
+    if sm:
+        obj = obj[:sm.start()].strip()
+        src = "from_" + sm.group(1).lower()
+    bits = [b for b in (src, "tapped" if m.group(3) else None) if b]
+    return Effect(_RET_DEST[m.group(2).lower()], "-", _target(obj), "_".join(bits) if bits else "-")
 
 
 @_t(r"^return to [\w' ]*?(hand|battlefield|library|graveyard)s? (.+?)$")
@@ -460,10 +552,12 @@ def _put_counter_many(m):
                   ground.slug(m.group(1)) if "/" not in m.group(1) else m.group(1))
 
 
-@_t(rf"^create (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:, except (?:it has |they have |it's |they're )?(.+?))?$")
+@_t(rf"^create (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:,? except (?:it has |they have |it's |they're )?(.+?))?$")
 def _create_copy(m):
-    """'Create [N] token(s) that's a copy of <X>[, except <mods>]' — token copy creation (§111/§707).
-    The 'except' clause (added haste, altered P/T/color, granted abilities) is kept as a faithful slug."""
+    """'Create [N] token(s) that's a copy of <X>[[,] except <mods>]' — token copy creation (§111/§707).
+    The 'except' clause (added haste, altered P/T/color, granted abilities, 'it's an artifact in addition
+    to its other types', 'it's not legendary') is kept as a faithful slug; the comma before 'except' is
+    optional (both 'copy of that creature except …' and '…, except …' templates occur)."""
     n = _amount(m.group(1))
     amt = n if n is not None else "X"
     extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
@@ -549,15 +643,29 @@ def _put_from_hand(m):
 _ZONE = {"hand": "put_in_hand", "graveyard": "put_in_graveyard"}
 
 
-@_t(r"^(?:put )?((?:(?! into )(?! and ).)+?) into (?:your|its owner's|their) (hand|graveyard)$")
+@_t(r"^(?:put )?((?:(?! into )(?! and ).)+?) into (your|its owner's|their|that player's|the chosen player's|an opponent's) (hand|graveyard)$")
 def _put_zone(m):
-    """'Put <cards> into your hand/graveyard' — a §400.7 zone change of looked-at/revealed cards. The
-    object excludes ' into '/' and ' so a compound ('… into your hand and the rest into your
-    graveyard') won't be swallowed whole — it falls through to the body splitter and each half (the
-    second being the verb-less 'the rest into your graveyard') parses as its own grounded zone-move."""
-    if re.search(r"\bputs?\b", m.group(1), re.I):   # a declarative '<subject> puts …' is _subject_puts' job
+    """'Put <cards> [from <source>] into <player>'s hand/graveyard' — a §400.7 zone change of
+    looked-at/revealed/exiled cards. The object excludes ' into '/' and ' so a compound ('… into your
+    hand and the rest into your graveyard') won't be swallowed whole — it falls through to the body
+    splitter and each half (e.g. the verb-less 'the rest into your graveyard') parses as its own grounded
+    zone-move. A non-default destination owner ('that player's', 'an opponent's', …) and a stated source
+    zone ('from exile', 'from a graveyard') are recorded faithfully in the extra slug."""
+    obj = m.group(1)
+    if re.search(r"\bputs?\b", obj, re.I):          # a declarative '<subject> puts …' is _subject_puts' job
         return None
-    return Effect(_ZONE[m.group(2)], "-", "you", ground.slug(m.group(1)))
+    src = None
+    sm = re.search(r"\bfrom (?:exile|[\w' ]+? (?:graveyard|hand|library|exile))$", obj, re.I)
+    if sm:
+        src = ground.slug(sm.group(0))              # e.g. 'from_exile', 'from_a_graveyard'
+        obj = obj[:sm.start()].strip()
+    owner = m.group(2).lower()
+    bits = [ground.slug(obj)]
+    if src:
+        bits.append(src)
+    if owner not in ("your", "its owner's", "their"):
+        bits.append("into_" + ground.slug(owner) + "_" + m.group(3).lower())
+    return Effect(_ZONE[m.group(3)], "-", "you", "_".join(bits))
 
 
 def _that_amt(mult, plus):
@@ -1016,9 +1124,8 @@ def _cant_combat_set(m):
     return Effect("cant_" + m.group(2).replace(" ", "_"), "-", ground.slug(m.group(1)))
 
 
-@_t(rf"^return ({_TGT}) from your graveyard to the battlefield( tapped)?$")
-def _reanimate(m):
-    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
+# ('return <X> from your graveyard to the battlefield [tapped]' is subsumed by _RET_BF above, which
+#  records the 'from_graveyard' source faithfully.)
 
 
 @_t(r"^(?:you |they )?puts? (.+?)( from [\w' ]+? (?:graveyard|hand|exile))? onto the battlefield(?: under [\w' ]+? control)?( tapped)?(?: attached to [\w' ~]+?)?(?: with (?:\w+) [\w/+ ]*?counters? on it)?$")
@@ -1032,13 +1139,6 @@ def _reanimate_put(m):
     extra = (src + "_tapped").lstrip("-_") if (src != "-" and m.group(3)) else (
         "tapped" if m.group(3) else src)
     return Effect("return_to_battlefield", "-", _target(m.group(1)), extra)
-
-
-@_t(rf"^return ({_TGT}) to the battlefield(?: under (?:your|its owner's|that player's) control)?( tapped)?$")
-def _return_bf(m):
-    """'Return <X> to the battlefield [under its owner's control]' — a battlefield return (§614),
-    typically a death/leaves trigger's reanimation of the just-departed object."""
-    return Effect("return_to_battlefield", "-", _target(m.group(1)), "tapped" if m.group(2) else "-")
 
 
 @_t(rf"^exile ({_TGT}) until ~ leaves the battlefield$")
@@ -1633,7 +1733,15 @@ def _kw_list(s: str):
 
 _EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)(?: and (?:gains?|has|have) ([\w, ]+?))? until end of turn$", re.I)
 _EOT_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?) until end of turn$", re.I)
-_EOT_PUMP_CANT = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn and (can't (?:be blocked|block|attack)) this turn$", re.I)
+# a P/T pump followed by a SECOND predicate on the same subject: '<t> gets <±P/±T> [until end of turn]
+# and <predicate>' — Glassdust Hulk ('… gets +1/+1 until end of turn and can't be blocked this turn'),
+# Nivix Cyclops ('… gets +3/+0 until end of turn and can attack this turn as though it didn't have
+# defender'). The mirror of _GRANT_THEN_CLAUSE for the pump-first ordering: each half is re-parsed
+# standalone (subject reattached) and grounds through the normal leaf — splits into modify_pt + the tail
+# effect (a combat restriction `cant_*`, an as-though permission, a keyword grant, …). Both must ground.
+_PUMP_THEN_CLAUSE = re.compile(
+    rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X))( until end of turn)? and "
+    r"((?:can't|can|must|isn't|aren't|doesn't|don't|gains?|has|have|attacks?|blocks?|becomes?) .+)$", re.I)
 _PERM_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)$", re.I)
 # REVERSED keyword-first buff: '<t> gains/has <kw-list> and gets <±P/±T> [until end of turn]'
 # (Berserk 'gains trample and gets +X/+0 until end of turn', Runechanter's Pike 'has first strike and
@@ -1682,6 +1790,15 @@ def _eot_compound(s: str):
         first = parse_clause(f"{m.group(1)} {m.group(2)}{dur}")
         # the tail predicate may itself be a multi-keyword grant ('gains flying, first strike, …'), so
         # route it through parse_clauses (which fans out keyword lists) and reattach the subject.
+        tail = parse_clauses(f"{m.group(1)} {m.group(4)}")
+        if first and tail:
+            return [first] + tail
+    m = _PUMP_THEN_CLAUSE.match(s)
+    if m:
+        dur = " until end of turn" if m.group(3) else ""
+        first = parse_clause(f"{m.group(1)} gets {m.group(2)}{dur}")
+        # the tail predicate may itself be a multi-keyword grant or a combat restriction; route it through
+        # parse_clauses (which fans out keyword lists) with the subject reattached so it grounds normally.
         tail = parse_clauses(f"{m.group(1)} {m.group(4)}")
         if first and tail:
             return [first] + tail
