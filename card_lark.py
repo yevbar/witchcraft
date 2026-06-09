@@ -42,6 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
+     | sfclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -104,6 +105,19 @@ rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
 pvclause.-2: PVPREVENT pvbody               -> prevent
 pvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | DMG | EQUALTO | THATMANY | MDUR)+
 
+// SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
+//   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
+//   '<player> sacrifices <quant> <object>'             (_sacrifice_subj #2: <player> in target, obj slug in extra)
+//   '<player> exiles <object>'                         (_subject_obj_verb: by_<player> in extra, obj in target)
+// The subject is captured as a flat token run and HARD-gated against the closed `_PLAYER` allow-list in
+// the transformer; the object span is sliced from the raw source by the verb token's end position (so the
+// slug is byte-identical to the regex, never a re-joined approximation). NEGATIVE rule priority so that a
+// sentence ALSO parseable as another family (the subject run could otherwise compete) yields to that
+// parse; on a pure '<player> sacrifices/exiles …' there is no competitor and this rule still wins.
+sfclause.-2: sfsubj SF_VERB sfrest          -> subjverb
+sfsubj: (WORD | QUANT | NUM)+                // the acting player (validated as _PLAYER)
+sfrest: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR | DMG | PTDELTA | COUNTER | ONPREP)+
+
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
 cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
@@ -149,6 +163,7 @@ FOREACH.4: /\bfor each\b/
 PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|loses|lose|discards|discard)\b/
 RVREVEAL.3: /\breveals?\b/
 PVPREVENT.3: /\bprevent\b/
+SF_VERB.3: /\b(?:sacrifices?|exiles?)\b/     // subject-first object verbs (the SUBJECT precedes the verb)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -336,6 +351,30 @@ _PV_FOG = re.compile(r"^all (combat )?damage that would be dealt this turn$", re
 _PV_NEXT = re.compile(r"^the next (\w+) damage that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent body
 
 
+# SUBJECT-FIRST object verbs. `_SF_PLAYER` is the closed player allow-list (reuse the family-shared
+# `_PLAYER`); `_SF_SAC_NAMED` is `_sacrifice_subj` #1's exact object alternation `(it|that \w+|them|those
+# \w+)`, which (because it is registered BEFORE the count form #2) takes precedence on those four shapes.
+_SF_PLAYER = _PLAYER
+_SF_SAC_NAMED = re.compile(r"^(?:it|that \w+|them|those \w+)$", re.I)
+# `_sacrifice_subj` #2's count head — a SINGLE word `(a|an|one|two|three|\w+)` followed by `(.+)` (so the
+# object must have >=2 words). The head is `\w+`, i.e. a bare word with no spaces/hyphens; '\w' excludes
+# '-', so a hyphenated first token ('non-Vampire …') makes #2 FAIL its `(a|an|one|two|three|\w+) ` split
+# at that boundary and the regex would re-split — we reproduce that boundary exactly (faithful-or-abstain).
+_SF_WORD = re.compile(r"^\w+$")
+# A '… and <3rd-person verb> …' run-on tacks a SECOND clause onto the count form's object ('… of their
+# choice and gets a poison counter', '… and loses 4 life'). The regex count form #2 has NO compound guard
+# and would slug the whole run-on, BUT an EARLIER template (e.g. `_put_counter` on the 'gets a … counter'
+# tail) often intercepts the full sentence and grounds a DIFFERENT verb — so our sacrifice tuple would
+# DIFFER from `parse_effect`. `_is_compound_object` misses these because the second verb's SURFACE form
+# ('gets'/'loses') isn't a grounded-verb lemma. Abstain on any '… and <verb>s …' continuation (the regex
+# fallback owns whatever the full chain makes of it). A type-union object ('artifact creature and a
+# nonartifact creature') is NOT matched here (the word after 'and' is an article/noun, not a verb).
+_SF_AND_VERB = re.compile(
+    r"\b(?:and|then) (?:gets?|loses?|draws?|discards?|gains?|puts?|exiles?|sacrifices?|creates?|"
+    r"mills?|takes?|adds?|deals?|reveals?|shuffles?|searches?|chooses?|returns?|destroys?|taps?|"
+    r"untaps?|removes?|has|have|may|must|can|will)\b", re.I)
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -393,6 +432,14 @@ class _RvBody(str):    # the reassembled reveal clause body (everything after 'r
 
 
 class _PvBody(str):    # the reassembled prevent clause body (everything after 'prevent')
+    pass
+
+
+class _SfSubj(str):    # a player subject before a subject-first object verb (validated against _PLAYER)
+    pass
+
+
+class _SfRest(str):    # the object span after the subject-first verb (value unused; the span is sliced from src)
     pass
 
 
@@ -523,7 +570,13 @@ class _ToEffect(Transformer):
         if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext) or _MULTICLAUSE.search(otext):
             return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
-            n = _amount(quant) if quant in ("a", "an", "another", "two", "three") else None
+            # `_sacrifice_a` (`^sacrifice (a|an|another|two|three) ([\w ~']+?)$`) supplies the count amount,
+            # but ONLY when the object-after-quant is in its char class `[\w ~']` (no hyphen/comma). A
+            # hyphenated/comma object ('a non-Demon creature') makes `_sacrifice_a` FAIL and fall through to
+            # `_verb_target`, which yields amount '-'. Gate the count on that exact boundary (faithful).
+            obj_after = otext[len(quant) + 1:] if (quant and otext.startswith(quant + " ")) else ""
+            n = (_amount(quant) if quant in ("a", "an", "another", "two", "three")
+                 and re.fullmatch(r"[\w ~']+", obj_after) else None)
             return Effect("sacrifice", n if isinstance(n, int) else "-", _target(otext))
         if verb in _SIMPLE:
             return Effect(_SIMPLE[verb], "-", _target(otext))
@@ -1058,6 +1111,61 @@ class _ToEffect(Transformer):
         else:
             tgt = _target(span)
         return Effect("prevent_damage", str(amt) if isinstance(amt, int) else amt, tgt)
+
+    # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
+    def sfsubj(self, *toks):
+        return _SfSubj(" ".join(str(t) for t in toks))
+
+    def sfrest(self, *toks):
+        return _SfRest(" ".join(str(t) for t in toks))   # value unused; the object is sliced from src
+
+    def subjverb(self, *args):
+        subj = next((str(a) for a in args if isinstance(a, _SfSubj)), None)
+        # the SF_VERB Token, kept raw so we can slice the ORIGINAL object span by its end position (the
+        # dynamic lexer may re-space tokens; slicing from `self._src` keeps the slug byte-identical).
+        vtok = next((a for a in args
+                     if not isinstance(a, (_SfSubj, _SfRest)) and "/" not in str(a)
+                     and str(a).rstrip("s").lower() in ("sacrifice", "exile")), None)
+        if subj is None or vtok is None:
+            return None
+        src = getattr(self, "_src", None)
+        if src is None or not hasattr(vtok, "end_pos") or vtok.end_pos is None:
+            return None
+        s = subj.strip().lower()
+        if not _SF_PLAYER.match(s):
+            return None                            # subject isn't a clean closed player phrase -> abstain
+        obj = src[vtok.end_pos:].strip()           # the exact post-verb object span (regex g-tail)
+        if not obj:
+            return None
+        verb = str(vtok).rstrip("s").lower()       # 'sacrifices'->'sacrifice', 'exiles'->'exile'
+        if verb == "exile":
+            # `_subject_obj_verb`: Effect('exile','-',_target(obj),'by_'+_target(subj)); compound-guarded.
+            # (The extra `_SF_AND_VERB` guard catches a '… and gets/loses …' run-on whose surface verb the
+            # grounded-lemma `_is_compound_object` misses and which an earlier template may re-ground.)
+            if _is_compound_object(obj) or _SF_AND_VERB.search(obj):
+                return None                        # object runs into a 2nd effect -> regex chain owns it
+            return Effect("exile", "-", _target(obj), "by_" + _target(s))
+        # SACRIFICE. Template #1 (`_sacrifice_subj` it/that X/them/those X) is registered BEFORE the count
+        # form #2, so it WINS on those four shapes: Effect('sacrifice','-',_target(obj),'by_'+_target(subj)).
+        if _SF_SAC_NAMED.match(obj):
+            return Effect("sacrifice", "-", _target(obj), "by_" + _target(s))
+        # Template #2 (`_sacrifice_subj` count form): Effect('sacrifice','-',_target(subj),slug(obj)). The
+        # regex split is `(a|an|one|two|three|\w+) (.+)` — the head is a SINGLE bare word (no hyphen, since
+        # '\w' excludes '-') and there must be a non-empty tail. Reproduce that boundary exactly, then slug
+        # the whole object (== slug(head+' '+tail)). The count form has NO compound guard in the regex, so a
+        # run-on rider ('… and loses 10 life', '… then discards …', a comma list) is slugged WHOLE there
+        # (a lossy tuple); we ABSTAIN on those (faithful-or-abstain — the regex fallback owns the lossy whole).
+        parts = obj.split(" ", 1)
+        head = parts[0]
+        if len(parts) < 2 or not parts[1].strip():
+            return None                            # no tail -> #2's `(.+)` can't match -> abstain
+        if head not in ("a", "an", "one", "two", "three") and not _SF_WORD.match(head):
+            return None                            # hyphenated/odd head -> #2's `\w+ ` split fails -> abstain
+        if _is_compound_object(obj) or _SF_AND_VERB.search(obj):
+            return None                            # run-on 2nd effect ('… and gets …', '… then …', ':') -> abstain
+        if "," in obj:
+            return None                            # comma list/rider the regex crams whole (lossy) -> abstain
+        return Effect("sacrifice", "-", _target(s), ground.slug(obj))
 
 
 class _Zone:
