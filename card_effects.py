@@ -793,10 +793,13 @@ def _prevent_next_source(m):
     return Effect("prevent_damage", "next", _target(m.group(1)))
 
 
-@_t(r'^you get an emblem with "(.+)"$')
+@_t(rf'^({_TGT}) gets? an emblem with,? "(.+)"$')
 def _emblem(m):
-    """'You get an emblem with "<ability>"' — an emblem (§114); the granted ability is slugged."""
-    return Effect("get_emblem", "-", "you", ground.slug(m.group(1))[:160])
+    """'<who> get(s) an emblem with "<ability>"' — an emblem (§114), the §606 planeswalker-ultimate
+    family. The recipient ('you', 'target player', 'target opponent', 'each opponent') is recorded and
+    the granted ability is slugged WHOLE (the quoted text is itself the rules-extension). The optional
+    comma after 'with' is a printing quirk (Kaya, Ghost Haunter)."""
+    return Effect("get_emblem", "-", _target(m.group(1)), ground.slug(m.group(2))[:160])
 
 
 @_t(r"^you take the initiative$")
@@ -1599,6 +1602,14 @@ _NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$",
 _HAVE = re.compile(rf"^have ({_TGT}) (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
+# A whole-clause GRANT of a single quoted ability ('<who> gains/has "…"', '<who> get(s) an emblem with
+# "…"'), optionally under a leading 'Until end of turn,' duration. The quoted ability is matched WHOLE so
+# parse_clause's surface rewrites ('… for each X', '… unless … pays', '… where X is') never reach inside
+# the quote and shatter it. The trailing 'until end of turn' is left for _grant_ability/the leaf to read.
+_QUOTED_GRANT = re.compile(
+    r'^(?:until end of turn, )?'
+    rf'(?:{_TGT}) (?:has|have|gains?) "[^"]+"(?: until end of turn)?$|'
+    rf'^(?:{_TGT}) gets? an emblem with,? "[^"]+"$', re.I)
 
 
 def _kw_ok(phrase: str):
@@ -1758,6 +1769,16 @@ def parse_clause(sentence: str) -> "Effect | None":
     s = re.sub(r"^(it's|they're|you're|it’s|they’re)\b", lambda m: {"it's": "it is", "they're":
                "they are", "you're": "you are", "it’s": "it is", "they’re": "they are"}[m.group(1).lower()],
                s, flags=re.I)                                    # expand leading contraction
+    # FAST PATH: a whole-clause quoted-ability grant/emblem. Route it straight to parse_effect so the
+    # surface rewrites below ('… for each X', '… unless … pays', '… where X is') can't reach inside the
+    # quoted ability and shatter its balanced quotes. A leading 'Until end of turn,' is peeled and folded
+    # into the effect's cond (the duration the grant carries).
+    if _QUOTED_GRANT.match(s):
+        mu = re.match(r"^until end of turn, (.+)$", s, re.I)
+        inner = parse_effect(mu.group(1) if mu else s)
+        if inner:
+            return inner if (not mu or inner.cond != "-") else _dc.replace(inner, cond="until_end_of_turn")
+        return None
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
     s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
     s = re.sub(r"^(they|those [\w-]+|these [\w-]+) each\b", r"\1", s, flags=re.I)  # 'They each get +N/+N' -> 'They get'

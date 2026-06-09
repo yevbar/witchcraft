@@ -494,6 +494,14 @@ def _parse_body(text: str):
             out.extend(sv)
             continue
         multi = parse_clauses(sentence)
+        # A whole-sentence GRANT of a single QUOTED ability ('<who> gain(s) "…"', 'You get an emblem
+        # with "…"') is complete as-is: the quoted ability is slugged WHOLE, so the ':'/'and'/'then' the
+        # run-on detector sees lives INSIDE the quote — splitting would corrupt it. Trust the whole-parse
+        # here (faithful, never a swallow) before the _is_compound_object guard rejects it for that inner
+        # punctuation. Gated on a single effect whose verb is the quote-bearing grant/emblem producer.
+        if multi and len(multi) == 1 and multi[0].verb in ("grant_ability", "get_emblem") and '"' in sentence:
+            out.extend(multi)
+            continue
         # Prefer a whole-clause parse UNLESS the sentence runs on into a second effect ('… and gain
         # control of it', '… then exile it'): a single-effect whole-parse there has swallowed the
         # continuation into its target, so try the split first and only fall back if the split fails.
