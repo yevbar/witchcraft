@@ -18,7 +18,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT, _LIB_OWNER
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -135,6 +135,32 @@ rcbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | COUNTER | FROM | ZONE | THATMAN
 dbclause: DB_DOUBLE dbbody                   -> dbl
 dbbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> dbbody
 
+// PUT-TO-ZONE family (§401/§400.7) — the zone-move verbs the 'return' family doesn't cover:
+// put_on_bottom / put_in_hand / put_on_top. We OWN the clean IMPERATIVE shapes (a leading 'put',
+// or a 'conjure …/<obj> into <owner> hand' clause) and ABSTAIN on the subject-prefixed ('<player>
+// puts …') and possessive-owner ("<X>'s owner puts it on their choice …") variants — those don't
+// begin with 'put' / 'into … hand', so these anchored rules never reach them (faithful-or-abstain).
+//
+// The body is captured as a FLAT token run and re-joined in the transformer, which applies the SAME
+// fixed-frame regexes the templates use (in the SAME precedence order), so the grounded tuple is
+// byte-identical to _put_zone/_put_bottom/_put_library_position/_put_bottom_tgt/_put_top_tgt/
+// _put_cards_library. NEGATIVE rule priority defers to any competing family parse (Earley ambiguity).
+//
+// pzputclause: a leading 'put' imperative ('put <X> on the bottom/on top/into … library … / into hand').
+pzputclause.-2: PUT pzbody                  -> pzput
+// pzhandclause: a leading 'conjure' clause ending in 'into <owner> hand' ('conjure a card named X into
+// your hand' — the §711 conjure form `_put_zone` grounds to put_in_hand). Anchored on the leading
+// PZ_CONJURE terminal (cheap, like PUT — a broad mid-clause anchor poisons the lexer / explodes Earley),
+// so it only fires on conjure-led clauses; the transformer applies the _put_zone frame (which requires
+// the body to END in 'into <owner> hand', else abstains — faithful-or-abstain).
+pzhandclause.-2: PZ_CONJURE pzbody          -> pzhand
+// pzbody deliberately EXCLUDES the COUNTER terminal: a 'put <N> <kind> counter on …' clause is the
+// put_counter family (the cclause/putctr rule, default priority) — letting pzbody consume 'counter'
+// would offer a competing pzput parse that Earley can pick over putctr, turning an existing put_counter
+// grounding into an abstain (a regression). No real put-to-zone clause contains 'counter', so stopping
+// pzbody at COUNTER costs nothing and keeps putctr the sole parse for counter clauses (faithful).
+pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA)+
+
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
 cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
@@ -190,6 +216,7 @@ GVERB.3: /\b(?:gains?|has|have)\b/
 QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
 CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
 PUT.3: /\bputs?\b/
+PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
@@ -412,6 +439,58 @@ _SF_AND_VERB = re.compile(
     r"untaps?|removes?|has|have|may|must|can|will)\b", re.I)
 
 
+# PUT-TO-ZONE frame regexes — the EXACT fixed-frame patterns of the regex templates this family
+# replaces (`card_effects._put_zone`/`_put_bottom`/`_put_library_position`/`_put_bottom_tgt`/
+# `_put_top_tgt`/`_put_cards_library`). The lark rules certify the clause begins with 'put' (or ends
+# 'into <owner> hand'); the faithful body parse is these frames applied IN TEMPLATE PRECEDENCE ORDER,
+# so the grounded tuple is byte-identical to parse_effect. Anything outside these frames is left to
+# the regex (abstain) — faithful-or-abstain. Only the put_on_top/put_on_bottom/put_in_hand verbs are
+# emitted here; the put_in_graveyard branch of `_put_zone` belongs to another family -> abstain.
+_PZ_ZONE = re.compile(r"^(?:put )?((?:(?! into )(?! and ).)+?) into (?:your|its owner's|their) (hand|graveyard)$", re.I)  # _put_zone
+_PZ_BOTTOM = re.compile(r"^put (.+?) on the bottom(?: of your library)?(?: in (?:a |any )?(?:random )?order)?$", re.I)   # _put_bottom
+_PZ_LIBPOS = re.compile(rf"^put ({_TGT}) into (?:its owner's|their owner's|your) library (\w+) from the top$", re.I)      # _put_library_position
+_PZ_BOTTOM_TGT = re.compile(rf"^put ({_TGT}) on the bottom of {_LIB_OWNER} library$", re.I)                              # _put_bottom_tgt
+_PZ_TOP_TGT = re.compile(rf"^put ({_TGT}) on top(?: of {_LIB_OWNER} library)?(?: in any order)?$", re.I)                 # _put_top_tgt
+_PZ_CARDS_LIB = re.compile(rf"^put (.+?)(?: from your hand)? on (top|the bottom) of {_LIB_OWNER} (?:libraries|library)(?: in (?:any|a random) order)?$", re.I)  # _put_cards_library
+_PZ_PUTS = re.compile(r"\bputs?\b", re.I)   # `_put_zone`'s declarative guard ('<subject> puts …' is _subject_puts' job)
+# PRECEDENCE: the regex `_to_hand` (`^put (<_TGT>) into your hand$` -> return_to_hand, defined EARLIER)
+# fires BEFORE `_put_zone` (-> put_in_hand). So a clean `_TGT` 'put <X> into your hand' is return_to_hand,
+# not put_in_hand. Reproduce that ordering (the put-to-zone agent's frame missed it).
+_PZ_TO_HAND = re.compile(r"^put (" + _TGT + r") into your hand$", re.I)
+
+
+def _pz_frame(full: str):
+    """Apply the put-to-zone frame regexes in TEMPLATE PRECEDENCE ORDER to a full (lowercased) clause,
+    returning the first grounded Effect (byte-identical to parse_effect) or None (abstain). Only the
+    put_on_top/put_on_bottom/put_in_hand verbs of this family are emitted."""
+    m = _PZ_TO_HAND.match(full)                      # 0. _to_hand (EARLIER template) — wins over _put_zone
+    if m:
+        return Effect("return_to_hand", "-", _target(m.group(1)))
+    m = _PZ_ZONE.match(full)                         # 1. _put_zone (hand only; graveyard -> other family)
+    if m and not _PZ_PUTS.search(m.group(1)):
+        if m.group(2).lower() == "hand":
+            return Effect("put_in_hand", "-", "you", ground.slug(m.group(1)))
+        return None                                  # 'into … graveyard' -> put_in_graveyard (abstain)
+    m = _PZ_BOTTOM.match(full)                        # 2. _put_bottom
+    if m:
+        return Effect("put_on_bottom", "-", "library", ground.slug(m.group(1)))
+    m = _PZ_LIBPOS.match(full)                        # 3. _put_library_position
+    if m:
+        return Effect("put_on_top", "-", _target(m.group(1)), m.group(2).lower() + "_from_top")
+    m = _PZ_BOTTOM_TGT.match(full)                    # 4. _put_bottom_tgt
+    if m:
+        return Effect("put_on_bottom", "-", _target(m.group(1)))
+    m = _PZ_TOP_TGT.match(full)                       # 5. _put_top_tgt
+    if m:
+        return Effect("put_on_top", "-", _target(m.group(1)))
+    m = _PZ_CARDS_LIB.match(full)                     # 6. _put_cards_library (compound-object guarded)
+    if m:
+        if _is_compound_object(m.group(1)):
+            return None
+        return Effect("put_on_top" if m.group(2).lower() == "top" else "put_on_bottom", "-", ground.slug(m.group(1)))
+    return None
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -477,6 +556,10 @@ class _SfSubj(str):    # a player subject before a subject-first object verb (va
 
 
 class _SfRest(str):    # the object span after the subject-first verb (value unused; the span is sliced from src)
+    pass
+
+
+class _PzBody(str):    # the reassembled put-to-zone clause body (everything after the leading verb)
     pass
 
 
@@ -1254,6 +1337,29 @@ class _ToEffect(Transformer):
         if "," in obj:
             return None                            # comma list/rider the regex crams whole (lossy) -> abstain
         return Effect("sacrifice", "-", _target(s), ground.slug(obj))
+
+    # --- PUT-TO-ZONE ----------------------------------------------------------
+    def pzbody(self, *toks):
+        return _PzBody(" ".join(str(t) for t in toks))
+
+    def pzput(self, *args):
+        # a leading 'put' imperative — reconstruct the full clause ('put ' + body) and dispatch to the
+        # template-precedence frame regexes (faithful to parse_effect's put-family templates).
+        body = next((str(a) for a in args if isinstance(a, _PzBody)), None)
+        if body is None:
+            return None
+        return _pz_frame("put " + body.strip())
+
+    def pzhand(self, *args):
+        # a leading 'conjure' clause ('conjure a card named X into your hand'). Reconstruct the full
+        # clause ('conjure[s] ' + body) and run the _put_zone frame, which grounds it to put_in_hand only
+        # if the body ENDS in 'into <owner> hand' (else abstains). The conjure verb token ('conjure' or
+        # 'conjures') is recovered so the slug is byte-identical to the regex.
+        body = next((str(a) for a in args if isinstance(a, _PzBody)), None)
+        verb = next((str(a).lower() for a in args if not isinstance(a, _PzBody)), "conjure")
+        if body is None:
+            return None
+        return _pz_frame(verb + " " + body.strip())
 
 
 class _Zone:
