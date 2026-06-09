@@ -14,10 +14,60 @@ Prime directive holds: a template we can't interpret faithfully stays UNCOVERED 
 from __future__ import annotations
 
 import collections
+import os
+from multiprocessing import Pool
 
 import card_corpus
 import ground
 from transpile_card import transpile_unit
+
+
+def _nproc(n):
+    ncpu = os.cpu_count() or 1
+    return max(1, min(int(os.environ.get("CARD_JOBS", ncpu)), ncpu)), ncpu
+
+
+def _chunks(items, nproc):
+    sz = (len(items) + nproc - 1) // nproc
+    return [items[i:i + sz] for i in range(0, len(items), sz)]
+
+
+def _cov_chunk(reps_items):
+    """Worker: template-coverage over a chunk of (tmpl, u, c, freq) -> (cov_t, inst_cov, by_pattern,
+    uncovered). All outputs are counts/counters, merged order-independently — parallel-safe."""
+    cov_t = inst_cov = 0
+    bp, unc = collections.Counter(), collections.Counter()
+    for tmpl, u, c, fr in reps_items:
+        o = transpile_unit(u, {"id": ground.slug(u.card), "card": c, "seq": 0})
+        if o:
+            cov_t += 1
+            inst_cov += fr
+            bp[o.pattern] += 1
+        else:
+            unc[tmpl] = fr
+    return cov_t, inst_cov, bp, unc
+
+
+def _full_chunk(cards_chunk):
+    """Worker: count fully-ingested cards (every line parses) in a chunk — an order-independent count."""
+    full = 0
+    for c in cards_chunk:
+        units = card_corpus.units_of(c)
+        if not units:
+            full += 1
+            continue
+        cid = ground.slug(c["name"])
+        if all(transpile_unit(u, {"id": cid, "card": c, "seq": i}) for i, u in enumerate(units)):
+            full += 1
+    return full
+
+
+def _pmap(fn, items):
+    nproc, _ = _nproc(len(items))
+    if nproc == 1 or len(items) < 200:
+        return [fn(items)]
+    with Pool(nproc) as pool:
+        return pool.map(fn, _chunks(items, nproc))
 
 
 def measure():
@@ -28,32 +78,20 @@ def measure():
             freq[u.template] += 1
             reps.setdefault(u.template, (u, c))
 
-    cov_t = 0
     inst_total = sum(freq.values())
-    inst_cov = 0
+    cov_t = inst_cov = 0
     by_pattern = collections.Counter()
     uncovered = collections.Counter()
-    for tmpl, (u, c) in reps.items():
-        ctx = {"id": ground.slug(u.card), "card": c, "seq": 0}
-        o = transpile_unit(u, ctx)
-        if o:
-            cov_t += 1
-            inst_cov += freq[tmpl]
-            by_pattern[o.pattern] += 1
-        else:
-            uncovered[tmpl] = freq[tmpl]
+    rep_items = [(tmpl, u, c, freq[tmpl]) for tmpl, (u, c) in reps.items()]
+    for ct, ic, bp, unc in _pmap(_cov_chunk, rep_items):     # parallel across template-reps
+        cov_t += ct
+        inst_cov += ic
+        by_pattern.update(bp)
+        uncovered.update(unc)
 
     # PER-CARD full-ingest — the headline metric: a card counts only if EVERY ability line parses.
     cards = card_corpus.load_cards()
-    full = 0
-    for c in cards:
-        units = card_corpus.units_of(c)
-        if not units:
-            full += 1
-            continue
-        cid = ground.slug(c["name"])
-        if all(transpile_unit(u, {"id": cid, "card": c, "seq": i}) for i, u in enumerate(units)):
-            full += 1
+    full = sum(_pmap(_full_chunk, cards))                    # parallel across cards (order-independent count)
     return {
         "templates": len(reps), "templates_cov": cov_t,
         "instances": inst_total, "instances_cov": inst_cov,
