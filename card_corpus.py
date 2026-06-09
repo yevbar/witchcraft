@@ -16,11 +16,45 @@ A unit keeps both its RAW text (for the parser) and its TEMPLATE (for dedup/cove
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-_CORPUS = Path(__file__).parent / "mtgjson" / "oracle_corpus.json"
+
+def _resolve_corpus() -> Path:
+    """Locate mtgjson/oracle_corpus.json ROBUSTLY, so code running in a git WORKTREE (which has its own
+    copy of this module but NOT the gitignored corpus) finds the MAIN checkout's corpus rather than a
+    missing per-worktree path. This removes the need for agents to symlink the corpus into worktrees —
+    the symlink hazard that once clobbered the corpus. Order:
+      1. $MTG_CORPUS override (explicit);
+      2. the module-local copy, if it exists (the normal case, running from the main checkout);
+      3. the MAIN worktree's copy — `git worktree list` lists the main checkout first;
+      4. else the module-local path (so a genuinely-missing corpus still errors clearly)."""
+    env = os.environ.get("MTG_CORPUS")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve().parent
+    local = here / "mtgjson" / "oracle_corpus.json"
+    if local.exists():
+        return local
+    try:
+        r = subprocess.run(["git", "-C", str(here), "worktree", "list", "--porcelain"],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            main = next((l[len("worktree "):] for l in r.stdout.splitlines()
+                         if l.startswith("worktree ")), None)
+            if main:
+                cand = Path(main) / "mtgjson" / "oracle_corpus.json"
+                if cand.exists():
+                    return cand
+    except Exception:
+        pass
+    return local
+
+
+_CORPUS = _resolve_corpus()
 _REMINDER = re.compile(r"\s*\([^()]*\)")
 _SYMBOL = re.compile(r"\{[^}]+\}")
 _INT = re.compile(r"\b\d+\b")
