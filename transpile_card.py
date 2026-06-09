@@ -782,7 +782,9 @@ _STATIC_PLAYER = [
     (r"^Players can't gain life\.?$", "players_cant_gain_life"),
     (r"^Your opponents can't gain life\.?$", "opponents_cant_gain_life"),
     (r"^You may play an additional land on each of your turns\.?$", "extra_land_per_turn"),
-    (r"^You may play (?:an? )?additional lands? on each of your turns\.?$", "extra_land_per_turn"),
+    (r"^You may play (?:an? )?additional lands? (?:on|during) each of your turns\.?$", "extra_land_per_turn"),
+    (r"^Each player may play (?:an? )?additional lands? (?:on|during) each of their turns\.?$", "each_player_extra_land_per_turn"),
+    (r"^Players may play (?:an? )?additional lands? (?:on|during) each (?:of their turns|turn)\.?$", "each_player_extra_land_per_turn"),
     (r"^You may look at the top card of your library any time\.?$", "look_at_top_card"),
     (r"^You may choose not to untap ~ during your untap step\.?$", "may_skip_untap"),
     (r"^You play with your hand revealed\.?$", "you_play_hand_revealed"),
@@ -802,10 +804,34 @@ def _static_player(unit, ctx):
     for pat, tag in _STATIC_PLAYER:
         if re.match(pat, r, re.I):
             return mk(tag)
+    # N-additional-lands permission (§505.5b/§116.2a) — Azusa's 'play two additional lands'. Capture the
+    # count faithfully (a bare 'extra_land_per_turn' would understate it).
+    m = re.match(r"^You may play (\w+) additional lands? (?:on|during) each of your turns\.?$", r, re.I)
+    if m and m.group(1).lower() not in ("an", "a"):
+        return mk("extra_lands_per_turn_" + ground.slug(m.group(1)))
     # capturing permission/restriction statics (§116/§118/§601) — the scope is a descriptive slug.
     m = re.match(r"^You can't cast (.+?)\.?$", r, re.I)
     if m:
         return mk("cant_cast_" + ground.slug(m.group(1)))
+    # a leading frequency/timing prefix on a casting-permission static (§116/§601): 'Once during each of
+    # your turns, …', 'During each of your turns, …', 'During your turn, …'. Peel it, record it as a
+    # suffix on the permission slug, and re-match the 'may cast/play … from <zone>' families below. Only
+    # when the remainder is a SINGLE sentence — a trailing second sentence (Kess/Edgar's 'If a spell cast
+    # this way …') carries its own effect, so we abstain there rather than silently swallow it.
+    freq, body = "", r
+    mp = re.match(r"^(Once during each of your turns?|During each of your turns?|During your turn),\s+(.+)$", r, re.I)
+    if mp and ". " not in mp.group(2).rstrip("."):
+        freq = {"once": "_once_per_turn"}.get(mp.group(1).split()[0].lower(), "_during_your_turn")
+        body = mp.group(2)
+        # the zone phrase must END the sentence — a trailing 'by paying/sacrificing … in addition to
+        # their costs' (Festival/Maestros) or 'and mana of any type can be spent …' (Tinybones) carries a
+        # real alternative-cost/extra clause we won't drop, so those abstain rather than ground lossily.
+        m = re.match(r"^You may cast (.+?) from (the top of your library|your graveyard|exile|among them)\.?$", body, re.I)
+        if m:
+            return mk("may_cast_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)) + freq)
+        m = re.match(r"^You may play (.+?) from (the top of your library|your graveyard|exile)\.?$", body, re.I)
+        if m:
+            return mk("may_play_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)) + freq)
     m = re.match(r"^You may cast (.+?) from (the top of your library|your graveyard|exile|among them)\b.*?\.?$", r, re.I)
     if m:
         return mk("may_cast_" + ground.slug(m.group(1)) + "_from_" + ground.slug(m.group(2)))
