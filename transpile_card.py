@@ -1426,6 +1426,16 @@ def _station_band(unit, ctx):
     return CardOut(cid, [f'card_level("{cid}", "station", "{m.group(1)}_plus")'] + bo.facts, "station")
 
 
+def _specialize(unit, ctx):
+    """'Specialize {cost}' (Baldur's Gate keyword, NOT in this rules.txt KB). Recorded as a DESCRIPTIVE
+    card fact — NOT a grounded §702 keyword — so it captures the card's text without over-claiming a
+    rules-defined keyword the engine can't validate."""
+    m = re.match(r"^Specialize ((?:\{[^}]+\})+)$", unit.raw)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_specialize("{ctx["id"]}", "{m.group(1)}")'], "specialize")
+
+
 def _ticket_pt(unit, ctx):
     """Unfinity ticket cards (acorn): '{TK}{TK} — N/N' sets the creature's power/toughness when that
     many tickets have been paid — an alternate-P/T threshold table, structurally like a leveler band.
@@ -1516,7 +1526,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _ticket_pt, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket_pt, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,

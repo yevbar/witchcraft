@@ -74,6 +74,7 @@ def build() -> tuple[str, dict]:
     p.decl("card_level", [("card", "symbol"), ("kind", "symbol"), ("value", "symbol")])
     p.decl("card_class_level", [("card", "symbol"), ("cost", "symbol"), ("level", "symbol")])
     p.decl("card_ticket_pt", [("card", "symbol"), ("tickets", "number"), ("pt", "symbol")])
+    p.decl("card_specialize", [("card", "symbol"), ("cost", "symbol")])
     p.blank()
     for cid, nm in sorted(names.items()):
         p.fact(f'card_name("{cid}", "{nm}")')
@@ -87,7 +88,7 @@ def build() -> tuple[str, dict]:
              "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
              "card_enters_tapped", "card_etb_choose", "card_static_player", "card_additional_cost",
              "card_static", "card_restriction", "card_grants_ability", "card_cost_modifier", "card_cda",
-             "card_level", "card_class_level", "card_ticket_pt")
+             "card_level", "card_class_level", "card_ticket_pt", "card_specialize")
     p.blank()
     p.comment("conformance — a grounded keyword the rules define (§702.9) on a known card")
     p.conformance(
