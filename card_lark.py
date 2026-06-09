@@ -18,7 +18,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -244,6 +244,33 @@ def _bcm_g3(tail: str):
         if _BCM_REM.match(tail[i:]):
             return tail[:i]
     return None
+
+
+# 'gain control of <X>' (§720 control-change) is owned by the grant rule's gc-branch (gkw starts
+# with 'control'). The regex templates `_control`/`_control_subj` recognise EXACTLY two trailing
+# durations — ' until end of turn' and ' for as long as …' (the latter slurps to end) — and leave
+# every OTHER duration ('until your next turn', 'this turn', 'during their next turn') inside the
+# object span. `_gc_dursplit` reproduces that split byte-for-byte: it folds any lark-lexed MDUR back
+# into the object first (only the two recognised forms are peeled), so the slugged object/target and
+# the duration extra are identical to the regex.
+def _gc_dursplit(obj_full: str):
+    """(object_text, duration_extra) for a 'control of <object_full>' span, faithful to the regex."""
+    s = obj_full.strip()
+    i = s.find(" for as long as ")
+    if i >= 0:
+        return s[:i].strip(), ground.slug(s[i:])          # ' for as long as …' -> slug to end
+    if s.endswith(" until end of turn"):
+        return s[:-len(" until end of turn")].strip(), "until_end_of_turn"
+    return s, "-"
+
+
+# the regex `_control`/`_control_subj` only ground when the controlled OBJECT (and, for the subject
+# form, the gaining player) match the `_TGT` noun-phrase pattern anchored to the span — a comma, a
+# trailing clause ('… instead if you control …'), an anaphor-name ('Starke'), or a run-on coordinated
+# imperative ('untap target creature and gain control of it' — the regex leaf grounds that as UNTAP,
+# an earlier template) all FAIL `_TGT`. We validate the raw span against the same pattern so lark
+# grounds gain_control on EXACTLY the clauses the regex does, and abstains everywhere else.
+_GC_TGT = re.compile(r"^(?:" + _BCM_TGT_SRC + r")$", re.I)
 
 
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
@@ -606,6 +633,35 @@ class _ToEffect(Transformer):
             if t and (t.endswith(" perpetually") or _TGT_BAD.search(t) or not _PLAYER.match(t)):
                 return None
             return Effect("gain_life", n, _target(t) if t else "you")
+        # 'gain(s) control of <X> [until end of turn | for as long as …]' is §720 gain_control. The
+        # 'gain'/'gains' verb routes here (removed from PVERB), and gkw greedily captures 'control of …'
+        # (so `_kw_ok` returns None below) — own that shape here, reproducing `_control`/`_control_subj`.
+        if toks and toks[0] == "control":
+            verb = next((str(a).lower() for a in args if not isinstance(a, (_Tgt, _Body, _Dur))), "")
+            obj_full = " ".join(toks[1:])
+            if obj_full.startswith("of "):                # '(?:of )?' in the regex
+                obj_full = obj_full[3:]
+            if dur is not None:
+                obj_full = (obj_full + " " + dur.strip()).strip()   # fold MDUR back; gc-split re-peels
+            obj, dur_extra = _gc_dursplit(obj_full)
+            if not obj or not _GC_TGT.match(obj):
+                return None                              # object isn't a clean <TGT> noun phrase -> abstain
+            tt = tgt.strip().lower() if tgt else None
+            # SHAPE A ('_control'): implicit/you subject, no 'by_'. The regex's leading '(?:you )?' is a
+            # LITERAL prefix, reached only when there is no subject OR the subject is exactly 'you' and the
+            # verb is 'gain' (regex needs the literal 'gain '; 'you gains …' falls through to _control_subj).
+            if tt is None or (tt == "you" and verb == "gain"):
+                return Effect("gain_control", "-", _target(obj), dur_extra)
+            # SHAPE B ('_control_subj'): '<subject> gains? control of <X> [dur]' -> extra='by_<subject>',
+            # cond=duration. The gaining player must be a clean §720 controller phrase — `_PLAYER` (a
+            # closed allow-list) rejects a greedy gtgt that swallowed a run-on coordinated imperative
+            # ('untap … and'), a 'may' wrapper, or a compound 'X and Y each' subject (all of which the
+            # regex leaf would ground as a DIFFERENT verb or not at all) -> abstain. (Faithful: a couple
+            # of exotic but real subjects — 'target opponent chosen at random' — also fall here; the
+            # regex fallback still owns them.)
+            if not _PLAYER.match(tt):
+                return None
+            return Effect("gain_control", "-", _target(obj), "by_" + _target(tt), dur_extra)
         kw = _kw_ok(phrase.strip())
         if not kw or not _clean_kw(kw):
             return None                          # not a clean single §702 keyword grant -> abstain
