@@ -1448,6 +1448,74 @@ def _ticket_pt(unit, ctx):
                    "ticket_pt")
 
 
+# --- descriptive mechanics ABSENT from this rules.txt KB -------------------------------------------
+# These are named keyword/parameter mechanics from supplemental/newer sets that the §702 roster in
+# rules.txt does NOT define, so per the prime directive we must NOT emit a grounded card_keyword for
+# them. Each gets a DEDICATED descriptive relation (like card_specialize / card_ticket_pt) that records
+# the card's text faithfully without over-claiming a rules-defined keyword the engine can't validate.
+
+def _starting_intensity(unit, ctx):
+    """'Starting intensity N' (the Intensity mechanic, a custom/Un- set keyword NOT in this rules.txt
+    KB) — sets the permanent's initial intensity count. Recorded descriptively as card_intensity with
+    kind 'starting' and the integer value."""
+    m = re.match(r"^Starting intensity (\d+)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_intensity("{cid}", "starting", "{m.group(1)}")'], "intensity")
+
+
+def _intensify_static(unit, ctx):
+    """A standalone static intensity-modifier line (the Intensity mechanic, NOT in this rules.txt KB):
+    'Cards you own named ~ intensify by N.' / 'All Chorus cards you own intensify by N.' — a continuous
+    effect raising the intensity of a set of cards by N. The affected set is recorded as a faithful
+    descriptive slug (WHICH cards) and N as the amount; we do NOT claim a grounded keyword. Restricted
+    to the bare static shape (no When/Whenever/At trigger, no ':') so it never swallows a triggered
+    '… intensifies by N' clause that the effect engine should own."""
+    if re.match(r"^(?:When|Whenever|At)\b", unit.raw, re.I) or ":" in unit.raw or '"' in unit.raw:
+        return None
+    # 'who' is a bare noun phrase — no sentence boundary (a '. ' means a preceding effect clause that
+    # the multi-sentence splitter / effect engine should own, not a subject for us to swallow).
+    m = re.match(r"^(?:Then )?(?P<who>[^.]+?) intensify by (?P<n>\d+)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_intensify("{cid}", "{ground.slug(m.group("who"))}", "{m.group("n")}")'],
+                   "intensify")
+
+
+def _augment(unit, ctx):
+    """'Augment {cost}' (the Unstable Augment keyword — a half-card mechanic NOT defined in this
+    rules.txt §702 roster). Recorded descriptively as card_augment with the augment cost, like
+    card_specialize, so the card's text is captured without over-claiming a grounded keyword."""
+    m = re.match(r"^Augment ((?:\{[^}]+\})+)$", unit.raw)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_augment("{cid}", "{m.group(1)}")'], "augment")
+
+
+def _poison_tolerance(unit, ctx):
+    """'Poison Tolerance +N' (a supplemental/silver-border mechanic NOT in this rules.txt KB) — raises
+    the poison threshold before the player loses. Recorded descriptively as card_poison_tolerance with
+    the integer bonus; we do NOT claim a grounded keyword."""
+    m = re.match(r"^Poison Tolerance \+(\d+)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_poison_tolerance("{cid}", "{m.group(1)}")'], "poison_tolerance")
+
+
+def _ready_to_run(unit, ctx):
+    """'Ready to run' (a named keyword on the 'Runner' subgame cards, NOT in this rules.txt KB) — a
+    bare designation marker. Recorded descriptively as card_static('ready_to_run') so the line is
+    captured without claiming a grounded §702 keyword."""
+    if not re.match(r"^Ready to run\.?$", unit.raw, re.I):
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_static("{cid}", "ready_to_run")'], "ready_to_run")
+
+
 def _leveler(unit, ctx):
     """Leveler-card band/P-T lines (§711): 'LEVEL 2-6' / 'LEVEL 7+' -> a level band; a bare 'N/N'
     line -> that band's power/toughness. Gated on the Level Up keyword so a bare P/T can't false-match
@@ -1526,7 +1594,9 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket_pt, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket_pt,
+             _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
+             _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
