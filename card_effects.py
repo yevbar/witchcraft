@@ -646,13 +646,39 @@ def _prevent_that(m):
     return Effect("prevent_damage", n if n is not None else "that", "-")
 
 
+def _prevent_scope(kind: str, scope: str) -> "Effect":
+    """Build the prevent_damage tuple for a 'Prevent all <kind> damage …' clause (§615), recording the
+    scope as a faithful descriptive slug in the extra slot. The self-reference '~' is mapped to 'self'
+    so it survives slugging (slug() would otherwise drop the bare '~'), matching the '~'->'self' target
+    convention used by `_prevent`/`_redirect`. Convention: prevent_damage("all", "-", <scope_slug>)."""
+    kind = (kind or "").strip()
+    scope = ((kind + " ") if kind else "") + scope.strip()
+    scope = re.sub(r"~", "self", scope)
+    return Effect("prevent_damage", "all", "-", ground.slug(scope))
+
+
 @_t(r"^prevent all (combat |noncombat )?damage that would be dealt (.+?)$")
 def _prevent_all_scoped(m):
-    """'Prevent all [combat|noncombat] damage that would be dealt <scope>' (§615). The scope ('to ~',
-    'this turn to creatures you control', 'by enchanted creature', …) is recorded as a faithful slug."""
-    kind = (m.group(1) or "").strip()
-    scope = ((kind + " ") if kind else "") + m.group(2).strip()
-    return Effect("prevent_damage", "all", "-", ground.slug(scope))
+    """'Prevent all [combat|noncombat] damage that would be dealt <scope>' (§615) — the PASSIVE frame.
+    <scope> spans the 'to <recipient>' / 'by <source-class>' / 'to and dealt by …' / 'this turn …'
+    riders (e.g. 'to ~', 'to you and other permanents you control', 'to ~ by creatures',
+    'to and dealt by ~ this turn'); the whole span is recorded as a faithful slug."""
+    return _prevent_scope(m.group(1), m.group(2))
+
+
+@_t(r"^prevent all (combat |noncombat )?damage (?:that )?([\w'~ -]+?) would deal( to .+?)?( this turn| this combat)?$")
+def _prevent_all_source(m):
+    """'Prevent all [combat|noncombat] damage <source> would deal [to <X>] [this turn]' (§615) — the
+    ACTIVE / source-first frame ('… target creature would deal this turn', '… a source of your choice
+    would deal this turn', '… that black sources and red sources would deal this turn'). The source
+    class is recorded as a 'by <source>' scope rider, plus any 'to <recipient>' and 'this turn'
+    suffix, so the slug stays consistent with the passive frame's 'by …'/'to …' scope vocabulary."""
+    scope = "by " + m.group(2).strip()
+    if m.group(3):
+        scope += " " + m.group(3).strip()
+    if m.group(4):
+        scope += " " + m.group(4).strip()
+    return _prevent_scope(m.group(1), scope)
 
 
 @_t(r"^([\w' ]+?) (\d+|one|two|three|four|five|x)$")

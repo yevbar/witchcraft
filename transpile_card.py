@@ -601,6 +601,34 @@ def _static_control(unit, ctx):
                    "static_control")
 
 
+_PREVENT_LINE = re.compile(r"^(?:(during your turn|during combat),\s+)?(prevent .+)$", re.I)
+
+
+def _prevent_static(unit, ctx):
+    """A bare single-sentence damage-prevention static ability (§615) — 'Prevent all combat damage that
+    would be dealt to ~.', 'Prevent all damage target creature would deal this turn.', 'During your
+    turn, prevent all damage that would be dealt to ~.'  These never reach `_static_effect` because its
+    'would'/replacement guard (rightly) rejects them, so this routes the prevent clause through
+    parse_clause directly (all-or-nothing). A leading 'During your turn,'/'During combat,' temporal
+    prefix is recorded as the effect's condition (the established `during_your_turn` convention)."""
+    if {"Instant", "Sorcery"} & _types(ctx):
+        return None                               # one-shots are _spell's job
+    if re.match(r"^(?:When|Whenever|At|If|As)\b", unit.raw, re.I) or ":" in unit.raw or '"' in unit.raw:
+        return None                               # triggered/activated/quoted/conditional — not a bare static
+    m = _PREVENT_LINE.match(unit.raw.rstrip("."))
+    if not m or "." in m.group(2):                # single sentence only (multi-clause -> abstain here)
+        return None
+    e = parse_clause(m.group(2))
+    if e is None or e.verb != "prevent_damage":
+        return None
+    if m.group(1):
+        cond = ground.slug(m.group(1))
+        e = dataclasses.replace(e, cond=cond if e.cond == "-" else f"{cond}__{e.cond}")
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "static")']
+                   + _effect_facts(cid, aid, [e]), "static_effect")
+
+
 def _activated(unit, ctx):
     """'<cost>: <effect(s)>' — an activated ability (§602). Cost must look like a cost; effects parse."""
     m = re.match(r"^(?P<cost>[^:]{1,60}):\s*(?P<body>.+)$", unit.raw)
@@ -1645,7 +1673,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
-             _static_control, _static_effect]
+             _static_control, _prevent_static, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
