@@ -1,5 +1,31 @@
 # Plan: migrate the card interpreter from regex to the spaCy/lark (rules) pipeline
 
+## HEADLINE (current): the card effect-leaf is now **76% lark / 24% regex** (instance-weighted), up
+from 0% lark at the start. ~26 verb families migrated to the `card_lark.py` CFG, EACH oracle-gated
+(`migrate_check.py`) to faithful-or-better with **0 lossy**, souffle `conformance_fail=0`, 0 collisions.
+Families (in migration order): object-verbs · return · player-count (draw/mill/scry/surveil/gain_life/
+lose_life/discard) · deal_damage(+variants) · modify_pt · create · put_counter · grant_keyword/ability ·
+becomes · gain_control · choose · reveal · prevent_damage · put-to-zone(put_on_bottom/in_hand/on_top) ·
+remove_counter · double · subject-first sacrifice/exile · look · shuffle · negative-statics
+(cant_be_blocked/cant_block/doesnt_untap) · add_mana · attach · transform.
+
+The remaining ~24% regex is the **faithful end-state residue**, NOT unfinished work:
+  1. ABSTAIN-TAILS of migrated families (foreach-scaled amounts, copy-tokens, multi-keyword grants,
+     conditional/`except by` riders) — lark deliberately abstains; many are LOSSY in the regex itself.
+  2. FORMAL sublanguages (mana `{G}` symbol parsing — add_mana wraps the clause but reuses the
+     `_mana_production` helper; the symbols stay a sublanguage, by design).
+  3. The STRUCTURAL unit-handler layer (ability-frame splitting, keyword/mana-ability/P-T-static
+     handlers in transpile_card.py) — regex by design, the analogue of the rules engine's line-splitting.
+
+PARALLELIZATION: families were migrated in 4 batches of worktree subagents after the pattern was
+proven. Integration lessons (baked into agent prompts): (a) family-prefix EVERY rule/terminal/marker/
+method to avoid 4-way merge collisions; (b) NEVER an unbounded greedy `.*` terminal — it poisons the
+dynamic lexer GLOBALLY (use bounded charclasses, e.g. `/"[^"]*"/`, `/\{[^}]*\}/`); (c) shared-verb
+ambiguity (e.g. 'gain' for gain_life vs grant) → make ONE rule the single owner; (d) Earley ambiguity
+with another family → NEGATIVE rule priority (`.-2`); (e) reproduce cross-template PRECEDENCE (e.g.
+'put X into your hand' is return_to_hand via an earlier template, not put_in_hand); (f) `git stash` is
+SHARED across sibling worktrees — agents must avoid it.
+
 ## STATUS LOG (lark-primary migration, faithful-replacement / Option A)
 
 The card leaf is now **lark-first** (`card_effects.parse_clause`: `_lark_leaf(s) or parse_effect(s)`).
