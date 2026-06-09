@@ -519,7 +519,8 @@ def _multi_damage(sentence):
 
 _DIST_SUBJ = re.compile(rf"^({_TGT}) and ((?:up to \w+ other |another |[\w' -]+? )?{_TGT}) (?:each )?"
                         r"(gains?|gets?|haves?|has|deals?|becomes?|are|is|can't|attacks?|blocks?|"
-                        r"phases?|fight|fights|don't|doesn't) (.+)$", re.I)
+                        r"phases?|fight|fights|don't|doesn't|draws?|mills?|discards?|creates?|"
+                        r"sacrifices?|scry|scries|loses?) (.+)$", re.I)
 
 
 def _distribute_subjects(sentence):

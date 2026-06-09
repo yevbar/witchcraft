@@ -356,6 +356,25 @@ def _get_energy(m):
     return Effect("get_energy", m.group(1).count("{"), "you")
 
 
+@_t(r"^you get (twice |half )?that many (\{e\})$")
+def _get_energy_that_many(m):
+    """'you get that many {E}' — an anaphoric energy count (§107.3 / §107.16). Mirrors _get_energy's
+    tuple but with a 'that_amount' count instead of a literal symbol count."""
+    return Effect("get_energy", _that_amt(m.group(1), None), "you")
+
+
+# 'you get {TK}'/'you get {A}' — ticket (Unfinity) and acorn counters; like energy, these are player
+# resource counters gained via 'get'. Faithful to the _gets_counter convention (put_counter + kind).
+@_t(r"^you get ((?:\{tk\})+)$")
+def _get_ticket(m):
+    return Effect("put_counter", m.group(1).count("{"), "you", "ticket")
+
+
+@_t(r"^you get ((?:\{a\})+)$")
+def _get_acorn(m):
+    return Effect("put_counter", m.group(1).count("{"), "you", "acorn")
+
+
 @_t(rf"^(?:({_TGT}) )?adds? (?:an additional |additional )?(.+)$")
 def _add_mana(m):
     """'Add {G}' / '<player> adds {G}' / 'add an additional {C}' as an EFFECT (§106)."""
@@ -700,6 +719,20 @@ def _bare_action(m):
 @_t(rf"^(?:({_TGT}) )?draws? (twice |half )?that many cards( plus \w+| minus \w+)?$")
 def _draw_that_many(m):
     return Effect("draw", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+
+
+@_t(rf"^(?:({_TGT}) )?mills? (twice |half )?that many cards( plus \w+| minus \w+)?$")
+def _mill_that_many(m):
+    """'<player> mills that many cards' — the count is an anaphoric 'that many' (a just-named amount,
+    §107.3), mirroring _draw_that_many. Subject defaults to you."""
+    return Effect("mill", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+
+
+@_t(rf"^(?:({_TGT}) )?discards? (twice |half )?that many cards( plus \w+| minus \w+)?(?: at random)?$")
+def _discard_that_many(m):
+    """'<player> discards that many cards' — anaphoric 'that many' count (§107.3). Subject defaults to
+    you. (regex drops the optional 'at random' rider, as _discard does.)"""
+    return Effect("discard", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
 # amount-EXPRESSION variants for the card-flow verbs (faithful subject + amount): 'up to N',
