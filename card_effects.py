@@ -833,11 +833,35 @@ def _is_compound_object(s: str) -> bool:
     counts. ' or ' never splits effects in card text, so it's left alone."""
     if re.search(r" then |[:;]", s, re.I):
         return True
+    # a second damage segment ('… deals N damage to A and M damage to B') is a run-on into a distinct
+    # recipient, NOT a combined target — but 'N damage to each creature and each player' (one amount,
+    # one 'damage to') is, so require a SECOND 'damage to' after the 'and N'.
+    if re.search(r"\bdamage to\b.*\band (?:\d+|X) damage to\b", s, re.I):
+        return True
     for seg in re.split(r" and ", s, flags=re.I)[1:]:
         w = (seg.split() or [""])[0].lower().rstrip("s")
         if w in _PREDICATE_LEADS or w in ground.effect_verbs() or (w + "s") in ground.effect_verbs():
             return True
+        # a negated/copular/buff predicate continuation ("… and isn't an artifact", "… and can't attack",
+        # "… and gets +1/+1", "… and gains flying") opens a SECOND continuous effect, never a noun
+        # conjunction — these openers are unambiguous ('gets'/'gains' map to modify_pt/grant_keyword, so
+        # they aren't in effect_verbs() and the generic check above misses them).
+        if re.match(r"^(?:isn't|aren't|doesn't|don't|can't|must|becomes?|gets?|gains?|has|have|attacks?|blocks?)\b", seg, re.I):
+            return True
+        # a subject NP followed by a 3rd-person predicate verb ('… and that player loses …',
+        # '… and its controller draws …') is a SECOND effect, not a noun conjunction — the bare-pronoun
+        # set above misses the 'that player'/'its controller'-style subjects, so check for them here.
+        if _SUBJ_THEN_VERB.match(seg):
+            return True
     return False
+
+
+# '<subject NP> <3rd-person verb>' — a player/object subject directly followed by an inflected predicate
+# verb (so 'that player loses', 'its controller draws' read as a fresh effect, not a continued noun list).
+_SUBJ_THEN_VERB = re.compile(r"^(?:(?:that |the |each |its |their )?(?:player|controller|owner|opponent|"
+                             r"creature|permanent)(?:'s \w+)?|~|it|they) (?:perpetually |permanently )?"
+                             r"(?:loses?|gains?|gets?|draws?|discards?|mills?|sacrifices?|creates?|exiles?|"
+                             r"taps?|untaps?|shuffles?|reveals?|puts?|returns?|searches?|adds?|takes?|becomes?)\b", re.I)
 
 
 # words that signal a SECOND effect after 'and'/'then' — player/pronoun subjects, plus the base form
@@ -1594,6 +1618,30 @@ _EOT_PUMP = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+)(?: and (?:gains?|has
 _EOT_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?) until end of turn$", re.I)
 _EOT_PUMP_CANT = re.compile(rf"^({_TGT}) gets? ([+-]\d+/[+-]\d+) until end of turn and (can't (?:be blocked|block|attack)) this turn$", re.I)
 _PERM_GRANTS = re.compile(rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)$", re.I)
+# REVERSED keyword-first buff: '<t> gains/has <kw-list> and gets <±P/±T> [until end of turn]'
+# (Berserk 'gains trample and gets +X/+0 until end of turn', Runechanter's Pike 'has first strike and
+# gets +X/+0'). The P/T delta may be a §107.3 variable (X); a trailing ', where X is …' definition is
+# preserved on the modify_pt amount via parse_clause. Splits into grant_keyword(s) + modify_pt.
+_GRANT_THEN_PUMP = re.compile(
+    rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?) and gets? ([+-](?:\d+|X)/[+-](?:\d+|X)"
+    r"(?: until end of turn)?(?: for each .+?)?(?:,? where .+)?)$", re.I)
+# keyword grant followed by a SECOND predicate on the same subject: '<t> gains <kw-list> [until end of
+# turn] and <predicate>' — Veil of Secrecy ('… and can't be blocked this turn'), Deadly Allure ('… and
+# must be blocked this turn if able'), Neurok Transmuter ('… becomes blue and isn't an artifact'). The
+# second predicate is re-parsed with the subject reattached, so it grounds through the normal leaf;
+# splits into grant_keyword(s) + that effect. Abstains unless BOTH the keywords and the tail ground.
+_GRANT_THEN_CLAUSE = re.compile(
+    rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)( until end of turn)? and ((?:can't|must|isn't|is|are|aren't|"
+    r"becomes?|doesn't|don't|attacks?|blocks?) .+)$", re.I)
+# a type/color change followed by a SECOND predicate on the same subject: '<t> becomes <X> [until eot]
+# and <pred>' — where <pred> is a P/T pump ('gets +1/+0', Viridescent Wisps / Mizzium Tank), a keyword
+# grant ('gains flying, first strike, …', Enter the Avatar State), or a combat requirement ('attacks
+# this turn if able', Incite). Each half is re-parsed standalone with the subject reattached, splitting
+# into the 'becomes' effect + the tail effect. The 'becomes <X>' first part is non-greedy and stops at
+# the ' and ' that precedes one of those predicate openers (so a type list 'becomes an Avatar' stays
+# whole). All-or-nothing: both halves must ground.
+_BECOMES_THEN_PRED = re.compile(
+    rf"^({_TGT}) (becomes? .+?)( until end of turn)? and ((?:gets?|gains?|has|have|attacks?|can't|must) .+)$", re.I)
 
 
 def _eot_compound(s: str):
@@ -1611,11 +1659,35 @@ def _eot_compound(s: str):
     if m:
         tail = parse_clause(f"{m.group(1)} {m.group(2)} {m.group(3)}")
         return [Effect("lose_abilities", "-", _target(m.group(1))), tail] if tail else None
-    m = _EOT_PUMP_CANT.match(s)
+    m = _BECOMES_THEN_PRED.match(s)
     if m:
-        who = _target(m.group(1))
-        return [Effect("modify_pt", m.group(2), who),
-                Effect(m.group(3).replace("can't ", "cant_").replace(" ", "_"), "-", who)]
+        dur = " until end of turn" if m.group(3) else ""
+        first = parse_clause(f"{m.group(1)} {m.group(2)}{dur}")
+        # the tail predicate may itself be a multi-keyword grant ('gains flying, first strike, …'), so
+        # route it through parse_clauses (which fans out keyword lists) and reattach the subject.
+        tail = parse_clauses(f"{m.group(1)} {m.group(4)}")
+        if first and tail:
+            return [first] + tail
+    m = _GRANT_THEN_CLAUSE.match(s)
+    if m:
+        kws = _kw_list(m.group(2))
+        tail = parse_clause(f"{m.group(1)} {m.group(4)}") if kws else None
+        if kws and tail:
+            who = _target(m.group(1))
+            dur = "until_end_of_turn" if m.group(3) else "-"
+            return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [tail]
+    m = _GRANT_THEN_PUMP.match(s)
+    if m:
+        kws = _kw_list(m.group(2))
+        if kws:
+            who = _target(m.group(1))
+            # the keyword grant shares the pump's duration: grant it 'until end of turn' iff the pump is.
+            dur = "until_end_of_turn" if re.search(r"until end of turn", m.group(3), re.I) else "-"
+            # re-ground the full P/T delta tail (a §107.3 'for each …' / ', where X is …' / 'until end of
+            # turn' suffix) via parse_clause so it folds into the amount exactly as a standalone 'gets'.
+            pump = parse_clause(f"{m.group(1)} gets {m.group(3)}")
+            if pump:
+                return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [pump]
     m = _EOT_PUMP.match(s)
     if m:
         who = _target(m.group(1))

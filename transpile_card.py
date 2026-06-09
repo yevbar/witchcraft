@@ -350,12 +350,25 @@ def _split_modifiers(text: str):
 _SUBJ_RE = re.compile(rf"^({_TGT}) ", re.I)
 # 3rd-person predicate verbs that, with no subject, indicate a shared-subject continuation ('… , then
 # draws a card', '…, then exiles the rest').
-_BARE_PRED = re.compile(r"^(?:draws?|discards?|gains?|loses?|mills?|exiles?|shuffles?|sacrifices?|"
-                        r"creates?|puts?|returns?|reveals?|searches?|taps?|untaps?|adds?)\b", re.I)
+_BARE_PRED = re.compile(r"^(?:draws?|discards?|gains?|gets?|has|have|loses?|mills?|exiles?|shuffles?|"
+                        r"sacrifices?|creates?|puts?|returns?|reveals?|searches?|taps?|untaps?|adds?|"
+                        r"becomes?|attacks?|blocks?)\b", re.I)
+# BASE-FORM (imperative) one-shot effect verbs — when a part OPENS with one of these it is a verb
+# phrase ('Exile target creature …', 'Tap all lands …', 'Destroy that creature …'), NOT a subject NP,
+# so _leading_subject must not capture its verb+object as a 'subject' to reattach to a sibling clause.
+_IMPERATIVE_LEAD = re.compile(r"^(?:exile|tap|untap|destroy|return|put|draw|create|counter|search|reveal|"
+                              r"sacrifice|mill|scry|gain|lose|discard|shuffle|deal|prevent|regenerate|"
+                              r"detain|goad|attach|copy|remove|choose|cast|play)\b", re.I)
 
 
 def _leading_subject(part: str):
-    """The player/permanent subject NP a clause opens with ('Each player', 'Target opponent'), or None."""
+    """The player/permanent subject NP a clause opens with ('Each player', 'Target opponent'), or None.
+    Returns None when the part is an IMPERATIVE verb phrase ('Exile target creature …', 'Tap all lands
+    …'): there the leading words are verb+object, not a subject, so the _TGT regex would wrongly capture
+    'Exile target creature' as a subject and reattach it to a sibling imperative — swallowing it into one
+    lossy target. Sibling imperatives ('Exile X, then return it') must each parse standalone instead."""
+    if _IMPERATIVE_LEAD.match(part):
+        return None
     m = _SUBJ_RE.match(part)
     return m.group(1) if m else None
 
@@ -367,6 +380,11 @@ def _has_leading_subject(part: str) -> bool:
 
 
 _WRAPPER = re.compile(r"^(?P<w>if you do|you may|if (?!you do\b)[^,]+?|until (?:end of turn|your next turn|end of combat)),?\s+(?P<rest>.+)$", re.I)
+# multidamage consequent under an 'if <cond>,' wrapper, where the condition itself contains commas the
+# minimal [^,]+? would stop short of ('If there are seven or more cards …, instead ~ deals N … and M
+# damage to …'). Greedy-match the condition up to the LAST ', ' that precedes a damage-source subject.
+_IF_MULTIDMG = re.compile(r"^if (?!you do\b)(?P<cond>.+), (?P<rest>(?:instead,?\s+)?"
+                          r"(?:~|it|he|she|they|that \w+|this \w+|[A-Z][\w']+) deals (?:\d+|X) damage to .+)$", re.I)
 
 
 def _peel_wrapper(sentence):
@@ -374,8 +392,23 @@ def _peel_wrapper(sentence):
     life'; 'You may exile X and draw Y') -> (cond, rest). Single-consequent wrappers are handled in
     parse_clause; this catches the compound case the body splitter must expand. Returns None if no
     wrapper or the consequent isn't actually compound."""
+    # 'if <comma-laden cond>, <multidamage>' — the minimal [^,]+? condition in _WRAPPER stops short of a
+    # comma inside the condition, so match the multidamage form greedily first (condition up to the last
+    # ', ' before a damage clause). Faithful: the consequent must be a real multidamage to qualify.
+    mi = _IF_MULTIDMG.match(sentence)
+    if mi and _multi_damage(mi.group("rest")):
+        return ground.slug(mi.group("cond")), mi.group("rest")
     m = _WRAPPER.match(sentence)
-    if not m or len(_smart_split(m.group("rest"))) < 2:
+    # the consequent counts as COMPOUND when the effect-splitter yields >1 part, OR it is a multi-
+    # recipient damage clause ('… instead ~ deals N to A and M damage to B') that _smart_split leaves
+    # whole (the 'and' is followed by a number) but _multi_damage fans out, OR it is a compound buff
+    # ('it gains trample and gets +X/+X …') that only parse_clauses (via _eot_compound) splits — all of
+    # which a single inner parse_clause would otherwise swallow into one lossy effect.
+    if not m:
+        return None
+    rest = m.group("rest")
+    pc = parse_clauses(rest)
+    if len(_smart_split(rest)) < 2 and not _multi_damage(rest) and not (pc and len(pc) > 1):
         return None
     w = m.group("w").lower()
     if w == "if you do":
@@ -431,10 +464,16 @@ def _parse_body(text: str):
         if _CLARIFICATION.match(sentence):           # non-executable §613 persistence reminder — carries
             continue                                 # no effect, so skip it (drop, never abstain on it)
         # ability-word prefix (§207.2c, no rules meaning) on an effect clause: 'Ferocious — <effect>'.
-        # Strip it ONLY when the remainder then parses (so a real em-dash construction isn't mangled).
+        # Strip it when the remainder parses AND the whole sentence either doesn't parse OR parses only
+        # as a single (possibly swallowed) effect while the stripped body fans out into MORE effects —
+        # the latter recovers ability-worded multidamage ('Threshold — … instead ~ deals N to A and M
+        # damage to B'), where the un-stripped whole-parse greedily swallows the second recipient.
         aw = re.match(r"^[A-Z][\w'/-]*(?: [A-Z'][\w'/-]*)* [—–] (.+)$", sentence)
-        if aw and not parse_clause(sentence) and _parse_body(aw.group(1)):
-            sentence = aw.group(1)
+        if aw:
+            stripped = _parse_body(aw.group(1))
+            if stripped and (not parse_clause(sentence) or len(stripped) > 1):
+                out.extend(stripped)
+                continue
         peeled = _peel_wrapper(sentence)             # 'If you do, <compound>' / 'You may <compound>'
         if peeled:
             cond, rest = peeled
@@ -443,6 +482,17 @@ def _parse_body(text: str):
                 out.extend(dataclasses.replace(e, cond=(cond if e.cond == "-" else f"{cond}__{e.cond}"))
                            for e in sub)
                 continue
+        # multi-recipient damage ('deals N to A and M damage to B/you/itself') is a swallow the
+        # whole-parse would NOT flag as a compound object (the 'and' is followed by a number, not a
+        # verb), so split it into per-recipient deal_damage BEFORE accepting the whole-parse below.
+        dmg = _multi_damage(sentence)
+        if dmg:
+            out.extend(dmg)
+            continue
+        sv = _split_same_verb_objects(sentence)   # 'Destroy that creature and ~' -> two destroy effects
+        if sv:
+            out.extend(sv)
+            continue
         multi = parse_clauses(sentence)
         # Prefer a whole-clause parse UNLESS the sentence runs on into a second effect ('… and gain
         # control of it', '… then exile it'): a single-effect whole-parse there has swallowed the
@@ -475,16 +525,17 @@ def _parse_body(text: str):
             if ok:
                 out.extend(sub)
                 continue
-        if multi:                       # split didn't fully parse — fall back to the whole-clause parse
+        # fall back to the whole-clause parse — BUT only when it is NOT a swallowed run-on. If the
+        # sentence runs on into a second effect (_is_compound_object) and the split failed to ground
+        # every part, the single whole-parse has greedily absorbed the continuation into its target (a
+        # lossy swallow). Abstain on that part rather than emit the garbage slug (faithful-or-abstain);
+        # the later splitters / a final `return None` then handle it.
+        if multi and not _is_compound_object(sentence):
             out.extend(multi)
             continue
         dist = _distribute_subjects(sentence)   # '<A> and <B> [each] <predicate>' -> effect on each
         if dist:
             out.extend(dist)
-            continue
-        dmg = _multi_damage(sentence)           # '<src> deals N to A, M to B, and K to C' -> per-target
-        if dmg:
-            out.extend(dmg)
             continue
         dep = _spacy_effect(sentence)           # LAST RESORT: dependency-graph verb+object extraction
         if dep:
@@ -494,27 +545,66 @@ def _parse_body(text: str):
     return out or None
 
 
-_MULTI_DMG = re.compile(r"^(?P<src>~|it|that \w+|this \w+) deals (?P<segs>\d+ damage to .+?, \d+ damage to .+)$", re.I)
+# Two+ damage segments each of form 'N damage to <recipient>', joined by ',' and/or ' and '. The
+# required second 'N damage to' is what distinguishes this from the LEGITIMATE combined target
+# '~ deals N damage to each creature and each player' (one amount, one 'damage to', a single recipient
+# set) — there the ' and ' joins recipients inside ONE segment, so this pattern does not match it.
+_MULTI_DMG = re.compile(r"^(?:instead,?\s+)?(?P<src>~|it|he|she|they|that \w+|this \w+|[A-Z][\w']+(?:,? [A-Z][\w']+)*) deals "
+                        r"(?P<segs>(?:\d+|X) damage to .+?(?:,|,? and) (?:\d+|X) damage to .+)$", re.I)
 
 
 def _multi_damage(sentence):
     """'<source> deals N damage to A, M damage to B[, and K damage to C]' (Arc Lightning / Fiery
-    Cannonade family) -> one grounded deal_damage per recipient. All-or-nothing: every segment must
-    ground or it abstains."""
+    Cannonade family) and the two-recipient differing-amount form '<source> deals N damage to A and M
+    damage to B/you/itself' (Orcish Artillery / Psionic Blast / Chandra's Outrage) -> one grounded
+    deal_damage per recipient. All-or-nothing: every segment must ground or it abstains. Does NOT touch
+    the combined-target '… to each creature and each player' shape (no second 'N damage to')."""
     m = _MULTI_DMG.match(sentence)
     if not m:
         return None
     src, segs = m.group("src"), m.group("segs")
     out = []
-    for seg in re.split(r",\s+(?:and\s+)?", segs):
+    # split before each 'N damage to' on a ',' or ' and ' boundary (keeps recipient-internal ' and '
+    # such as 'target player or planeswalker' or 'each creature and each player' inside one segment).
+    for seg in re.split(r",\s+(?:and\s+)?|\s+and\s+(?=(?:\d+|X) damage to )", segs):
         seg = seg.strip()
-        if not re.match(r"^\d+ damage to ", seg, re.I):
+        if not re.match(r"^(?:\d+|X) damage to ", seg, re.I):
             return None
         e = parse_clause(f"{src} deals {seg}")
         if not e:
             return None
         out.append(e)
     return out
+
+
+# a single imperative verb over TWO distinct individual objects joined by 'and' — 'Destroy that creature
+# and ~', 'Exile it and that artifact'. The second object must be a clearly-individual reference (~/it/
+# that-NP), NOT a type plural ('artifacts and enchantments') which is one combined destroy target. Splits
+# into one effect per object (all-or-nothing). A trailing timing tail ('at end of combat') is shared.
+_SAME_VERB_OBJS = re.compile(
+    r"^(?P<verb>destroy|exile|sacrifice|tap|untap|return) (?P<a>.+?) and "
+    r"(?P<b>~|it|that [\w' -]+?)(?P<tail> (?:at end of combat|this turn|this combat))?$", re.I)
+# 'return <A> and <B> to <destination> [tail]' (Contempt 'return it and ~ to their owners' hands …') —
+# the destination phrase sits between objects and would otherwise be swallowed; distribute it to each.
+_RETURN_OBJS = re.compile(
+    r"^return (?P<a>.+?) and (?P<b>~|it|that [\w' -]+?) (?P<dest>to [\w' -]+? (?:hand|hands|battlefield|"
+    r"graveyard|library))(?P<tail> (?:at end of combat|this turn|this combat))?$", re.I)
+
+
+def _split_same_verb_objects(sentence):
+    r = _RETURN_OBJS.match(sentence)
+    if r:
+        tail = r.group("tail") or ""
+        e1 = parse_clause(f"return {r.group('a')} {r.group('dest')}{tail}")
+        e2 = parse_clause(f"return {r.group('b')} {r.group('dest')}{tail}")
+        return [e1, e2] if (e1 and e2) else None
+    a = _SAME_VERB_OBJS.match(sentence)
+    if not a:
+        return None
+    verb, tail = a.group("verb"), a.group("tail") or ""
+    e1 = parse_clause(f"{verb} {a.group('a')}{tail}")
+    e2 = parse_clause(f"{verb} {a.group('b')}{tail}")
+    return [e1, e2] if (e1 and e2) else None
 
 
 _DIST_SUBJ = re.compile(rf"^({_TGT}) and ((?:up to \w+ other |another |[\w' -]+? )?{_TGT}) (?:each )?"
@@ -1293,6 +1383,12 @@ def _static_grant(unit, ctx):
     m = re.match(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?:has|have|gains?|is|are) (?P<kw>[\w,{{}} ]+?)"
                  rf"(?: as long as (?P<cond>.+?))?\.?$", unit.raw, re.I)
     if not m:
+        return None
+    # the greedy {_SUBJ} can swallow a FIRST effect into 'who' ('… have base power and toughness 4/4 and
+    # have flying' -> who='…4/4', kw='flying'): if 'who' itself carries a second predicate, this is a
+    # multi-effect line _static_grant must NOT collapse — defer it (return None) so the body splitter
+    # (which splits into the component effects) or abstention handles it faithfully.
+    if re.search(r"\b(?:has|have|gains?|gets?|loses?|becomes?) \b|\bpower and toughness\b", m.group("who"), re.I):
         return None
     grounded = [_ground_kw(k.strip()) for k in re.split(r",\s*(?:and )?| and ", m.group("kw")) if k.strip()]
     if not grounded or not all(grounded):
