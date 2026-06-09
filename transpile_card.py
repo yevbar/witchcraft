@@ -1426,6 +1426,18 @@ def _station_band(unit, ctx):
     return CardOut(cid, [f'card_level("{cid}", "station", "{m.group(1)}_plus")'] + bo.facts, "station")
 
 
+def _ticket_pt(unit, ctx):
+    """Unfinity ticket cards (acorn): '{TK}{TK} — N/N' sets the creature's power/toughness when that
+    many tickets have been paid — an alternate-P/T threshold table, structurally like a leveler band.
+    One fact per row: card_ticket_pt(card, ticket_count, "P/T")."""
+    m = re.match(r"^((?:\{TK\})+)\s*[—-]\s*([+-]?\d+/[+-]?\d+)$", unit.raw)
+    if not m:
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'card_ticket_pt("{cid}", {m.group(1).count("{TK}")}, "{m.group(2)}")'],
+                   "ticket_pt")
+
+
 def _leveler(unit, ctx):
     """Leveler-card band/P-T lines (§711): 'LEVEL 2-6' / 'LEVEL 7+' -> a level band; a bare 'N/N'
     line -> that band's power/toughness. Gated on the Level Up keyword so a bare P/T can't false-match
@@ -1504,7 +1516,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _ticket_pt, _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
              _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
