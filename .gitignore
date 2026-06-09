@@ -16,5 +16,8 @@ venv/
 .claude/
 
 # MTGJSON bulk data (large; fetch via mtgjson.com)
+# match both the directory AND a bare `mtgjson` symlink/file — a self-referential
+# symlink here once got committed because `mtgjson/` only matches directories.
+mtgjson
 mtgjson/
 datalog/cards.dl
