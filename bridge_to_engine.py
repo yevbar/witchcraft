@@ -96,7 +96,10 @@ def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution)."""
     eff = _EFFECT.get(verb)
     if eff is None:
-        return None
+        import effect_handlers                                # pluggable verbs (effect_handlers/*.py)
+        effect_handlers.load()
+        h = effect_handlers.ENCODE.get(verb)
+        return h(verb, amt, tgt, extra) if h else None
     if eff == "counter":                                     # §701.5 'counter target spell' — amount unused
         return ("counter", 0, "target_spell")
     n = _int(amt)

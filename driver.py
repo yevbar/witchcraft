@@ -18,7 +18,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import sys
+
 import engine_native        # compiled-binary backend; falls back to the interpreter if unavailable
+import effect_handlers      # pluggable effect verbs (effect_handlers/*.py); _apply_effects dispatches here
+
+_THIS = sys.modules[__name__]   # passed to effect-handler apply fns so they reach driver helpers w/o a cycle
+effect_handlers.load()
 
 RULES = Path("datalog/engine_rules.dl").read_text()
 # relations the engine knows about; driver-only bookkeeping (in_library, ...) is not passed to souffle.
@@ -249,6 +255,10 @@ def _apply_effects(state: dict, pending: set) -> None:
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")
         elif eff == "create_token":                          # tgt = predefined token name
             _create_token(state, tgt, ctrl, n)
+        else:                                                # pluggable verbs (effect_handlers/*.py)
+            h = effect_handlers.APPLY.get(eff)
+            if h:
+                h(_THIS, state, a, n, tgt, src, ctrl)
     _apply_creature_effects(state)                           # §603 creature-scoped P/T / grant / destroy
 
 
