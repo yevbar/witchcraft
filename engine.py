@@ -38,7 +38,11 @@ _SYM = re.compile(r"\{([^}]+)\}")
 # the grounded effect verbs the engine actually EXECUTES (one branch in _do each). Everything the
 # interpreter grounds beyond this set still loads as data but resolves as a no-op — audit() reports
 # the gap so execution coverage is measured, not assumed.
-HANDLED_VERBS = frozenset({
+# the verbs executed by the inline branches in Game._do. ADDITIONAL verbs are contributed by the
+# pluggable handlers under engine_handlers/ (auto-discovered at import; one file per verb-group, so
+# parallel work never collides). HANDLED_VERBS — the full executed set, used by audit() — is the union,
+# computed at the bottom of this module once the registry has loaded.
+_INLINE_VERBS = frozenset({
     "add_mana", "deal_damage", "destroy", "draw", "gain_life", "lose_life", "modify_pt", "put_counter",
     "exile", "gain_control", "sacrifice", "tap", "untap", "mill", "discard", "create",
     "grant_keyword", "return_to_hand", "return_to_battlefield", "fight",
@@ -126,14 +130,21 @@ class Perm:
     dmg: int = 0
     granted: set = field(default_factory=set)        # keywords granted for the rest of the game
     granted_eot: set = field(default_factory=set)    # keywords granted until end of turn
+    set_pt: tuple | None = None                      # base-P/T override (§613.3 'has base P/T N/N'); None = printed
+    flags: set = field(default_factory=set)          # generic boolean states set by handlers and read
+    # by the shared loops: 'cant_attack'/'cant_be_blocked'/'cant_block' (combat), 'doesnt_untap' (untap),
+    # 'regen_shield' (replaces the next lethal with a tap+heal). Lets new static-modifier handlers live in
+    # their own engine_handlers/ file and just SET a flag — the enforcement is pre-wired below.
 
     @property
     def power(self):
-        return (self.card.power or 0) + self.boost[0] + self.counters
+        base = self.set_pt[0] if self.set_pt else (self.card.power or 0)
+        return base + self.boost[0] + self.counters
 
     @property
     def toughness(self):
-        return (self.card.toughness or 0) + self.boost[1] + self.counters
+        base = self.set_pt[1] if self.set_pt else (self.card.toughness or 0)
+        return base + self.boost[1] + self.counters
 
     def has(self, kw):
         return kw in self.card.keywords or kw in self.granted or kw in self.granted_eot
@@ -150,6 +161,8 @@ class Player:
     exile: list = field(default_factory=list)     # exiled cards (§406) — out of the game
     pool: Counter = field(default_factory=Counter)
     lands_played: int = 0
+    prevent: int = 0                              # damage-prevention shield (next N damage to this player)
+    resources: Counter = field(default_factory=Counter)  # generic resource counters (energy, etc.)
 
     def creatures(self):
         return [p for p in self.bf if "Creature" in p.card.types]
@@ -317,7 +330,8 @@ class Game:
                     p.dmg += n; self.log(f"{n} damage to {p.card.name}", 2)
             if any(w in tgt for w in ("player", "opponent")) or tgt in ("you", "any_target"):
                 for who in self._players(pl, opp, tgt, default=[opp]):   # any_target -> face (opp)
-                    who.life -= n; self.log(f"{n} damage to {who.name} (life {who.life})", 2)
+                    dealt = self._damage_player(who, n)
+                    self.log(f"{dealt} damage to {who.name} (life {who.life})", 2)
         elif verb == "draw":
             for who in self._players(pl, opp, tgt, default=[pl]):
                 self._draw(who, n or 1)
@@ -468,6 +482,14 @@ class Game:
                 self._fight(mine, ec)
                 self.log(f"{mine.card.name} fights {ec.card.name}", 2)
                 self.sba()
+        else:
+            # PLUGGABLE handlers (engine_handlers/*.py). A verb with no inline branch above dispatches
+            # here; an unregistered verb stays a faithful no-op (loads as data, doesn't act). sba() runs
+            # after so a handler that deals damage / destroys settles deaths and wins like the inline ones.
+            h = engine_handlers.REGISTRY.get(verb)
+            if h:
+                h(self, pl, opp, amt, tgt, extra, source, n)
+                self.sba()
         # remaining grounded verbs (scry, search, counter, …) are no-ops in this minimal engine
 
     @staticmethod
@@ -508,13 +530,34 @@ class Game:
                 pl.life = -999; self.log(f"{pl.name} draws from empty library — loses", 2)
         self.log(f"{pl.name} draws {k} (hand {len(pl.hand)})", 2)
 
-    def _destroy(self, perm):
+    def _destroy(self, perm, regenerable=True):
+        # §701.15 regeneration replaces a DESTROY (the destroy verb, lethal combat/damage) — but not a
+        # 0-toughness death or a sacrifice; sba passes regenerable=False once it has decided the creature
+        # truly dies. A no-op unless a handler set the 'regen_shield' flag.
+        if regenerable and "regen_shield" in perm.flags:
+            perm.flags.discard("regen_shield"); perm.tapped = True; perm.dmg = 0
+            self.log(f"{perm.card.name} regenerates", 2)
+            return
         self.p[perm.ctrl].bf.remove(perm)
         self.p[perm.ctrl].grave.append(perm.card)
 
+    def _damage_player(self, who, n):
+        """Apply n damage to a player through its prevention shield (§615). Returns damage actually dealt
+        (so lifelink/feedback reflect the post-prevention amount). A no-op when who.prevent == 0, so the
+        demo stays byte-identical until a prevent_damage handler raises a shield."""
+        if who.prevent and n > 0:
+            p = min(who.prevent, n)
+            who.prevent -= p
+            n -= p
+            if p:
+                self.log(f"prevents {p} damage to {who.name}", 2)
+        who.life -= n
+        return n
+
     # ---- combat ------------------------------------------------------------------------------------
     def combat(self, pl, opp):
-        attackers = [c for c in pl.creatures() if not c.tapped and not c.sick and not c.has("defender")]
+        attackers = [c for c in pl.creatures()
+                     if not c.tapped and not c.sick and not c.has("defender") and "cant_attack" not in c.flags]
         if not attackers:
             return
         self.log(f"{pl.name} attacks with {', '.join(a.card.name for a in attackers)}")
@@ -529,15 +572,18 @@ class Game:
                 self.log(f"{opp.name}'s {block.card.name} blocks {a.card.name}", 2)
                 self._fight(a, block)
             else:
-                opp.life -= a.power
+                dealt = self._damage_player(opp, a.power)
                 if a.has("lifelink"):
-                    pl.life += a.power
+                    pl.life += dealt
                 self.log(f"{a.card.name} hits {opp.name} for {a.power} (life {opp.life})", 2)
         self.sba()
 
     def _choose_block(self, attacker, blockers, opp):
         # flying can only be blocked by flying/reach; block to kill if possible, else chump if lethal
-        legal = [b for b in blockers if not attacker.has("flying") or b.has("flying") or b.has("reach")]
+        if "cant_be_blocked" in attacker.flags:
+            return None
+        legal = [b for b in blockers if "cant_block" not in b.flags
+                 and (not attacker.has("flying") or b.has("flying") or b.has("reach"))]
         kill = [b for b in legal if b.power >= attacker.toughness]
         if kill:
             return min(kill, key=lambda b: b.toughness)
@@ -558,8 +604,12 @@ class Game:
         for pl in self.p:
             for perm in list(pl.bf):
                 if "Creature" in perm.card.types and (perm.toughness <= 0 or perm.dmg >= perm.toughness):
+                    if perm.toughness > 0 and "regen_shield" in perm.flags:   # lethal DAMAGE -> regenerate
+                        perm.flags.discard("regen_shield"); perm.tapped = True; perm.dmg = 0
+                        self.log(f"{perm.card.name} regenerates", 2)
+                        continue
                     self.log(f"{perm.card.name} dies", 2)
-                    self._destroy(perm)
+                    self._destroy(perm, regenerable=False)   # already decided it dies (0-toughness or chose not to regen)
         for i, pl in enumerate(self.p):
             if pl.life <= 0 and not self.over:
                 self.over = True
@@ -572,7 +622,8 @@ class Game:
         self.turn += 1
         self.log(f"=== Turn {self.turn}: {pl.name} (life {pl.life} / {opp.name} {opp.life}) ===", 0)
         for perm in pl.bf:                                   # untap
-            perm.tapped = False
+            if "doesnt_untap" not in perm.flags:
+                perm.tapped = False
             perm.sick = False
         pl.lands_played = 0
         pl.pool.clear()
@@ -650,6 +701,15 @@ def demo():
                          ("Coral Eel", 4), ("Bay Falcon", 4)])
     print("Engine demo — green ground vs blue flyers, a full game from grounded facts:\n")
     Game(green, blue, seed=4).run()
+
+
+# Load the pluggable verb handlers AFTER every class/constant/helper above is defined, so the handler
+# modules can `from engine import Perm, Card, _COLOR, …` without a circular import. HANDLED_VERBS is the
+# union of the inline branches and everything the registry contributed.
+import engine_handlers                            # noqa: E402  (intentionally late — see above)
+
+engine_handlers.load()
+HANDLED_VERBS = _INLINE_VERBS | frozenset(engine_handlers.REGISTRY)
 
 
 if __name__ == "__main__":
