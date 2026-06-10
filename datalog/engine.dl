@@ -58,6 +58,7 @@
 .decl eff_mod_toughness(e: symbol, c: symbol, dt: number)
 .decl static_pt(source: symbol, dp: number, dt: number, scope: symbol)
 .decl static_grant(source: symbol, kw: symbol, scope: symbol)
+.decl static_filter(source: symbol, fkind: symbol, fval: symbol)
 .decl has_supertype(o: symbol, sup: symbol)
 .decl sacrificed(o: symbol)
 .decl phased_out(o: symbol)
@@ -169,11 +170,20 @@ base_toughness(C, N) :- copiable_toughness(C, N), !set_toughness(C, _).
 .decl static_src(source: symbol, scope: symbol)
 static_src(S, Sc) :- static_pt(S, _, _, Sc).
 static_src(S, Sc) :- static_grant(S, _, Sc).
+// an anthem with a static_filter only covers creatures matching it (subtype/type/color); an
+// unfiltered anthem covers everything its scope picks. filter_ok unifies the two cases.
+.decl static_filtered(source: symbol)
+static_filtered(S) :- static_filter(S, _, _).
+.decl filter_ok(source: symbol, creature: symbol)
+filter_ok(S, C) :- static_src(S, _), !static_filtered(S), creature(C).
+filter_ok(S, C) :- static_filter(S, "subtype", V), subtype(C, V).
+filter_ok(S, C) :- static_filter(S, "type", V), has_type(C, V).
+filter_ok(S, C) :- static_filter(S, "color", V), color(C, V).
 .decl anthem_creature(source: symbol, creature: symbol)
-anthem_creature(S, C) :- static_src(S, "creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C).
-anthem_creature(S, C) :- static_src(S, "other_creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), C != S.
-anthem_creature(S, C) :- static_src(S, "all_creatures"), on_battlefield(S), creature(C).
-anthem_creature(S, C) :- static_src(S, "other_creatures"), on_battlefield(S), creature(C), C != S.
+anthem_creature(S, C) :- static_src(S, "creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), filter_ok(S, C).
+anthem_creature(S, C) :- static_src(S, "other_creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), C != S, filter_ok(S, C).
+anthem_creature(S, C) :- static_src(S, "all_creatures"), on_battlefield(S), creature(C), filter_ok(S, C).
+anthem_creature(S, C) :- static_src(S, "other_creatures"), on_battlefield(S), creature(C), C != S, filter_ok(S, C).
 // static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources
 // buffing one creature stay distinct tuples and both sum / both grant).
 .decl static_mod_power(source: symbol, c: symbol, dp: number)

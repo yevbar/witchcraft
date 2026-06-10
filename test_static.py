@@ -92,6 +92,37 @@ def _engine_checks() -> None:
           _kw(st, "ally", "haste") and _kw(st, "foe", "haste"))
 
 
+def _filter_checks() -> None:
+    # §611.2 a SUBTYPE lord ('other Goblins get +1/+1'): only creatures with the subtype are buffed.
+    st = _board(static_pt={("lord", 1, 1, "other_creatures")})
+    st["static_filter"] = {("lord", "subtype", "goblin")}
+    st["printed_subtype"] = {("lord", "goblin"), ("ally", "goblin"), ("foe", "elf")}
+    # add an own non-goblin to prove the filter excludes it
+    st["on_battlefield"].add(("zealot",)); st["printed_type"].add(("zealot", "creature"))
+    st["printed_power"].add(("zealot", 2)); st["printed_toughness"].add(("zealot", 2))
+    st["printed_control"].add(("alice", "zealot")); st["printed_subtype"].add(("zealot", "human"))
+    pt = _pt(st)
+    check("subtype lord buffs the matching subtype (goblin ally 2/2 -> 3/3)", pt["ally"] == (3, 3))
+    check("subtype lord skips a non-matching own creature (human zealot stays 2/2)", pt["zealot"] == (2, 2))
+    check("subtype lord excludes the source itself (other_creatures)", pt["lord"] == (2, 2))
+
+    # a COLOR lord ('black creatures get +1/+1' — Bad Moon): only black creatures, both sides.
+    st = _board(static_pt={("lord", 1, 1, "all_creatures")})
+    st["static_filter"] = {("lord", "color", "black")}
+    st["printed_color"] = {("ally", "black"), ("foe", "white"), ("lord", "black")}
+    pt = _pt(st)
+    check("color lord buffs the matching color (black ally -> 3/3)", pt["ally"] == (3, 3))
+    check("color lord skips other colors (white foe stays 3/3)", pt["foe"] == (3, 3))
+
+    # a TYPE lord ('artifact creatures you control get +1/+1'): only artifact creatures.
+    st = _board(static_pt={("lord", 1, 1, "creatures_you_control")})
+    st["static_filter"] = {("lord", "type", "artifact")}
+    st["printed_type"].add(("ally", "artifact"))    # ally is now an artifact creature
+    pt = _pt(st)
+    check("type lord buffs artifact creatures (artifact ally -> 3/3)", pt["ally"] == (3, 3))
+    check("type lord skips the non-artifact source (lord stays 2/2)", pt["lord"] == (2, 2))
+
+
 def _bridge_checks() -> None:
     db = sim_load()
     corpus = {c["name"]: c for c in card_corpus_load()}
@@ -140,6 +171,7 @@ def card_corpus_load():
 
 def run() -> None:
     _engine_checks()
+    _filter_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

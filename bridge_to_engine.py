@@ -158,14 +158,84 @@ def _damage_target(tgt: str) -> str | None:
 
 
 # §611.2 static anthem/lord board scopes the engine resolves continuously while the source is in play.
-# Subtype-restricted lords ('other Goblins'), attachment scopes ('enchanted/equipped creature') and
-# opponent-board / token-only scopes abstain — the engine has no subtype/attachment join here.
+# Attachment scopes ('enchanted/equipped creature') and opponent-board / token-only scopes still abstain —
+# the engine has no attachment join here — but subtype/type/color lords map via an extra static_filter.
 _ANTHEM_SCOPE = {
     "creatures_you_control": "creatures_you_control",
     "other_creatures_you_control": "other_creatures_you_control",
     "all_creatures": "all_creatures",
     "other_creatures": "other_creatures",
 }
+
+_COLOR_NAME = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green"}
+_ANTHEM_TYPES = {"artifact", "enchantment", "land", "planeswalker", "creature"}
+
+
+def _subtype_universe(corpus: dict) -> frozenset:
+    """The set of all creature subtypes in the corpus (lowercased), cached per corpus object — so the lord
+    parser only treats a real subtype (Goblin, Sliver) as a filter, not a stray descriptor ('attacking')."""
+    cached = _subtype_universe.__dict__.get(id(corpus))
+    if cached is None:
+        cached = frozenset(st.lower() for c in corpus.values()
+                           if "Creature" in (c.get("types") or [])
+                           for st in (c.get("subtypes") or []))
+        _subtype_universe.__dict__[id(corpus)] = cached
+    return cached
+
+
+def _depluralize(word: str, universe: frozenset) -> str | None:
+    """Map a pluralized subtype slug ('goblins', 'slivers', 'elves', 'allies') back to the singular subtype
+    in the corpus universe, or None. Tries the common English plural rules; accepts only a real subtype."""
+    cands = [word]
+    if word.endswith("ves"):
+        cands += [word[:-3] + "f", word[:-3] + "fe"]
+    if word.endswith("ies"):
+        cands += [word[:-3] + "y"]
+    if word.endswith("es"):
+        cands += [word[:-2]]
+    if word.endswith("s"):
+        cands += [word[:-1]]
+    return next((c for c in cands if c in universe), None)
+
+
+def _anthem_target(tgt: str, corpus: dict):
+    """Parse a static-anthem scope slug into (base_scope, fkind|None, fval|None), or None to abstain. Strips
+    the you_control suffix and other/all prefix to find the core '<filter>_creatures'; the filter token is
+    classified as a color (closed set), a type (closed set), or a corpus subtype — anything else abstains."""
+    t = str(tgt)
+    you = t.endswith("_you_control")
+    core = t[: -len("_you_control")] if you else t
+    other = core.startswith("other_")
+    allp = core.startswith("all_")
+    if other:
+        core = core[len("other_"):]
+    elif allp:
+        core = core[len("all_"):]
+    if core == "creatures" or core == "creature":
+        filt = ""
+    elif core.endswith("_creatures"):
+        filt = core[: -len("_creatures")]                    # 'other_goblin_creatures...' form (singular)
+    else:                                                    # 'other_goblins' / 'all_slivers' — a bare plural subtype
+        filt = _depluralize(core, _subtype_universe(corpus))
+        if filt is None:
+            return None                                      # not a recognized creature scope -> abstain
+    if you and other:
+        scope = "other_creatures_you_control"
+    elif you:
+        scope = "creatures_you_control"
+    elif other:
+        scope = "other_creatures"
+    else:                                                    # all_<x>_creatures or bare '<x> creatures'
+        scope = "all_creatures"
+    if not filt:
+        return (scope, None, None)
+    if filt in _COLOR_NAME.values():
+        return (scope, "color", filt)
+    if filt in _ANTHEM_TYPES:
+        return (scope, "type", filt)
+    if filt in _subtype_universe(corpus):
+        return (scope, "subtype", filt)
+    return None                                              # an unrecognized filter token -> abstain (safe)
 
 
 # §613/§701 creature-scoped verbs: a board scope (self/your-creatures/all) the engine resolves, OR a
@@ -266,6 +336,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     add("printed_control", (ctrl, tid))
     for t in c.get("types") or []:
         add("printed_type", (tid, t.lower()))
+    for st in c.get("subtypes") or []:                       # §205.3 subtypes (Goblin, Sliver, …) for lords
+        add("printed_subtype", (tid, st.lower()))
+    for ci in c.get("colorIdentity") or []:                  # §105 color (approx. via color identity) for color lords
+        if ci in _COLOR_NAME:
+            add("printed_color", (tid, _COLOR_NAME[ci]))
     p, t = c.get("power"), c.get("toughness")
     if str(p or "").lstrip("-").isdigit():
         add("printed_power", (tid, int(p)))
@@ -464,10 +539,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):
                     dropped.append(("static", verb))
                     continue
-                scope = _ANTHEM_SCOPE.get(str(tgt))
-                if scope is None:
+                parsed = _anthem_target(tgt, corpus)
+                if parsed is None:
                     dropped.append(("static_scope", tgt))
                     continue
+                scope, fkind, fval = parsed
                 if verb == "modify_pt":
                     pt = _parse_pt(amt)
                     if pt is None:
@@ -478,6 +554,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if kw not in _ENGINE_KEYWORDS:               # unlike triggered/activated (in `extra`).
                         dropped.append(("grant_keyword", kw)); continue
                     add("static_grant", (tid, kw, scope))
+                if fkind is not None:                         # a subtype/type/color lord -> narrow the anthem
+                    add("static_filter", (tid, fkind, fval))
 
     if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
         for mode in f.get("modes", []):

@@ -174,6 +174,9 @@ INPUTS = [
     # folds it into the §613 layers (static_pt -> pt7c; static_grant -> has_keyword) — no driver bookkeeping.
     ("static_pt", [("source", "symbol"), ("dp", "number"), ("dt", "number"), ("scope", "symbol")]),
     ("static_grant", [("source", "symbol"), ("kw", "symbol"), ("scope", "symbol")]),
+    # an optional FILTER narrowing a static anthem to a subtype/type/color ('Other Goblins get +1/+1',
+    # 'Artifact creatures you control', 'Green creatures'): fkind in {subtype,type,color}, fval the value.
+    ("static_filter", [("source", "symbol"), ("fkind", "symbol"), ("fval", "symbol")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
     ("has_supertype", [("o", "symbol"), ("sup", "symbol")]),      # §205.4 supertypes (legendary etc.)
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
@@ -468,11 +471,20 @@ def _rules(p: Program) -> None:
     p.decl("static_src", [("source", "symbol"), ("scope", "symbol")])
     p.rule("static_src(S, Sc)", ["static_pt(S, _, _, Sc)"])
     p.rule("static_src(S, Sc)", ["static_grant(S, _, Sc)"])
+    p.comment("an anthem with a static_filter only covers creatures matching it (subtype/type/color); an")
+    p.comment("unfiltered anthem covers everything its scope picks. filter_ok unifies the two cases.")
+    p.decl("static_filtered", [("source", "symbol")])
+    p.rule("static_filtered(S)", ["static_filter(S, _, _)"])
+    p.decl("filter_ok", [("source", "symbol"), ("creature", "symbol")])
+    p.rule("filter_ok(S, C)", ["static_src(S, _)", "!static_filtered(S)", "creature(C)"])
+    p.rule("filter_ok(S, C)", ["static_filter(S, \"subtype\", V)", "subtype(C, V)"])
+    p.rule("filter_ok(S, C)", ["static_filter(S, \"type\", V)", "has_type(C, V)"])
+    p.rule("filter_ok(S, C)", ["static_filter(S, \"color\", V)", "color(C, V)"])
     p.decl("anthem_creature", [("source", "symbol"), ("creature", "symbol")])
-    p.rule("anthem_creature(S, C)", ["static_src(S, \"creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)"])
-    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "C != S"])
-    p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)"])
-    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "filter_ok(S, C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "C != S", "filter_ok(S, C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)", "filter_ok(S, C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S", "filter_ok(S, C)"])
     p.comment("static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources")
     p.comment("buffing one creature stay distinct tuples and both sum / both grant).")
     p.decl("static_mod_power", [("source", "symbol"), ("c", "symbol"), ("dp", "number")])
