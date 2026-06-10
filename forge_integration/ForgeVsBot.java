@@ -398,6 +398,16 @@ public class ForgeVsBot {
                     b.append(pi++ > 0 ? "," : "").append("{\"name\":\"").append(esc(p.getName())).append("\"");
                     b.append(",\"life\":").append(p.getLife());
                     b.append(",\"hand\":").append(p.getCardsIn(ZoneType.Hand).size());
+                    b.append(",\"handcards\":[");           // the Dumper is a spectator -> can show both hands
+                    int hi = 0;
+                    for (Card c : p.getCardsIn(ZoneType.Hand)) {
+                        String hk = c.isLand() ? "land" : (c.isCreature() ? "creature" : "other");
+                        b.append(hi++ > 0 ? "," : "").append("{\"name\":\"").append(esc(c.getName()))
+                         .append("\",\"kind\":\"").append(hk).append("\"");
+                        if (c.isCreature()) b.append(",\"pow\":").append(c.getNetPower()).append(",\"tou\":").append(c.getNetToughness());
+                        b.append("}");
+                    }
+                    b.append("]");
                     b.append(",\"library\":").append(p.getCardsIn(ZoneType.Library).size());
                     b.append(",\"graveyard\":").append(p.getCardsIn(ZoneType.Graveyard).size());
                     b.append(",\"battlefield\":[");

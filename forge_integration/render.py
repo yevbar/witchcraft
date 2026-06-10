@@ -16,8 +16,9 @@ import tempfile
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1280, 720
-CARD_W, CARD_H = 78, 104
+W, H = 1280, 820
+CARD_W, CARD_H = 74, 98
+HAND_W, HAND_H = 58, 80         # hand cards are a touch smaller than the battlefield
 BG = (24, 88, 52)               # felt green
 LAND_COLOR = {"forest": (60, 120, 60), "mountain": (150, 70, 55), "island": (60, 95, 150),
               "swamp": (60, 60, 70), "plains": (200, 195, 160)}
@@ -49,42 +50,48 @@ def _rounded(d, xy, r, fill, outline=(20, 20, 20), width=2):
     d.rounded_rectangle(xy, radius=r, fill=fill, outline=outline, width=width)
 
 
-def _draw_card(img, d, x, y, c):
+def _draw_card(img, d, x, y, c, w=CARD_W, h=CARD_H):
     tapped = c.get("tapped")
-    w, h = (CARD_H, CARD_W) if tapped else (CARD_W, CARD_H)     # tapped = sideways
+    if tapped:
+        w, h = h, w                                            # tapped = sideways
     col = _card_color(c)
     if tapped:
         col = tuple(int(v * 0.7) for v in col)
-    _rounded(d, [x, y, x + w, y + h], 8, col)
+    _rounded(d, [x, y, x + w, y + h], 7, col)
     name = c["name"]
-    short = name if len(name) <= 11 else name[:10] + "…"
-    d.text((x + 5, y + 5), short, font=F_SM, fill=(15, 15, 15))
+    cap = max(6, int(w / 6.5))
+    short = name if len(name) <= cap else name[:cap - 1] + "…"
+    d.text((x + 4, y + 4), short, font=F_SM, fill=(15, 15, 15))
     if c["kind"] == "creature" and "pow" in c:
-        d.text((x + w - 30, y + h - 18), f'{c["pow"]}/{c["tou"]}', font=F_SM, fill=(15, 15, 15))
+        d.text((x + w - 28, y + h - 16), f'{c["pow"]}/{c["tou"]}', font=F_SM, fill=(15, 15, 15))
+
+
+def _row(img, d, cards, x0, y, w, h, gap, cap):
+    """Draw a left-to-right row of cards, with a '+N' marker if it overflows the cap."""
+    for i, c in enumerate(cards[:cap]):
+        _draw_card(img, d, x0 + i * (w + gap), y, c, w, h)
+    if len(cards) > cap:
+        d.text((x0 + cap * (w + gap) + 4, y + h // 2), f'+{len(cards) - cap}', font=F_MD, fill=(230, 230, 230))
 
 
 def _draw_side(img, d, player, top, mine):
     label = ("▶ " if mine else "") + player["name"]
     accent = (235, 225, 120) if mine else (235, 235, 245)
-    d.text((20, top + 6), label, font=F_MD, fill=accent)
-    # life + zone counts
-    d.text((20, top + 30), f'♥ {player["life"]}', font=F_LG, fill=(255, 120, 120))
-    info = f'hand {player["hand"]}   lib {player["library"]}   gy {player["graveyard"]}'
-    d.text((120, top + 36), info, font=F_SM, fill=(220, 220, 220))
-    # facedown hand (small stack on the right)
-    for i in range(min(player["hand"], 10)):
-        hx = W - 180 + i * 14
-        _rounded(d, [hx, top + 18, hx + 26, top + 56], 4, (40, 40, 90), outline=(15, 15, 15), width=1)
-    # battlefield: lands row then creatures row (so the layout reads like a real board)
+    d.text((20, top + 4), label, font=F_MD, fill=accent)
+    d.text((230, top + 2), f'♥ {player["life"]}', font=F_LG, fill=(255, 120, 120))
+    d.text((320, top + 8), f'lib {player["library"]}   gy {player["graveyard"]}', font=F_SM, fill=(210, 210, 210))
+    # HAND — face-up cards (the Dumper is a spectator, so both hands are visible)
+    d.text((20, top + 30), f'hand ({player["hand"]})', font=F_SM, fill=(200, 220, 200))
+    hand = player.get("handcards", [])
+    _row(img, d, hand, 100, top + 28, HAND_W, HAND_H, 6, cap=12)
+    # BATTLEFIELD — creatures row then lands row
     bf = player["battlefield"]
+    creatures = [c for c in bf if c["kind"] != "land"]
     lands = [c for c in bf if c["kind"] == "land"]
-    rest = [c for c in bf if c["kind"] != "land"]
-    row_creatures = top + 66
-    row_lands = top + 66 + CARD_H + 8
-    for i, c in enumerate(rest[:14]):
-        _draw_card(img, d, 24 + i * (CARD_W + 8), row_creatures, c)
-    for i, c in enumerate(lands[:16]):
-        _draw_card(img, d, 24 + i * (CARD_H + 6), row_lands + (CARD_W if False else 0), {**c})
+    row_creatures = top + 28 + HAND_H + 8
+    row_lands = row_creatures + CARD_H + 6
+    _row(img, d, creatures, 20, row_creatures, CARD_W, CARD_H, 8, cap=14)
+    _row(img, d, lands, 20, row_lands, CARD_W, CARD_H, 6, cap=16)
 
 
 def render_frame(snap, out_path):
