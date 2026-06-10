@@ -130,6 +130,47 @@ def _driver_checks() -> None:
     check("indestructible target survives a destroy", ("big",) in st["on_battlefield"])
 
 
+def _spell_checks() -> None:
+    # §608 instant/sorcery single-target effects resolve through _run_spell_effects via spell_target.
+    # 'Murder' (destroy target creature) cast by alice -> kills bob's strongest (big), spares her own.
+    st = _base()
+    st["spell_target"] = {("murder", "destroy", "-", "any")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "murder", "alice")
+    check("spell destroy/any kills strongest enemy (big -> graveyard)",
+          ("big",) in st["graveyard"] and ("mine",) in st["on_battlefield"])
+
+    # 'Giant Growth' (+3/+3 to target creature you control) -> alice's strongest own creature.
+    st = _base()
+    st["spell_target"] = {("growth", "modify_pt", "3/3", "you_control")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "growth", "alice")
+    check("spell +3/+3/you_control pumps own creature (mine 2 -> 5)", _powers(st).get("mine") == 5)
+
+    # 'Unsummon' (return target creature to owner's hand) -> bounces strongest enemy to bob's hand.
+    st = _base()
+    st["spell_target"] = {("unsummon", "return_to_hand", "-", "any")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "unsummon", "alice")
+    check("spell bounce returns strongest enemy to its owner's hand",
+          ("bob", "big") in st["in_hand"] and ("big",) not in st["on_battlefield"])
+
+    # the bridge routes a real removal spell's destroy clause to spell_target, not a dropped effect.
+    import sim, card_corpus
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    found = None
+    for name in corpus:
+        try:
+            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
+        except Exception:
+            continue
+        if any(v in ("destroy", "modify_pt", "return_to_hand") for (_s, v, _p, _c) in f.get("spell_target", set())):
+            found = (name, sorted(f["spell_target"]))
+            break
+    check("a real instant/sorcery routes a single-target verb to spell_target", found is not None)
+
+
 def _bridge_checks() -> None:
     import sim, card_corpus
     db = sim.load_db()
@@ -147,6 +188,7 @@ def _bridge_checks() -> None:
 
 def run() -> None:
     _driver_checks()
+    _spell_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

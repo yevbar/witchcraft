@@ -124,6 +124,30 @@ def _target_class(tgt: str) -> str | None:
     return _TARGET_CLASS.get(str(tgt))
 
 
+# §613/§701 creature-scoped verbs: a board scope (self/your-creatures/all) the engine resolves, OR a
+# single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
+_CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
+
+
+def _single_target_payload(verb, amt, tgt, extra):
+    """Translate a single 'target creature' creature-verb clause into the engine (verb, payload, class),
+    or (None, reason_kind, reason_detail) to abstain. grant_keyword -> 'grant'; modify_pt -> a 'dp/dt'
+    payload; the §701 zone moves carry no payload. The class is the legal-target set the driver picks in."""
+    cls = _target_class(tgt)
+    if cls is None:
+        return None, "scope", tgt
+    if verb == "modify_pt":
+        pt = _parse_pt(amt)
+        if pt is None:
+            return None, "modify_pt_amt", amt
+        return "modify_pt", f"{pt[0]}/{pt[1]}", cls
+    if verb == "grant_keyword":
+        if extra not in _ENGINE_KEYWORDS:
+            return None, "grant_keyword", extra
+        return "grant", extra, cls
+    return verb, "-", cls
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -227,22 +251,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         continue
                     scope = _scope(tgt)
                     if scope is None:
-                        cls = _target_class(tgt)                # §115 single 'target creature' -> driver picks
-                        if cls is None:
-                            dropped.append(("scope", tgt))
+                        ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)  # §115 driver picks
+                        if ev is None:
+                            dropped.append((payload, cls))     # (reason_kind, reason_detail)
                             continue
-                        if verb == "modify_pt":
-                            pt = _parse_pt(amt)
-                            if pt is None:
-                                dropped.append(("modify_pt_amt", amt)); continue
-                            payload = f"{pt[0]}/{pt[1]}"
-                        elif verb == "grant_keyword":
-                            if extra not in _ENGINE_KEYWORDS:
-                                dropped.append(("grant_keyword", extra)); continue
-                            payload = extra
-                        else:
-                            payload = "-"
-                        add("trigger_target", (a, "grant" if verb == "grant_keyword" else verb, payload, cls))
+                        add("trigger_target", (a, ev, payload, cls))
                         add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
@@ -281,6 +294,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 out.get("has_trigger", set()).discard((a, tid, event))
         elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                # §115 single-target creature verbs (Murder=destroy, Giant Growth=+3/+3, Unsummon=bounce):
+                # emit spell_target so the driver makes the §601.2c choice as the spell resolves. A board
+                # scope (creatures_you_control / all_creatures) is deferred — falls through to abstain.
+                if verb in _CREATURE_VERBS and _scope(tgt) is None:
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                    if ev is None:
+                        dropped.append((payload, cls))
+                        continue
+                    add("spell_target", (tid, ev, payload, cls))
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

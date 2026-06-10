@@ -324,47 +324,55 @@ def _apply_creature_effects(state: dict) -> None:
     owner_of = {c: p for (p, c) in controls}
     for (a, s, verb, payload, cls, ctrl) in sorted(out["pending_target"]):
         tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
-        if tgt is None:
-            continue
-        if verb == "modify_pt":
-            dp, dt = (int(x) for x in payload.split("/"))
-            eid = f"{a}__pt__{tgt}"
-            state.setdefault("eff_mod_power", set()).add((eid, tgt, dp))
-            state.setdefault("eff_mod_toughness", set()).add((eid, tgt, dt))
-            state.setdefault("until_eot", set()).add((eid,))
-            print(f"    trigger {a}: targets {tgt} for {'+' if dp >= 0 else ''}{dp}/{'+' if dt >= 0 else ''}{dt} until end of turn")
-        elif verb == "grant":
-            eid = f"{a}__kw__{payload}__{tgt}"
-            state.setdefault("eff_grant_keyword", set()).add((eid, tgt, payload))
-            state.setdefault("until_eot", set()).add((eid,))
-            print(f"    trigger {a}: targets {tgt}, grants {payload} until end of turn")
-        elif verb == "destroy":
-            if tgt in indestructible:
-                print(f"    trigger {a}: targets {tgt} but it can't be destroyed (indestructible)")
-                continue
-            state["on_battlefield"].discard((tgt,))
-            state.setdefault("graveyard", set()).add((tgt,))
-            print(f"    trigger {a}: destroys target {tgt} -> graveyard")
-        elif verb == "exile":
-            state["on_battlefield"].discard((tgt,))
-            state.setdefault("exile", set()).add((tgt,))
-            print(f"    trigger {a}: exiles target {tgt} -> exile")
-        elif verb == "return_to_hand":
-            state["on_battlefield"].discard((tgt,))
-            state.setdefault("in_hand", set()).add((owner_of.get(tgt, ctrl), tgt))
-            print(f"    trigger {a}: returns target {tgt} to {owner_of.get(tgt, ctrl)}'s hand")
-        elif verb == "tap":
-            if (tgt,) not in state.get("tapped", set()):
-                state.setdefault("tapped", set()).add((tgt,))
-                print(f"    trigger {a}: taps target {tgt}")
-        elif verb == "untap":
-            if (tgt,) in state.get("tapped", set()):
-                state["tapped"].discard((tgt,))
-                print(f"    trigger {a}: untaps target {tgt}")
+        if tgt is not None:
+            _apply_target_verb(state, a, "trigger", verb, payload, tgt, ctrl, indestructible, owner_of)
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
 _HARMFUL_TARGET = {"destroy", "exile", "tap", "return_to_hand"}
+
+
+def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, tgt: str,
+                       ctrl: str, indestructible: set, owner_of: dict) -> None:
+    """Apply one resolved single-target creature verb to the already-chosen `tgt`. Shared by §603
+    triggered abilities (kind='trigger') and §608 instant/sorcery resolution (kind='spell'). A P/T
+    pump or keyword grant is an until-EOT continuous effect; destroy/exile/return/tap/untap are §701
+    one-shot zone/state moves. `kind` only flavors the log line."""
+    if verb == "modify_pt":
+        dp, dt = (int(x) for x in payload.split("/"))
+        eid = f"{a}__pt__{tgt}"
+        state.setdefault("eff_mod_power", set()).add((eid, tgt, dp))
+        state.setdefault("eff_mod_toughness", set()).add((eid, tgt, dt))
+        state.setdefault("until_eot", set()).add((eid,))
+        print(f"    {kind} {a}: targets {tgt} for {'+' if dp >= 0 else ''}{dp}/{'+' if dt >= 0 else ''}{dt} until end of turn")
+    elif verb == "grant":
+        eid = f"{a}__kw__{payload}__{tgt}"
+        state.setdefault("eff_grant_keyword", set()).add((eid, tgt, payload))
+        state.setdefault("until_eot", set()).add((eid,))
+        print(f"    {kind} {a}: targets {tgt}, grants {payload} until end of turn")
+    elif verb == "destroy":
+        if tgt in indestructible:
+            print(f"    {kind} {a}: targets {tgt} but it can't be destroyed (indestructible)")
+            return
+        state["on_battlefield"].discard((tgt,))
+        state.setdefault("graveyard", set()).add((tgt,))
+        print(f"    {kind} {a}: destroys target {tgt} -> graveyard")
+    elif verb == "exile":
+        state["on_battlefield"].discard((tgt,))
+        state.setdefault("exile", set()).add((tgt,))
+        print(f"    {kind} {a}: exiles target {tgt} -> exile")
+    elif verb == "return_to_hand":
+        state["on_battlefield"].discard((tgt,))
+        state.setdefault("in_hand", set()).add((owner_of.get(tgt, ctrl), tgt))
+        print(f"    {kind} {a}: returns target {tgt} to {owner_of.get(tgt, ctrl)}'s hand")
+    elif verb == "tap":
+        if (tgt,) not in state.get("tapped", set()):
+            state.setdefault("tapped", set()).add((tgt,))
+            print(f"    {kind} {a}: taps target {tgt}")
+    elif verb == "untap":
+        if (tgt,) in state.get("tapped", set()):
+            state["tapped"].discard((tgt,))
+            print(f"    {kind} {a}: untaps target {tgt}")
 
 
 def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
@@ -658,6 +666,26 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
                 print(f"      {spell} has no spell to counter")
         else:                                                # shared effect resolver (§603 -> §608 vocabulary)
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
+    _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)
+
+
+def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
+    """§608.2c + §601.2c — a resolving instant/sorcery's single 'target creature' effects: the engine
+    surfaced the legal-target class (spell_target), the driver picks the target (removal/tap/bounce ->
+    strongest enemy, buff/grant -> strongest own) and applies it. Same machinery as triggered targets."""
+    rows = sorted(r for r in state.get("spell_target", set()) if r[0] == spell)
+    if not rows:
+        return
+    out = run(state, ["controls", "power", "creature", "cant_be_destroyed"])
+    indestructible = {c for (c,) in out["cant_be_destroyed"]}
+    controls = {(p, c) for (p, c) in out["controls"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
+    creatures = {c for (c,) in out["creature"]}
+    owner_of = {c: p for (p, c) in controls}
+    for (_s, verb, payload, cls) in rows:
+        tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
+        if tgt is not None:
+            _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
 
 
 def _counter_target(state: dict, counterspell: str) -> str | None:
