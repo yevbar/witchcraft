@@ -1149,6 +1149,16 @@ _CARD_STATIC = [
     (r"^Play with the top card of your library revealed\.?$", "play_with_top_revealed"),
     (r"^Players play with the top card of their libraries revealed\.?$", "players_play_top_revealed"),
     (r"^You may play lands from your graveyard\.?$", "play_lands_from_graveyard"),
+    # saddle/crew power bonus (§702.176/§702.122 — power counts as N greater for the keyword cost)
+    (r"^~ saddles Mounts and crews Vehicles as though its power were (\d+) greater\.?$",
+     "saddles_crews_as_though_power_greater_by_"),
+    # §202.3a 'spend only … mana on X' — a colored-mana spend restriction on the X cost
+    (r"^Spend only (.+? mana on X)\.?$", "restriction_spend_only_"),
+    # §605/§302.6 pseudo-haste for activated abilities (Thousand-Year Elixir, Tyvar)
+    (r"^You may activate abilities of creatures you control as though those creatures had haste\.?$",
+     "activate_creature_abilities_as_though_haste"),
+    (r"^You may activate abilities of other creatures you control as though those creatures had haste\.?$",
+     "activate_other_creature_abilities_as_though_haste"),
     (r"^A deck can have any number of cards named ~\.?$", "any_number_in_deck"),
     (r"^It's still a land\.?$", "still_a_land"),
     (r"^Creatures with power less than ~'s power can't block it\.?$", "cant_be_blocked_by_lower_power"),
