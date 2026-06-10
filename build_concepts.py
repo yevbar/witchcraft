@@ -13,9 +13,16 @@ Three small, regular families that the rest of the engine references:
            ability | modifies P/T | indicates a characteristic | grants a keyword]."
         -> counter_kind(kind, creates)              what each counter kind does
 
-Hybrid: regex anchors each rigid frame, a small keyword lexicon classifies the counter's
-effect. A counter whose effect doesn't match the lexicon (e.g. poison, an SBA reference) is
-abstained on rather than mislabeled — a wrong fact is worse than no fact.
+Hybrid: the §117.1 permission frame is genuine SVO prose ("A player may VERB <object NP>
+<timing clause>"), so it's read by a spaCy dependency parse — the modal VERB is the ROOT, the
+permitted action; its dobj subtree is the object NP; a "during their main phase" prep child
+marks the sorcery-speed timing (a small lark grammar classifies the timing sublanguage into
+priority|sorcery). This is robust to the object NP's internal wording where the old single
+regex hard-coded `(?:an?|some|other|a) [\\w\\- ]+?`. The §113.3 category frame ("X abilities",
+rule-number-gated) and the §122.1 counter-effect lexicon stay regex — those parse structured /
+literal text a dependency parse can't improve. A counter whose effect doesn't match the lexicon
+(e.g. poison, an SBA reference) is abstained on rather than mislabeled — a wrong fact is worse
+than no fact.
 """
 
 from __future__ import annotations
@@ -23,13 +30,36 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import spacy
+from lark import Lark, Transformer
+
 from dlgen import Program
 from rules_parser import split
 
-_PM = re.compile(
-    r"A player may (cast|activate|take|play) ((?:an?|some|other|a) [\w\- ]+?) "
-    r"(any time they have priority|whenever they have priority|during their main phase[^.]*?priority[^.]*?empty)",
-    re.I)
+_NLP = spacy.load("en_core_web_sm")
+
+# --- timing sublanguage: a lark grammar classifies the §117.1 timing clause into the
+# speed slug the old regex's three alternatives produced. "during ... main phase ..." ->
+# sorcery (the clause mentions the main phase + an empty stack); a bare priority clause ->
+# priority. Faithful to: `"sorcery" if "main phase" in timing else "priority"`. ----------
+_TIMING_GRAMMAR = r"""
+    ?start: timing
+    timing: "sorcery"   -> sorcery
+          | "priority"  -> priority
+"""
+
+
+class _ToTiming(Transformer):
+    def sorcery(self, _):   return "sorcery"
+    def priority(self, _):  return "priority"
+
+
+_TIMING = Lark(_TIMING_GRAMMAR, parser="lalr", transformer=_ToTiming())
+
+# the permitted-action verbs of §117.1 (cast / activate / take / play), exactly the old
+# regex alternation. The ROOT verb's lemma must be one of these.
+_PM_VERBS = {"cast", "activate", "take", "play"}
+# the leading article/quantifier the old _ART stripped from the object NP before slugging.
 _ART = re.compile(r"^(?:an?|some|other|a)\s+")
 _KIND = re.compile(r"(?:A |An |One or more |The number of )([\w/+\-]+) counters?\b", re.I)
 
@@ -38,8 +68,45 @@ def _doc():
     return split(Path("rules.txt").read_text(encoding="utf-8"))
 
 
+def _object_np(verb) -> str | None:
+    """The slug of the verb's object NP, faithful to the old regex's second capture group
+    (`(?:an?|some|other|a) [\\w\\- ]+?`) then `_ART`-stripped + spaces->underscores. The NP is
+    the contiguous span from the dobj's leftmost determiner/modifier to the dobj head; the
+    timing clause (npadvmod 'time' / prep 'during') sits after the head and is excluded."""
+    dobjs = [c for c in verb.children if c.dep_ in ("dobj", "obj")]
+    if not dobjs:
+        return None
+    dobj = dobjs[0]
+    mods = [c for c in dobj.lefts if c.dep_ in ("det", "amod", "compound", "nummod", "poss")]
+    start = min([m.i for m in mods] + [dobj.i])
+    np = dobj.doc[start: dobj.i + 1].text.strip()
+    if not _ART.match(np):                       # old regex required a leading article/quantifier
+        return None
+    return _ART.sub("", np).replace(" ", "_")
+
+
+def _timing(verb) -> str:
+    """Classify the §117.1 timing clause governed by `verb` into priority|sorcery via lark.
+    'during their main phase' (a prep child whose object is the main phase) => sorcery."""
+    main_phase = any(
+        c.dep_ == "prep" and c.text.lower() == "during"
+        and any(t.lemma_ == "phase" for t in c.subtree)
+        for c in verb.children
+    )
+    return _TIMING.parse("sorcery" if main_phase else "priority")
+
+
+def _has_priority_clause(verb) -> bool:
+    """The old regex anchored on a 'priority'-bearing timing clause (any time / whenever they
+    have priority / during their main phase ... priority ... empty). Require 'priority' to
+    appear in the verb's clause so we don't over-match a bare 'A player may take an action'."""
+    span = verb.doc[verb.left_edge.i: verb.right_edge.i + 1].text.lower()
+    return "priority" in span
+
+
 def player_may() -> list[tuple[str, str, str, str]]:
-    """(rule, action, object, timing) — §117.1 priority/timing permissions."""
+    """(rule, action, object, timing) — §117.1 priority/timing permissions, read by a spaCy
+    dependency parse of the "A player may VERB <object> <timing>" permission frame."""
     rows, seen = [], set()
     for s in _doc().sections:
         for g in s.groups:
@@ -47,13 +114,23 @@ def player_may() -> list[tuple[str, str, str, str]]:
                 continue
             for r in g.rules:
                 for sr in [r] + r.subrules:
-                    for m in _PM.finditer(sr.text):
-                        verb, obj, timing = m.groups()
-                        obj = _ART.sub("", obj.strip()).replace(" ", "_")
-                        tclass = "sorcery" if "main phase" in timing.lower() else "priority"
-                        if (verb, obj, tclass) not in seen:
-                            seen.add((verb, obj, tclass))
-                            rows.append((sr.number, verb, obj, tclass))
+                    for sent in re.split(r"(?<=[.]) ", sr.text):
+                        doc = _NLP(sent.strip())
+                        for verb in doc:
+                            if verb.dep_ != "ROOT" or verb.lemma_ not in _PM_VERBS:
+                                continue
+                            subj = next((c for c in verb.children
+                                         if c.dep_ == "nsubj" and c.lemma_ == "player"), None)
+                            modal = any(c.dep_ == "aux" and c.lemma_ == "may" for c in verb.children)
+                            if subj is None or not modal or not _has_priority_clause(verb):
+                                continue
+                            obj = _object_np(verb)
+                            if obj is None:
+                                continue
+                            tclass = _timing(verb)
+                            if (verb.lemma_, obj, tclass) not in seen:
+                                seen.add((verb.lemma_, obj, tclass))
+                                rows.append((sr.number, verb.lemma_, obj, tclass))
     return rows
 
 
