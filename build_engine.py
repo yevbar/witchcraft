@@ -145,6 +145,16 @@ INPUTS = [
     ("tapped", [("c", "symbol")]),                  # for the untap turn-based action
     ("has_trigger", [("ability", "symbol"), ("source", "symbol"), ("event", "symbol")]),   # §603 triggered abilities
     ("trigger_effect", [("ability", "symbol"), ("effect", "symbol"), ("amount", "number"), ("target", "symbol")]),
+    # §603 CREATURE-SCOPED triggered effects (P/T pump, keyword grant, destroy). `scope` is one of
+    # {self, creatures_you_control, all_creatures}; the engine resolves it to concrete creatures
+    # (pending_pt/pending_grant/pending_destroy) the driver applies to the board.
+    ("trigger_effect_pt", [("ability", "symbol"), ("dp", "number"), ("dt", "number"), ("scope", "symbol")]),
+    ("trigger_effect_grant", [("ability", "symbol"), ("keyword", "symbol"), ("scope", "symbol")]),
+    ("trigger_effect_destroy", [("ability", "symbol"), ("scope", "symbol")]),
+    # §613.4 layer 7c P/T modifier carrying an effect id so a duration ('until end of turn') can clear it
+    # at cleanup (the bare mod_power/mod_toughness inputs have no id and persist). Summed into pt7c.
+    ("eff_mod_power", [("e", "symbol"), ("c", "symbol"), ("dp", "number")]),
+    ("eff_mod_toughness", [("e", "symbol"), ("c", "symbol"), ("dt", "number")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
     ("has_supertype", [("o", "symbol"), ("sup", "symbol")]),      # §205.4 supertypes (legendary etc.)
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
@@ -184,6 +194,9 @@ EXPECT_DECLS = [
     ("expect_fizzle", [("s", "symbol")]), ("expect_mode", [("s", "symbol"), ("m", "symbol")]),
     ("expect_ends_cleanup", [("e", "symbol")]),
     ("expect_lookback", [("event_key", "symbol")]),
+    ("expect_pending_pt", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_grant", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_destroy", [("a", "symbol"), ("c", "symbol")]),
 ]
 CHECKS = [
     ("dies", "expect_dies(C)", "miss", "dies(C)"),
@@ -209,6 +222,9 @@ CHECKS = [
     ("mode", "expect_mode(S, M)", "miss", "active_mode(S, M)"),
     ("ends", "expect_ends_cleanup(E)", "miss", "ends_at_cleanup(E)"),
     ("lookback", "expect_lookback(K)", "miss", "lookback_trigger(K)"),
+    ("pend_pt", "expect_pending_pt(A, C)", "miss", "pending_pt(A, _, _, C, _)", "A", "C"),
+    ("pend_grant", "expect_pending_grant(A, C)", "miss", "pending_grant(A, _, C, _)", "A", "C"),
+    ("pend_destroy", "expect_pending_destroy(A, C)", "miss", "pending_destroy(A, C, _)", "A", "C"),
 ]
 
 SCENARIOS = [
@@ -316,6 +332,20 @@ SCENARIOS = [
     'spell_mode("charm", "damage")', 'spell_mode("charm", "draw")', 'chose_mode("charm", "damage")', 'expect_mode("charm", "damage")',
     # §611.2 DURATION — a giant-growth-style pump is until end of turn (the driver removes it at cleanup).
     'until_eot("pump")', 'expect_ends_cleanup("pump")',
+    # §613.4 layer 7c via eff_mod_* — an 'until end of turn' +2/+2 (id "uet") on buffed (printed 2/2) -> power 4.
+    'on_battlefield("buffed")', 'printed_type("buffed", "creature")', 'printed_power("buffed", 2)', 'printed_toughness("buffed", 2)', 'printed_control("alice", "buffed")',
+    'eff_mod_power("uet", "buffed", 2)', 'eff_mod_toughness("uet", "buffed", 2)', 'until_eot("uet")', 'expect_power("buffed", 4)',
+    # §603 CREATURE-SCOPED triggers — an 'on attack' ability that pumps/grants 'creatures you control'
+    # resolves to EVERY creature alice controls (lord itself + ally); a self-destroy resolves to the source.
+    'on_battlefield("lord")', 'printed_type("lord", "creature")', 'printed_power("lord", 1)', 'printed_toughness("lord", 1)', 'printed_control("alice", "lord")',
+    'on_battlefield("ally")', 'printed_type("ally", "creature")', 'printed_power("ally", 2)', 'printed_toughness("ally", 2)', 'printed_control("alice", "ally")',
+    'attacks("lord", "carol")',
+    'has_trigger("buff", "lord", "attacks_self")', 'trigger_effect_pt("buff", 1, 1, "creatures_you_control")',
+    'has_trigger("wings2", "lord", "attacks_self")', 'trigger_effect_grant("wings2", "flying", "creatures_you_control")',
+    'has_trigger("boom", "lord", "attacks_self")', 'trigger_effect_destroy("boom", "self")',
+    'expect_pending_pt("buff", "lord")', 'expect_pending_pt("buff", "ally")',
+    'expect_pending_grant("wings2", "lord")', 'expect_pending_grant("wings2", "ally")',
+    'expect_pending_destroy("boom", "lord")',
 ]
 
 
@@ -394,10 +424,12 @@ def _rules(p: Program) -> None:
     p.rule("base_toughness(C, N)", ["set_toughness(C, N)"])
     p.rule("base_toughness(C, N)", ["copiable_toughness(C, N)", "!set_toughness(C, _)"])
     p.comment("§613.4 layer 7c — modify: +1/+1 & -1/-1 counters and P/T modifiers, on top of the set base.")
+    p.comment("mod_power/mod_toughness are the bare (persistent) inputs; eff_mod_* carry an id so a")
+    p.comment("triggered 'until end of turn' pump can be cleared at cleanup — both feed the same layer.")
     p.decl("pt7c_power", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "N = B + P - M + E"])
+    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "N = B + P - M + E + G"])
     p.decl("pt7c_toughness", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "N = B + P - M + E"])
+    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "N = B + P - M + E + G"])
     p.comment("§613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.")
     p.decl("switched", [("c", "symbol")])
     p.rule("switched(C)", ["eff_switch_pt(_, C)", "N = count : { eff_switch_pt(_, C) }", "N % 2 = 1"])
@@ -654,10 +686,33 @@ def _rules(p: Program) -> None:
     p.decl("pending", [("ability", "symbol"), ("effect", "symbol"), ("amount", "number"), ("target", "symbol"), ("source", "symbol"), ("controller", "symbol")])
     p.rule("pending(A, E, Amt, T, S, P)", ["fires(A, S)", "trigger_effect(A, E, Amt, T)", "controls(P, S)"])
     p.blank()
+    p.comment("§603 CREATURE-SCOPED resolution — a fired trigger's scope resolved to concrete creatures.")
+    p.comment("scope_creature(ability, source, creature): which creatures the ability's scope picks out,")
+    p.comment("given the firing source (and so its controller). self -> the source; creatures_you_control ->")
+    p.comment("every creature the source's controller controls; all_creatures -> every creature on the battlefield.")
+    p.decl("scope_creature", [("ability", "symbol"), ("source", "symbol"), ("creature", "symbol")])
+    p.rule("scope_creature(A, S, S)", ["fires(A, S)", "scope_of(A, \"self\")", "creature(S)"])
+    p.rule("scope_creature(A, S, C)", ["fires(A, S)", "scope_of(A, \"creatures_you_control\")", "controls(P, S)", "controls(P, C)", "creature(C)"])
+    p.rule("scope_creature(A, S, C)", ["fires(A, S)", "scope_of(A, \"all_creatures\")", "creature(C)"])
+    p.comment("scope_of unifies the scope column across the three creature-scoped trigger relations.")
+    p.decl("scope_of", [("ability", "symbol"), ("scope", "symbol")])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_pt(A, _, _, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_grant(A, _, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_destroy(A, Sc)"])
+    p.comment("pending_pt / pending_grant / pending_destroy — the concrete (creature, payload) the driver applies.")
+    p.decl("pending_pt", [("ability", "symbol"), ("dp", "number"), ("dt", "number"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_pt(A, DP, DT, C, P)", ["trigger_effect_pt(A, DP, DT, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.decl("pending_grant", [("ability", "symbol"), ("keyword", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_grant(A, K, C, P)", ["trigger_effect_grant(A, K, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.decl("pending_destroy", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_destroy(A, C, P)", ["trigger_effect_destroy(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.blank()
     p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",
+             "pending_pt", "pending_grant", "pending_destroy",   # §603 creature-scoped triggered effects
+             "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state
 
 

@@ -62,6 +62,29 @@ def _counter_kind(extra: str) -> str | None:
     return None
 
 
+# a fixed '+N/+N' / '-N/-N' P/T string (e.g. '+2/+0', '-1/-1') -> (dp, dt). Variable/conditional pumps
+# (+X/+X, '+1/+0_per_…') don't parse to constants and abstain (the engine has no count to feed).
+_PT = re.compile(r"^([+-]\d+)/([+-]\d+)$")
+
+
+def _parse_pt(amt: str) -> tuple[int, int] | None:
+    m = _PT.match(str(amt))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+# effect target slug -> creature SCOPE the engine resolves ({self, creatures_you_control, all_creatures}).
+# Single 'target creature' (and that_creature/other/enchanted/…) needs an AI choice the engine can't make,
+# so it abstains (returns None) — only board-wide or self scopes apply without a choice.
+def _scope(tgt: str) -> str | None:
+    if tgt in ("self", "it"):
+        return "self"
+    if tgt == "creatures_you_control":
+        return "creatures_you_control"
+    if tgt in ("all_creatures", "all_other_creatures"):
+        return "all_creatures"
+    return None
+
+
 def _int(amt) -> int | None:
     return int(amt) if str(amt).lstrip("-").isdigit() else None
 
@@ -107,6 +130,30 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         a = f"{tid}_{aid}"
         emitted = False
         for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+            # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy): payload + a board scope the
+            # engine resolves to concrete creatures, NOT a player-target amount. Single 'target creature'
+            # abstains (needs a choice); only self / creatures_you_control / all_creatures apply.
+            if verb in ("modify_pt", "grant_keyword", "destroy"):
+                scope = _scope(tgt)
+                if scope is None:
+                    dropped.append(("scope", tgt))
+                    continue
+                if verb == "modify_pt":
+                    pt = _parse_pt(amt)
+                    if pt is None:
+                        dropped.append(("modify_pt_amt", amt))
+                        continue
+                    add("trigger_effect_pt", (a, pt[0], pt[1], scope))
+                elif verb == "grant_keyword":
+                    if extra not in _ENGINE_KEYWORDS:        # only keywords the engine models (else it'd no-op)
+                        dropped.append(("grant_keyword", extra))
+                        continue
+                    add("trigger_effect_grant", (a, extra, scope))
+                else:                                        # destroy
+                    add("trigger_effect_destroy", (a, scope))
+                add("has_trigger", (a, tid, event))
+                emitted = True
+                continue
             eff = _EFFECT.get(verb)
             n = _int(amt)
             if eff is None or n is None:

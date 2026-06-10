@@ -249,6 +249,36 @@ def _apply_effects(state: dict, pending: set) -> None:
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")
         elif eff == "create_token":                          # tgt = predefined token name
             _create_token(state, tgt, ctrl, n)
+    _apply_creature_effects(state)                           # §603 creature-scoped P/T / grant / destroy
+
+
+def _apply_creature_effects(state: dict) -> None:
+    """Apply the engine's creature-SCOPED triggered effects (§603) to the resolved creatures: a P/T pump
+    and a keyword grant are materialized as id-carrying, until-end-of-turn continuous effects (eff_mod_*,
+    eff_grant_keyword) that re-derive through the §613 layer system and are cleared at cleanup; a destroy
+    moves the creature to its owner's graveyard. The id is deterministic per (ability, creature) so re-
+    deriving the same fire across steps is idempotent (set semantics — no double-buffing)."""
+    out = run(state, ["pending_pt", "pending_grant", "pending_destroy"])
+    for (a, dp, dt, c, _ctrl) in sorted(out["pending_pt"]):
+        eid = f"{a}__pt__{c}"
+        before = (eid, c, int(dp)) in state.get("eff_mod_power", set())
+        state.setdefault("eff_mod_power", set()).add((eid, c, int(dp)))
+        state.setdefault("eff_mod_toughness", set()).add((eid, c, int(dt)))
+        state.setdefault("until_eot", set()).add((eid,))     # §611.2 wears off at cleanup
+        if not before:
+            print(f"    trigger {a}: {c} gets {'+' if int(dp) >= 0 else ''}{dp}/{'+' if int(dt) >= 0 else ''}{dt} until end of turn")
+    for (a, kw, c, _ctrl) in sorted(out["pending_grant"]):
+        eid = f"{a}__kw__{kw}__{c}"
+        before = (eid, c, kw) in state.get("eff_grant_keyword", set())
+        state.setdefault("eff_grant_keyword", set()).add((eid, c, kw))
+        state.setdefault("until_eot", set()).add((eid,))
+        if not before:
+            print(f"    trigger {a}: {c} gains {kw} until end of turn")
+    for (a, c, _ctrl) in sorted(out["pending_destroy"]):
+        if (c,) in state.get("on_battlefield", set()):       # §701.7 — move it to the graveyard
+            state["on_battlefield"].discard((c,))
+            state.setdefault("graveyard", set()).add((c,))
+            print(f"    trigger {a}: {c} is destroyed -> graveyard")
 
 
 def _sacrifice(state: dict, obj: str) -> None:
@@ -452,8 +482,8 @@ def _cast_phase(state: dict, ap: str) -> None:
         state["in_hand"].discard((ap, spell))
         state["on_stack"], state["all_passed"] = {(spell, 0)}, {("yes",)}   # cast; no responses here
         out = run(state, ["fizzles", "enters_battlefield", "enters_tapped", "enters_with_counter"])
-        state["on_stack"], state["all_passed"] = set(), set()
         if (spell,) in out["fizzles"]:
+            state["on_stack"], state["all_passed"] = set(), set()
             print(f"    {ap} casts {spell} -> fizzles (no legal target)")
             continue
         print(f"    {ap} casts {spell} -> resolves")
@@ -466,14 +496,22 @@ def _cast_phase(state: dict, ap: str) -> None:
             for (c, k, n) in sorted(out["enters_with_counter"]):
                 if c == spell:
                     _bump_counter(state, spell, k, int(n)); print(f"      {spell} enters with {n} {k} counter")
+            # §603.2a — the spell's own ETB ability triggers as it enters. The permanent is now on the
+            # battlefield (so scopes resolve) AND still on the stack (so enters_battlefield/ev_etb holds),
+            # so the engine derives the ETB pendings here; the driver applies them while that context holds.
+            _apply_effects(state, run(state, ["pending"])["pending"])
+        state["on_stack"], state["all_passed"] = set(), set()
     state["has_priority"] = set()
 
 
 def _end_of_turn(state: dict) -> None:
     """§514.2 cleanup — until-end-of-turn continuous effects end (the driver removes them)."""
-    for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]:
+    ending = {e for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]}
+    for e in ending:
         for rel in [k for k in state if k.startswith("eff_")]:
             state[rel] = {row for row in state[rel] if row and row[0] != e}
+    if ending and state.get("until_eot"):                    # drop the consumed markers so they don't accrue
+        state["until_eot"] = {row for row in state["until_eot"] if row and row[0] not in ending}
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
