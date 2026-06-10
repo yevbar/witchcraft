@@ -494,6 +494,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
+                if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
+                    if str(tgt) in ("self", "it"):
+                        add("trigger_effect", (a, "switchpt", 0, "-"))
+                        add("has_trigger", (a, tid, event)); emitted = True; continue
+                    if _target_class(tgt) is not None:
+                        add("trigger_target", (a, "switchpt", "-", _target_class(tgt)))
+                        add("has_trigger", (a, tid, event)); emitted = True; continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
@@ -553,6 +560,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # creature on resolution. enters tapped iff the clause says so.
                     add("spell_reanimate", (tid, _reanimate_mode(extra)))
                     continue
+                if verb == "switch_pt" and _target_class(tgt) is not None:   # §613 'switch target creature's P/T'
+                    add("spell_target", (tid, "switchpt", "-", _target_class(tgt)))
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))
@@ -603,6 +613,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("activated_ability", (a, tid, paid[0], taps, "animate", 0, pt))
                         emitted = True
                         continue
+                if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
+                    if str(tgt) in ("self", "it"):
+                        add("activated_ability", (a, tid, paid[0], taps, "switchpt", 0, "-"))
+                        emitted = True; continue
+                    if _target_class(tgt) is not None:
+                        add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"switchpt|-|{_target_class(tgt)}"))
+                        emitted = True; continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

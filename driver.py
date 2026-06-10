@@ -286,6 +286,11 @@ def _apply_effects(state: dict, pending: set) -> None:
         elif eff == "fog":                                   # §615 Fog — prevent all combat damage this turn
             state.setdefault("prevent_all_combat", set()).add(("yes",))
             print(f"    {a}: all combat damage is prevented this turn")
+        elif eff == "switchpt":                              # §613 layer 7d — switch the source's P/T until EOT
+            eid = f"{a}__sw__{src}"
+            state.setdefault("eff_switch_pt", set()).add((eid, src))
+            state.setdefault("until_eot", set()).add((eid,))
+            print(f"    {a}: {src} switches power and toughness until end of turn")
         elif eff == "animate":                               # §613 'becomes a P/T creature' (man-lands) until EOT
             dp, dt = (int(x) for x in tgt.split("/"))         # tgt carries the P/T; feeds the §613 layers
             eid = f"{a}__anim__{src}"
@@ -398,7 +403,7 @@ def _aura_sba(state: dict) -> None:
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
-_HARMFUL_TARGET = {"destroy", "exile", "tap", "return_to_hand"}
+_HARMFUL_TARGET = {"destroy", "exile", "tap", "return_to_hand", "switchpt"}
 
 
 def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, tgt: str,
@@ -414,6 +419,11 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         state.setdefault("eff_mod_toughness", set()).add((eid, tgt, dt))
         state.setdefault("until_eot", set()).add((eid,))
         print(f"    {kind} {a}: targets {tgt} for {'+' if dp >= 0 else ''}{dp}/{'+' if dt >= 0 else ''}{dt} until end of turn")
+    elif verb == "switchpt":                                 # §613 layer 7d switch the target's P/T until EOT
+        eid = f"{a}__sw__{tgt}"
+        state.setdefault("eff_switch_pt", set()).add((eid, tgt))
+        state.setdefault("until_eot", set()).add((eid,))
+        print(f"    {kind} {a}: switches {tgt}'s power and toughness until end of turn")
     elif verb == "counter":                                  # §122 put N +1/+1 or -1/-1 counters (PERSISTENT)
         ckind, n = payload.split(":")
         # counters are cumulative, but a triggered pending_target is RE-DERIVED on every _apply_creature_

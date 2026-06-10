@@ -75,6 +75,35 @@ def _driver_checks() -> None:
     check("triggered animation makes the artifact a 2/2 creature", p.get("idol") == 2)
 
 
+def _switch_checks() -> None:
+    # §613 layer 7d 'switch target creature's power and toughness' feeds eff_switch_pt -> switched.
+    st = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "life": {("alice", 20), ("bob", 20)},
+        "on_battlefield": {("hornet",), ("mine",)},
+        "printed_type": {("hornet", "creature"), ("mine", "creature")},
+        "printed_power": {("hornet", 4), ("mine", 2)}, "printed_toughness": {("hornet", 1), ("mine", 2)},
+        "printed_control": {("bob", "hornet"), ("alice", "mine")},
+        "spell_target": {("ti", "switchpt", "-", "any")}, "counter": set(), "tapped": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "ti", "alice")
+    pw = {c: int(n) for (c, n) in driver.run(st, ["power"])["power"]}
+    to = {c: int(n) for (c, n) in driver.run(st, ["eff_toughness"])["eff_toughness"]}
+    check("switch P/T targets the enemy 4/1 and makes it 1/4", pw.get("hornet") == 1 and to.get("hornet") == 4)
+    check("an own creature is left alone (mine stays 2/2)", pw.get("mine") == 2)
+
+    # a self switch (man-creature ability) flips the source's P/T via the same layer.
+    st = {
+        "is_player": {("alice",), ("bob",)}, "on_battlefield": {("quad",)},
+        "printed_type": {("quad", "creature")}, "printed_power": {("quad", 1)}, "printed_toughness": {("quad", 5)},
+        "printed_control": {("alice", "quad")}, "counter": set(), "tapped": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, {("flip", "switchpt", 0, "-", "quad", "alice")})
+    pw = {c: int(n) for (c, n) in driver.run(st, ["power"])["power"]}
+    check("a self switch flips the source's P/T (1/5 -> 5/1)", pw.get("quad") == 5)
+
+
 def _bridge_check() -> None:
     import sim, card_corpus
     db = sim.load_db()
@@ -107,6 +136,7 @@ def _bridge_check() -> None:
 
 def run() -> None:
     _driver_checks()
+    _switch_checks()
     _bridge_check()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
