@@ -55,6 +55,8 @@
 .decl trigger_target(ability: symbol, verb: symbol, payload: symbol, class: symbol)
 .decl eff_mod_power(e: symbol, c: symbol, dp: number)
 .decl eff_mod_toughness(e: symbol, c: symbol, dt: number)
+.decl static_pt(source: symbol, dp: number, dt: number, scope: symbol)
+.decl static_grant(source: symbol, kw: symbol, scope: symbol)
 .decl has_supertype(o: symbol, sup: symbol)
 .decl sacrificed(o: symbol)
 .decl phased_out(o: symbol)
@@ -135,6 +137,8 @@ color(C, Col) :- copiable_color(C, Col), !eff_set_color(_, C, _, _).
 .decl has_keyword(c: symbol, kw: symbol)
 has_keyword(C, K) :- copiable_keyword(C, K), !eff_remove_keyword(_, C, K).
 has_keyword(C, K) :- eff_grant_keyword(_, C, K), !eff_remove_keyword(_, C, K).
+// §611.2 static anthem/lord keyword grant
+has_keyword(C, K) :- static_grant_kw(_, C, K), !eff_remove_keyword(_, C, K).
 // §122.1b keyword counter
 has_keyword(C, K) :- counter(C, K, N), N >= 1, is_keyword(K), !eff_remove_keyword(_, C, K).
 
@@ -158,13 +162,33 @@ base_power(C, N) :- copiable_power(C, N), !set_power(C, _).
 .decl base_toughness(c: symbol, n: number)
 base_toughness(C, N) :- set_toughness(C, N).
 base_toughness(C, N) :- copiable_toughness(C, N), !set_toughness(C, _).
+// §611.2 STATIC anthem/lord scope -> the concrete creatures a source's continuous effect covers,
+// while the source is on the battlefield. 'other_*' excludes the source; the *_you_control scopes
+// are restricted to the source's controller. static_src unifies the scope column of pt + grant.
+.decl static_src(source: symbol, scope: symbol)
+static_src(S, Sc) :- static_pt(S, _, _, Sc).
+static_src(S, Sc) :- static_grant(S, _, Sc).
+.decl anthem_creature(source: symbol, creature: symbol)
+anthem_creature(S, C) :- static_src(S, "creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C).
+anthem_creature(S, C) :- static_src(S, "other_creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), C != S.
+anthem_creature(S, C) :- static_src(S, "all_creatures"), on_battlefield(S), creature(C).
+anthem_creature(S, C) :- static_src(S, "other_creatures"), on_battlefield(S), creature(C), C != S.
+// static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources
+// buffing one creature stay distinct tuples and both sum / both grant).
+.decl static_mod_power(source: symbol, c: symbol, dp: number)
+static_mod_power(S, C, DP) :- static_pt(S, DP, _, _), anthem_creature(S, C).
+.decl static_mod_toughness(source: symbol, c: symbol, dt: number)
+static_mod_toughness(S, C, DT) :- static_pt(S, _, DT, _), anthem_creature(S, C).
+.decl static_grant_kw(source: symbol, c: symbol, kw: symbol)
+static_grant_kw(S, C, K) :- static_grant(S, K, _), anthem_creature(S, C).
 // §613.4 layer 7c — modify: +1/+1 & -1/-1 counters and P/T modifiers, on top of the set base.
 // mod_power/mod_toughness are the bare (persistent) inputs; eff_mod_* carry an id so a
-// triggered 'until end of turn' pump can be cleared at cleanup — both feed the same layer.
+// triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord
+// continuous effects — all feed the same layer sum.
 .decl pt7c_power(c: symbol, n: number)
-pt7c_power(C, N) :- base_power(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_power(C, X) }, G = sum X : { eff_mod_power(_, C, X) }, N = B + P - M + E + G.
+pt7c_power(C, N) :- base_power(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_power(C, X) }, G = sum X : { eff_mod_power(_, C, X) }, S2 = sum X : { static_mod_power(_, C, X) }, N = B + P - M + E + G + S2.
 .decl pt7c_toughness(c: symbol, n: number)
-pt7c_toughness(C, N) :- base_toughness(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_toughness(C, X) }, G = sum X : { eff_mod_toughness(_, C, X) }, N = B + P - M + E + G.
+pt7c_toughness(C, N) :- base_toughness(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_toughness(C, X) }, G = sum X : { eff_mod_toughness(_, C, X) }, S2 = sum X : { static_mod_toughness(_, C, X) }, N = B + P - M + E + G + S2.
 // §613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.
 .decl switched(c: symbol)
 switched(C) :- eff_switch_pt(_, C), N = count : { eff_switch_pt(_, C) }, N % 2 = 1.

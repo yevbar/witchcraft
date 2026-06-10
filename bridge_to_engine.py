@@ -146,6 +146,17 @@ def _damage_target(tgt: str) -> str | None:
     return _DAMAGE_TARGET.get(str(tgt))
 
 
+# §611.2 static anthem/lord board scopes the engine resolves continuously while the source is in play.
+# Subtype-restricted lords ('other Goblins'), attachment scopes ('enchanted/equipped creature') and
+# opponent-board / token-only scopes abstain — the engine has no subtype/attachment join here.
+_ANTHEM_SCOPE = {
+    "creatures_you_control": "creatures_you_control",
+    "other_creatures_you_control": "other_creatures_you_control",
+    "all_creatures": "all_creatures",
+    "other_creatures": "other_creatures",
+}
+
+
 # §613/§701 creature-scoped verbs: a board scope (self/your-creatures/all) the engine resolves, OR a
 # single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
 _CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
@@ -379,6 +390,27 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 emitted = True
             if not emitted:
                 continue
+        elif kind == "static":                               # §611.2 — a continuous anthem/lord ability
+            for _seq, verb, amt, tgt, extra, cond in ab.get("effects", []):
+                # only the unconditional board anthems map (a condition the engine can't evaluate, or a
+                # subtype/attachment-restricted scope, abstains). modify_pt -> static_pt, grant -> static_grant.
+                if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):
+                    dropped.append(("static", verb))
+                    continue
+                scope = _ANTHEM_SCOPE.get(str(tgt))
+                if scope is None:
+                    dropped.append(("static_scope", tgt))
+                    continue
+                if verb == "modify_pt":
+                    pt = _parse_pt(amt)
+                    if pt is None:
+                        dropped.append(("modify_pt_amt", amt)); continue
+                    add("static_pt", (tid, pt[0], pt[1], scope))
+                else:                                        # grant_keyword — for a static ability the granted
+                    kw = amt if amt in _ENGINE_KEYWORDS else extra   # keyword is in `amt` ('have trample'),
+                    if kw not in _ENGINE_KEYWORDS:               # unlike triggered/activated (in `extra`).
+                        dropped.append(("grant_keyword", kw)); continue
+                    add("static_grant", (tid, kw, scope))
 
     if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
         for mode in f.get("modes", []):

@@ -165,6 +165,12 @@ INPUTS = [
     # at cleanup (the bare mod_power/mod_toughness inputs have no id and persist). Summed into pt7c.
     ("eff_mod_power", [("e", "symbol"), ("c", "symbol"), ("dp", "number")]),
     ("eff_mod_toughness", [("e", "symbol"), ("c", "symbol"), ("dt", "number")]),
+    # §611.2 STATIC anthem/lord abilities ('Creatures you control get +1/+1', 'Other Goblins get +1/+0',
+    # 'Creatures you control have trample'): a continuous effect from the source while it's on the
+    # battlefield, over a board SCOPE the engine resolves. The bridge emits one row per source; the engine
+    # folds it into the §613 layers (static_pt -> pt7c; static_grant -> has_keyword) — no driver bookkeeping.
+    ("static_pt", [("source", "symbol"), ("dp", "number"), ("dt", "number"), ("scope", "symbol")]),
+    ("static_grant", [("source", "symbol"), ("kw", "symbol"), ("scope", "symbol")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
     ("has_supertype", [("o", "symbol"), ("sup", "symbol")]),      # §205.4 supertypes (legendary etc.)
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
@@ -430,6 +436,7 @@ def _rules(p: Program) -> None:
     p.decl("has_keyword", [("c", "symbol"), ("kw", "symbol")])
     p.rule("has_keyword(C, K)", ["copiable_keyword(C, K)", "!eff_remove_keyword(_, C, K)"])
     p.rule("has_keyword(C, K)", ["eff_grant_keyword(_, C, K)", "!eff_remove_keyword(_, C, K)"])
+    p.rule("has_keyword(C, K)", ["static_grant_kw(_, C, K)", "!eff_remove_keyword(_, C, K)"], note="§611.2 static anthem/lord keyword grant")
     p.rule("has_keyword(C, K)", ["counter(C, K, N)", "N >= 1", "is_keyword(K)", "!eff_remove_keyword(_, C, K)"], note="§122.1b keyword counter")
     p.blank()
     p.comment("§702 keyword vocabulary — the interpreted keyword-ability roster (build_keyword_ability_index).")
@@ -452,13 +459,33 @@ def _rules(p: Program) -> None:
     p.decl("base_toughness", [("c", "symbol"), ("n", "number")])
     p.rule("base_toughness(C, N)", ["set_toughness(C, N)"])
     p.rule("base_toughness(C, N)", ["copiable_toughness(C, N)", "!set_toughness(C, _)"])
+    p.comment("§611.2 STATIC anthem/lord scope -> the concrete creatures a source's continuous effect covers,")
+    p.comment("while the source is on the battlefield. 'other_*' excludes the source; the *_you_control scopes")
+    p.comment("are restricted to the source's controller. static_src unifies the scope column of pt + grant.")
+    p.decl("static_src", [("source", "symbol"), ("scope", "symbol")])
+    p.rule("static_src(S, Sc)", ["static_pt(S, _, _, Sc)"])
+    p.rule("static_src(S, Sc)", ["static_grant(S, _, Sc)"])
+    p.decl("anthem_creature", [("source", "symbol"), ("creature", "symbol")])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "C != S"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S"])
+    p.comment("static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources")
+    p.comment("buffing one creature stay distinct tuples and both sum / both grant).")
+    p.decl("static_mod_power", [("source", "symbol"), ("c", "symbol"), ("dp", "number")])
+    p.rule("static_mod_power(S, C, DP)", ["static_pt(S, DP, _, _)", "anthem_creature(S, C)"])
+    p.decl("static_mod_toughness", [("source", "symbol"), ("c", "symbol"), ("dt", "number")])
+    p.rule("static_mod_toughness(S, C, DT)", ["static_pt(S, _, DT, _)", "anthem_creature(S, C)"])
+    p.decl("static_grant_kw", [("source", "symbol"), ("c", "symbol"), ("kw", "symbol")])
+    p.rule("static_grant_kw(S, C, K)", ["static_grant(S, K, _)", "anthem_creature(S, C)"])
     p.comment("§613.4 layer 7c — modify: +1/+1 & -1/-1 counters and P/T modifiers, on top of the set base.")
     p.comment("mod_power/mod_toughness are the bare (persistent) inputs; eff_mod_* carry an id so a")
-    p.comment("triggered 'until end of turn' pump can be cleared at cleanup — both feed the same layer.")
+    p.comment("triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord")
+    p.comment("continuous effects — all feed the same layer sum.")
     p.decl("pt7c_power", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "N = B + P - M + E + G"])
+    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "S2 = sum X : { static_mod_power(_, C, X) }", "N = B + P - M + E + G + S2"])
     p.decl("pt7c_toughness", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "N = B + P - M + E + G"])
+    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "S2 = sum X : { static_mod_toughness(_, C, X) }", "N = B + P - M + E + G + S2"])
     p.comment("§613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.")
     p.decl("switched", [("c", "symbol")])
     p.rule("switched(C)", ["eff_switch_pt(_, C)", "N = count : { eff_switch_pt(_, C) }", "N % 2 = 1"])
