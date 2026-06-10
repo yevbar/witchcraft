@@ -749,25 +749,35 @@ def _run_spell_reanimate(state: dict, spell: str, ctrl: str) -> None:
 
 
 def _reanimate_one(state: dict, label: str, ctrl: str, mode: str) -> None:
-    """§701 move the strongest creature card in a graveyard to the battlefield under `ctrl` (summoning-sick,
-    tapped iff mode='tapped'). Shared by spell and triggered reanimation. The card isn't a battlefield
-    permanent yet, so its type/power are read from printed_*, not the engine's `creature`."""
-    gy = {c for (c,) in state.get("graveyard", set())}
+    """§701 put the strongest creature card from a zone onto the battlefield under `ctrl` (summoning-sick).
+    `mode` encodes the source ZONE and tappedness: 'graveyard'/'hand', optionally '_tapped'. Reanimation
+    pulls from the graveyard; a from-hand cheat (Sneak Attack, Elvish Piper) pulls from the caster's hand.
+    The card isn't a battlefield permanent yet, so its type/power are read from printed_*."""
+    zone = "hand" if str(mode).startswith("hand") else "graveyard"
+    tapped = str(mode).endswith("tapped")
     ptype = state.get("printed_type", set())
     ppow = {c: int(n) for (c, n) in state.get("printed_power", set())}
-    targets = sorted((c for c in gy if (c, "creature") in ptype), key=lambda c: ppow.get(c, 0), reverse=True)
+    if zone == "hand":
+        cards = [c for (p, c) in state.get("in_hand", set()) if p == ctrl]
+    else:
+        cards = [c for (c,) in state.get("graveyard", set())]
+    targets = sorted((c for c in cards if (c, "creature") in ptype), key=lambda c: ppow.get(c, 0), reverse=True)
     if not targets:
-        print(f"      {label} finds no creature card to reanimate")
+        print(f"      {label} finds no creature card to put onto the battlefield")
         return
     c = targets[0]
-    state["graveyard"].discard((c,))
+    if zone == "hand":
+        state["in_hand"].discard((ctrl, c))
+    else:
+        state["graveyard"].discard((c,))
     state.setdefault("on_battlefield", set()).add((c,))
     state.setdefault("printed_control", set())                # §701 under the caster's control
     state["printed_control"] = {(p, x) for (p, x) in state["printed_control"] if x != c} | {(ctrl, c)}
     state.setdefault("_sick", set()).add((c,))                # §302.6 summoning sickness
-    if mode == "tapped":
+    if tapped:
         state.setdefault("tapped", set()).add((c,))
-    print(f"      {label} reanimates {c} -> {ctrl}'s battlefield{' (tapped)' if mode == 'tapped' else ''}")
+    via = "puts into play from hand" if zone == "hand" else "reanimates"
+    print(f"      {label} {via} {c} -> {ctrl}'s battlefield{' (tapped)' if tapped else ''}")
 
 
 def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
@@ -970,6 +980,8 @@ def _resolve_top(state: dict) -> None:
             _apply_damage(state, top, amt, tgt, actrl)
         elif eff == "equip":                                 # §301.5 attach the Equipment to a creature
             _equip(state, src, actrl)
+        elif eff == "reanimate":                             # §701 activated reanimator / from-hand cheat
+            _reanimate_one(state, top, actrl, tgt)
         else:
             _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
@@ -1087,6 +1099,13 @@ def _activatable(state: dict, p: str) -> list:
             if not any(pp == p and cc in {c for (c,) in run(state, ["creature"])["creature"]}
                        for (pp, cc) in run(state, ["controls"])["controls"]):
                 continue                                     # ... the controller has a creature to hold it
+        if eff == "reanimate":                               # §701 don't waste mana if the source zone has
+            zone = "hand" if str(tgt).startswith("hand") else "graveyard"   # no creature card to put in play
+            ptype = state.get("printed_type", set())
+            cards = ([c for (pp, c) in state.get("in_hand", set()) if pp == p] if zone == "hand"
+                     else [c for (c,) in state.get("graveyard", set())])
+            if not any((c, "creature") in ptype for c in cards):
+                continue
         out.append(row)
     return sorted(out)
 

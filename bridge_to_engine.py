@@ -193,7 +193,14 @@ _REANIMATE_TARGETS = {"target_creature_card", "a_creature_card", "creature_card"
 
 
 def _reanimates(tgt, extra) -> bool:
-    return str(tgt) in _REANIMATE_TARGETS and "graveyard" in str(extra)
+    return str(tgt) in _REANIMATE_TARGETS and ("graveyard" in str(extra) or "hand" in str(extra))
+
+
+def _reanimate_mode(extra) -> str:
+    """Encode a 'put creature card onto the battlefield' clause's source ZONE and tappedness into the mode
+    the driver reads: 'graveyard'/'hand', plus '_tapped' when the clause says the creature enters tapped."""
+    zone = "hand" if "hand" in str(extra) else "graveyard"
+    return zone + ("_tapped" if "tapped" in str(extra) else "")
 
 
 def _equip_cost(text) -> int | None:
@@ -460,7 +467,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
                     # graveyard creature under the controller's control on resolution.
-                    add("trigger_reanimate", (a, "tapped" if "tapped" in str(extra) else "untapped"))
+                    add("trigger_reanimate", (a, _reanimate_mode(extra)))
                     add("has_trigger", (a, tid, event))
                     emitted = True
                     continue
@@ -521,7 +528,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §701 reanimation (Resurrection, Zombify, Animate Dead): a creature card from a graveyard
                     # to the battlefield under the caster's control. The driver picks the best graveyard
                     # creature on resolution. enters tapped iff the clause says so.
-                    add("spell_reanimate", (tid, "tapped" if "tapped" in str(extra) else "untapped"))
+                    add("spell_reanimate", (tid, _reanimate_mode(extra)))
                     continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
@@ -555,6 +562,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("activated_ability", (a, tid, paid[0], taps, "cdamage", n, dk))
                         emitted = True
                         continue
+                if verb == "return_to_battlefield" and _reanimates(tgt, extra):
+                    # §701 an activated reanimator / from-hand cheat (Elvish Piper, Sneak Attack, Doomed
+                    # Necromancer): put the best creature card from the zone onto the battlefield on resolution.
+                    add("activated_ability", (a, tid, paid[0], taps, "reanimate", 0, _reanimate_mode(extra)))
+                    emitted = True
+                    continue
                 if verb == "put_counter":
                     cp, cls = _counter_payload(amt, extra), _target_class(tgt)
                     if cp is not None and cls is not None:
