@@ -28,7 +28,10 @@ effect_handlers.load()
 
 RULES = Path("datalog/engine_rules.dl").read_text()
 # relations the engine knows about; driver-only bookkeeping (in_library, ...) is not passed to souffle.
-DECLARED = set(re.findall(r"^\.decl (\w+)", RULES, re.M))
+# Derived from the engine's `.decl` schema via the single introspection layer (engine_schema), not a
+# second ad-hoc parse — so the shim's notion of the engine interface can't drift from the engine.
+import engine_schema
+DECLARED = set(engine_schema.relations())
 
 # zone name (from the transpiled §701 keyword-action rules) -> driver state relation.
 ZONE = {"battlefield": "on_battlefield", "graveyard": "graveyard",
