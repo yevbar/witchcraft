@@ -37,10 +37,15 @@ _WORK: tuple | None = None
 
 
 def _edb(rules: str) -> list[str]:
-    """The EDB: relations declared but never a rule head — exactly the facts the driver supplies."""
+    """The EDB: relations the shim feeds. Relations declared but never a rule head, PLUS the shim-input
+    relations the engine ALSO derives via a translation rule — a relation can be both `.input` and a rule
+    head (souffle unions the supplied facts with the derived ones). The latter set is listed in the
+    generated `// SHIM_INPUTS …` marker, keeping this in sync with build_engine's INPUTS."""
     decls = set(re.findall(r"^\.decl\s+(\w+)", rules, re.M))
     heads = set(re.findall(r"^(\w+)\([^)]*\)\s*:-", rules, re.M))
-    return sorted(decls - heads)
+    mark = re.search(r"^// SHIM_INPUTS (.+)$", rules, re.M)
+    forced = set(mark.group(1).split()) if mark else set()
+    return sorted((decls - heads) | (forced & decls))
 
 
 def _wrapper(rules: str, edb: list[str]) -> str:

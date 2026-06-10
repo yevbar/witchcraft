@@ -39,13 +39,16 @@ def run() -> None:
     check("keyword creature -> printed_keyword(flying, vigilance)",
           {("x", "flying"), ("x", "vigilance")} <= f.get("printed_keyword", set()))
 
-    # a supported death trigger maps to has_trigger(etb…/dies_self) + trigger_effect
+    # a supported death trigger: the bridge emits has_trigger(dies_self) + the card PARSE facts; the
+    # player-scoped effect (lose 2 life) is DERIVED IN DATALOG (translate.dl), not the python bridge.
     f, dropped = facts("Tattered Mummy")
     ht = f.get("has_trigger", set())
-    te = f.get("trigger_effect", set())
     check("dies trigger -> has_trigger(..., dies_self)", any(ev == "dies_self" for _, _, ev in ht))
-    check("dies trigger -> trigger_effect(lose_life, 2, each_opponent)",
-          any(e == "lose_life" and n == 2 and t == "each_opponent" for _, e, n, t in te) and not dropped)
+    check("the bridge feeds the card PARSE facts (one world): card_effect(lose_life, 2, each_opponent)",
+          any(verb == "lose_life" and amt == "2" and tgt == "each_opponent"
+              for (_c, _a, _s, verb, amt, tgt, _e, _co) in f.get("card_effect", set())))
+    check("the engine DERIVES the effect from those facts (no python trigger_effect emitted)",
+          not f.get("trigger_effect") and not dropped)
 
     # an UNsupported effect abstains (no mistranslation) — Gravedigger's ETB return_to_hand
     f, dropped = facts("Gravedigger")

@@ -146,6 +146,14 @@ INPUTS = [
     ("tapped", [("c", "symbol")]),                  # for the untap turn-based action
     ("has_trigger", [("ability", "symbol"), ("source", "symbol"), ("event", "symbol")]),   # §603 triggered abilities
     ("trigger_effect", [("ability", "symbol"), ("effect", "symbol"), ("amount", "number"), ("target", "symbol")]),
+    # ONE WORLD — the interpreted card PARSE facts (cards.dl vocabulary), fed per card in play so the engine
+    # itself derives the operational relations above (has_trigger/trigger_effect/…) via datalog translation
+    # rules, instead of a Python bridge. instance_of links a battlefield/stack object to its card.
+    ("instance_of", [("instance", "symbol"), ("card", "symbol")]),
+    ("card_ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")]),
+    ("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("phrase", "symbol")]),
+    ("card_effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"), ("verb", "symbol"),
+                     ("amount", "symbol"), ("target", "symbol"), ("extra", "symbol"), ("cond", "symbol")]),
     # §603 CREATURE-SCOPED triggered effects (P/T pump, keyword grant, destroy). `scope` is one of
     # {self, creatures_you_control, all_creatures}; the engine resolves it to concrete creatures
     # (pending_pt/pending_grant/pending_destroy) the driver applies to the board.
@@ -838,6 +846,8 @@ def _rules(p: Program) -> None:
     p.decl("pending_reanimate", [("ability", "symbol"), ("source", "symbol"), ("mode", "symbol"), ("controller", "symbol")])
     p.rule("pending_reanimate(A, S, M, P)", ["fires(A, S)", "trigger_reanimate(A, M)", "controls(P, S)"])
     p.blank()
+    _emit_translate(p)
+    p.blank()
     p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
@@ -853,6 +863,50 @@ def _rules(p: Program) -> None:
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state
 
 
+# ONE WORLD — the parse->operational TRANSLATION, as datalog rules (was bridge_to_engine.py, in Python at
+# runtime). The cards' interpreted PARSE facts (card_ability/ability_trigger/card_effect, cards.dl vocabulary)
+# are fed per instance; these rules derive the engine's OPERATIONAL relations (has_trigger/trigger_effect/…).
+# Migrated slice: a triggered ability's PLAYER-SCOPED effect (draw / gain N life / lose N life / mill / discard)
+# -> trigger_effect, with the same ability id the bridge used (cat(instance,"_",aid) == f"{tid}_{aid}").
+_PSCOPE_EFFECT = {"draw": "draw", "gain_life": "gain_life", "lose_life": "lose_life",
+                  "mill": "mill", "discard": "discard"}
+
+
+def _emit_translate(p) -> None:
+    import bridge_to_engine as _b                          # single source of truth for the event vocabulary
+    p.comment("ONE WORLD: parse->operational translation in DATALOG (replacing the python bridge). The card")
+    p.comment("PARSE facts (cards.dl vocabulary) are fed per instance; the engine derives the operational")
+    p.comment("relations itself. event_map = the §603 trigger-phrase -> engine-event table (was bridge._EVENT).")
+    p.decl("event_map", [("phrase", "symbol"), ("event", "symbol")])
+    p.facts([f'event_map("{ph}", "{ev}")' for ph, ev in sorted(_b._EVENT.items())])
+    p.comment("pscope_effect = a player-scoped effect verb -> the engine effect name (was bridge._EFFECT slice).")
+    p.decl("pscope_effect", [("verb", "symbol"), ("eff", "symbol")])
+    p.facts([f'pscope_effect("{v}", "{e}")' for v, e in sorted(_PSCOPE_EFFECT.items())])
+    p.comment("player_scope = an effect target -> controller / each_opponent (was bridge._target's substring")
+    p.comment("logic, replicated faithfully): an 'opponent'/'each_player'/'target_player'/'that_player' target")
+    p.comment("hits every opponent; anything else hits the controller.")
+    p.decl("seen_target", [("t", "symbol")])
+    p.rule("seen_target(T)", ["card_effect(_, _, _, _, _, T, _, _)"])
+    p.decl("opponent_target", [("t", "symbol")])
+    p.rule("opponent_target(T)", ["seen_target(T)", 'contains("opponent", T)'])
+    p.rule("opponent_target(T)", ["seen_target(T)", 'contains("each_player", T)'])
+    p.rule("opponent_target(T)", ["seen_target(T)", 'match("target_player.*", T)'])
+    p.rule("opponent_target(T)", ["seen_target(T)", 'match("that_player.*", T)'])
+    p.decl("player_scope", [("t", "symbol"), ("scope", "symbol")])
+    p.rule("player_scope(T, \"each_opponent\")", ["opponent_target(T)"])
+    p.rule("player_scope(T, \"controller\")", ["seen_target(T)", "!opponent_target(T)"])
+    p.comment("the instance-level ability id, matching the bridge's f'{tid}_{aid}'.")
+    p.decl("inst_ability", [("ia", "symbol"), ("source", "symbol"), ("aid", "symbol"), ("card", "symbol")])
+    p.rule("inst_ability(cat(S, cat(\"_\", A)), S, A, C)", ["instance_of(S, C)", "card_ability(C, A, _)"])
+    p.comment("DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.")
+    p.rule("trigger_effect(IA, Eff, N, Scope)",
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, Verb, Amount, Target, _, "-")',
+            "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
+            "player_scope(Target, Scope)"])
+
+
 def build(with_tests: bool) -> str:
     p = Program()
     kind = "full (with tests)" if with_tests else "RULES ONLY (for the driver)"
@@ -863,6 +917,9 @@ def build(with_tests: bool) -> str:
         p.decl(name, cols)
     p.blank()
     _rules(p)
+    # the shim-fed relations — listed so engine_native keeps them `.input`-wired even when a translation
+    # rule also derives them (a relation can be BOTH .input and a rule head: souffle unions the two).
+    p.comment("SHIM_INPUTS " + " ".join(n for n, _ in INPUTS))
     if with_tests:
         p.blank()
         p.comment("conformance")

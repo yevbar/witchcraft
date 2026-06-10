@@ -63,6 +63,10 @@ _EVENT = {
     "deals_damage_to_a_player": "combat_damage_to_player",   # under-covers noncombat damage; combat is the path
 }
 
+# ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
+# parse facts, so the bridge no longer translates them — it only feeds the parse facts + has_trigger.
+_PSCOPE_DATALOG = {"draw", "gain_life", "lose_life", "mill", "discard"}
+
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.
 _EFFECT = {
     "draw": "draw",
@@ -390,6 +394,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         out.setdefault(rel, set()).add(row)
 
     add("printed_control", (ctrl, tid))
+    # ONE WORLD: feed this instance's interpreted PARSE facts (cards.dl vocabulary) so the engine derives
+    # the operational relations itself (translate.dl). instance_of links the object to its card; the card_*
+    # facts are card-level (shared across instances, set-deduped).
+    add("instance_of", (tid, facts))
+    for aid, ab in (f.get("abilities") or {}).items():
+        add("card_ability", (facts, aid, ab.get("kind", "spell")))
+        if ab.get("trigger"):
+            add("ability_trigger", (facts, aid, ab["trigger"]))
+        for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
+            add("card_effect", (facts, aid, int(seq), verb, str(amt), str(tgt), str(extra), str(cond)))
     for t in c.get("types") or []:
         add("printed_type", (tid, t.lower()))
     for st in c.get("subtypes") or []:                       # §205.3 subtypes (Goblin, Sliver, …) for lords
@@ -509,6 +523,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _target_class(tgt) is not None:
                         add("trigger_target", (a, "switchpt", "-", _target_class(tgt)))
                         add("has_trigger", (a, tid, event)); emitted = True; continue
+                if verb in _PSCOPE_DATALOG:                   # ONE WORLD: draw/gain_life/lose_life/mill/discard
+                    add("has_trigger", (a, tid, event))       # trigger_effect is now DERIVED IN DATALOG from the
+                    emitted = True                            # card parse facts (translate.dl), not the python bridge
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
