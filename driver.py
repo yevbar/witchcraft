@@ -248,7 +248,10 @@ def _sacrifice(state: dict, obj: str) -> None:
 def declare_attackers(state: dict, ap: str) -> None:
     """§508 — the active player's eligible creatures attack an opponent (greedy policy)."""
     opp = _others(state, ap)[0]
-    attackers = sorted(c for (c,) in run(state, ["may_attack"])["may_attack"])
+    sick = state.get("_sick", set())                             # §302.6 — entered this turn, no haste
+    haste = {c for (c, k) in state.get("printed_keyword", set()) if k == "haste"}
+    attackers = sorted(c for (c,) in run(state, ["may_attack"])["may_attack"]
+                       if (c,) not in sick or c in haste)
     state["attacks"] = {(c, opp) for c in attackers}
     if attackers:
         print(f"    {ap} attacks {opp} with {', '.join(attackers)}")
@@ -266,13 +269,20 @@ def declare_blockers(state: dict, ap: str) -> None:
 
 def _draw(state: dict, p: str) -> bool:
     """Active player draws the top of their library; False if the library is empty
-    (§104.3c — that player loses the game)."""
-    lib = sorted(c for (pp, c) in state.get("in_library", set()) if pp == p)
-    if not lib:
+    (§104.3c — that player loses the game). Honors a real library ORDER (`_lib_order`, driver
+    bookkeeping a shuffled deck sets) so draws come off the true top; falls back to any card."""
+    order = state.get("_lib_order", {}).get(p)
+    card = None
+    if order:
+        card = order.pop(0)
+    else:
+        lib = sorted(c for (pp, c) in state.get("in_library", set()) if pp == p)
+        card = lib[0] if lib else None
+    if card is None:
         return False
-    state["in_library"].discard((p, lib[0]))
-    state.setdefault("in_hand", set()).add((p, lib[0]))
-    print(f"    {p} draws {lib[0]}")
+    state["in_library"].discard((p, card))
+    state.setdefault("in_hand", set()).add((p, card))
+    print(f"    {p} draws {card}")
     return True
 
 
@@ -304,17 +314,48 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     return None
 
 
+def _develop_mana(state: dict, ap: str) -> None:
+    """Driver-side §305 land mechanics the datalog engine leaves to the apply-and-loop (it models mana
+    as a colorless count and lands as 'played', not 'cast'). Play ONE land this turn (§305.2) from the
+    active player's hand, then refresh its available mana to the lands it controls — each taps for 1.
+    The engine still authors casting legality (can_cast/can_afford); this only stocks the resource the
+    loop owns. Faithful within the engine's colorless-mana abstraction."""
+    played = state.setdefault("_land_played", set())          # driver bookkeeping; not a souffle relation
+    if (ap,) not in played:
+        land = next((s for (p, s) in sorted(state.get("in_hand", set()))
+                     if p == ap and (s, "land") in state.get("spell_type", set())), None)
+        if land:
+            state["in_hand"].discard((ap, land))
+            state["on_battlefield"].add((land,))
+            state.setdefault("printed_control", set()).add((ap, land))
+            played.add((ap,))
+            print(f"    {ap} plays land {land}")
+    lands = sum(1 for (c,) in state.get("on_battlefield", set())
+                if (c, "land") in state.get("printed_type", set()) and (ap, c) in state.get("printed_control", set()))
+    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, lands)}
+
+
+def _spend_mana(state: dict, ap: str, spell: str) -> None:
+    """Deduct a cast spell's cost from the active player's available mana (§601.2g) — the engine checks
+    affordability but doesn't consume, so without this one land would pay for every spell that turn."""
+    cost = next((c for (s, c) in state.get("mana_cost", set()) if s == spell), 0)
+    cur = next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
+    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
+
+
 def _cast_phase(state: dict, ap: str) -> None:
     """§601 -> §608 (sorcery-speed): the active player casts each spell it can. Each goes on the
     stack and resolves; a creature becomes a permanent (applying §614 ETB replacements), and a
     spell whose targets are all illegal fizzles (§608.2b). The engine derives can_cast / resolves
     / fizzles / enters_*; the driver just moves the spell and applies the result."""
+    _develop_mana(state, ap)                                 # §305 land drop + refresh mana from lands
     state["has_priority"] = {(ap,)}                          # §601 active player has priority in its main phase
     while True:
         castable = sorted(s for (p, s) in run(state, ["can_cast"])["can_cast"] if p == ap)
         if not castable:
             break
         spell = castable[0]
+        _spend_mana(state, ap, spell)                        # §601.2g — consume the mana so casts are limited
         state["in_hand"].discard((ap, spell))
         state["on_stack"], state["all_passed"] = {(spell, 0)}, {("yes",)}   # cast; no responses here
         out = run(state, ["fizzles", "enters_battlefield", "enters_tapped", "enters_with_counter"])
@@ -326,6 +367,7 @@ def _cast_phase(state: dict, ap: str) -> None:
         if (spell,) in out["enters_battlefield"]:
             state["on_battlefield"].add((spell,))
             state.setdefault("printed_control", set()).add((ap, spell))
+            state.setdefault("_sick", set()).add((spell,))   # §302.6 — summoning sick until its controller's next turn
             if (spell,) in out["enters_tapped"]:
                 state.setdefault("tapped", set()).add((spell,)); print(f"      {spell} enters tapped")
             for (c, k, n) in sorted(out["enters_with_counter"]):
@@ -372,6 +414,9 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["active_player"] = {(nxt_p,)}
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
+        state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
+        ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
+        state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
     return None
 

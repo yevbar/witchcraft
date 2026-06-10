@@ -142,7 +142,7 @@ def make_state(boards: dict, life: int = 20) -> dict:
             c = corpus.get(name, {})
             for t in c.get("types") or []:
                 state.setdefault("spell_type", set()).add((tid, t.lower()))
-            state.setdefault("mana_cost", set()).add((tid, int(c.get("manaValue") or 0)))
+            state.setdefault("mana_cost", set()).add((tid, _mana_value(c.get("manaCost"))))
         return tid
 
     for pl, z in boards.items():
@@ -154,6 +154,82 @@ def make_state(boards: dict, life: int = 20) -> dict:
             state["in_library"].add((pl, f"{pl}_lib{i}"))
         state.setdefault("mana_available", set()).add((pl, z.get("mana", 0)))
     return state
+
+
+_MV_SYM = re.compile(r"\{([^}]+)\}")
+
+
+def _mana_value(cost) -> int:
+    """Converted mana cost (§202.3) from a manaCost string like '{4}{G}{G}' -> 6: numeric symbols add
+    their value, {X}/{Y}/{Z} count 0, every other pip (colored/hybrid/phyrexian) counts 1."""
+    if not cost:
+        return 0
+    total = 0
+    for sym in _MV_SYM.findall(str(cost)):
+        head = sym.split("/")[0]
+        if head.isdigit():
+            total += int(head)
+        elif head in ("X", "Y", "Z"):
+            total += 0
+        else:
+            total += 1
+    return total
+
+
+def make_deck_state(decks: dict, seed: int = 0, hand: int = 7, life: int = 20) -> dict:
+    """Assemble a full-game driver state from REAL decks. `decks` = {player: [card_name, …]} (the whole
+    library list). Each card is bridged from cards.dl (printed_*, triggers) with a unique id and is made
+    castable/playable (spell_type + mana_cost), then the deck is shuffled (deterministic by `seed`),
+    opening hands drawn, and a real library ORDER recorded so draws come off the true top. Everything a
+    card does comes from the interpreter; only turn scaffolding is added here."""
+    import random
+    db, corpus = sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
+    players = list(decks)
+    rng = random.Random(seed)
+    state: dict[str, object] = {
+        "current_step": {("untap",)}, "active_player": {(players[0],)},
+        "is_player": {(p,) for p in players}, "life": {(p, life) for p in players},
+        "counter": set(), "tapped": set(), "attacks": set(), "blocks": set(),
+        "on_battlefield": set(), "in_hand": set(), "in_library": set(),
+        "_lib_order": {p: [] for p in players}, "_land_played": set(),
+    }
+    n = [0]
+
+    def load(name, pl, zone):
+        tid = f"{ground.slug(name)}_{n[0]}"
+        n[0] += 1
+        facts, _ = card_facts(name, pl, tid, db, corpus)
+        for rel, rows in facts.items():
+            state.setdefault(rel, set()).update(rows)
+        c = corpus.get(name, {})
+        for t in c.get("types") or []:                       # castable/playable when it reaches the hand
+            state.setdefault("spell_type", set()).add((tid, t.lower()))
+        state.setdefault("mana_cost", set()).add((tid, _mana_value(c.get("manaCost"))))
+        if zone == "in_hand":
+            state["in_hand"].add((pl, tid))
+        else:
+            state["in_library"].add((pl, tid))
+            state["_lib_order"][pl].append(tid)
+        return tid
+
+    for pl, deck in decks.items():
+        order = list(deck)
+        rng.shuffle(order)
+        for nm in order[:hand]:
+            load(nm, pl, "in_hand")
+        for nm in order[hand:]:
+            load(nm, pl, "in_library")
+    return state
+
+
+def play_real_game(decks: dict, seed: int = 0, max_turns: int = 40) -> str | None:
+    """Play a FULL game of real cards end-to-end through the datalog rules engine: shuffle real decks,
+    draw, play lands, cast creatures/spells as mana allows, attack, resolve triggers/deaths — every card
+    characteristic and effect comes from cards.dl, every rule from engine_rules.dl; driver.py authors no
+    game logic. Returns the loser."""
+    import driver
+    state = make_deck_state(decks, seed=seed)
+    return driver.play_game(state, list(decks), max_turns=max_turns)
 
 
 def demo_game() -> None:
@@ -203,9 +279,29 @@ def main() -> None:
     print(f"  abstained clause kinds: {dict(sorted(r['drop_kinds'].items(), key=lambda x: -x[1]))}")
 
 
+_DEMO_DECKS = {
+    "alice": ["Forest"] * 9 + ["Grizzly Bears"] * 3 + ["Gray Ogre"] * 2 + ["Hill Giant"] * 2
+             + ["Craw Wurm"] + ["Tattered Mummy"] * 2,
+    "bob": ["Forest"] * 9 + ["Storm Crow"] * 3 + ["Wind Drake"] * 2 + ["Hill Giant"] * 2
+           + ["Gray Ogre"] * 2 + ["Tattered Mummy"],
+}
+
+
+def real_game(seed: int = 3) -> None:
+    """A FULL self-playing game of real decks through the datalog engine — shuffled draws, land drops,
+    mana-gated casting on curve, summoning sickness, combat, deaths, and the cards' interpreted triggers,
+    all derived from cards.dl + engine_rules.dl (driver.py authors no game logic)."""
+    print("Full real-card game — decks of real cards, rules from engine_rules.dl, effects from cards.dl:\n")
+    loser = play_real_game(_DEMO_DECKS, seed=seed)
+    print(f"\nresult: {loser} lost" if loser else "\nresult: no decisive winner within the turn cap")
+
+
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "game":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "game":
         demo_game()
+    elif cmd == "realgame":
+        real_game()
     else:
         main()
