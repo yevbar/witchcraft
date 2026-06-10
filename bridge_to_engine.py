@@ -166,7 +166,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     if f.get("mana"):                                         # §605 activated mana ability ('{T}: Add …')
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
+    modes = set(f.get("modes", []))
     for aid, ab in f.get("abilities", {}).items():
+        if aid in modes:                                     # a modal mode's effects -> emitted by the modal block below
+            continue
         kind = ab.get("kind")
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
             event = _EVENT.get(ab.get("trigger"))
@@ -251,6 +254,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 emitted = True
             if not emitted:
                 continue
+
+    if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
+        for mode in f.get("modes", []):
+            mab = f.get("abilities", {}).get(mode, {})
+            mode_effs = []
+            for _seq, verb, amt, tgt, extra, _cond in mab.get("effects", []):
+                r = _resolved_effect(verb, amt, tgt, extra)
+                if r is None:
+                    dropped.append(("effect", verb))
+                    continue
+                mode_effs.append((tid, mode, r[0], r[1], r[2]))
+            if mode_effs:                                    # offer a mode only if at least one of its effects resolves
+                add("spell_mode", (tid, mode))               # engine input -> active_mode(s,m) :- spell_mode, chose_mode
+                for row in mode_effs:
+                    add("spell_effect_mode", row)            # driver-side: resolved only for the chosen mode
     return out, dropped
 
 

@@ -534,12 +534,27 @@ def _spell_effects(state: dict, spell: str) -> list:
     return sorted(r for r in state.get("spell_effect", set()) if r[0] == spell)
 
 
+def _choose_mode(state: dict, spell: str) -> None:
+    """§601.2b — as a modal spell is cast, its controller chooses the mode(s). Greedy/deterministic: pick
+    the first offered mode and record chose_mode so the engine derives active_mode(spell, mode); only that
+    mode's effects resolve. (The bridge offers a mode only if its effects are resolvable.)"""
+    modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell)
+    if modes:
+        state.setdefault("chose_mode", set()).add((spell, modes[0]))
+        print(f"      {spell}: chooses mode {modes[0]}")
+
+
 def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
     """§608.2c — a resolving instant/sorcery runs its effects, then goes to the graveyard. `counter`
     removes its target from the stack (the engine's `countered` event then lets any 'when countered'
     trigger fire); the rest are applied via _apply_effects (the shared effect resolver)."""
-    pending = set()
-    for (_s, eff, amt, tgt) in _spell_effects(state, spell):
+    if any(s == spell for (s, _m) in state.get("spell_mode", set())):   # §700.2 modal: only the CHOSEN mode resolves
+        active = {m for (s, m) in run(state, ["active_mode"])["active_mode"] if s == spell}
+        effs = sorted((spell, eff, amt, tgt) for (s, m, eff, amt, tgt) in state.get("spell_effect_mode", set())
+                      if s == spell and m in active)
+    else:
+        effs = _spell_effects(state, spell)
+    for (_s, eff, amt, tgt) in effs:
         if eff == "counter":                                 # §701.5 — counter the spell below it on the stack
             victim = _counter_target(state, spell)
             if victim is not None:
@@ -630,6 +645,7 @@ def _cast_instant_response(state: dict, p: str) -> bool:
     _spend_mana(state, p, spell)                             # mana model owns payment
     state["in_hand"].discard((p, spell))
     _stack_push(state, spell, p)
+    _choose_mode(state, spell)                               # §601.2b — modal instant chooses its mode
     print(f"    {p} responds: casts {spell} (onto the stack)")
     return True
 
@@ -666,6 +682,7 @@ def _cast_phase(state: dict, ap: str) -> None:
         _spend_mana(state, ap, spell)                        # §601.2g — consume the mana so casts are limited
         state["in_hand"].discard((ap, spell))
         _stack_push(state, spell, ap)
+        _choose_mode(state, spell)                           # §601.2b — choose mode(s) if it's a modal spell
         print(f"    {ap} casts {spell}")
         _resolve_stack(state, ap, players)                   # response window + top-down resolution
     state["has_priority"] = set()

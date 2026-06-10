@@ -52,6 +52,10 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("abilities", {}).setdefault(
                 a[1], {"kind": "spell", "effects": []})["effects"].append(
                     (int(a[2]), a[3], a[4], a[5], extra, cond))
+        elif rel == "modal":                                 # §700.2 modal spell: choose `count` mode(s)
+            db.setdefault(a[0], {})["modal"] = a[1]
+        elif rel == "mode_option":                           # one offered mode; its effects live in abilities[mode]
+            db.setdefault(a[0], {}).setdefault("modes", []).append(a[1])
     return db
 
 
