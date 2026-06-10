@@ -1,4 +1,4 @@
-# Progress / loop state — mtg_parser rules.txt → Datalog interpretation
+# Progress / loop state — witchcraft (rules.txt → Datalog interpretation)
 
 **Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
 

@@ -1,4 +1,8 @@
-# mtg_parser — an MTG rules engine interpreted from the Comprehensive Rules
+# witchcraft — an MTG rules engine interpreted from the Comprehensive Rules
+
+> Formerly `mtg_parser`. Renamed to **witchcraft**: this engine is built from the rules/card-texts
+> *up* (the Comprehensive Rules → Datalog), as distinct from the earlier `~/Development/witchcraft`
+> attempt that built a player *on top of* Forge.
 
 This project **interprets the English Comprehensive Rules** (`rules.txt`) into deterministic
 Datalog (Soufflé), and drives a playable game with a small, reviewable Python loop. The Datalog
