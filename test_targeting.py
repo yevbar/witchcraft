@@ -224,18 +224,17 @@ def _counter_checks() -> None:
     check("spell +1/+1 counter scope buffs all own (mine 2->3, src 1->2)",
           p.get("mine") == 3 and p.get("src") == 2)
 
-    # the bridge routes a real 'put a +1/+1 counter on target creature' card to the targeting machinery.
-    import sim, card_corpus
-    db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
-    found = None
-    for name in corpus:
-        try:
-            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
-        except Exception:
-            continue
-        if any(v == "counter" for (_s, v, _p, _c) in f.get("spell_target", set()) | f.get("trigger_target", set())):
-            found = name; break
-    check("a real +1/+1-counter card routes to the targeting machinery", found is not None)
+    # ONE WORLD: a 'put a +1/+1 counter on target creature' triggered clause — the bridge feeds the
+    # put_counter PARSE fact and the ENGINE derives the counter trigger_target (translate.dl). Verify the
+    # engine derives a "counter" pending_target end-to-end from the parse facts (no python trigger_target).
+    st = _base()
+    st["instance_of"] = {("src", "ctr")}
+    st["card_ability"] = {("ctr", "a0", "triggered")}
+    st["ability_trigger"] = {("ctr", "a0", "the_beginning_of_your_upkeep")}
+    st["card_effect"] = {("ctr", "a0", 0, "put_counter", "1", "target_creature", "+1/+1", "-")}
+    out = driver.run(st, ["pending_target"])
+    check("a put-counter clause: the engine DERIVES a 'counter' target from the parse facts",
+          any(v == "counter" and p == "p1p1:1" for (_a, _s, v, p, _c, _ct) in out["pending_target"]))
 
 
 def _spell_checks() -> None:

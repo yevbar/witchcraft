@@ -1082,42 +1082,19 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("(spell_reanimate) — DERIVED here from the card parse facts for the UNCONDITIONAL case, keyed by")
     p.comment("the SPELL instance id (== the bridge's tid; the driver's _run_spell_* run these on resolve). The")
     p.comment("modify_pt P/T payload and switch_pt still go the python bridge route (P/T parsing deferred).")
-    p.comment("target_class = a CLEAN single-'target creature' slug -> the legal-target class the driver picks")
-    p.comment("within (was bridge._TARGET_CLASS). A restricted/named target abstains (absent).")
-    p.decl("target_class", [("tgt", "symbol"), ("cls", "symbol")])
-    p.facts([f'target_class("{t}", "{c}")' for t, c in sorted(_b._TARGET_CLASS.items())])
-    p.comment("damage_kind = a 'deal N damage to ...' target -> who the driver damages (was bridge._DAMAGE_TARGET).")
-    p.decl("damage_kind", [("tgt", "symbol"), ("kind", "symbol")])
-    p.facts([f'damage_kind("{t}", "{k}")' for t, k in sorted(_b._DAMAGE_TARGET.items())])
+    p.comment("the spell slice REUSES the shared fact tables target_class / damage_kind / counter_kind /")
+    p.comment("reanimate_target / reanimate_mode / reanimate_gate emitted by _emit_translate_triggered_target")
+    p.comment("(emitted earlier). These two are spell-only:")
     p.comment("board_scope = the board-wide creature scopes the engine resolves (the spell slice of bridge._scope:")
     p.comment("creatures_you_control + all_creatures + all_other_creatures->all_creatures; self is NOT a spell scope).")
     p.decl("board_scope", [("tgt", "symbol"), ("scope", "symbol")])
     p.facts(['board_scope("creatures_you_control", "creatures_you_control")',
              'board_scope("all_creatures", "all_creatures")',
              'board_scope("all_other_creatures", "all_creatures")'])
-    p.comment("counter_kind = a counter spec (extra column) -> the engine's p1p1/m1m1 (was bridge._counter_kind).")
-    p.decl("counter_kind", [("extra", "symbol"), ("kind", "symbol")])
-    p.facts(['counter_kind("+1/+1", "p1p1")', 'counter_kind("p1p1", "p1p1")',
-             'counter_kind("-1/-1", "m1m1")', 'counter_kind("m1m1", "m1m1")'])
     p.comment("zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —")
     p.comment("destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).")
     p.decl("zone_move_verb", [("verb", "symbol")])
     p.facts([f'zone_move_verb("{v}")' for v in ("destroy", "exile", "tap", "untap", "return_to_hand")])
-    p.comment("seen_extra = the domain of effect EXTRA slugs (the reanimate mode reads its zone/tappedness here).")
-    p.decl("seen_extra", [("e", "symbol")])
-    p.rule("seen_extra(E)", ["card_effect(_, _, _, _, _, _, E, _)"])
-    p.comment("reanimate_target = the §701 'creature card from a graveyard' slugs (was bridge._REANIMATE_TARGETS).")
-    p.decl("reanimate_target", [("tgt", "symbol")])
-    p.facts([f'reanimate_target("{t}")' for t in sorted(_b._REANIMATE_TARGETS)])
-    p.comment("reanimate_mode = the source ZONE + tappedness the driver reads (was bridge._reanimate_mode):")
-    p.comment("zone is 'hand' if the clause says hand else 'graveyard', plus '_tapped' iff it enters tapped.")
-    p.decl("reanimate_mode", [("extra", "symbol"), ("mode", "symbol")])
-    p.rule("reanimate_mode(E, \"hand_tapped\")", ["seen_extra(E)", 'contains("hand", E)', 'contains("tapped", E)'])
-    p.rule("reanimate_mode(E, \"hand\")", ["seen_extra(E)", 'contains("hand", E)', '!contains("tapped", E)'])
-    p.rule("reanimate_mode(E, \"graveyard_tapped\")",
-           ["seen_extra(E)", '!contains("hand", E)', 'contains("graveyard", E)', 'contains("tapped", E)'])
-    p.rule("reanimate_mode(E, \"graveyard\")",
-           ["seen_extra(E)", '!contains("hand", E)', 'contains("graveyard", E)', '!contains("tapped", E)'])
 
     p.comment("an instance's spell put_counter clause -> the 'p1p1:N'/'m1m1:N' payload (was bridge._counter_payload):")
     p.comment("a P/T counter kind (extra column) + a POSITIVE integer amount. The amount is matched as a")
@@ -1169,7 +1146,7 @@ def _emit_translate_triggered_target(p) -> None:
     p.rule("spell_reanimate(S, Mode)",
            ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
             'card_effect(Card, A, _, "return_to_battlefield", _, Target, Extra, "-")',
-            "reanimate_target(Target)", "reanimate_mode(Extra, Mode)"])
+            "reanimate_target(Target)", "reanimate_gate(Extra)", "reanimate_mode(Extra, Mode)"])
 
 
 def build(with_tests: bool) -> str:
