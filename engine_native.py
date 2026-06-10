@@ -32,6 +32,8 @@ _CACHE_DIR = Path(tempfile.gettempdir())
 
 # resolved once: (binary_path, edb_relations) or (None, None) if the toolchain can't build it.
 _BUILD: tuple | None = None
+# per-process working dir (fact_dir, out_dir) with EDB .facts pre-staged empty, reused across calls.
+_WORK: tuple | None = None
 
 
 def _edb(rules: str) -> list[str]:
@@ -114,8 +116,22 @@ def available() -> bool:
     return build()[0] is not None
 
 
-def _lit(v) -> str:
-    return str(v)
+def _workdir(edb: list[str]) -> tuple:
+    """A per-process working dir with every EDB <rel>.facts pre-staged empty (souffle errors on a
+    missing input file). Reused across calls so each evaluate writes only the non-empty relations
+    instead of 65 files + a fresh tempdir — ~1.8x less marshalling. Keyed by pid so forked simulation
+    workers never share a dir; the driver is single-threaded within a process."""
+    global _WORK
+    if _WORK is None:
+        d = _CACHE_DIR / f"mtg_engine_work_{os.getpid()}"
+        fd, od = d / "facts", d / "out"
+        shutil.rmtree(d, ignore_errors=True)
+        fd.mkdir(parents=True)
+        od.mkdir()
+        for rel in edb:
+            (fd / f"{rel}.facts").write_text("")
+        _WORK = (fd, od)
+    return _WORK
 
 
 def evaluate(fkey: frozenset) -> dict:
@@ -124,19 +140,17 @@ def evaluate(fkey: frozenset) -> dict:
     binp, edb = build()
     if binp is None:
         raise RuntimeError("native engine binary unavailable")
-    facts = {rel: rows for rel, rows in fkey}
-    with tempfile.TemporaryDirectory() as d:
-        fd = Path(d) / "facts"
-        od = Path(d) / "out"
-        fd.mkdir()
-        od.mkdir()
-        for rel in edb:                                  # every EDB relation needs a (possibly empty) file
-            rows = facts.get(rel, ())
-            (fd / f"{rel}.facts").write_text(
-                "".join("\t".join(_lit(x) for x in row) + "\n" for row in rows))
+    fd, od = _workdir(edb)
+    nonempty = [(rel, rows) for rel, rows in fkey if rows]
+    for rel, rows in nonempty:                           # souffle reads TSV (no quotes); ints/symbols as-is
+        (fd / f"{rel}.facts").write_text("".join("\t".join(map(str, row)) + "\n" for row in rows))
+    try:
         subprocess.run([str(binp), "-F", str(fd), "-D", str(od)], check=True, capture_output=True)
         return {f.stem: {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}
                 for f in od.glob("*.csv")}
+    finally:
+        for rel, _ in nonempty:                          # reset to empty for the next state
+            (fd / f"{rel}.facts").write_text("")
 
 
 if __name__ == "__main__":
