@@ -668,6 +668,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
     _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
+    _run_spell_damage(state, spell, ctrl)                     # §120 direct damage (Lightning Bolt, Shock, ...)
 
 
 def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
@@ -687,6 +688,60 @@ def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
         tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
         if tgt is not None:
             _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
+
+
+def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
+    """§120 direct damage from a resolving burn instant/sorcery. The driver picks the target the engine
+    can't: a creature target -> mark the damage and apply lethality (n >= final toughness, unless
+    indestructible, kills it via the §704 destroy path); a player target -> life loss; 'any target' ->
+    kill a creature if the damage is lethal to a real threat, else go face. (Non-lethal marked damage
+    isn't persisted outside combat — a known simplification; the game-relevant outcome is lethality.)"""
+    rows = sorted(r for r in state.get("spell_damage", set()) if r[0] == spell)
+    if not rows:
+        return
+    out = run(state, ["controls", "creature", "power", "eff_toughness", "cant_be_destroyed"])
+    indestructible = {c for (c,) in out["cant_be_destroyed"]}
+    controls = {(p, c) for (p, c) in out["controls"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
+    tough = {c: int(n) for (c, n) in out["eff_toughness"]}
+    creatures = {c for (c,) in out["creature"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in controls if p == ctrl}
+    enemy = sorted(c for c in creatures if c in on_bf and c not in mine)
+
+    def kill(c):                                              # mark lethal damage -> §704.5g destroy
+        if c in indestructible:
+            print(f"      {spell} deals damage to {c} but it can't be destroyed (indestructible)")
+            return
+        state["on_battlefield"].discard((c,))
+        state.setdefault("graveyard", set()).add((c,))
+        print(f"      {spell} deals lethal damage to {c} -> graveyard")
+
+    def best_killable(n):                                     # strongest enemy whose toughness n can finish
+        killable = [c for c in enemy if c not in indestructible and tough.get(c, 1) <= n]
+        return max(killable, key=lambda c: powers.get(c, 0)) if killable else None
+
+    for (_s, n, kind) in rows:
+        opp = _others(state, ctrl)[0] if _others(state, ctrl) else None
+        if kind == "self":
+            print(f"      {spell} deals {n} to {ctrl} -> {_adjust_life(state, ctrl, -n)} life")
+        elif kind == "face":
+            if opp is not None:
+                print(f"      {spell} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
+        elif kind in ("creature_any", "creature_opponent"):
+            tgt = best_killable(n) or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
+            if tgt is None:
+                print(f"      {spell} has no creature to damage")
+            elif tough.get(tgt, 1) <= n:
+                kill(tgt)
+            else:
+                print(f"      {spell} deals {n} to {tgt} (non-lethal)")
+        elif kind == "any_target":                            # kill a real threat if we can, else go face
+            tgt = best_killable(n)
+            if tgt is not None:
+                kill(tgt)
+            elif opp is not None:
+                print(f"      {spell} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
 
 
 def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:

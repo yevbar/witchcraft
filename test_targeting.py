@@ -184,6 +184,62 @@ def _spell_checks() -> None:
     check("board wipe spares the indestructible creature (big survives)",
           ("big",) in st["on_battlefield"] and ("mine",) in st["graveyard"])
 
+    # §120 direct damage. 'Shock' (2 to any target) cast by alice: kills bob's 1/1 'small' (lethal),
+    # leaving the 5/5 — best_killable prefers a threat it can actually finish.
+    st = _base()
+    st["spell_damage"] = {("shock", 2, "any_target")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "shock", "alice")
+    check("burn any_target kills a creature it can finish (small dies)",
+          ("small",) in st["graveyard"] and ("big",) in st["on_battlefield"])
+
+    # 'Lava Spike' (3 to target player) -> opponent loses 3 life, no creature touched.
+    st = _base()
+    st["spell_damage"] = {("spike", 3, "face")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "spike", "alice")
+    check("burn face -> opponent loses life (bob 20 -> 17)", ("bob", 17) in st["life"])
+    check("burn face hits the OPPONENT, not the caster (alice still 20)", ("alice", 20) in st["life"])
+
+    # burn to a creature that can't be finished -> non-lethal, the creature survives.
+    st = _base()
+    st["spell_damage"] = {("zap", 1, "creature_opponent")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "zap", "alice")
+    check("non-lethal burn leaves the creature alive (big survives 1 dmg)",
+          ("big",) in st["on_battlefield"] and ("big",) not in st["graveyard"])
+
+    # 'Flame Slash' (4 to target creature) -> destroys bob's 5/5? no (toughness 5 > 4) but kills nothing
+    # it can't finish; with a 4-toughness target it WOULD. Verify lethality boundary on the 1/1.
+    st = _base()
+    st["spell_damage"] = {("slash", 5, "creature_any")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "slash", "alice")
+    check("burn creature_any with lethal n destroys the strongest enemy (big, 5 toughness)",
+          ("big",) in st["graveyard"])
+
+    # any_target with no killable creature -> go face. (Remove the 1/1 so 1 damage can't finish anything.)
+    st = _base()
+    st["on_battlefield"] = {("mine",), ("big",), ("src",)}
+    st["printed_control"] = {("alice", "mine"), ("alice", "src"), ("bob", "big")}
+    st["spell_damage"] = {("bolt", 1, "any_target")}     # 1 dmg can't kill the 2/2 or 5/5
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "bolt", "alice")
+    check("any_target with nothing killable goes face (bob 20 -> 19)", ("bob", 19) in st["life"])
+
+    # a real burn spell routes deal_damage to spell_damage, not a dropped/mistranslated player effect.
+    import sim as _sim, card_corpus as _cc
+    _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}
+    burn = None
+    for name in _co:
+        try:
+            f, _ = bridge.card_facts(name, "alice", "x", _db, _co)
+        except Exception:
+            continue
+        if f.get("spell_damage"):
+            burn = (name, sorted(f["spell_damage"])); break
+    check("a real burn spell routes deal_damage to spell_damage", burn is not None)
+
     # the bridge routes a real removal spell's destroy clause to spell_target, not a dropped effect.
     import sim, card_corpus
     db = sim.load_db()

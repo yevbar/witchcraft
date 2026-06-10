@@ -541,6 +541,7 @@ pending_target(A, S, V, Pay, Cl, P) :- fires(A, S), trigger_target(A, V, Pay, Cl
 .output pending_return
 .output pending_target
 .output has_keyword
+.output eff_toughness
 .output stack_top
 .output resolves
 .output controls

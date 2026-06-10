@@ -784,6 +784,7 @@ def _rules(p: Program) -> None:
              "pending_exile", "pending_tap", "pending_untap", "pending_return",  # §701 creature-scoped zone moves
              "pending_target",          # §115 single-target effects — the driver picks the target
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
+             "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state
 

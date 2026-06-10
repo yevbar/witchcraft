@@ -124,6 +124,28 @@ def _target_class(tgt: str) -> str | None:
     return _TARGET_CLASS.get(str(tgt))
 
 
+# §120 'deal N damage to ...' target -> who the driver damages. Creature targets become a lethality check
+# on a chosen creature; player targets become face/self life loss; 'any target' lets the driver pick a
+# killable enemy creature or go face. Board-scope ('each creature'), planeswalker-only and restricted
+# targets abstain (None). Mapped for the SPELL path (burn instants/sorceries) — the bulk of direct damage.
+_DAMAGE_TARGET = {
+    "target_creature": "creature_any", "another_target_creature": "creature_any",
+    "a_target_creature": "creature_any", "up_to_one_target_creature": "creature_any",
+    "target_creature_an_opponent_controls": "creature_opponent",
+    "target_creature_you_don_t_control": "creature_opponent",
+    "target_attacking_creature": "creature_opponent", "target_blocking_creature": "creature_opponent",
+    "target_attacking_or_blocking_creature": "creature_opponent",
+    "any_target": "any_target",
+    "target_player": "face", "target_opponent": "face", "each_opponent": "face",
+    "that_player": "face", "target_player_or_planeswalker": "face",
+    "you": "self", "yourself": "self",
+}
+
+
+def _damage_target(tgt: str) -> str | None:
+    return _DAMAGE_TARGET.get(str(tgt))
+
+
 # §613/§701 creature-scoped verbs: a board scope (self/your-creatures/all) the engine resolves, OR a
 # single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
 _CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
@@ -322,6 +344,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                             continue
                         add("spell_target", (tid, ev, payload, cls))
                         continue
+                if verb == "deal_damage":
+                    # §120 direct damage from a burn instant/sorcery (Lightning Bolt, Shock, Char). The driver
+                    # picks the target: a creature -> lethality check; a player -> life loss; 'any target' ->
+                    # kill a creature if it can, else go face. Variable/restricted amounts or targets abstain.
+                    n = _int(amt)
+                    dk = _damage_target(tgt)
+                    if n is None or dk is None:
+                        dropped.append(("effect", "deal_damage"))
+                        continue
+                    add("spell_damage", (tid, n, dk))
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))
