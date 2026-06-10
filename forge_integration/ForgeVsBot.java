@@ -26,12 +26,19 @@ import forge.game.Game;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
+import forge.card.mana.ManaCost;
 import forge.game.GameEntity;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
+import forge.game.card.CardCollectionView;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
+import forge.game.cost.CostPartMana;
+import forge.game.mana.ManaConversionMatrix;
+import forge.game.player.DelayedReveal;
 import forge.game.player.Player;
+import forge.game.player.PlayerActionConfirmMode;
+import forge.util.collect.FCollectionView;
 import forge.game.player.RegisteredPlayer;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
@@ -256,6 +263,31 @@ public class ForgeVsBot {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"ci\"\\s*:\\s*(-?\\d+)").matcher(reply);
             return m.find() ? Integer.parseInt(m.group(1)) : -1;
         }
+
+        // -- AUDIT: every Forge-AI decision method we DON'T drive ourselves is counted here, then delegated
+        // to super (PlayerControllerAi). At game end we print the tally so we know EXACTLY where Forge's AI
+        // still decided (vs. our engine). These are the not-yet-intercepted decisions.
+        static final java.util.Map<String, Integer> FORGE_AI = new java.util.TreeMap<>();
+        private static void tally(String m) { FORGE_AI.merge(m, 1, Integer::sum); }
+
+        @Override public boolean payManaCost(ManaCost toPay, CostPartMana cp, SpellAbility sa, String prompt, ManaConversionMatrix mx, boolean effect) {
+            tally("payManaCost (which lands to tap)"); return super.payManaCost(toPay, cp, sa, prompt, mx, effect); }
+        @Override public java.util.Map<Card, Integer> assignCombatDamage(Card a, CardCollectionView bl, CardCollectionView rem, int dmg, GameEntity de, boolean ord) {
+            tally("assignCombatDamage"); return super.assignCombatDamage(a, bl, rem, dmg, de, ord); }
+        @Override public CardCollection orderBlockers(Card a, CardCollection b) {
+            tally("orderBlockers"); return super.orderBlockers(a, b); }
+        @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
+            tally("cleanupDiscard"); return super.chooseCardsToDiscardToMaximumHandSize(n); }
+        @Override public boolean chooseTargetsFor(SpellAbility sa) {
+            tally("chooseTargetsFor"); return super.chooseTargetsFor(sa); }
+        @Override public <T extends GameEntity> T chooseSingleEntityForEffect(FCollectionView<T> opts, DelayedReveal dr, SpellAbility sa, String title, boolean isOpt, Player tp, java.util.Map<String, Object> params) {
+            tally("chooseSingleEntityForEffect"); return super.chooseSingleEntityForEffect(opts, dr, sa, title, isOpt, tp, params); }
+        @Override public boolean confirmAction(SpellAbility sa, PlayerActionConfirmMode mode, String msg, java.util.List<String> opts, Card card, java.util.Map<String, Object> params) {
+            tally("confirmAction"); return super.confirmAction(sa, mode, msg, opts, card, params); }
+        @Override public int chooseNumber(SpellAbility sa, String t, int min, int max) {
+            tally("chooseNumber"); return super.chooseNumber(sa, t, min, max); }
+        @Override public Integer announceRequirements(SpellAbility sa, int min, int max, String a) {
+            tally("announceRequirements (X)"); return super.announceRequirements(sa, min, max, a); }
     }
 
     // ---------- a LobbyPlayer that installs the RemoteController ----------
@@ -363,5 +395,7 @@ public class ForgeVsBot {
                 ? game.getOutcome().getWinningLobbyPlayer().getName() : "draw/none";
         System.out.println("RESULT winner=" + w + " turns=" + game.getPhaseHandler().getTurn()
                 + " wall=" + (System.currentTimeMillis() - t0) + "ms");
+        System.out.println("FORGE-AI decisions still made for OUR seat (not yet our engine's): "
+                + (RemoteController.FORGE_AI.isEmpty() ? "NONE" : RemoteController.FORGE_AI));
     }
 }
