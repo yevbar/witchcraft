@@ -295,6 +295,11 @@ def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     n = _int(amt)
     if n is None:
         return None
+    if eff == "create_token":                                # §111 the token's spec is in `extra`, not the
+        spec = str(extra)                                    # target — carry it through so the driver builds
+        if not spec or spec == "-":                          # the right token (P/T/types/subtypes/colors).
+            return None
+        return (eff, n, spec)
     target = _counter_kind(extra) if eff == "add_counter" else _target(tgt)
     if target is None:
         return None

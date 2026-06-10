@@ -195,19 +195,47 @@ LIFE_LOSS_THRESHOLD = _life_loss_threshold()           # 0 (§104.3b)
 # entering permanent unless a §614 replacement (enters_tapped) says so, matching that default.
 
 
-def _create_token(state: dict, name: str, controller: str, n: int) -> None:
-    d = TOKEN_DEFS.get(name, {"types": ["creature"]})
+_TOKEN_TYPE_WORDS = {"creature", "artifact", "enchantment", "land", "planeswalker"}
+_TOKEN_COLOR_WORDS = {"white", "blue", "black", "red", "green", "colorless"}
+
+
+def _parse_token_spec(spec: str) -> dict:
+    """§111.10 parse a token spec slug into characteristics. '1_1_white_soldier_creature' -> a 1/1 white
+    Soldier creature; '2_2_black_zombie_creature'; '1_1_colorless_thopter_artifact_creature' (multi-type);
+    a named token ('treasure'/'food'/'powerstone') -> a colorless artifact. Tokens are full permanents so
+    lords/anthems and combat apply to them (a Goblin token gets the Goblin lord's buff)."""
+    parts = str(spec).split("_")
+    if len(parts) >= 3 and parts[0].lstrip("-").isdigit() and parts[1].lstrip("-").isdigit():
+        rest = parts[2:]
+        types = [w for w in rest if w in _TOKEN_TYPE_WORDS] or ["creature"]
+        colors = [w for w in rest if w in _TOKEN_COLOR_WORDS and w != "colorless"]
+        subtypes = [w for w in rest if w not in _TOKEN_TYPE_WORDS and w not in _TOKEN_COLOR_WORDS]
+        return {"pt": (int(parts[0]), int(parts[1])), "types": types, "colors": colors, "subtypes": subtypes}
+    d = TOKEN_DEFS.get(spec)                                  # a known named token (transpiled §111.10 defs)
+    if d:
+        return {"pt": d.get("pt"), "types": d.get("types") or ["artifact"], "colors": [], "subtypes": []}
+    return {"pt": None, "types": ["artifact"], "colors": [], "subtypes": [spec]}   # food/treasure/clue/…
+
+
+def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
+    d = _parse_token_spec(spec)
     for _ in range(n):
         state["_tok"] = state.get("_tok", 0) + 1
-        tid = f"{name}#{state['_tok']}"
+        tid = f"{spec}#{state['_tok']}"
         state.setdefault("on_battlefield", set()).add((tid,))             # printed_* only; the engine
         state.setdefault("printed_control", set()).add((controller, tid)) # derives controls/has_type/creature
         for t in d["types"]:
             state.setdefault("printed_type", set()).add((tid, t))
-        if "pt" in d:
+        for st in d.get("subtypes", []):                                  # §205.3 — so tribal lords reach tokens
+            state.setdefault("printed_subtype", set()).add((tid, st))
+        for col in d.get("colors", []):                                   # §105 — so color lords reach tokens
+            state.setdefault("printed_color", set()).add((tid, col))
+        if d.get("pt"):
             state.setdefault("printed_power", set()).add((tid, d["pt"][0]))
             state.setdefault("printed_toughness", set()).add((tid, d["pt"][1]))
-        print(f"    {controller} creates a {name} token ({tid})")
+        if "creature" in d["types"]:
+            state.setdefault("_sick", set()).add((tid,))                  # §302.6 summoning sickness
+        print(f"    {controller} creates a {spec} token ({tid})")
 
 
 def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
