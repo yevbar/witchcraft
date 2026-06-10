@@ -72,24 +72,31 @@ def _bridge_checks() -> None:
     import sim, card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    def facts(name):
+        return bridge.card_facts(name, "alice", "x", db, corpus)
+
+    # ONE WORLD: the §615 fog spell_effect is now DERIVED IN DATALOG from the card parse facts the bridge
+    # feeds — so read it back from the ENGINE (driver.run) on a state of just those parse facts, not from
+    # the bridge dict. (Mirrors test_reanimate's spell_reanimate check.) A card whose parse facts have no
+    # prevent_damage clause can't derive fog, so we only eval the candidates.
+    def fogs(name):
+        f, _ = facts(name)
+        if not any(v == "prevent_damage" for (_c, _a, _i, v, *_r) in f.get("card_effect", set())):
+            return False
+        st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect") if k in f}
+        st["is_player"] = {("alice",), ("bob",)}
+        return any(e == "fog" for (_s, e, _n, _t) in driver.run(st, ["spell_effect"])["spell_effect"]
+                   if _s == "x")
+
     hit = None
     for nm in ("Fog", "Holy Day", "Darkness", "Tangle"):
-        if nm in corpus:
-            f, _ = bridge.card_facts(nm, "alice", "x", db, corpus)
-            if any(e == "fog" for (_s, e, _n, _t) in f.get("spell_effect", set())):
-                hit = nm
-                break
+        if nm in corpus and fogs(nm):
+            hit = nm
+            break
     check("a real Fog-type spell emits the fog effect", hit is not None)
 
-    n = 0
-    for name in corpus:
-        try:
-            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
-        except Exception:
-            continue
-        if any(e == "fog" for (_s, e, _n, _t) in f.get("spell_effect", set())) \
-           or any(e == "fog" for (_a, e, _n, _t) in f.get("trigger_effect", set())):
-            n += 1
+    n = sum(1 for name in corpus if fogs(name))
     check("the corpus yields a body of fog effects (>= 20)", n >= 20)
 
 

@@ -322,6 +322,22 @@ def _single_target_payload(verb, amt, tgt, extra):
     return r[0], r[1], cls
 
 
+# ONE WORLD: the CONSTANT-form verbs counter / prevent_damage(fog) / create whose generic-tail emission
+# (spell_effect / trigger_effect) is now DERIVED IN DATALOG (translate.dl) from the card parse facts — the
+# bridge stops emitting these exact rows. True iff datalog owns this clause (its rule's conditions hold,
+# mirroring _resolved_effect EXACTLY). The non-owned cases (a non-numeric create, a non-fog prevent_damage)
+# still fall through to the python path so the abstain bookkeeping (dropped) is unchanged.
+def _datalog_owns(verb, amt, tgt, extra) -> bool:
+    if verb == "counter":                                    # §701.5 — constant ('counter', 0, 'target_spell')
+        return True
+    if verb == "prevent_damage":                             # §615 fog only (amt=='all' & combat in tgt/extra)
+        return str(amt) == "all" and ("combat" in str(tgt) or "combat" in str(extra))
+    if verb == "create":                                     # §111 — numeric (all-digit) count + non-empty spec
+        spec = str(extra)
+        return str(amt).isdigit() and spec not in ("", "-")
+    return False
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -533,6 +549,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if verb in _PSCOPE_DATALOG:                   # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     emitted = True                            # has_trigger + trigger_effect are now DERIVED IN
                     continue                                  # DATALOG from the card parse facts (translate.dl)
+                if _datalog_owns(verb, amt, tgt, extra):      # ONE WORLD: counter / fog / create_token are now
+                    emitted = True                            # DERIVED IN DATALOG (translate.dl) — skip the python
+                    continue                                  # emission (the non-owned cases fall through below)
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
@@ -602,6 +621,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if verb == "switch_pt" and _target_class(tgt) is not None:   # §613 'switch target creature's P/T'
                     continue                                     # spell_target (switchpt) is DATALOG-derived
+                if _datalog_owns(verb, amt, tgt, extra):         # ONE WORLD: counter / fog / create_token are now
+                    continue                                     # DERIVED IN DATALOG (translate.dl) — skip the
+                    # python emission (the non-owned cases fall through to _resolved_effect below, unchanged).
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

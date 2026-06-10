@@ -9,12 +9,38 @@ Run: python3 test_tokens.py   (needs datalog/cards.dl for the bridge check)
 from __future__ import annotations
 
 import contextlib
+import csv
 import io
+import subprocess
+import tempfile
+from pathlib import Path
 
 import driver
 import bridge_to_engine as bridge
+from driver import RULES, _lit
 
 CHECKS: list[tuple[str, bool]] = []
+
+
+def _engine_token_rows(f: dict) -> list:
+    """The §111 create_token rows the ENGINE derives from a card's parse facts (spell_effect + trigger_effect,
+    keyed by instance 'x'). ONE WORLD: create_token is now DATALOG-derived, so read it back from the engine
+    instead of the bridge dict. Run via the souffle INTERPRETER (trigger_effect isn't a committed .output, and
+    a few pre-existing 'put_counter X' cards abort the compiled binary in an unrelated §122 to_number rule)."""
+    if not any(v == "create" for (_c, _a, _i, v, *_r) in f.get("card_effect", set())):
+        return []
+    st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect", "ability_trigger") if k in f}
+    st["is_player"] = {("alice",), ("bob",)}
+    facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})." for rel, rows in st.items() for row in rows)
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "e.dl").write_text(RULES + "\n.output trigger_effect\n" + facts)
+        subprocess.run(["souffle", f"{d}/e.dl", "-D", d], check=True, capture_output=True)
+        rows = set()
+        for stem in ("spell_effect", "trigger_effect"):
+            p = Path(d) / f"{stem}.csv"
+            if p.exists():
+                rows |= {tuple(r) for r in csv.reader(p.open(), delimiter="\t")}
+    return [r for r in rows if r[0].split("_")[0] == "x" and "create_token" in r]
 
 
 def check(name: str, cond: bool) -> None:
@@ -95,7 +121,7 @@ def _bridge_check() -> None:
         except Exception:
             continue
         # spell_effect / trigger_effect rows carry create_token + the spec (not the old 'controller' bug).
-        toks = [r for r in (f.get("spell_effect", set()) | f.get("trigger_effect", set())) if "create_token" in r]
+        toks = _engine_token_rows(f)
         if toks:
             n += 1
             if sample is None:

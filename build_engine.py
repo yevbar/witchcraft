@@ -992,6 +992,27 @@ def _emit_translate(p) -> None:
             'card_effect(C, A, _, Verb, Amount, Target, _, "-")',
             "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
             "player_scope(Target, Scope)"])
+    p.comment("ONE WORLD: the CONSTANT-form verbs counter / prevent_damage(fog) / create for a TRIGGERED")
+    p.comment("ability (was the bridge generic tail add('trigger_effect', ...)). Gated like trigger_effect")
+    p.comment("above (a triggered ability whose §603 trigger maps to an engine event), but match ANY cond")
+    p.comment("(the bridge's generic tail ignores the condition column). Keyed by the instance ability id.")
+    p.rule('trigger_effect(IA, "counter", 0, "target_spell")',
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, "counter", _, _, _, _)'])
+    p.rule('trigger_effect(IA, "fog", 0, "-")',
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, "prevent_damage", "all", Tgt, _, _)', 'contains("combat", Tgt)'])
+    p.rule('trigger_effect(IA, "fog", 0, "-")',
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, "prevent_damage", "all", _, Extra, _)', 'contains("combat", Extra)'])
+    p.rule('trigger_effect(IA, "create_token", N, Spec)',
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, "create", Amount, _, Spec, _)',
+            'match("[0-9]+", Amount)', "N = to_number(Amount)", 'Spec != "-"', 'Spec != ""'])
     p.comment("DERIVE spell_effect for an instant/sorcery's player-scoped, numeric, unconditional effect. Keyed")
     p.comment("by the SPELL instance id (== the bridge's tid; the driver's _run_spell_effects runs it on resolve).")
     p.rule("spell_effect(Spell, Eff, N, Scope)",
@@ -999,6 +1020,29 @@ def _emit_translate(p) -> None:
             'card_effect(Card, A, _, Verb, Amount, Target, _, "-")',
             "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
             "player_scope(Target, Scope)"])
+    p.comment("ONE WORLD: the CONSTANT-form effect verbs counter / prevent_damage(fog) / create -> the engine")
+    p.comment("relations (was the bridge generic tail r = _resolved_effect(verb,amt,tgt,extra)). These derive")
+    p.comment("regardless of the §608 condition column (the bridge's generic tail ignores cond), so the rules")
+    p.comment("match ANY cond — unlike the pscope rules above which require cond == '-'.")
+    p.comment("§701.5 counter target spell -> spell_effect(counter, 0, target_spell). amount/cond unused.")
+    p.rule('spell_effect(Spell, "counter", 0, "target_spell")',
+           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+            'card_effect(Card, A, _, "counter", _, _, _, _)'])
+    p.comment("§615 Fog: 'prevent all combat damage this turn' -> spell_effect(fog, 0, -). amt=='all' AND")
+    p.comment("'combat' in target OR extra (two rules for the OR). Targeted/partial prevention abstains.")
+    p.rule('spell_effect(Spell, "fog", 0, "-")',
+           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+            'card_effect(Card, A, _, "prevent_damage", "all", Tgt, _, _)', 'contains("combat", Tgt)'])
+    p.rule('spell_effect(Spell, "fog", 0, "-")',
+           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+            'card_effect(Card, A, _, "prevent_damage", "all", _, Extra, _)', 'contains("combat", Extra)'])
+    p.comment("§111 create a token -> spell_effect(create_token, n, spec). n = int(amount) (all-digit, matching")
+    p.comment("the bridge's _int), the token SPEC rides in the EXTRA column. Empty / '-' spec abstains. match()")
+    p.comment("guards to_number (it aborts the binary on non-numeric input even behind a later filter).")
+    p.rule('spell_effect(Spell, "create_token", N, Spec)',
+           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+            'card_effect(Card, A, _, "create", Amount, _, Spec, _)',
+            'match("[0-9]+", Amount)', "N = to_number(Amount)", 'Spec != "-"', 'Spec != ""'])
     p.blank()
     p.comment("ONE WORLD: §611.2 STATIC keyword-anthem grants for the UNFILTERED board scopes -> static_grant,")
     p.comment("DERIVED here from the card parse facts (was bridge's static branch / add('static_grant', ...)).")
