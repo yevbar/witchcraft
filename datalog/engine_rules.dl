@@ -79,6 +79,7 @@
 .decl cant_be_targeted(t: symbol)
 .decl spell_mode(s: symbol, mode: symbol)
 .decl chose_mode(s: symbol, mode: symbol)
+.decl spell_effect(spell: symbol, effect: symbol, amount: number, target: symbol)
 .decl until_eot(e: symbol)
 .decl is_keyword(kw: symbol)
 
@@ -595,6 +596,9 @@ inst_ability(cat(S, cat("_", A)), S, A, C) :- instance_of(S, C), card_ability(C,
 has_trigger(IA, S, Event) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, Event).
 // DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.
 trigger_effect(IA, Eff, N, Scope) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, _), card_effect(C, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), match("[0-9]+", Amount), N = to_number(Amount), player_scope(Target, Scope).
+// DERIVE spell_effect for an instant/sorcery's player-scoped, numeric, unconditional effect. Keyed
+// by the SPELL instance id (== the bridge's tid; the driver's _run_spell_effects runs it on resolve).
+spell_effect(Spell, Eff, N, Scope) :- instance_of(Spell, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), match("[0-9]+", Amount), N = to_number(Amount), player_scope(Target, Scope).
 
 .output power
 .output dies
@@ -628,10 +632,11 @@ trigger_effect(IA, Eff, N, Scope) :- inst_ability(IA, S, A, C), card_ability(C, 
 .output pending_target
 .output pending_damage
 .output pending_reanimate
+.output spell_effect
 .output has_keyword
 .output eff_toughness
 .output stack_top
 .output resolves
 .output controls
 .output creature
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode until_eot is_keyword
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect until_eot is_keyword

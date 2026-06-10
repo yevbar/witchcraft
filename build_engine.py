@@ -210,6 +210,10 @@ INPUTS = [
     # §601/§700 choices/modes
     ("spell_mode", [("s", "symbol"), ("mode", "symbol")]),          # a mode the spell offers
     ("chose_mode", [("s", "symbol"), ("mode", "symbol")]),          # the mode the controller chose
+    # §608.2c — a resolving instant/sorcery's player-scoped effects, keyed by the SPELL instance id (the
+    # driver's _run_spell_effects runs these). ONE WORLD: the player-scoped slice is now DERIVED IN DATALOG
+    # (translate.dl) from the card parse facts; the bridge still feeds the rest (it's .input + a rule head).
+    ("spell_effect", [("spell", "symbol"), ("effect", "symbol"), ("amount", "number"), ("target", "symbol")]),
     # §611 duration: a continuous effect that lasts only until end of turn
     ("until_eot", [("e", "symbol")]),
     ("is_keyword", [("kw", "symbol")]),                            # §122.1b which counter kinds are keyword counters
@@ -857,6 +861,7 @@ def _rules(p: Program) -> None:
              "pending_target",          # §115 single-target effects — the driver picks the target
              "pending_damage",          # §120 triggered direct damage — the driver picks the damage target
              "pending_reanimate",       # §701 triggered reanimation — the driver moves the graveyard creature
+             "spell_effect",            # §608.2c — a resolving spell's player-scoped effects (datalog-derived + bridge-fed)
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
@@ -909,6 +914,13 @@ def _emit_translate(p) -> None:
            ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
             "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
             'card_effect(C, A, _, Verb, Amount, Target, _, "-")',
+            "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
+            "player_scope(Target, Scope)"])
+    p.comment("DERIVE spell_effect for an instant/sorcery's player-scoped, numeric, unconditional effect. Keyed")
+    p.comment("by the SPELL instance id (== the bridge's tid; the driver's _run_spell_effects runs it on resolve).")
+    p.rule("spell_effect(Spell, Eff, N, Scope)",
+           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+            'card_effect(Card, A, _, Verb, Amount, Target, _, "-")',
             "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
             "player_scope(Target, Scope)"])
 

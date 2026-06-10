@@ -756,7 +756,11 @@ def _stack_remove(state: dict, obj: str) -> None:
 
 
 def _spell_effects(state: dict, spell: str) -> list:
-    return sorted(r for r in state.get("spell_effect", set()) if r[0] == spell)
+    # ONE WORLD: spell_effect is now an ENGINE relation — the player-scoped slice is DERIVED IN DATALOG
+    # from the card parse facts (translate.dl), the rest is still bridge-fed (.input). souffle unions both,
+    # so read it back from the engine rather than raw state (amount comes back as a string; _apply_effects
+    # does int(amt) either way).
+    return sorted(r for r in run(state, ["spell_effect"])["spell_effect"] if r[0] == spell)
 
 
 def _choose_mode(state: dict, spell: str) -> None:

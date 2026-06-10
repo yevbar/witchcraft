@@ -531,6 +531,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             _ = emitted
         elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
+                    continue                                  # spell_effect is now DERIVED IN DATALOG from the card
+                    # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
+                    # CONDITIONAL (_cond != "-") pscope effect still goes through the old path below (datalog's
+                    # rule only derives the unconditional slice), preserving the bridge's behavior exactly.
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in ("creatures_you_control", "all_creatures"):
