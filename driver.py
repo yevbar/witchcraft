@@ -269,7 +269,8 @@ def _apply_creature_effects(state: dict) -> None:
     moves the creature to its owner's graveyard. The id is deterministic per (ability, creature) so re-
     deriving the same fire across steps is idempotent (set semantics — no double-buffing)."""
     out = run(state, ["pending_pt", "pending_grant", "pending_destroy",
-                      "pending_exile", "pending_tap", "pending_untap", "pending_return"])
+                      "pending_exile", "pending_tap", "pending_untap", "pending_return", "cant_be_destroyed"])
+    indestructible = {c for (c,) in out["cant_be_destroyed"]}   # §702.12b — the engine derives this
     for (a, dp, dt, c, _ctrl) in sorted(out["pending_pt"]):
         eid = f"{a}__pt__{c}"
         before = (eid, c, int(dp)) in state.get("eff_mod_power", set())
@@ -287,6 +288,9 @@ def _apply_creature_effects(state: dict) -> None:
             print(f"    trigger {a}: {c} gains {kw} until end of turn")
     for (a, c, _ctrl) in sorted(out["pending_destroy"]):
         if (c,) in state.get("on_battlefield", set()):       # §701.7 — move it to the graveyard
+            if c in indestructible:                          # §702.12b — indestructible isn't destroyed
+                print(f"    trigger {a}: {c} can't be destroyed (indestructible)")
+                continue
             state["on_battlefield"].discard((c,))
             state.setdefault("graveyard", set()).add((c,))
             print(f"    trigger {a}: {c} is destroyed -> graveyard")
@@ -328,7 +332,7 @@ def declare_attackers(state: dict, ap: str) -> None:
     """§508 — the active player's eligible creatures attack an opponent (greedy policy)."""
     opp = _others(state, ap)[0]
     sick = state.get("_sick", set())                             # §302.6 — entered this turn, no haste
-    haste = {c for (c, k) in state.get("printed_keyword", set()) if k == "haste"}
+    haste = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "haste"}  # granted-aware (§613 layer 6)
     attackers = sorted(c for (c,) in run(state, ["may_attack"])["may_attack"]
                        if (c,) not in sick or c in haste)
     state["attacks"] = {(c, opp) for c in attackers}
