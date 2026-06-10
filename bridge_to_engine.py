@@ -380,6 +380,26 @@ def _activated_cost(cost: str) -> tuple | None:
 _ENGINE_KEYWORDS = {"flying", "reach", "defender", "menace", "hexproof", "shroud", "indestructible",
                     "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste"}
 
+# ONE WORLD — printed_* relations now DERIVED by the engine from the card-level card_* facts (translate.dl);
+# materialized back into raw state for the driver's direct (non-engine) reads of a card's printed identity.
+_PRINTED_DERIVED = ["printed_type", "printed_power", "printed_toughness",
+                    "printed_subtype", "printed_color", "printed_keyword"]
+
+
+def _materialize_printed(state: dict) -> None:
+    """ONE WORLD: the printed_* identity is DERIVED in datalog from the card-level card_* facts + instance_of
+    (translate.dl). The driver still reads a card's printed type/power/subtype directly from raw state (for
+    lands/casting/reanimation, before a card is a battlefield permanent), so fold the engine-DERIVED printed_*
+    rows back into the state. Every instance's card_*/instance_of facts are present, so one engine run
+    derives them all; this keeps the driver's direct reads correct while the engine owns the derivation."""
+    import driver
+    eng = driver.run({k: v for k, v in state.items() if isinstance(v, set)}, _PRINTED_DERIVED)
+    numeric = {"printed_power", "printed_toughness"}
+    for rel in _PRINTED_DERIVED:
+        rows = {(o, int(v)) if rel in numeric else (o, v) for (o, v) in eng.get(rel, set())}
+        if rows:
+            state.setdefault(rel, set()).update(rows)
+
 
 def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[dict, list]:
     """The (relation -> rows) an instance `tid` of card `name` controlled by `ctrl` contributes to a
@@ -404,21 +424,23 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("ability_trigger", (facts, aid, ab["trigger"]))
         for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
             add("card_effect", (facts, aid, int(seq), verb, str(amt), str(tgt), str(extra), str(cond)))
+    # ONE WORLD: feed the card-level PRINTED IDENTITY (§613 base characteristics) keyed by the card slug
+    # (`facts`, set-deduped across instances). The engine derives the per-instance printed_* via instance_of
+    # (translate.dl) instead of the bridge emitting printed_* directly here.
     for t in c.get("types") or []:
-        add("printed_type", (tid, t.lower()))
+        add("card_type", (facts, t.lower()))
     for st in c.get("subtypes") or []:                       # §205.3 subtypes (Goblin, Sliver, …) for lords
-        add("printed_subtype", (tid, st.lower()))
+        add("card_subtype", (facts, st.lower()))
     for ci in c.get("colorIdentity") or []:                  # §105 color (approx. via color identity) for color lords
         if ci in _COLOR_NAME:
-            add("printed_color", (tid, _COLOR_NAME[ci]))
+            add("card_color", (facts, _COLOR_NAME[ci]))
     p, t = c.get("power"), c.get("toughness")
     if str(p or "").lstrip("-").isdigit():
-        add("printed_power", (tid, int(p)))
+        add("card_power", (facts, int(p)))
     if str(t or "").lstrip("-").isdigit():
-        add("printed_toughness", (tid, int(t)))
-    for kw in f.get("keywords", set()):
-        if kw in _ENGINE_KEYWORDS:
-            add("printed_keyword", (tid, kw))
+        add("card_toughness", (facts, int(t)))
+    for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
+        add("card_keyword", (facts, kw))
     if f.get("mana"):                                         # §605 activated mana ability ('{T}: Add …')
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
@@ -773,6 +795,7 @@ def make_state(boards: dict, life: int = 20) -> dict:
         for i in range(z.get("library", 0)):
             state["in_library"].add((pl, f"{pl}_lib{i}"))
         state.setdefault("mana_available", set()).add((pl, z.get("mana", 0)))
+    _materialize_printed(state)                               # ONE WORLD: fold engine-derived printed_* back in
     return state
 
 
@@ -887,6 +910,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int = 7, life: int = 20) -
             load(nm, pl, "in_hand")
         for nm in order[hand:]:
             load(nm, pl, "in_library")
+    _materialize_printed(state)                               # ONE WORLD: fold engine-derived printed_* back in
     return state
 
 

@@ -154,6 +154,15 @@ INPUTS = [
     ("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("phrase", "symbol")]),
     ("card_effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"), ("verb", "symbol"),
                      ("amount", "symbol"), ("target", "symbol"), ("extra", "symbol"), ("cond", "symbol")]),
+    # ONE WORLD — the card-level PRINTED IDENTITY (§613 layer-system base characteristics), fed per CARD
+    # (set-deduped across instances). The engine derives the instance-level printed_* via instance_of
+    # (translate.dl) instead of the bridge emitting them per instance.
+    ("card_type", [("card", "symbol"), ("t", "symbol")]),
+    ("card_power", [("card", "symbol"), ("n", "number")]),
+    ("card_toughness", [("card", "symbol"), ("n", "number")]),
+    ("card_keyword", [("card", "symbol"), ("kw", "symbol")]),
+    ("card_subtype", [("card", "symbol"), ("st", "symbol")]),
+    ("card_color", [("card", "symbol"), ("col", "symbol")]),
     # §603 CREATURE-SCOPED triggered effects (P/T pump, keyword grant, destroy). `scope` is one of
     # {self, creatures_you_control, all_creatures}; the engine resolves it to concrete creatures
     # (pending_pt/pending_grant/pending_destroy) the driver applies to the board.
@@ -865,7 +874,12 @@ def _rules(p: Program) -> None:
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
-             "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state
+             "controls", "creature",    # derived (from printed_*); the driver reads these, not raw state
+             # ONE WORLD — the printed identity, now DERIVED from the card-level card_* facts via instance_of
+             # (translate.dl). Output so the driver can read a card's printed type/power/subtype back (for
+             # land/cast/reanimation reads of cards not yet on the battlefield) instead of raw per-instance facts.
+             "printed_type", "printed_power", "printed_toughness",
+             "printed_subtype", "printed_color", "printed_keyword")
 
 
 # ONE WORLD — the parse->operational TRANSLATION, as datalog rules (was bridge_to_engine.py, in Python at
@@ -938,6 +952,18 @@ def _emit_translate(p) -> None:
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-")',
             "engine_keyword(Kw)", "anthem_scope(Target, Scope)"])
+    p.blank()
+    p.comment("ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the")
+    p.comment("card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from")
+    p.comment("the MTGJSON corpus). printed_* are already shim inputs, so souffle unions the shim-fed rows")
+    p.comment("(tokens via driver._create_token, tests that feed printed_* directly) with these derived rows.")
+    p.rule("printed_type(I, T)", ["instance_of(I, C)", "card_type(C, T)"])
+    p.rule("printed_power(I, N)", ["instance_of(I, C)", "card_power(C, N)"])
+    p.rule("printed_toughness(I, N)", ["instance_of(I, C)", "card_toughness(C, N)"])
+    p.rule("printed_subtype(I, St)", ["instance_of(I, C)", "card_subtype(C, St)"])
+    p.rule("printed_color(I, Col)", ["instance_of(I, C)", "card_color(C, Col)"])
+    p.comment("only the keywords the engine models become printed_keyword (mirrors the bridge's _ENGINE_KEYWORDS guard).")
+    p.rule("printed_keyword(I, Kw)", ["instance_of(I, C)", "card_keyword(C, Kw)", "engine_keyword(Kw)"])
 
 
 def build(with_tests: bool) -> str:

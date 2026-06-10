@@ -49,6 +49,12 @@
 .decl card_ability(card: symbol, aid: symbol, kind: symbol)
 .decl ability_trigger(card: symbol, aid: symbol, phrase: symbol)
 .decl card_effect(card: symbol, aid: symbol, seq: number, verb: symbol, amount: symbol, target: symbol, extra: symbol, cond: symbol)
+.decl card_type(card: symbol, t: symbol)
+.decl card_power(card: symbol, n: number)
+.decl card_toughness(card: symbol, n: number)
+.decl card_keyword(card: symbol, kw: symbol)
+.decl card_subtype(card: symbol, st: symbol)
+.decl card_color(card: symbol, col: symbol)
 .decl trigger_effect_pt(ability: symbol, dp: number, dt: number, scope: symbol)
 .decl trigger_effect_grant(ability: symbol, keyword: symbol, scope: symbol)
 .decl trigger_effect_destroy(ability: symbol, scope: symbol)
@@ -612,6 +618,18 @@ anthem_scope("all_creatures", "all_creatures"). anthem_scope("creatures_you_cont
 engine_keyword("deathtouch"). engine_keyword("defender"). engine_keyword("flying"). engine_keyword("haste"). engine_keyword("hexproof"). engine_keyword("indestructible"). engine_keyword("infect"). engine_keyword("lifelink"). engine_keyword("menace"). engine_keyword("reach"). engine_keyword("shroud"). engine_keyword("trample"). engine_keyword("vigilance"). engine_keyword("wither").
 static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-"), engine_keyword(Kw), anthem_scope(Target, Scope).
 
+// ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the
+// card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from
+// the MTGJSON corpus). printed_* are already shim inputs, so souffle unions the shim-fed rows
+// (tokens via driver._create_token, tests that feed printed_* directly) with these derived rows.
+printed_type(I, T) :- instance_of(I, C), card_type(C, T).
+printed_power(I, N) :- instance_of(I, C), card_power(C, N).
+printed_toughness(I, N) :- instance_of(I, C), card_toughness(C, N).
+printed_subtype(I, St) :- instance_of(I, C), card_subtype(C, St).
+printed_color(I, Col) :- instance_of(I, C), card_color(C, Col).
+// only the keywords the engine models become printed_keyword (mirrors the bridge's _ENGINE_KEYWORDS guard).
+printed_keyword(I, Kw) :- instance_of(I, C), card_keyword(C, Kw), engine_keyword(Kw).
+
 .output power
 .output dies
 .output loses_game
@@ -651,4 +669,10 @@ static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "stati
 .output resolves
 .output controls
 .output creature
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect until_eot is_keyword
+.output printed_type
+.output printed_power
+.output printed_toughness
+.output printed_subtype
+.output printed_color
+.output printed_keyword
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect until_eot is_keyword
