@@ -43,13 +43,33 @@ def _bridge_checks() -> None:
         return bridge.card_facts(name, "alice", "x", db, corpus)
 
     # Angel of the Dawn: ETB gives creatures you control +1/+1 AND vigilance until end of turn.
+    # ONE WORLD: the creature-scoped trigger_effect_pt / trigger_effect_grant are now DERIVED IN DATALOG
+    # (translate.dl, creature_scope / signed_pt / engine_keyword) from the card parse facts — the bridge
+    # feeds the parse facts and stops emitting these rows. Verify the ENGINE derives them on a forced-firing
+    # upkeep trigger over a 3-creature board (x=alice source, y=alice, z=bob): a creatures_you_control scope
+    # resolves to exactly {x, y} (NOT z), read back via pending_pt / pending_grant.
     f, dropped = facts("Angel of the Dawn")
-    pt = f.get("trigger_effect_pt", set())
-    gr = f.get("trigger_effect_grant", set())
-    check("ETB anthem -> trigger_effect_pt(+1/+1, creatures_you_control)",
-          any(dp == 1 and dt == 1 and sc == "creatures_you_control" for _a, dp, dt, sc in pt))
-    check("ETB anthem -> trigger_effect_grant(vigilance, creatures_you_control)",
-          any(kw == "vigilance" and sc == "creatures_you_control" for _a, kw, sc in gr))
+    check("ONE WORLD: bridge no longer emits trigger_effect_pt / trigger_effect_grant directly",
+          not f.get("trigger_effect_pt") and not f.get("trigger_effect_grant"))
+    angel = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
+        "on_battlefield": {("x",), ("y",), ("z",)},
+        "printed_type": {("x", "creature"), ("y", "creature"), ("z", "creature")},
+        "printed_control": {("alice", "x"), ("alice", "y"), ("bob", "z")},
+        "instance_of": {("x", "angel_of_the_dawn")},
+        "card_ability": {("angel_of_the_dawn", "a1", "triggered")},
+        "ability_trigger": {("angel_of_the_dawn", "a1", "the_beginning_of_your_upkeep")},
+        "card_effect": {("angel_of_the_dawn", "a1", 0, "modify_pt", "+1/+1", "creatures_you_control", "-", "-"),
+                        ("angel_of_the_dawn", "a1", 1, "grant_keyword", "until_end_of_turn", "creatures_you_control", "vigilance", "-")},
+        "counter": set(), "tapped": set(),
+    }
+    out = driver.run(angel, ["pending_pt", "pending_grant"])
+    pt = {(int(dp), int(dt), c) for (_a, dp, dt, c, _p) in out["pending_pt"]}
+    gr = {(kw, c) for (_a, kw, c, _p) in out["pending_grant"]}
+    check("ETB anthem -> datalog derives pending_pt(+1/+1) for creatures_you_control {x, y}, not z",
+          pt == {(1, 1, "x"), (1, 1, "y")})
+    check("ETB anthem -> datalog derives pending_grant(vigilance) for creatures_you_control {x, y}, not z",
+          gr == {("vigilance", "x"), ("vigilance", "y")})
     # ONE WORLD: the bridge no longer emits has_trigger — it feeds the PARSE facts and the engine DERIVES
     # has_trigger(etb_self) from them. Verify the bridge emits the triggered card_ability whose trigger phrase
     # maps to etb_self via the event table the datalog rule (has_trigger :- ..., event_map(Phrase, Event)) uses.

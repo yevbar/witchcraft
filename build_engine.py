@@ -1098,6 +1098,76 @@ def _emit_translate_triggered_target(p) -> None:
             'card_effect(C, A, _, "switch_pt", _, Tgt, _, "-")', "self_target(Tgt)"])
 
     p.blank()
+    p.comment("ONE WORLD (triggered slice 2): a triggered ability's CREATURE-SCOPED P/T pump / keyword grant /")
+    p.comment("zone moves over a BOARD scope (self / creatures_you_control / all_creatures) -> trigger_effect_pt /")
+    p.comment("trigger_effect_grant / trigger_effect_destroy / _exile / _tap / _untap / _return, DERIVED from the")
+    p.comment("card parse facts (was the bridge's triggered creature-scoped block + the single-target modify_pt +")
+    p.comment("the 'becomes a P/T creature' self-animation). The pending_* outputs derive from these (engine_rules).")
+    p.comment("creature_scope = the bridge's _scope() board scopes: self / creatures_you_control / all_creatures")
+    p.comment("(all_other_creatures -> all_creatures). A single 'target creature' has NO creature_scope (abstains).")
+    p.decl("creature_scope", [("tgt", "symbol"), ("scope", "symbol")])
+    p.facts(['creature_scope("self", "self")', 'creature_scope("it", "self")',
+             'creature_scope("creatures_you_control", "creatures_you_control")',
+             'creature_scope("all_creatures", "all_creatures")',
+             'creature_scope("all_other_creatures", "all_creatures")'])
+    p.comment("signed_pt / bare_pt = the pt_value foundation split by STRING FORM: a SIGNED '+N/+N' / '-N/-N'")
+    p.comment("(the bridge's _parse_pt / modify_pt) vs a BARE 'N/M' (the bridge's _animation_pt / 'becomes a P/T")
+    p.comment("creature'). Both join pt_value for the parsed (dp, dt); the match filter selects the form. The two")
+    p.comment("forms are disjoint in the corpus (a signed string always carries a +/- on each side, a bare never).")
+    p.decl("signed_pt", [("amt", "symbol"), ("dp", "number"), ("dt", "number")])
+    p.rule("signed_pt(Amt, Dp, Dt)", ["pt_value(Amt, Dp, Dt)", 'match("[+-][0-9]+/[+-][0-9]+", Amt)'])
+    p.decl("bare_pt", [("amt", "symbol"), ("dp", "number"), ("dt", "number")])
+    p.rule("bare_pt(Amt, Dp, Dt)", ["pt_value(Amt, Dp, Dt)", 'match("[0-9]+/[0-9]+", Amt)'])
+    p.comment("DERIVE trigger_effect_pt for a creature-scoped modify_pt: dp/dt via signed_pt (the bridge's")
+    p.comment("_parse_pt only matches a SIGNED P/T), scope via creature_scope (was the bridge's trigger_effect_pt).")
+    p.rule("trigger_effect_pt(IA, Dp, Dt, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "modify_pt", Amount, Tgt, _, "-")',
+            "signed_pt(Amount, Dp, Dt)", "creature_scope(Tgt, Scope)"])
+    p.comment("DERIVE trigger_effect_grant for a creature-scoped grant_keyword: the granted keyword is in the")
+    p.comment("EXTRA column (engine_keyword filter, else it'd no-op), scope via creature_scope.")
+    p.rule("trigger_effect_grant(IA, Kw, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "grant_keyword", _, Tgt, Kw, "-")',
+            "engine_keyword(Kw)", "creature_scope(Tgt, Scope)"])
+    p.comment("DERIVE the creature-scoped §701 zone moves (payload-less, just the scope): destroy / exile / tap /")
+    p.comment("untap / return_to_hand. A non-battlefield-zone bounce/exile (from graveyard/exile/library/hand) is a")
+    p.comment("different action — abstain via !nonbf_zone, exactly as the bridge did (reuses nonbf_zone).")
+    p.rule("trigger_effect_destroy(IA, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "destroy", _, Tgt, _, "-")', "creature_scope(Tgt, Scope)"])
+    p.rule("trigger_effect_exile(IA, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "exile", _, Tgt, Extra, "-")',
+            "creature_scope(Tgt, Scope)", "!nonbf_zone(Extra)"])
+    p.rule("trigger_effect_tap(IA, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "tap", _, Tgt, _, "-")', "creature_scope(Tgt, Scope)"])
+    p.rule("trigger_effect_untap(IA, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "untap", _, Tgt, _, "-")', "creature_scope(Tgt, Scope)"])
+    p.rule("trigger_effect_return(IA, Scope)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "return_to_hand", _, Tgt, Extra, "-")',
+            "creature_scope(Tgt, Scope)", "!nonbf_zone(Extra)"])
+    p.comment("DERIVE the SINGLE-TARGET modify_pt case of trigger_target: a clean 'target creature' (no creature_")
+    p.comment("scope) modify_pt -> trigger_target(modify_pt, 'dp/dt', class). Payload is the REFORMATTED signed P/T")
+    p.comment("f'{dp}/{dt}' the driver splits on '/' (e.g. '+3/+3' -> '3/3', '-3/-3' -> '-3/-3'), built via to_string.")
+    p.rule("trigger_target(IA, \"modify_pt\", Payload, Cls)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "modify_pt", Amount, Tgt, _, "-")',
+            "signed_pt(Amount, Dp, Dt)", "target_class(Tgt, Cls)",
+            'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+    p.comment("DERIVE the §613 self-ANIMATION: 'becomes a P/T creature' on self/it -> trigger_effect(animate, 0, pt)")
+    p.comment("where pt is the BARE 'N/M' (bare_pt). The payload reformats dp/dt via to_string (bare ints reprint")
+    p.comment("identically: '4/4' -> 4,4 -> '4/4'), matching the bridge's _animation_pt output.")
+    p.rule("trigger_effect(IA, \"animate\", 0, Payload)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "becomes", Amount, Tgt, Extra, "-")',
+            "self_target(Tgt)", 'contains("creature", Extra)',
+            "bare_pt(Amount, Dp, Dt)", 'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+
+    p.blank()
     p.comment("ONE WORLD (spell slice 2): an instant/sorcery's CREATURE-scoped effects — single-target")
     p.comment("(spell_target), board-scope (spell_scope), direct DAMAGE (spell_damage) and REANIMATION")
     p.comment("(spell_reanimate) — DERIVED here from the card parse facts for the UNCONDITIONAL case, keyed by")

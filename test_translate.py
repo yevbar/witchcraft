@@ -175,12 +175,11 @@ def _old_bridge_triggered_payloads(ab, a):
                 continue
             scope = bridge._scope(tgt)
             if scope is None:
-                if verb == "modify_pt":          # NOT migrated — skip from the datalog-equivalence set
-                    continue
+                # single 'target creature' — ALL creature verbs (incl. modify_pt, now migrated) -> trigger_target.
                 ev, payload, cls = bridge._single_target_payload(verb, amt, tgt, extra)
                 if ev is not None:
                     out["trigger_target"].add((a, ev, payload, cls))
-            continue                              # board-scope (trigger_effect_*) is NOT our slice
+            continue                              # board-scope (trigger_effect_*) is the creature-scope slice
         if verb == "deal_damage":
             n, dk = bridge._int(amt), bridge._damage_target(tgt)
             if n is not None and dk is not None:
@@ -272,11 +271,141 @@ def card_corpus_load():
     return card_corpus.load_cards()
 
 
+def _old_bridge_creature_scope_payloads(ab, a):
+    """The CREATURE-SCOPED P/T pump / grant / zone moves + single-target modify_pt + self-animation rows the
+    OLD python bridge emitted for ONE triggered ability `ab` (id `a`), replicating the pre-migration logic
+    EXACTLY (this slice: trigger_effect_pt / _grant / _destroy / _exile / _tap / _untap / _return,
+    trigger_target('modify_pt'), trigger_effect('animate')). Returns a dict of sets keyed by relation."""
+    out = {"pt": set(), "grant": set(), "destroy": set(), "exile": set(), "tap": set(),
+           "untap": set(), "return": set(), "tt_modpt": set(), "animate": set()}
+    for (_seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
+        if cond not in ("-", None):
+            continue
+        if verb in ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand"):
+            if verb in ("return_to_hand", "exile") and extra in ("from_graveyard", "from_exile", "from_library", "from_hand"):
+                continue
+            scope = bridge._scope(tgt)
+            if scope is None:
+                if verb == "modify_pt":
+                    pt = bridge._parse_pt(amt)
+                    cls = bridge._target_class(tgt)
+                    if pt is not None and cls is not None:
+                        out["tt_modpt"].add((a, "modify_pt", f"{pt[0]}/{pt[1]}", cls))
+                continue
+            if verb == "modify_pt":
+                pt = bridge._parse_pt(amt)
+                if pt is not None:
+                    out["pt"].add((a, pt[0], pt[1], scope))
+            elif verb == "grant_keyword":
+                if extra in bridge._ENGINE_KEYWORDS:
+                    out["grant"].add((a, extra, scope))
+            elif verb == "destroy":
+                out["destroy"].add((a, scope))
+            elif verb == "exile":
+                out["exile"].add((a, scope))
+            elif verb == "tap":
+                out["tap"].add((a, scope))
+            elif verb == "untap":
+                out["untap"].add((a, scope))
+            else:
+                out["return"].add((a, scope))
+            continue
+        if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
+            pt = bridge._animation_pt(amt)
+            if pt is not None:
+                out["animate"].add((a, pt))
+    return out
+
+
+def _creature_scope_equivalence_checks():
+    """ACROSS THE CORPUS: the datalog-derived creature-scoped trigger_effect_pt / _grant / _destroy / _exile /
+    _tap / _untap / _return, the single-target trigger_target('modify_pt') and the self trigger_effect('animate')
+    EXACTLY equal the OLD python bridge's output. Read back via pending_pt / pending_grant / pending_<zone> /
+    pending_target / pending on a forced-firing upkeep trigger over a 3-creature board (x=alice, y=alice,
+    z=bob) so the resolved creature-set uniquely identifies the scope (self->{x}, creatures_you_control->{x,y},
+    all_creatures->{x,y,z}). Per relation: X cards, 0 mismatches."""
+    import sim, card_corpus, ground
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    keys = ["pt", "grant", "destroy", "exile", "tap", "untap", "return", "tt_modpt", "animate"]
+    stats = {k: [0, 0] for k in keys}
+    # map a resolved creature-set (over {x,y,z}) back to the scope the bridge named.
+    set_to_scope = {frozenset({"x"}): "self", frozenset({"x", "y"}): "creatures_you_control",
+                    frozenset({"x", "y", "z"}): "all_creatures"}
+    reads = ["pending_pt", "pending_grant", "pending_destroy", "pending_exile",
+             "pending_tap", "pending_untap", "pending_return", "pending_target", "pending"]
+    for name in corpus:
+        e = db.get(ground.slug(name)) or {}
+        card = ground.slug(name)
+        for aid, ab in (e.get("abilities") or {}).items():
+            if ab.get("kind") != "triggered" or ab.get("trigger") not in bridge._EVENT:
+                continue
+            a = f"x_{aid}"
+            old = _old_bridge_creature_scope_payloads(ab, a)
+            if not any(old.values()):
+                continue
+            ce = {(card, aid, int(s), v, str(am), str(tg), str(ex), str(co))
+                  for (s, v, am, tg, ex, co) in ab.get("effects", [])}
+            st = {
+                "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
+                "on_battlefield": {("x",), ("y",), ("z",)},
+                "printed_type": {("x", "creature"), ("y", "creature"), ("z", "creature")},
+                "printed_control": {("alice", "x"), ("alice", "y"), ("bob", "z")},
+                "instance_of": {("x", card)},
+                "card_ability": {(card, aid, "triggered")},
+                "ability_trigger": {(card, aid, "the_beginning_of_your_upkeep")},
+                "card_effect": ce, "counter": set(), "tapped": set(),
+            }
+            out = driver.run(st, reads)
+            # reconstruct the bridge-shaped rows from the engine's pending_* (scope inferred from creature-set).
+            def scope_of_pending(rows):
+                # rows: {(A, ..., creature, controller)} -> {(A, ..., scope)} (creature is 2nd-to-last col).
+                by_a = {}
+                for r in rows:
+                    A = r[0]; crt = r[-2]; rest = r[1:-2]
+                    by_a.setdefault((A, rest), set()).add(crt)
+                got = set()
+                for (A, rest), crts in by_a.items():
+                    sc = set_to_scope.get(frozenset(crts))
+                    if sc is not None:
+                        got.add((A,) + rest + (sc,))
+                return got
+            got = {
+                "pt": {(A, int(DP), int(DT), sc) for (A, DP, DT, sc) in scope_of_pending(out["pending_pt"])},
+                "grant": scope_of_pending(out["pending_grant"]),
+                "destroy": scope_of_pending(out["pending_destroy"]),
+                "exile": scope_of_pending(out["pending_exile"]),
+                "tap": scope_of_pending(out["pending_tap"]),
+                "untap": scope_of_pending(out["pending_untap"]),
+                "return": scope_of_pending(out["pending_return"]),
+                # single-target modify_pt: pending_target(A, S, V, Pay, Cl, P) -> (A, V, Pay, Cl).
+                "tt_modpt": {(A, V, Pay, Cl) for (A, _S, V, Pay, Cl, _P) in out["pending_target"] if V == "modify_pt"},
+                # self-animation: pending(A, animate, 0, pt, S, P) -> (A, pt).
+                "animate": {(A, T) for (A, Eff, _N, T, _S, _P) in out["pending"] if Eff == "animate"},
+            }
+            for k in keys:
+                if not old[k]:
+                    continue
+                stats[k][0] += 1
+                if old[k] != got[k]:
+                    stats[k][1] += 1
+                    if stats[k][1] <= 5:
+                        print(f"      MISMATCH {name}/{k}: bridge={old[k]} datalog={got[k]}")
+    labels = {"pt": "trigger_effect_pt", "grant": "trigger_effect_grant", "destroy": "trigger_effect_destroy",
+              "exile": "trigger_effect_exile", "tap": "trigger_effect_tap", "untap": "trigger_effect_untap",
+              "return": "trigger_effect_return", "tt_modpt": "trigger_target(modify_pt)",
+              "animate": "trigger_effect(animate)"}
+    for k in keys:
+        cnt, mism = stats[k]
+        check(f"datalog == old bridge for all {cnt} {labels[k]} abilities (0 mismatches)", mism == 0)
+
+
 def main():
     _derivation_checks()
     _target_derivation_checks()
     _equivalence_checks()
     _triggered_equivalence_checks()
+    _creature_scope_equivalence_checks()
     _no_python_translation()
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return FAIL == 0

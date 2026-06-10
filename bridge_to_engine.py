@@ -463,50 +463,33 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # (needs a choice); only self / creatures_you_control / all_creatures apply.
                 if verb in ("modify_pt", "grant_keyword", "destroy",
                             "exile", "tap", "untap", "return_to_hand"):
-                    # a bounce/exile FROM a non-battlefield zone (graveyard/exile/library recursion) is a
-                    # different action than the battlefield zone move this scope model applies — abstain so a
-                    # graveyard-return isn't mistranslated into a battlefield bounce.
+                    # ONE WORLD: the CREATURE-SCOPED P/T pump / keyword grant / §701 zone moves over a board
+                    # scope (self / creatures_you_control / all_creatures) — trigger_effect_pt / _grant /
+                    # _destroy / _exile / _tap / _untap / _return — and the SINGLE-TARGET modify_pt
+                    # (trigger_target('modify_pt', 'dp/dt', class)) are now DERIVED IN DATALOG (translate.dl,
+                    # creature_scope / signed_pt / engine_keyword / nonbf_zone) from the card parse facts.
+                    # The bridge only feeds the parse facts; it stops emitting these rows. Abstain bookkeeping
+                    # (dropped) is preserved exactly so the abstain corpus is unchanged.
                     if verb in ("return_to_hand", "exile") and extra in ("from_graveyard", "from_exile", "from_library", "from_hand"):
-                        dropped.append(("effect", verb))
+                        dropped.append(("effect", verb))     # non-battlefield zone move — datalog abstains too
                         continue
                     scope = _scope(tgt)
                     if scope is None:
-                        # §115 single 'target creature'. ONE WORLD: for tap/untap/destroy/exile/return_to_hand/
-                        # grant_keyword the engine DERIVES trigger_target in datalog (translate.dl) from the
-                        # card parse facts — the bridge just stops emitting. modify_pt's single-target case
-                        # stays here (it needs P/T parsing, deferred to a later wave).
-                        if verb != "modify_pt":
-                            continue
-                        ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)  # §115 driver picks
-                        if ev is None:
-                            dropped.append((payload, cls))     # (reason_kind, reason_detail)
-                            continue
-                        add("trigger_target", (a, ev, payload, cls))
-                        emitted = True
-                        continue
+                        # §115 single 'target creature'. modify_pt -> trigger_target is now DATALOG-derived;
+                        # the non-modify_pt single-target verbs were already migrated. The bridge only keeps
+                        # the abstain bookkeeping for a modify_pt whose P/T can't be parsed.
+                        if verb == "modify_pt":
+                            ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                            if ev is None:
+                                dropped.append((payload, cls))   # (reason_kind, reason_detail)
+                        continue                                 # trigger_target(modify_pt) is DATALOG-derived
                     if verb == "modify_pt":
-                        pt = _parse_pt(amt)
-                        if pt is None:
+                        if _parse_pt(amt) is None:                # unparsable P/T abstains (datalog abstains too)
                             dropped.append(("modify_pt_amt", amt))
-                            continue
-                        add("trigger_effect_pt", (a, pt[0], pt[1], scope))
                     elif verb == "grant_keyword":
-                        if extra not in _ENGINE_KEYWORDS:    # only keywords the engine models (else it'd no-op)
+                        if extra not in _ENGINE_KEYWORDS:        # only keywords the engine models (else no-op)
                             dropped.append(("grant_keyword", extra))
-                            continue
-                        add("trigger_effect_grant", (a, extra, scope))
-                    elif verb == "destroy":
-                        add("trigger_effect_destroy", (a, scope))
-                    elif verb == "exile":                    # §701.10 exile zone move
-                        add("trigger_effect_exile", (a, scope))
-                    elif verb == "tap":                      # §701.20 tap
-                        add("trigger_effect_tap", (a, scope))
-                    elif verb == "untap":                    # §701.20 untap
-                        add("trigger_effect_untap", (a, scope))
-                    else:                                    # return_to_hand (§701.21 bounce)
-                        add("trigger_effect_return", (a, scope))
-                    emitted = True
-                    continue
+                    continue                                     # trigger_effect_* are DATALOG-derived
                 if verb == "deal_damage":
                     # §120 triggered direct damage (Flametongue Kavu, pingers). The driver picks the target.
                     # ONE WORLD: the engine DERIVES trigger_damage in datalog (translate.dl, n=int(amt) +
@@ -533,9 +516,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     emitted = True
                     continue
                 if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
-                    pt = _animation_pt(amt)                   # §613 'becomes a P/T creature' (animate the source)
-                    if pt is not None:
-                        add("trigger_effect", (a, "animate", 0, pt))
+                    # §613 'becomes a P/T creature' (animate the source). ONE WORLD: trigger_effect(a,
+                    # 'animate', 0, 'N/M') is now DATALOG-derived (translate.dl, self_target + bare_pt) — the
+                    # bridge only feeds the parse facts and stops emitting. A variable P/T (no bare_pt) abstains.
+                    if _animation_pt(amt) is not None:
                         emitted = True
                         continue
                 if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
