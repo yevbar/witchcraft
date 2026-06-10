@@ -325,6 +325,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("has_trigger", (a, tid, event))
                     emitted = True
                     continue
+                if verb == "deal_damage":
+                    # §120 triggered direct damage (Flametongue Kavu, pingers). The driver picks the target;
+                    # a creature target no longer mistranslates into damage to the controller. Variable/
+                    # restricted amounts or targets abstain to the player-scoped path below (each_opponent).
+                    n, dk = _int(amt), _damage_target(tgt)
+                    if n is not None and dk is not None:
+                        add("trigger_damage", (a, n, dk))
+                        add("has_trigger", (a, tid, event))
+                        emitted = True
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))

@@ -53,6 +53,7 @@
 .decl trigger_effect_untap(ability: symbol, scope: symbol)
 .decl trigger_effect_return(ability: symbol, scope: symbol)
 .decl trigger_target(ability: symbol, verb: symbol, payload: symbol, class: symbol)
+.decl trigger_damage(ability: symbol, amount: number, kind: symbol)
 .decl eff_mod_power(e: symbol, c: symbol, dp: number)
 .decl eff_mod_toughness(e: symbol, c: symbol, dt: number)
 .decl static_pt(source: symbol, dp: number, dt: number, scope: symbol)
@@ -533,6 +534,10 @@ pending_return(A, C, P) :- trigger_effect_return(A, _), scope_creature(A, S, C),
 // the DRIVER chooses a legal target of that class and applies the verb (the choice it can't make).
 .decl pending_target(ability: symbol, source: symbol, verb: symbol, payload: symbol, class: symbol, controller: symbol)
 pending_target(A, S, V, Pay, Cl, P) :- fires(A, S), trigger_target(A, V, Pay, Cl), controls(P, S).
+// §120 triggered direct damage — the fired ability + its source + amount/kind; the DRIVER picks
+// the damage target (creature lethality / player life / 'any target' kill-or-face) and applies it.
+.decl pending_damage(ability: symbol, source: symbol, amount: number, kind: symbol, controller: symbol)
+pending_damage(A, S, N, K, P) :- fires(A, S), trigger_damage(A, N, K), controls(P, S).
 
 .output power
 .output dies
@@ -564,6 +569,7 @@ pending_target(A, S, V, Pay, Cl, P) :- fires(A, S), trigger_target(A, V, Pay, Cl
 .output pending_untap
 .output pending_return
 .output pending_target
+.output pending_damage
 .output has_keyword
 .output eff_toughness
 .output stack_top

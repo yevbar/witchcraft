@@ -326,6 +326,9 @@ def _apply_creature_effects(state: dict) -> None:
         tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
         if tgt is not None:
             _apply_target_verb(state, a, "trigger", verb, payload, tgt, ctrl, indestructible, owner_of)
+    # §120 triggered direct damage (Flametongue Kavu): the driver picks the damage target it surfaced.
+    for (a, s, n, kind, ctrl) in sorted(run(state, ["pending_damage"])["pending_damage"]):
+        _apply_damage(state, a, int(n), kind, ctrl)
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
@@ -697,51 +700,57 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
     kill a creature if the damage is lethal to a real threat, else go face. (Non-lethal marked damage
     isn't persisted outside combat — a known simplification; the game-relevant outcome is lethality.)"""
     rows = sorted(r for r in state.get("spell_damage", set()) if r[0] == spell)
-    if not rows:
-        return
+    for (_s, n, kind) in rows:
+        _apply_damage(state, spell, n, kind, ctrl)
+
+
+def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None:
+    """§120 resolve one direct-damage effect whose target the engine can't choose. A creature target ->
+    lethality (n >= final toughness, unless indestructible, destroys it); a player -> life loss; 'any
+    target' -> kill a finishable threat, else go face. Shared by burn spells (label=spell) and triggered
+    damage (label=ability). (Non-lethal marked damage isn't persisted outside combat — a simplification.)"""
     out = run(state, ["controls", "creature", "power", "eff_toughness", "cant_be_destroyed"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}
     controls = {(p, c) for (p, c) in out["controls"]}
-    powers = {c: int(n) for (c, n) in out["power"]}
-    tough = {c: int(n) for (c, n) in out["eff_toughness"]}
+    powers = {c: int(x) for (c, x) in out["power"]}
+    tough = {c: int(x) for (c, x) in out["eff_toughness"]}
     creatures = {c for (c,) in out["creature"]}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
     enemy = sorted(c for c in creatures if c in on_bf and c not in mine)
+    opp = _others(state, ctrl)[0] if _others(state, ctrl) else None
 
     def kill(c):                                              # mark lethal damage -> §704.5g destroy
         if c in indestructible:
-            print(f"      {spell} deals damage to {c} but it can't be destroyed (indestructible)")
+            print(f"      {label} deals damage to {c} but it can't be destroyed (indestructible)")
             return
         state["on_battlefield"].discard((c,))
         state.setdefault("graveyard", set()).add((c,))
-        print(f"      {spell} deals lethal damage to {c} -> graveyard")
+        print(f"      {label} deals lethal damage to {c} -> graveyard")
 
-    def best_killable(n):                                     # strongest enemy whose toughness n can finish
+    def best_killable():                                      # strongest enemy whose toughness n can finish
         killable = [c for c in enemy if c not in indestructible and tough.get(c, 1) <= n]
         return max(killable, key=lambda c: powers.get(c, 0)) if killable else None
 
-    for (_s, n, kind) in rows:
-        opp = _others(state, ctrl)[0] if _others(state, ctrl) else None
-        if kind == "self":
-            print(f"      {spell} deals {n} to {ctrl} -> {_adjust_life(state, ctrl, -n)} life")
-        elif kind == "face":
-            if opp is not None:
-                print(f"      {spell} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
-        elif kind in ("creature_any", "creature_opponent"):
-            tgt = best_killable(n) or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
-            if tgt is None:
-                print(f"      {spell} has no creature to damage")
-            elif tough.get(tgt, 1) <= n:
-                kill(tgt)
-            else:
-                print(f"      {spell} deals {n} to {tgt} (non-lethal)")
-        elif kind == "any_target":                            # kill a real threat if we can, else go face
-            tgt = best_killable(n)
-            if tgt is not None:
-                kill(tgt)
-            elif opp is not None:
-                print(f"      {spell} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
+    if kind == "self":
+        print(f"      {label} deals {n} to {ctrl} -> {_adjust_life(state, ctrl, -n)} life")
+    elif kind == "face":
+        if opp is not None:
+            print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
+    elif kind in ("creature_any", "creature_opponent"):
+        tgt = best_killable() or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
+        if tgt is None:
+            print(f"      {label} has no creature to damage")
+        elif tough.get(tgt, 1) <= n:
+            kill(tgt)
+        else:
+            print(f"      {label} deals {n} to {tgt} (non-lethal)")
+    elif kind == "any_target":                                # kill a real threat if we can, else go face
+        tgt = best_killable()
+        if tgt is not None:
+            kill(tgt)
+        elif opp is not None:
+            print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
 
 
 def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:

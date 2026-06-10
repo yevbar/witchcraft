@@ -130,6 +130,48 @@ def _driver_checks() -> None:
     check("indestructible target survives a destroy", ("big",) in st["on_battlefield"])
 
 
+def _trigger_damage_checks() -> None:
+    # §120 triggered direct damage (Flametongue Kavu-style): the ability fires, the driver picks the target.
+    # 'src' (alice) has an upkeep trigger dealing 4 to a creature -> kills bob's 5/5? no (tough 5>4); kills
+    # the 1/1 'small' if any_target (best_killable prefers a finishable threat).
+    st = _base()
+    st["has_trigger"] = {("ping", "src", "upkeep")}
+    st["trigger_damage"] = {("ping", 4, "creature_any")}
+    _run(st)
+    check("triggered 4 dmg/creature kills a finishable creature (small dies)",
+          ("small",) in st["graveyard"])
+
+    # triggered damage to a player (kind face) -> opponent loses life, caster untouched (no self-burn).
+    st = _base()
+    st["has_trigger"] = {("zap", "src", "upkeep")}
+    st["trigger_damage"] = {("zap", 3, "face")}
+    _run(st)
+    check("triggered face dmg hits opponent not caster (bob 17, alice 20)",
+          ("bob", 17) in st["life"] and ("alice", 20) in st["life"])
+
+    # any_target triggered damage with nothing killable -> face.
+    st = _base()
+    st["on_battlefield"] = {("mine",), ("big",), ("src",)}
+    st["printed_control"] = {("alice", "mine"), ("alice", "src"), ("bob", "big")}
+    st["has_trigger"] = {("bolt", "src", "upkeep")}
+    st["trigger_damage"] = {("bolt", 1, "any_target")}
+    _run(st)
+    check("triggered any_target with nothing killable goes face (bob 19)", ("bob", 19) in st["life"])
+
+    # the bridge routes a real ETB-burn trigger to trigger_damage, not a mistranslated player effect.
+    import sim, card_corpus
+    db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    found = None
+    for name in corpus:
+        try:
+            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
+        except Exception:
+            continue
+        if f.get("trigger_damage"):
+            found = (name, sorted(f["trigger_damage"])); break
+    check("a real triggered-damage card routes to trigger_damage", found is not None)
+
+
 def _spell_checks() -> None:
     # §608 instant/sorcery single-target effects resolve through _run_spell_effects via spell_target.
     # 'Murder' (destroy target creature) cast by alice -> kills bob's strongest (big), spares her own.
@@ -273,6 +315,7 @@ def _bridge_checks() -> None:
 
 def run() -> None:
     _driver_checks()
+    _trigger_damage_checks()
     _spell_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
