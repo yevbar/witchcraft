@@ -1,8 +1,11 @@
 // ForgeVsBot.java — a REAL game: our Python engine (witchcraft) plays a seat vs Forge's AI, Forge owning
-// the state. Forge asks our seat which spell/ability to play (chooseSpellAbilityToPlay); we forward the
-// board + the legal plays to the Python bot (forge_bridge.serve + EnginePolicy) over a socket and return
-// its pick. Every OTHER decision (targets, blocks, mulligan, mana) falls back to Forge's own AI — so this
-// tests exactly "can our engine provide and play a valid main-phase move that Forge accepts" (completeness).
+// the state. PURE ENGINE: every STRATEGIC decision Forge asks our seat to make — which spell/land to play
+// (chooseSpellAbilityToPlay), which creatures attack (declareAttackers), which block (declareBlockers),
+// keep/mulligan (mulliganKeepHand) — is forwarded to the Python bot (forge_bridge.serve + EnginePolicy)
+// over a socket; NONE of Forge's AI strategy is consulted (no super.* fallback — on any failure we take a
+// safe LEGAL default: pass / no-attack / no-block / keep). Forge still does the MECHANICAL rules steps it
+// owns (which lands to tap to pay a cost, combat damage assignment order) — those aren't AI strategy.
+// The bot reports a completeness number: of the options Forge offers, how many our engine models+endorses.
 //
 // Compile: javac -cp $FATJAR -d out forge_integration/ForgeVsBot.java
 // Run:     (python: python3 -c 'import forge_bridge,...; serve(EnginePolicy())' on $PORT)
@@ -21,8 +24,11 @@ import forge.game.Game;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
+import forge.game.GameEntity;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
+import forge.game.combat.Combat;
+import forge.game.combat.CombatUtil;
 import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
 import forge.game.spellability.SpellAbility;
@@ -143,38 +149,104 @@ public class ForgeVsBot {
             return out;
         }
 
+        // send one decision (observe + decide) and return the raw reply line, or null on failure. NO Forge-AI
+        // fallback anywhere — if the engine can't answer, the caller takes a safe LEGAL default (pass / no
+        // attack / no block / keep), so the game stays legal but Forge's AI strategy is never consulted.
+        private String decide(String kind, String optionsJson, String defaultJson) {
+            if (!greeted && !connect()) return null;
+            try {
+                send(observeJson());
+                send("{\"type\":\"decide\",\"id\":1,\"kind\":\"" + kind + "\",\"options\":" + optionsJson
+                        + ",\"default\":" + defaultJson + "}");
+                return in.readLine();
+            } catch (Exception e) { return null; }
+        }
+
+        private String valuePart(String r) {                    // the reply's "value" sub-string (avoid matching id)
+            if (r == null) return "";
+            int i = r.indexOf("\"value\"");
+            return i < 0 ? r : r.substring(i);
+        }
+
+        private Card bfCard(int id) {
+            for (Card c : getGame().getCardsIn(ZoneType.Battlefield)) if (c.getId() == id) return c;
+            return null;
+        }
+
         @Override
         public List<SpellAbility> chooseSpellAbilityToPlay() {
             List<SpellAbility> cands = candidates();
-            if (cands.isEmpty()) return null;                   // nothing to do -> pass (no need to consult)
-            if (!greeted && !connect()) return super.chooseSpellAbilityToPlay();
-            try {
-                // options: each candidate carries the host-card id (for the engine's can_cast match) + its
-                // index (ci, for mapping the reply back to the SpellAbility); plus a pass option.
-                StringBuilder opts = new StringBuilder("[");
-                for (int i = 0; i < cands.size(); i++) {
-                    Card host = cands.get(i).getHostCard();
-                    opts.append(i > 0 ? "," : "")
-                        .append("{\"id\":\"").append(host != null ? host.getId() : 0)
-                        .append("\",\"ci\":").append(i)
-                        .append(",\"label\":\"").append(esc(cands.get(i).toString()))
-                        .append("\",\"kind\":\"spell\"}");
-                }
-                opts.append(",{\"id\":\"0\",\"ci\":-1,\"label\":\"pass\",\"kind\":\"pass\"}]");
-                send(observeJson());
-                send("{\"type\":\"decide\",\"id\":1,\"kind\":\"action\",\"options\":" + opts
-                        + ",\"default\":{\"id\":\"0\",\"ci\":-1,\"label\":\"pass\",\"kind\":\"pass\"}}");
-                String reply = in.readLine();
-                int ci = parseCi(reply);
-                if (ci >= 0 && ci < cands.size()) {
-                    System.out.println("[bot] engine plays: " + cands.get(ci) + "  (of " + cands.size() + " options)");
-                    return Lists.newArrayList(cands.get(ci));
-                }
-                return null;                                    // engine passed
-            } catch (Exception e) {
-                System.out.println("[bot] decide failed (" + e + "); deferring to Forge AI");
-                return super.chooseSpellAbilityToPlay();
+            if (cands.isEmpty()) return null;                   // nothing to do -> pass
+            StringBuilder opts = new StringBuilder("[");
+            for (int i = 0; i < cands.size(); i++) {            // each candidate: host-card id (engine match) + ci
+                Card host = cands.get(i).getHostCard();
+                opts.append(i > 0 ? "," : "")
+                    .append("{\"id\":\"").append(host != null ? host.getId() : 0)
+                    .append("\",\"ci\":").append(i)
+                    .append(",\"label\":\"").append(esc(cands.get(i).toString())).append("\",\"kind\":\"spell\"}");
             }
+            opts.append(",{\"id\":\"0\",\"ci\":-1,\"label\":\"pass\",\"kind\":\"pass\"}]");
+            int ci = parseCi(decide("action", opts.toString(),
+                    "{\"id\":\"0\",\"ci\":-1,\"label\":\"pass\",\"kind\":\"pass\"}"));
+            if (ci >= 0 && ci < cands.size()) {
+                System.out.println("[bot] engine plays: " + cands.get(ci) + "  (of " + cands.size() + " options)");
+                return Lists.newArrayList(cands.get(ci));
+            }
+            return null;                                        // engine passed (or unreachable -> pass, NOT Forge AI)
+        }
+
+        @Override
+        public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
+            String r = valuePart(decide("mulligan", "[true,false]", "true"));
+            return !r.contains("false");                        // engine decides keep/mull (default keep)
+        }
+
+        @Override
+        public void declareAttackers(Player attacker, Combat combat) {
+            try {
+                if (combat.getDefendingPlayers().isEmpty()) return;
+                GameEntity def = combat.getDefendingPlayers().get(0);
+                List<Card> elig = new java.util.ArrayList<>();
+                for (Card c : attacker.getCreaturesInPlay()) if (CombatUtil.canAttack(c, def)) elig.add(c);
+                if (elig.isEmpty()) return;
+                StringBuilder ids = new StringBuilder("[");
+                for (int i = 0; i < elig.size(); i++) ids.append(i > 0 ? "," : "").append("\"").append(elig.get(i).getId()).append("\"");
+                ids.append("]");
+                String opts = "{\"attackers\":" + ids + ",\"defenders\":[\"" + esc(def.toString()) + "\"]}";
+                String val = valuePart(decide("attackers", opts, "[]"));
+                java.util.Set<Integer> chosen = new java.util.HashSet<>();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"(\\d+)\"").matcher(val);
+                while (m.find()) chosen.add(Integer.parseInt(m.group(1)));   // quoted digits = attacker ids
+                int n = 0;
+                for (Card c : elig) if (chosen.contains(c.getId())) { combat.addAttacker(c, def); n++; }
+                System.out.println("[bot] engine attacks with " + n + " of " + elig.size() + " eligible");
+            } catch (Exception e) { /* no attack — legal, not Forge AI */ }
+        }
+
+        @Override
+        public void declareBlockers(Player defender, Combat combat) {
+            try {
+                List<Card> attackers = new java.util.ArrayList<>(combat.getAttackers());
+                if (attackers.isEmpty()) return;
+                StringBuilder pairs = new StringBuilder("[");
+                int np = 0;
+                for (Card b : defender.getCreaturesInPlay()) {
+                    if (b.isTapped()) continue;
+                    for (Card a : attackers)
+                        if (CombatUtil.canBlock(a, b, combat))
+                            pairs.append(np++ > 0 ? "," : "").append("[\"").append(b.getId()).append("\",\"").append(a.getId()).append("\"]");
+                }
+                pairs.append("]");
+                if (np == 0) return;
+                String val = valuePart(decide("blockers", "{\"pairs\":" + pairs + "}", "[]"));
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[\"(\\d+)\",\"(\\d+)\"\\]").matcher(val);
+                int n = 0;
+                while (m.find()) {                              // [blockerId, attackerId]
+                    Card b = bfCard(Integer.parseInt(m.group(1))), a = bfCard(Integer.parseInt(m.group(2)));
+                    if (a != null && b != null) { combat.addBlocker(a, b); n++; }
+                }
+                System.out.println("[bot] engine declares " + n + " block(s)");
+            } catch (Exception e) { /* no block — legal, not Forge AI */ }
         }
 
         private int parseCi(String reply) {
