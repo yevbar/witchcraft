@@ -139,6 +139,17 @@ def _purity() -> None:
     env.step(st, ("attack", frozenset({"a1"})))
     check("step() does not mutate the input state (pure transition)", st == before)
 
+    # the fast clone (driver.clone_state, ~17x faster than deepcopy) is a faithful, INDEPENDENT copy.
+    import bridge_to_engine as bridge
+    src = bridge.make_deck_state({"alice": ["Forest"] * 10, "bob": ["Mountain"] * 10}, seed=1)
+    c = driver.clone_state(src)
+    check("clone_state reproduces the state exactly", c == src)
+    c["on_battlefield"].add(("ghost",))
+    c["_lib_order"]["alice"].append("zzz")
+    check("mutating the clone's sets doesn't touch the original", ("ghost",) not in src["on_battlefield"])
+    check("mutating the clone's nested lists (_lib_order) doesn't touch the original",
+          "zzz" not in src["_lib_order"]["alice"])
+
 
 def run() -> None:
     _attacker_branching()

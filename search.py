@@ -39,7 +39,7 @@ FUEL = ("life", "mana_available")
 
 
 def _clone(state: dict) -> dict:
-    return copy.deepcopy(state)
+    return driver.clone_state(state)                     # fast shallow-by-relation clone (see driver.clone_state)
 
 
 def _active(state: dict) -> str:
