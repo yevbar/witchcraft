@@ -58,9 +58,9 @@ def _order(state: dict, p: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# shuffle (§701.20) — randomize the library. We can't (and mustn't) use real randomness: a reproducible
-# game needs a deterministic permutation, and after a shuffle the order is meant to be unknown/canonical
-# anyway. We sort into canonical order, which is a valid permutation and erases any prior arrangement.
+# shuffle (§701.20) — randomize the library through the shim's seeded RNG (D._shuffle_library). The game
+# stays reproducible GIVEN its seed, but the permutation is genuinely random across seeds — a real chance
+# event, so search/self-play can treat the post-shuffle order as a chance node rather than a fixed sort.
 # ─────────────────────────────────────────────────────────────────────────────
 @encoder("shuffle")
 def _encode_shuffle(verb, amt, tgt, extra):
@@ -71,8 +71,7 @@ def _encode_shuffle(verb, amt, tgt, extra):
 
 @applier("shuffle")
 def _apply_shuffle(D, state, a, n, tgt, src, ctrl):
-    order = _order(state, ctrl)
-    order.sort()                                              # canonical, deterministic permutation
+    D._shuffle_library(state, ctrl)                          # seeded RNG permutation (reproducible by seed)
     print(f"    trigger {a}: {ctrl} shuffles their library")
 
 

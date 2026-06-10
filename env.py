@@ -230,6 +230,9 @@ def _advance_one(state: dict) -> None:
         state["active_player"] = {(nxt,)}
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()
+        state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
+        ctrl = {c for (pp, c) in driver.run(state, ["controls"])["controls"] if pp == nxt}
+        state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 wears off
     _develop_if_main(state)
 
 

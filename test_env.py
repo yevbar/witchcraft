@@ -143,7 +143,12 @@ def _purity() -> None:
     import bridge_to_engine as bridge
     src = bridge.make_deck_state({"alice": ["Forest"] * 10, "bob": ["Mountain"] * 10}, seed=1)
     c = driver.clone_state(src)
-    check("clone_state reproduces the state exactly", c == src)
+    # the state now carries a seeded RNG (a random.Random); two Randoms with identical internal state are
+    # functionally identical but not ==, so compare the rest by value and the RNG by its getstate().
+    import random as _r
+    rest = lambda s: {k: v for k, v in s.items() if not isinstance(v, _r.Random)}
+    check("clone_state reproduces the state exactly", rest(c) == rest(src)
+          and c["_rng"].getstate() == src["_rng"].getstate() and c["_rng"] is not src["_rng"])
     c["on_battlefield"].add(("ghost",))
     c["_lib_order"]["alice"].append("zzz")
     check("mutating the clone's sets doesn't touch the original", ("ghost",) not in src["on_battlefield"])

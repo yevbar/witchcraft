@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import os
+import random
 import re
 import subprocess
 import tempfile
@@ -51,6 +52,9 @@ def clone_state(state: dict) -> dict:
             out[k] = {kk: (vv.copy() if isinstance(vv, (list, set, dict)) else vv) for kk, vv in v.items()}
         elif isinstance(v, list):
             out[k] = list(v)
+        elif isinstance(v, random.Random):
+            r = random.Random(); r.setstate(v.getstate())   # a cloned branch advances its OWN chance stream
+            out[k] = r                                       # (independent + reproducible — not aliased)
         else:
             out[k] = v                                   # ints / strings / immutables shared
     return out
@@ -73,6 +77,63 @@ def _choose(state: dict, key: str, options, default):
         if options is None or choice in options:
             return choice
     return default
+
+
+# --- randomness: a seeded, clone-safe RNG + the CHANCE seam (the analogue of _choose, for the
+# non-deterministic game events the deterministic engine cannot model: library shuffles, coin flips,
+# random discard). A game is fully REPRODUCIBLE given its seed; a search/self-play branch carries its
+# OWN copy of the stream (clone_state preserves it) so a lookahead never perturbs the live game. This
+# is what lets MCTS/AlphaZero treat shuffles as chance nodes rather than hidden nondeterminism. ---
+def _rng(state: dict) -> random.Random:
+    """The game state's seeded RNG, created lazily from state['_seed'] (default 0) the first time a
+    random event needs it, then stored in state['_rng'] and preserved across clone_state."""
+    r = state.get("_rng")
+    if r is None:
+        r = state["_rng"] = random.Random(state.get("_seed", 0))
+    return r
+
+
+def _random(state: dict, key: str, options, weights=None):
+    """The single seam EVERY chance event routes through — the analogue of _choose for randomness, so a
+    search/policy can OBSERVE or FIX chance outcomes (chance nodes, reproducible rollouts). Resolution:
+      * state['_chance'](state, key, options, weights) -> outcome   (an external sampler/fixer)
+      * a (weighted) draw from the state's seeded RNG               (default: real seeded randomness)
+    `options` is the outcome space (a non-empty sequence); `weights` an optional same-length weighting."""
+    pol = state.get("_chance")
+    if pol is not None:
+        return pol(state, key, options, weights)
+    opts = list(options)
+    if weights is not None:
+        return _rng(state).choices(opts, weights=list(weights), k=1)[0]
+    return _rng(state).choice(opts)
+
+
+def _shuffle_library(state: dict, p: str) -> None:
+    """§701.20 — randomize player p's library into a fresh _lib_order using the state's seeded RNG. The
+    membership set (in_library) is unchanged; only the draw ORDER is permuted. A real shuffle (not the
+    old canonical sort): reproducible given the seed, genuinely random across seeds."""
+    lib = [c for (pp, c) in state.get("in_library", set()) if pp == p]
+    _rng(state).shuffle(lib)
+    state.setdefault("_lib_order", {})[p] = lib
+
+
+def _flip_coin(state: dict, key: str = "coin") -> str:
+    """§705.2 flip a coin -> 'heads' / 'tails' through the chance seam."""
+    return _random(state, key, ("heads", "tails"))
+
+
+# --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
+# hardcoded here — so adding a variant to the rules interpretation is enough; the shim follows. ---
+def _variant_life(variant: str) -> int:
+    text = Path("datalog/starting.dl").read_text()
+    m = re.search(rf'starting_life\("{re.escape(variant)}", (\d+)\)', text)
+    return int(m.group(1)) if m else DEFAULT_LIFE
+
+
+def _variant_hand_size(variant: str) -> int:
+    text = Path("datalog/starting.dl").read_text()
+    m = re.search(rf'starting_hand_size\("{re.escape(variant)}", (\d+)\)', text)
+    return int(m.group(1)) if m else 7
 
 OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "advance_to", "player_damage", "pending"]
 
@@ -311,13 +372,20 @@ def _apply_effects(state: dict, pending: set) -> None:
                     state.setdefault("graveyard", set()).add((card,))
                 print(f"    trigger {a}: {p} mills {n}")
         elif eff == "discard":                               # §701.8 — discard n from hand
+            at_random = "random" in str(tgt) or "random" in str(src)   # 'discard a card at random'
             for p in players:
                 hand = sorted(c for (pp, c) in state.get("in_hand", set()) if pp == p)
-                for card in hand[:n]:
+                k = min(n, len(hand))
+                for _ in range(k):
+                    # a random discard is a CHANCE event (_random); a normal discard is the player's
+                    # CHOICE (_choose). Either way the seam makes it observable to a policy/search.
+                    card = (_random(state, "discard", hand) if at_random
+                            else _choose(state, "discard", hand, hand[0]))
+                    hand.remove(card)
                     state["in_hand"].discard((p, card))
                     state.setdefault("graveyard", set()).add((card,))
-                if hand:
-                    print(f"    trigger {a}: {p} discards {min(n, len(hand))}")
+                if k:
+                    print(f"    trigger {a}: {p} discards {k}{' at random' if at_random else ''}")
         elif eff == "add_counter":                           # tgt = counter kind (p1p1/m1m1), on the source
             _bump_counter(state, src, tgt, n)
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")

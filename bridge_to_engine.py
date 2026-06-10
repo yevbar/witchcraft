@@ -900,23 +900,32 @@ def _land_colors(c: dict) -> list[str]:
     return list(dict.fromkeys(cols))
 
 
-def make_deck_state(decks: dict, seed: int = 0, hand: int = 7, life: int = 20) -> dict:
+def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
+                    life: int | None = None, variant: str = "default") -> dict:
     """Assemble a full-game driver state from REAL decks. `decks` = {player: [card_name, …]} (the whole
     library list). Each card is bridged from cards.dl (printed_*, triggers) with a unique id and is made
-    castable/playable (spell_type + mana_cost), then the deck is shuffled (deterministic by `seed`),
-    opening hands drawn, and a real library ORDER recorded so draws come off the true top. Everything a
-    card does comes from the interpreter; only turn scaffolding is added here."""
-    import random
+    castable/playable (spell_type + mana_cost), then the deck is shuffled with the state's SEEDED RNG
+    (the same clone-safe stream in-game shuffles use), opening hands drawn, and a real library ORDER
+    recorded so draws come off the true top. Per-variant starting life/hand size are READ from the
+    interpreted rules (driver._variant_*), not hardcoded. Everything a card does comes from the
+    interpreter; only turn scaffolding is added here."""
+    import driver
     db, corpus = sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
     players = list(decks)
-    rng = random.Random(seed)
+    if life is None:
+        life = driver._variant_life(variant)
+    if hand is None:
+        hand = driver._variant_hand_size(variant)
     state: dict[str, object] = {
         "current_step": {("untap",)}, "active_player": {(players[0],)},
         "is_player": {(p,) for p in players}, "life": {(p, life) for p in players},
         "counter": set(), "tapped": set(), "attacks": set(), "blocks": set(),
         "on_battlefield": set(), "in_hand": set(), "in_library": set(),
         "_lib_order": {p: [] for p in players}, "_land_played": set(),
+        "_seed": seed, "_variant": variant,
     }
+    rng = driver._rng(state)                                  # the persistent, clone-safe chance stream
+
     n = [0]
 
     def load(name, pl, zone):
