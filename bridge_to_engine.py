@@ -423,14 +423,37 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 dropped.append(("activated_cost", ab.get("cost")))
                 continue
             a = f"{tid}_{aid}"
+            taps = "T" if paid[1] else "-"
             emitted = False
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                # §115/§120/§122 single-target creature verbs on an activated ability ('{T}: tap target
+                # creature', '{2}: target creature gets +1/+1', 'deal 1 to any target' pingers). Packed into
+                # the activated_ability row with a creature-eff sentinel; the driver picks the target on
+                # resolution. Board scopes fall through to the player-scoped resolver below.
+                if verb in _CREATURE_VERBS and _scope(tgt) is None:
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                    if ev is not None:
+                        add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"{ev}|{payload}|{cls}"))
+                        emitted = True
+                        continue
+                if verb == "deal_damage":
+                    n, dk = _int(amt), _damage_target(tgt)
+                    if n is not None and dk is not None:
+                        add("activated_ability", (a, tid, paid[0], taps, "cdamage", n, dk))
+                        emitted = True
+                        continue
+                if verb == "put_counter":
+                    cp, cls = _counter_payload(amt, extra), _target_class(tgt)
+                    if cp is not None and cls is not None:
+                        add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"counter|{cp}|{cls}"))
+                        emitted = True
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
                 # activated_ability(ability_id, source, mana_cost, taps_self, eff, amount, target)
-                add("activated_ability", (a, tid, paid[0], "T" if paid[1] else "-", r[0], r[1], r[2]))
+                add("activated_ability", (a, tid, paid[0], taps, r[0], r[1], r[2]))
                 emitted = True
             if not emitted:
                 continue

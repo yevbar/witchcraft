@@ -691,18 +691,22 @@ def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
     surfaced the legal-target class (spell_target), the driver picks the target (removal/tap/bounce ->
     strongest enemy, buff/grant -> strongest own) and applies it. Same machinery as triggered targets."""
     rows = sorted(r for r in state.get("spell_target", set()) if r[0] == spell)
-    if not rows:
-        return
+    for (_s, verb, payload, cls) in rows:
+        _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
+
+
+def _resolve_one_target(state: dict, label: str, kind: str, ctrl: str, verb: str, payload: str, cls: str) -> None:
+    """§601.2c pick a legal target of `cls` and apply one creature verb — shared by spell resolution and
+    activated-ability resolution. Re-reads the board each call so the choice reflects current state."""
     out = run(state, ["controls", "power", "creature", "cant_be_destroyed"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}
     controls = {(p, c) for (p, c) in out["controls"]}
     powers = {c: int(n) for (c, n) in out["power"]}
     creatures = {c for (c,) in out["creature"]}
     owner_of = {c: p for (p, c) in controls}
-    for (_s, verb, payload, cls) in rows:
-        tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
-        if tgt is not None:
-            _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
+    tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
+    if tgt is not None:
+        _apply_target_verb(state, label, kind, verb, payload, tgt, ctrl, indestructible, owner_of)
 
 
 def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
@@ -816,7 +820,13 @@ def _resolve_top(state: dict) -> None:
     if top in state.get("_ability_effect", {}):              # §602 a resolving activated ability (not a spell)
         eff, amt, tgt, src, actrl = state["_ability_effect"].pop(top)
         print(f"    {top} resolves (activated ability)")
-        _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
+        if eff == "ctarget":                                 # §115 single-target creature verb -> driver picks
+            verb, payload, cls = tgt.split("|")
+            _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
+        elif eff == "cdamage":                               # §120 direct damage -> driver picks the target
+            _apply_damage(state, top, amt, tgt, actrl)
+        else:
+            _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
     if (top,) in out["fizzles"]:
         print(f"    {top} fizzles (no legal target) -> graveyard")
