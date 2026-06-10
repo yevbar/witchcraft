@@ -83,6 +83,17 @@ def _counter_kind(extra: str) -> str | None:
     return None
 
 
+def _counter_payload(amt, extra) -> str | None:
+    """'put N +1/+1 / -1/-1 counters' -> a 'p1p1:N' / 'm1m1:N' payload for the targeting machinery, or None
+    (a non-P/T counter the engine doesn't model, or a variable count) to abstain. P/T counters fold into the
+    §613 layer sum, so a targeted/scoped counter is applied to the chosen creature like any creature verb."""
+    kind = _counter_kind(extra)
+    n = _int(amt)
+    if kind is None or n is None or n <= 0:
+        return None
+    return f"{kind}:{n}"
+
+
 # a fixed '+N/+N' / '-N/-N' P/T string (e.g. '+2/+0', '-1/-1') -> (dp, dt). Variable/conditional pumps
 # (+X/+X, '+1/+0_per_…') don't parse to constants and abstain (the engine has no count to feed).
 _PT = re.compile(r"^([+-]\d+)/([+-]\d+)$")
@@ -335,6 +346,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
+                if verb == "put_counter":
+                    # §122 a +1/+1 / -1/-1 counter on a single 'target creature' -> the driver picks. self/it
+                    # (a counter on the source) falls through to the source-counter path below; non-P/T
+                    # counters and variable counts abstain there too.
+                    cp = _counter_payload(amt, extra)
+                    cls = _target_class(tgt)
+                    if cp is not None and cls is not None:
+                        add("trigger_target", (a, "counter", cp, cls))
+                        add("has_trigger", (a, tid, event))
+                        emitted = True
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
@@ -376,6 +398,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         continue
                     add("spell_damage", (tid, n, dk))
                     continue
+                if verb == "put_counter":
+                    # §122 a +1/+1 / -1/-1 counter on a single 'target creature' (Battlefield Promotion) ->
+                    # the driver picks; a board scope is applied to each in scope. self/it counters and non-P/T
+                    # / variable counters fall through to the source-counter path (or abstain).
+                    cp = _counter_payload(amt, extra)
+                    if cp is not None:
+                        cls = _target_class(tgt)
+                        sc = _scope(tgt)
+                        if cls is not None:
+                            add("spell_target", (tid, "counter", cp, cls)); continue
+                        if sc in ("creatures_you_control", "all_creatures"):
+                            add("spell_scope", (tid, "counter", cp, sc)); continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

@@ -172,6 +172,49 @@ def _trigger_damage_checks() -> None:
     check("a real triggered-damage card routes to trigger_damage", found is not None)
 
 
+def _counter_checks() -> None:
+    # §122 +1/+1 counter on a single 'target creature you control' -> the driver buffs its strongest own,
+    # the counter persists (folds into the §613 layer P/T sum), not until-EOT.
+    st = _base()
+    st["has_trigger"] = {("grow", "src", "upkeep")}
+    st["trigger_target"] = {("grow", "counter", "p1p1:1", "you_control")}
+    _run(st)
+    p = _powers(st)
+    check("+1/+1 counter/you_control buffs strongest own (mine 2 -> 3)", p.get("mine") == 3)
+    check("the counter is a real p1p1 counter on the creature",
+          ("mine", "p1p1", 1) in st.get("counter", set()))
+
+    # a -1/-1 counter is removal-flavored -> the strongest enemy; two of them shrink a 5/5 to 3/3.
+    st = _base()
+    st["has_trigger"] = {("wither", "src", "upkeep")}
+    st["trigger_target"] = {("wither", "counter", "m1m1:2", "any")}
+    _run(st)
+    p = _powers(st)
+    check("-1/-1 x2 counter/any shrinks strongest enemy (big 5 -> 3)", p.get("big") == 3)
+
+    # a spell putting a +1/+1 counter on each creature you control (board scope).
+    st = _base()
+    st["spell_scope"] = {("anthemctr", "counter", "p1p1:1", "creatures_you_control")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "anthemctr", "alice")
+    p = _powers(st)
+    check("spell +1/+1 counter scope buffs all own (mine 2->3, src 1->2)",
+          p.get("mine") == 3 and p.get("src") == 2)
+
+    # the bridge routes a real 'put a +1/+1 counter on target creature' card to the targeting machinery.
+    import sim, card_corpus
+    db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    found = None
+    for name in corpus:
+        try:
+            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
+        except Exception:
+            continue
+        if any(v == "counter" for (_s, v, _p, _c) in f.get("spell_target", set()) | f.get("trigger_target", set())):
+            found = name; break
+    check("a real +1/+1-counter card routes to the targeting machinery", found is not None)
+
+
 def _spell_checks() -> None:
     # §608 instant/sorcery single-target effects resolve through _run_spell_effects via spell_target.
     # 'Murder' (destroy target creature) cast by alice -> kills bob's strongest (big), spares her own.
@@ -316,6 +359,7 @@ def _bridge_checks() -> None:
 def run() -> None:
     _driver_checks()
     _trigger_damage_checks()
+    _counter_checks()
     _spell_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)

@@ -348,6 +348,16 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         state.setdefault("eff_mod_toughness", set()).add((eid, tgt, dt))
         state.setdefault("until_eot", set()).add((eid,))
         print(f"    {kind} {a}: targets {tgt} for {'+' if dp >= 0 else ''}{dp}/{'+' if dt >= 0 else ''}{dt} until end of turn")
+    elif verb == "counter":                                  # §122 put N +1/+1 or -1/-1 counters (PERSISTENT)
+        ckind, n = payload.split(":")
+        # counters are cumulative, but a triggered pending_target is RE-DERIVED on every _apply_creature_
+        # effects pass (unlike a one-shot spell or a diffed pending) — guard so one firing adds them once.
+        seen = (a, tgt, ckind, int(n))
+        if seen in state.setdefault("_counter_applied", set()):
+            return
+        state["_counter_applied"].add(seen)
+        _bump_counter(state, tgt, ckind, int(n))
+        print(f"    {kind} {a}: puts {n} {ckind} counter(s) on {tgt}")
     elif verb == "grant":
         eid = f"{a}__kw__{payload}__{tgt}"
         state.setdefault("eff_grant_keyword", set()).add((eid, tgt, payload))
@@ -396,6 +406,8 @@ def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
     if verb == "modify_pt":                                   # a net-negative pump is removal-flavored
         dp, dt = (int(x) for x in payload.split("/"))
         harmful = (dp + dt) < 0
+    elif verb == "counter":                                  # a -1/-1 counter is removal; +1/+1 is a buff
+        harmful = payload.startswith("m1m1")
     # prefer enemy creatures for harmful effects, own creatures for beneficial ones, then strongest.
     def keyf(c):
         own = c in mine
