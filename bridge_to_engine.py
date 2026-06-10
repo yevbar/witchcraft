@@ -699,6 +699,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # the 'attached' aura/equip case, and the singular 'creature'-target normalization.
                     if fkind is None and str(tgt) in _ANTHEM_SCOPE:
                         continue
+                    # ONE WORLD: the FILTERED subtype/type/color lords (fkind not None) whose pt parses are now
+                    # DERIVED IN DATALOG too (translate.dl: static_pt + static_filter from pt_value + anthem_filter).
+                    # The bridge keeps the 'attached' aura/equip case (fkind None, not in _ANTHEM_SCOPE) and the
+                    # singular 'creature'-target normalization (fkind None, raw tgt not in anthem_scope/anthem_filter).
+                    if fkind is not None:
+                        continue
                     add("static_pt", (tid, pt[0], pt[1], scope))
                 else:                                        # grant_keyword — for a static ability the granted
                     kw = amt if amt in _ENGINE_KEYWORDS else extra   # keyword is in `amt` ('have trample'),
@@ -710,6 +716,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # subtype/type/color lords (static_filter), the 'attached' aura/equip case, the singular
                     # 'creature'-target normalization, and any keyword-in-`extra` grant.
                     if fkind is None and amt in _ENGINE_KEYWORDS and str(tgt) in _ANTHEM_SCOPE:
+                        continue
+                    # ONE WORLD: the FILTERED subtype/type/color lords whose keyword is in the AMOUNT column
+                    # (datalog only owns keyword-in-amount; matching the unfiltered rule + the static_grant
+                    # rule's engine_keyword(Kw) on the AMOUNT) are now DERIVED IN DATALOG (static_grant +
+                    # static_filter). A keyword-in-`extra` grant (amt not an engine keyword) stays on the bridge.
+                    if fkind is not None and amt in _ENGINE_KEYWORDS:
                         continue
                     add("static_grant", (tid, kw, scope))
                 if fkind is not None:                         # a subtype/type/color lord -> narrow the anthem

@@ -918,6 +918,37 @@ def _pt_value_facts() -> list[str]:
     return [f'pt_value("{s}", {dp}, {dt})' for s, (dp, dt) in sorted(vals.items())]
 
 
+def _anthem_filter_facts() -> list[str]:
+    """ONE WORLD foundation: the FILTERED static lords. bridge._anthem_target parses a static-anthem target
+    slug into (base_scope, fkind, fval) — the subtype/type/color lords are exactly those with fkind not None
+    ('all_goblins' -> ('all_creatures','subtype','goblin'), 'artifact_creatures_you_control' ->
+    ('creatures_you_control','type','artifact')). We lex every distinct such slug across the corpus at build
+    time (souffle can't run the depluralize / subtype-universe logic), so the SEMANTIC static_pt/static_grant
+    + static_filter rules stay pure datalog. Mirrors anthem_scope (the unfiltered case) for the filtered one."""
+    import card_corpus as _cc, sim as _sim, ground as _ground
+    import bridge_to_engine as _b
+    corpus = {c["name"]: c for c in _cc.load_cards()}
+    db = _sim.load_db()
+    out: dict[str, tuple[str, str, str]] = {}
+    for name in corpus:
+        e = db.get(_ground.slug(name)) or {}
+        for ab in (e.get("abilities") or {}).values():
+            if ab.get("kind") != "static":
+                continue
+            for (_seq, verb, _amt, tgt, _extra, _cond) in ab.get("effects", []):
+                if verb not in ("modify_pt", "grant_keyword"):
+                    continue
+                slug = str(tgt)
+                if slug in out:
+                    continue
+                parsed = _b._anthem_target(slug, corpus)
+                if parsed is None or parsed[1] is None:        # abstain / unfiltered -> not an anthem_filter
+                    continue
+                out[slug] = parsed
+    return [f'anthem_filter("{s}", "{sc}", "{fk}", "{fv}")'
+            for s, (sc, fk, fv) in sorted(out.items())]
+
+
 def _emit_translate(p) -> None:
     import bridge_to_engine as _b                          # single source of truth for the event vocabulary
     p.comment("ONE WORLD foundation: pt_value = a P/T amount string -> (dp, dt), lexed at build time from the")
@@ -992,6 +1023,31 @@ def _emit_translate(p) -> None:
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "anthem_scope(Target, Scope)"])
+    p.comment("ONE WORLD: §611.2 FILTERED static lords (subtype/type/color-restricted anthems: 'Other Goblins")
+    p.comment("get +1/+1', 'Artifact creatures you control', 'White creatures have flying') -> static_pt/")
+    p.comment("static_grant (with the BASE board scope) PLUS static_filter(fkind, fval), DERIVED from the card")
+    p.comment("parse facts (was bridge's static branch / _anthem_target + add('static_filter', ...)). anthem_filter")
+    p.comment("= the distinct filtered target slugs -> (base_scope, fkind, fval), lexed at build time (souffle")
+    p.comment("can't run the depluralize/subtype-universe logic). Mirrors the unfiltered rules but joins")
+    p.comment("anthem_filter instead of anthem_scope, and ALSO emits static_filter to narrow the anthem.")
+    p.decl("anthem_filter", [("target", "symbol"), ("scope", "symbol"), ("fkind", "symbol"), ("fval", "symbol")])
+    p.facts(_anthem_filter_facts())
+    p.rule("static_pt(S, Dp, Dt, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
+            "pt_value(Amount, Dp, Dt)", "anthem_filter(Target, Scope, _, _)"])
+    p.rule("static_grant(S, Kw, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-")',
+            "engine_keyword(Kw)", "anthem_filter(Target, Scope, _, _)"])
+    p.rule("static_filter(S, Fk, Fv)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
+            "pt_value(Amount, _, _)", "anthem_filter(Target, _, Fk, Fv)"])
+    p.rule("static_filter(S, Fk, Fv)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-")',
+            "engine_keyword(Kw)", "anthem_filter(Target, _, Fk, Fv)"])
     p.blank()
     p.comment("ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the")
     p.comment("card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from")
