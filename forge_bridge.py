@@ -181,17 +181,22 @@ class EnginePolicy:
 
     # each _pick_* returns (choice, modeled, endorsed, offered, used_engine)
     def _pick_action(self, driver, state, seat, options, default):
-        """Cast a spell OUR engine derives as castable (can_cast); else pass. The completeness check: of the
-        spell options Forge offers, how many does our engine recognize (modeled) and deem castable (endorsed)."""
+        """Develop mana (play a land) then cast a spell OUR engine derives as castable (can_cast); else pass.
+        Completeness check: of the play options Forge offers, how many does our engine recognize (modeled) and
+        deem playable (endorsed = a land drop our engine owns, or a spell can_cast endorses)."""
         driver._refresh_mana_pool(state, seat)               # stock mana from the reconstructed lands
         state["has_priority"] = {(seat,)}                    # §117 — can_cast is gated on holding priority
         can = {s for (p, s) in driver.run(state, ["can_cast"])["can_cast"] if p == seat}
+        ptype = driver.run(state, ["printed_type"])["printed_type"]
+        lands_in_hand = {c for (p, c) in state.get("in_hand", set()) if p == seat and (c, "land") in ptype}
         objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
         spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
         modeled = sum(1 for o in spells if str(o["id"]) in objs)
-        endorsed_opts = [o for o in spells if str(o["id"]) in can]
-        choice = endorsed_opts[0] if endorsed_opts else default       # cast if we can, else Forge's default (pass)
-        return choice, modeled, len(endorsed_opts), len(spells), 1
+        land_opts = [o for o in spells if str(o["id"]) in lands_in_hand]      # play a land (develop mana)
+        cast_opts = [o for o in spells if str(o["id"]) in can]               # cast an affordable spell
+        endorsed = land_opts + cast_opts
+        choice = land_opts[0] if land_opts else (cast_opts[0] if cast_opts else default)  # land > cast > pass
+        return choice, modeled, len(endorsed), len(spells), 1
 
     def _pick_target(self, driver, state, seat, options, default):
         """Target an entity our engine models as a legal creature target."""
