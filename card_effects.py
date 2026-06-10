@@ -1350,16 +1350,28 @@ def _becomes_not(m):
     return Effect("becomes", "-", _target(m.group(1)), "not_" + ground.slug(m.group(2)))
 
 
-@_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness (\d+/\d+)(?: in addition to its other types)?(?: until end of turn)?$")
+@_t(rf"^({_TGT}) (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness ([\dX]+/[\dX]+)(?: in addition to (?:its|their) other (?:colors and types|types and colors|creature types|types|colors))?(?: until end of turn| for as long as (.+?))?$")
 def _becomes_base_pt(m):
-    """'<target> becomes/is a <colors/types> creature with base power and toughness N/N' — animate to a
-    new creature with set base P/T (§208/§613.3); the type descriptor is a faithful slug."""
-    return Effect("becomes", m.group(3), _target(m.group(1)), "base_pt_" + ground.slug(m.group(2)))
+    """'<target> becomes/is a <colors/types> creature with base power and toughness N/N [in addition to
+    its other colors and types] [until end of turn | for as long as <cond>]' — animate to a new creature
+    with set base P/T (§208/§613.3); the type descriptor is a faithful slug. P/T may be a §107.3 variable
+    (X/X). A 'for as long as' duration (§611) is recorded in the cond slot."""
+    cond = "for_as_long_as_" + ground.slug(m.group(4)) if m.group(4) else "-"
+    return Effect("becomes", m.group(3), _target(m.group(1)), "base_pt_" + ground.slug(m.group(2)), cond)
 
 
-@_t(rf"^({_TGT}) (?:has|have|with) base power and toughness (\d+/\d+)(?: until end of turn)?$")
+@_t(rf"^({_TGT}) perpetually (?:has|have) base power and toughness ([\dX]+/[\dX]+)$")
+def _base_pt_perpetual(m):
+    """'<target> perpetually has base power and toughness N/N' — a §613.3 base-P/T set with a perpetual
+    duration (Alchemy 'perpetually'); the perpetual lifetime is recorded in the cond slot."""
+    return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt", "perpetual")
+
+
+@_t(rf"^({_TGT}) (?:has|have|with) base power and toughness ([\dX]+/[\dX]+)(?: until end of turn| until your next (?:turn|upkeep)| until the end of your next upkeep)?$")
 def _base_pt(m):
-    """'<target> has base power and toughness N/N [until end of turn]' — a §208/§613.3 base-P/T set."""
+    """'<target> has base power and toughness N/N [until …]' — a §208/§613.3 base-P/T set. P/T may be a
+    §107.3 variable ('X/X'), in which case a trailing ', where X is …' definition is folded into the
+    amount by parse_clause's where-rewrite (exactly as for a 'gets +X/+X, where X is …' pump)."""
     return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
 
 
@@ -1391,10 +1403,41 @@ def _becomes_chosen(m):
     return Effect("becomes", "-", _target(m.group(1)), "chosen_" + m.group(2).lower())
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]+?) in addition to its other (?:types|colors)(?: until end of turn)?$")
+# a captured type-addition object that actually RUNS ON into a second predicate ('black and is a
+# Nightmare …', 'a copy of … , except it's an artifact') — the embedded copular 'and is/are/becomes' or a
+# ', except' copy-rider is an effect boundary, not part of the added type. Guards _type_add(_plural) so a
+# run-on splits via the body splitter instead of being conflated into one lossy 'added_<everything>' slug.
+_COPULA_RUNON = re.compile(r"\b and (?:is|are|becomes?|isn't|aren't|has|have|gains?)\b|, except\b", re.I)
+
+
+@_t(rf"^({_TGT}) (?:is|are|becomes?) an? ([\w' -]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$")
 def _type_add(m):
-    """'<target> is a <type/color> in addition to its other types' — a §205/§105 type/color addition."""
+    """'<target> is/becomes a <type/color> in addition to its/their other [creature/land] types' — a
+    §205/§105 type/color ADDITION. Accepts the plural 'their other types' (a subset subject) and the
+    'creature/land types' qualifier (a subtype addition, e.g. 'becomes a Dinosaur in addition to its
+    other creature types', 'are Oozes in addition to their other types'). Abstains on a compound object
+    ('black and is a Nightmare …') so a run-on conjunction splits instead of being conflated."""
+    if _is_compound_object(m.group(2)) or _COPULA_RUNON.search(m.group(2)):
+        return None
     return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) (?:is|are|becomes?) ([\w' ,-]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$")
+def _type_add_plural(m):
+    """Article-less plural type addition '<subj> are <Type>s in addition to their other types' ('are
+    Oozes …', 'are Giants …', 'are Angels …') — a §205 subtype addition on a SET subject. Same shape as
+    _type_add but with no 'a/an' article (plural type word); runs right after it. Abstains on a compound
+    object so a run-on conjunction splits instead of being conflated into one lossy slug."""
+    if _is_compound_object(m.group(2)) or _COPULA_RUNON.search(m.group(2)):
+        return None
+    return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+
+
+@_t(rf"^({_TGT}) gains? all creature types(?: until end of turn)?$")
+def _gain_all_creature_types(m):
+    """'<target> gains all creature types [until end of turn]' — a §205 all-creature-types effect (the
+    changeling-style omni-type, worded as 'gain' rather than 'is every creature type')."""
+    return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
 
 
 @_t(rf"^({_TGT}) loses? all (?:other )?abilities(?: until end of turn)?$")
@@ -1768,6 +1811,87 @@ _GRANT_THEN_CLAUSE = re.compile(
 _BECOMES_THEN_PRED = re.compile(
     rf"^({_TGT}) (becomes? .+?)( until end of turn)? and ((?:gets?|gains?|has|have|attacks?|can't|must) .+)$", re.I)
 
+# a §613.3 base-P/T SET with TRAILING CONJUNCTS — the biggest uncovered card cluster. Two head shapes:
+#   '<subj> has/have base power and toughness <PT>'                          (the _base_pt frame), and
+#   '<subj> becomes?/is/are a <type> with base power and toughness <PT>'     (the _becomes_base_pt frame).
+# After the head, one or more predicates joined by ',' / ', and' / ' and' continue the SAME continuous
+# effect — a keyword grant ('gains trample'), a type addition ('becomes a Dinosaur in addition to its
+# other types', 'are Oozes …'), a type/ability removal ('isn't a Human', 'loses all abilities'), a combat
+# restriction ('can't be blocked'), 'gain all creature types', etc. Each conjunct is re-parsed STANDALONE
+# with the subject reattached, so it grounds through the normal leaf; ALL-OR-NOTHING (if any conjunct
+# doesn't ground, the whole line abstains — never a partial/conflated fact). 'until end of turn' / 'until
+# your next turn' has already been normalized to the END by the lead→suffix rewrite above, so a single
+# trailing duration is peeled and re-attached to EACH base-pt/keyword conjunct (the parts that carry it).
+_DUR = (r"until end of turn|until your next turn|until the end of your next turn|"
+        r"until your next upkeep")
+_BASE_PT_HEAD = re.compile(
+    rf"^({_TGT}) (?:(?:has|have) base power and toughness [\dX]+/[\dX]+|"
+    rf"(?:becomes?|is|are) (?:an? )?[\w' -]+? with base power and toughness [\dX]+/[\dX]+)(?: (?:{_DUR}))?", re.I)
+_DUR_TAIL = re.compile(rf"\s+({_DUR})$", re.I)
+
+
+def _base_pt_compound(s: str):
+    """Split a base-P/T SET with trailing conjuncts into independently-grounded Effects, or None. The head
+    (the base-P/T set itself) and every trailing conjunct must ground; otherwise abstain on the whole
+    line (prime directive — never a partial parse)."""
+    hm = _BASE_PT_HEAD.match(s)
+    if not hm:
+        return None
+    subj, head_end = hm.group(1), hm.end()
+    head = s[:head_end]
+    tail = s[head_end:]
+    # the tail must START a conjunction (',' or ' and') — otherwise this is a plain base-P/T line that
+    # the leaf already handles (or an unrecognized rider), so don't intercept it.
+    if not re.match(r"^\s*(?:,|and\b)", tail, re.I):
+        return None
+    # the shared duration may sit INSIDE the head ('… bpt 3/3 until end of turn and can't be blocked')
+    # or at the very END after the conjuncts ('… bpt 5/3, gains trample until end of turn'); peel it from
+    # whichever place so it can be re-attached to each base-pt/keyword conjunct.
+    dur = ""
+    hdm = re.search(rf"\s+({_DUR})$", head, re.I)
+    if hdm:
+        dur = " " + hdm.group(1)
+    else:
+        dm = _DUR_TAIL.search(tail)
+        if dm:
+            dur = " " + dm.group(1)
+            tail = tail[:dm.start()]
+        head = head + dur
+    # split the conjunct tail on ',' and ' and ', then RE-MERGE any piece that doesn't open a new
+    # predicate back onto the previous one — so a multi-keyword grant 'gains trample, annihilator 2, and
+    # haste' stays ONE conjunct (its bare-keyword continuations re-join 'gains …') while genuine new
+    # predicates ('gains X', 'becomes Y', "isn't Z", "can't …") start fresh conjuncts.
+    raw = [p.strip() for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", tail, flags=re.I) if p.strip()]
+    if not raw:
+        return None
+    _PRED = re.compile(r"^(?:gains?|has|have|becomes?|is|are|isn't|aren't|doesn't|don't|can't|must|"
+                       r"loses?|gets?|attacks?|blocks?)\b", re.I)
+    pieces = []
+    for p in raw:
+        if not _PRED.match(p):
+            # a bare keyword (no predicate verb): a continuation of the previous 'gains' list, or — for
+            # the 'becomes a <type> with bpt N/N, flying, and haste' frame where the keywords hang off the
+            # 'with' — the FIRST such bare item opens its own grant. Prefix 'gains ' so it re-parses as a
+            # keyword grant (which abstains if it isn't actually a §702 keyword).
+            if pieces and re.match(r"^gains?\b", pieces[-1], re.I):
+                pieces[-1] = pieces[-1] + ", " + p
+            else:
+                pieces.append("gains " + p)
+        else:
+            pieces.append(p)
+    out = parse_clauses(head)
+    if not out:
+        return None
+    for p in pieces:
+        # a keyword grant / base-pt continuation carries the shared duration; combat restrictions and
+        # type changes carry their own ('can't be blocked this turn', 'in addition to its other types').
+        carry = dur if re.match(r"^(?:gains?|has|have)\b", p, re.I) and "until" not in p.lower() else ""
+        sub = parse_clauses(f"{subj} {p}{carry}")
+        if not sub:
+            return None
+        out += sub
+    return out
+
 
 def _eot_compound(s: str):
     """A compound buff -> MULTIPLE effects: '<t> gets +N/+N and gains first strike, vigilance, and
@@ -1784,6 +1908,9 @@ def _eot_compound(s: str):
     if m:
         tail = parse_clause(f"{m.group(1)} {m.group(2)} {m.group(3)}")
         return [Effect("lose_abilities", "-", _target(m.group(1))), tail] if tail else None
+    bpt = _base_pt_compound(s)         # §613.3 base-P/T set with trailing conjuncts (the big card cluster)
+    if bpt:
+        return bpt
     m = _BECOMES_THEN_PRED.match(s)
     if m:
         dur = " until end of turn" if m.group(3) else ""
