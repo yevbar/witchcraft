@@ -341,11 +341,22 @@ def declare_attackers(state: dict, ap: str) -> None:
 
 
 def declare_blockers(state: dict, ap: str) -> None:
-    """§509 — the defending player blocks attackers one-for-one with its creatures."""
+    """§509 — the defending player blocks attackers one-for-one. Each UNTAPPED blocker is assigned to the
+    first attacker it can LEGALLY block, using the engine's illegal_block (§509.1b — so flying is only
+    blocked by flying/reach, etc.) rather than a naive pairing that wastes a blocker on an illegal block."""
     opp = _others(state, ap)[0]
     attackers = sorted(a for (a, _) in state.get("attacks", set()))
-    blockers = _creatures_of(state, opp)
-    state["blocks"] = {(b, a) for b, a in zip(blockers, attackers)}
+    blockers = [b for b in _creatures_of(state, opp) if (b,) not in state.get("tapped", set())]
+    blocks: dict = {}                                            # attacker -> blocker (one blocker each)
+    for b in blockers:
+        for a in attackers:
+            if a in blocks:
+                continue
+            probe = dict(state); probe["blocks"] = {(b, a)}     # ask the engine whether this block is legal
+            if (b, a) not in run(probe, ["illegal_block"])["illegal_block"]:
+                blocks[a] = b
+                break
+    state["blocks"] = {(b, a) for a, b in blocks.items()}
     for b, a in sorted(state["blocks"]):
         print(f"    {opp} blocks {a} with {b}")
 
