@@ -67,6 +67,34 @@ def _driver_checks() -> None:
     check("no creature card -> nothing reanimated", not st["on_battlefield"])
 
 
+def _trigger_checks() -> None:
+    # §701 triggered reanimation (Reya Dawnbringer's upkeep): the engine fires the ability, the driver moves
+    # the best graveyard creature under the controller's control. 'src' is alice's, on her upkeep.
+    st = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+        "current_step": {("upkeep",)}, "life": {("alice", 20), ("bob", 20)},
+        "on_battlefield": {("src",)}, "printed_type": {("src", "creature"), ("dragon", "creature")},
+        "printed_power": {("src", 1), ("dragon", 5)}, "printed_toughness": {("src", 1), ("dragon", 5)},
+        "printed_control": {("alice", "src")},
+        "graveyard": {("dragon",)},
+        "has_trigger": {("rez", "src", "upkeep")}, "trigger_reanimate": {("rez", "untapped")},
+        "tapped": set(), "_sick": set(), "counter": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_creature_effects(st)
+    check("triggered reanimation moves the graveyard creature to the battlefield",
+          ("dragon",) in st["on_battlefield"] and ("alice", "dragon") in st["printed_control"])
+
+    # idempotent within a firing window: re-deriving the same trigger doesn't reanimate twice (graveyard
+    # already emptied, and the guard blocks a second pull of a different card if one existed).
+    st["graveyard"].add(("ogre",)); st["printed_type"].add(("ogre", "creature"))
+    st["printed_power"].add(("ogre", 3)); st["printed_toughness"].add(("ogre", 3))
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_creature_effects(st)
+    check("a re-derived reanimation trigger doesn't fire twice in one window (ogre stays in graveyard)",
+          ("ogre",) in st["graveyard"])
+
+
 def _bridge_checks() -> None:
     import sim, card_corpus
     db = sim.load_db()
@@ -104,6 +132,7 @@ def _bridge_checks() -> None:
 
 def run() -> None:
     _driver_checks()
+    _trigger_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

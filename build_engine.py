@@ -164,6 +164,9 @@ INPUTS = [
     # §120 triggered DIRECT DAMAGE (Flametongue Kavu: 'when this enters, deal 4 to target creature'): the
     # amount + a damage-target kind (creature_any/creature_opponent/any_target/face/self) the driver resolves.
     ("trigger_damage", [("ability", "symbol"), ("amount", "number"), ("kind", "symbol")]),
+    # §701 triggered reanimation (Reya Dawnbringer: 'at the beginning of your upkeep, return a creature card
+    # from your graveyard to the battlefield'): the driver moves the best graveyard creature on resolution.
+    ("trigger_reanimate", [("ability", "symbol"), ("mode", "symbol")]),
     # §613.4 layer 7c P/T modifier carrying an effect id so a duration ('until end of turn') can clear it
     # at cleanup (the bare mod_power/mod_toughness inputs have no id and persist). Summed into pt7c.
     ("eff_mod_power", [("e", "symbol"), ("c", "symbol"), ("dp", "number")]),
@@ -822,6 +825,9 @@ def _rules(p: Program) -> None:
     p.decl("pending_damage", [("ability", "symbol"), ("source", "symbol"), ("amount", "number"),
                               ("kind", "symbol"), ("controller", "symbol")])
     p.rule("pending_damage(A, S, N, K, P)", ["fires(A, S)", "trigger_damage(A, N, K)", "controls(P, S)"])
+    p.comment("§701 triggered reanimation — the fired ability + its controller; the driver moves the card.")
+    p.decl("pending_reanimate", [("ability", "symbol"), ("source", "symbol"), ("mode", "symbol"), ("controller", "symbol")])
+    p.rule("pending_reanimate(A, S, M, P)", ["fires(A, S)", "trigger_reanimate(A, M)", "controls(P, S)"])
     p.blank()
     p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
@@ -831,6 +837,7 @@ def _rules(p: Program) -> None:
              "pending_exile", "pending_tap", "pending_untap", "pending_return",  # §701 creature-scoped zone moves
              "pending_target",          # §115 single-target effects — the driver picks the target
              "pending_damage",          # §120 triggered direct damage — the driver picks the damage target
+             "pending_reanimate",       # §701 triggered reanimation — the driver moves the graveyard creature
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution

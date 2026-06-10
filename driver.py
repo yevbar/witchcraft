@@ -357,6 +357,13 @@ def _apply_creature_effects(state: dict) -> None:
     # §120 triggered direct damage (Flametongue Kavu): the driver picks the damage target it surfaced.
     for (a, s, n, kind, ctrl) in sorted(run(state, ["pending_damage"])["pending_damage"]):
         _apply_damage(state, a, int(n), kind, ctrl)
+    # §701 triggered reanimation (Reya Dawnbringer): the driver moves the best graveyard creature. Guarded
+    # against a re-derived trigger reanimating twice in one firing window (the move isn't self-idempotent).
+    for (a, s, mode, ctrl) in sorted(run(state, ["pending_reanimate"])["pending_reanimate"]):
+        if (a, s) in state.setdefault("_reanimated", set()):
+            continue
+        state["_reanimated"].add((a, s))
+        _reanimate_one(state, a, ctrl, mode)
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
@@ -719,28 +726,30 @@ def _run_spell_reanimate(state: dict, spell: str, ctrl: str) -> None:
     """§701 reanimation: move the best creature card in a graveyard to the battlefield under the caster's
     control (summoning-sick; tapped if the clause said so). The card isn't on the battlefield, so its type
     is read from printed_type, not the engine's `creature` (which requires a battlefield permanent)."""
-    rows = sorted(r for r in state.get("spell_reanimate", set()) if r[0] == spell)
-    if not rows:
-        return
+    for (_s, mode) in sorted(r for r in state.get("spell_reanimate", set()) if r[0] == spell):
+        _reanimate_one(state, spell, ctrl, mode)
+
+
+def _reanimate_one(state: dict, label: str, ctrl: str, mode: str) -> None:
+    """§701 move the strongest creature card in a graveyard to the battlefield under `ctrl` (summoning-sick,
+    tapped iff mode='tapped'). Shared by spell and triggered reanimation. The card isn't a battlefield
+    permanent yet, so its type/power are read from printed_*, not the engine's `creature`."""
     gy = {c for (c,) in state.get("graveyard", set())}
     ptype = state.get("printed_type", set())
     ppow = {c: int(n) for (c, n) in state.get("printed_power", set())}
-    for (_s, mode) in rows:
-        targets = sorted((c for c in gy if (c, "creature") in ptype),
-                         key=lambda c: ppow.get(c, 0), reverse=True)
-        if not targets:
-            print(f"      {spell} finds no creature card to reanimate")
-            continue
-        c = targets[0]
-        gy.discard(c)
-        state["graveyard"].discard((c,))
-        state.setdefault("on_battlefield", set()).add((c,))
-        state.setdefault("printed_control", set())            # §701 under the caster's control
-        state["printed_control"] = {(p, x) for (p, x) in state["printed_control"] if x != c} | {(ctrl, c)}
-        state.setdefault("_sick", set()).add((c,))            # §302.6 summoning sickness
-        if mode == "tapped":
-            state.setdefault("tapped", set()).add((c,))
-        print(f"      {spell} reanimates {c} -> {ctrl}'s battlefield{' (tapped)' if mode == 'tapped' else ''}")
+    targets = sorted((c for c in gy if (c, "creature") in ptype), key=lambda c: ppow.get(c, 0), reverse=True)
+    if not targets:
+        print(f"      {label} finds no creature card to reanimate")
+        return
+    c = targets[0]
+    state["graveyard"].discard((c,))
+    state.setdefault("on_battlefield", set()).add((c,))
+    state.setdefault("printed_control", set())                # §701 under the caster's control
+    state["printed_control"] = {(p, x) for (p, x) in state["printed_control"] if x != c} | {(ctrl, c)}
+    state.setdefault("_sick", set()).add((c,))                # §302.6 summoning sickness
+    if mode == "tapped":
+        state.setdefault("tapped", set()).add((c,))
+    print(f"      {label} reanimates {c} -> {ctrl}'s battlefield{' (tapped)' if mode == 'tapped' else ''}")
 
 
 def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
@@ -1035,6 +1044,10 @@ def _end_of_turn(state: dict) -> None:
             state[rel] = {row for row in state[rel] if row and row[0] != e}
     if ending and state.get("until_eot"):                    # drop the consumed markers so they don't accrue
         state["until_eot"] = {row for row in state["until_eot"] if row and row[0] not in ending}
+    # clear the once-per-firing guards so a RECURRING trigger (an every-upkeep reanimation/counter) fires
+    # again next turn — they only prevent a re-derived trigger doubling within a single firing window.
+    state["_reanimated"] = set()
+    state["_counter_applied"] = set()
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:

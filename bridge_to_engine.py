@@ -446,6 +446,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
+                if verb == "return_to_battlefield" and _reanimates(tgt, extra):
+                    # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
+                    # graveyard creature under the controller's control on resolution.
+                    add("trigger_reanimate", (a, "tapped" if "tapped" in str(extra) else "untapped"))
+                    add("has_trigger", (a, tid, event))
+                    emitted = True
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
