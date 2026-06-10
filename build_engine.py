@@ -158,6 +158,9 @@ INPUTS = [
     ("trigger_effect_tap", [("ability", "symbol"), ("scope", "symbol")]),
     ("trigger_effect_untap", [("ability", "symbol"), ("scope", "symbol")]),
     ("trigger_effect_return", [("ability", "symbol"), ("scope", "symbol")]),
+    # §115 SINGLE-TARGET creature effect: verb + payload + target CLASS (any/you_control/opponent). The
+    # engine surfaces the firing + class; the driver makes the §601.2c target choice it can't.
+    ("trigger_target", [("ability", "symbol"), ("verb", "symbol"), ("payload", "symbol"), ("class", "symbol")]),
     # §613.4 layer 7c P/T modifier carrying an effect id so a duration ('until end of turn') can clear it
     # at cleanup (the bare mod_power/mod_toughness inputs have no id and persist). Summed into pt7c.
     ("eff_mod_power", [("e", "symbol"), ("c", "symbol"), ("dp", "number")]),
@@ -767,6 +770,11 @@ def _rules(p: Program) -> None:
     p.rule("pending_untap(A, C, P)", ["trigger_effect_untap(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
     p.decl("pending_return", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
     p.rule("pending_return(A, C, P)", ["trigger_effect_return(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.comment("§115 single-target: the engine surfaces the fired ability + its source + verb/payload/class;")
+    p.comment("the DRIVER chooses a legal target of that class and applies the verb (the choice it can't make).")
+    p.decl("pending_target", [("ability", "symbol"), ("source", "symbol"), ("verb", "symbol"),
+                              ("payload", "symbol"), ("class", "symbol"), ("controller", "symbol")])
+    p.rule("pending_target(A, S, V, Pay, Cl, P)", ["fires(A, S)", "trigger_target(A, V, Pay, Cl)", "controls(P, S)"])
     p.blank()
     p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
@@ -774,6 +782,7 @@ def _rules(p: Program) -> None:
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",
              "pending_pt", "pending_grant", "pending_destroy",   # §603 creature-scoped triggered effects
              "pending_exile", "pending_tap", "pending_untap", "pending_return",  # §701 creature-scoped zone moves
+             "pending_target",          # §115 single-target effects — the driver picks the target
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state

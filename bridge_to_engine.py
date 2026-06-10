@@ -110,6 +110,20 @@ def _int(amt) -> int | None:
     return int(amt) if str(amt).lstrip("-").isdigit() else None
 
 
+# CLEAN single-target creature slugs -> the legal-target CLASS the driver picks within (§115). Restricted
+# targets ('target creature with power 3 or greater', named) abstain — the driver can't honor the restriction.
+_TARGET_CLASS = {
+    "target_creature": "any", "another_target_creature": "any", "a_target_creature": "any",
+    "up_to_one_target_creature": "any", "target_creature_you_control": "you_control",
+    "another_target_creature_you_control": "you_control", "target_creature_you_don_t_control": "opponent",
+    "target_creature_an_opponent_controls": "opponent",
+}
+
+
+def _target_class(tgt: str) -> str | None:
+    return _TARGET_CLASS.get(str(tgt))
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -213,7 +227,24 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         continue
                     scope = _scope(tgt)
                     if scope is None:
-                        dropped.append(("scope", tgt))
+                        cls = _target_class(tgt)                # §115 single 'target creature' -> driver picks
+                        if cls is None:
+                            dropped.append(("scope", tgt))
+                            continue
+                        if verb == "modify_pt":
+                            pt = _parse_pt(amt)
+                            if pt is None:
+                                dropped.append(("modify_pt_amt", amt)); continue
+                            payload = f"{pt[0]}/{pt[1]}"
+                        elif verb == "grant_keyword":
+                            if extra not in _ENGINE_KEYWORDS:
+                                dropped.append(("grant_keyword", extra)); continue
+                            payload = extra
+                        else:
+                            payload = "-"
+                        add("trigger_target", (a, "grant" if verb == "grant_keyword" else verb, payload, cls))
+                        add("has_trigger", (a, tid, event))
+                        emitted = True
                         continue
                     if verb == "modify_pt":
                         pt = _parse_pt(amt)

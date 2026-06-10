@@ -52,6 +52,7 @@
 .decl trigger_effect_tap(ability: symbol, scope: symbol)
 .decl trigger_effect_untap(ability: symbol, scope: symbol)
 .decl trigger_effect_return(ability: symbol, scope: symbol)
+.decl trigger_target(ability: symbol, verb: symbol, payload: symbol, class: symbol)
 .decl eff_mod_power(e: symbol, c: symbol, dp: number)
 .decl eff_mod_toughness(e: symbol, c: symbol, dt: number)
 .decl has_supertype(o: symbol, sup: symbol)
@@ -504,6 +505,10 @@ pending_tap(A, C, P) :- trigger_effect_tap(A, _), scope_creature(A, S, C), contr
 pending_untap(A, C, P) :- trigger_effect_untap(A, _), scope_creature(A, S, C), controls(P, S).
 .decl pending_return(ability: symbol, creature: symbol, controller: symbol)
 pending_return(A, C, P) :- trigger_effect_return(A, _), scope_creature(A, S, C), controls(P, S).
+// §115 single-target: the engine surfaces the fired ability + its source + verb/payload/class;
+// the DRIVER chooses a legal target of that class and applies the verb (the choice it can't make).
+.decl pending_target(ability: symbol, source: symbol, verb: symbol, payload: symbol, class: symbol, controller: symbol)
+pending_target(A, S, V, Pay, Cl, P) :- fires(A, S), trigger_target(A, V, Pay, Cl), controls(P, S).
 
 .output power
 .output dies
@@ -534,6 +539,7 @@ pending_return(A, C, P) :- trigger_effect_return(A, _), scope_creature(A, S, C),
 .output pending_tap
 .output pending_untap
 .output pending_return
+.output pending_target
 .output has_keyword
 .output stack_top
 .output resolves

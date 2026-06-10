@@ -269,7 +269,8 @@ def _apply_creature_effects(state: dict) -> None:
     moves the creature to its owner's graveyard. The id is deterministic per (ability, creature) so re-
     deriving the same fire across steps is idempotent (set semantics — no double-buffing)."""
     out = run(state, ["pending_pt", "pending_grant", "pending_destroy",
-                      "pending_exile", "pending_tap", "pending_untap", "pending_return", "cant_be_destroyed"])
+                      "pending_exile", "pending_tap", "pending_untap", "pending_return",
+                      "pending_target", "controls", "power", "creature", "cant_be_destroyed"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}   # §702.12b — the engine derives this
     for (a, dp, dt, c, _ctrl) in sorted(out["pending_pt"]):
         eid = f"{a}__pt__{c}"
@@ -313,6 +314,83 @@ def _apply_creature_effects(state: dict) -> None:
         if (c,) in state.get("on_battlefield", set()) and (c,) in state.get("tapped", set()):
             state["tapped"].discard((c,))                     # §701.20 untap
             print(f"    trigger {a}: {c} is untapped")
+
+    # §115 SINGLE-TARGET effects: the engine surfaces the firing + legal-target class; the driver makes
+    # the §601.2c choice. controls(player, creature) and power give the board; the verb's polarity picks
+    # whether to hit the strongest legal enemy (removal/tap/bounce/shrink) or buff the strongest own.
+    controls = {(p, c) for (p, c) in out["controls"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
+    creatures = {c for (c,) in out["creature"]}
+    owner_of = {c: p for (p, c) in controls}
+    for (a, s, verb, payload, cls, ctrl) in sorted(out["pending_target"]):
+        tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
+        if tgt is None:
+            continue
+        if verb == "modify_pt":
+            dp, dt = (int(x) for x in payload.split("/"))
+            eid = f"{a}__pt__{tgt}"
+            state.setdefault("eff_mod_power", set()).add((eid, tgt, dp))
+            state.setdefault("eff_mod_toughness", set()).add((eid, tgt, dt))
+            state.setdefault("until_eot", set()).add((eid,))
+            print(f"    trigger {a}: targets {tgt} for {'+' if dp >= 0 else ''}{dp}/{'+' if dt >= 0 else ''}{dt} until end of turn")
+        elif verb == "grant":
+            eid = f"{a}__kw__{payload}__{tgt}"
+            state.setdefault("eff_grant_keyword", set()).add((eid, tgt, payload))
+            state.setdefault("until_eot", set()).add((eid,))
+            print(f"    trigger {a}: targets {tgt}, grants {payload} until end of turn")
+        elif verb == "destroy":
+            if tgt in indestructible:
+                print(f"    trigger {a}: targets {tgt} but it can't be destroyed (indestructible)")
+                continue
+            state["on_battlefield"].discard((tgt,))
+            state.setdefault("graveyard", set()).add((tgt,))
+            print(f"    trigger {a}: destroys target {tgt} -> graveyard")
+        elif verb == "exile":
+            state["on_battlefield"].discard((tgt,))
+            state.setdefault("exile", set()).add((tgt,))
+            print(f"    trigger {a}: exiles target {tgt} -> exile")
+        elif verb == "return_to_hand":
+            state["on_battlefield"].discard((tgt,))
+            state.setdefault("in_hand", set()).add((owner_of.get(tgt, ctrl), tgt))
+            print(f"    trigger {a}: returns target {tgt} to {owner_of.get(tgt, ctrl)}'s hand")
+        elif verb == "tap":
+            if (tgt,) not in state.get("tapped", set()):
+                state.setdefault("tapped", set()).add((tgt,))
+                print(f"    trigger {a}: taps target {tgt}")
+        elif verb == "untap":
+            if (tgt,) in state.get("tapped", set()):
+                state["tapped"].discard((tgt,))
+                print(f"    trigger {a}: untaps target {tgt}")
+
+
+# Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
+_HARMFUL_TARGET = {"destroy", "exile", "tap", "return_to_hand"}
+
+
+def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
+                 controls: set, powers: dict, creatures: set) -> str | None:
+    """§601.2c choose a legal target for a single-target effect. `cls` constrains the legal set
+    (any / you_control / opponent); within it, a harmful verb (removal/tap/bounce, or a P/T shrink)
+    picks the strongest enemy creature and a beneficial one the strongest own creature."""
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in controls if p == ctrl}
+    cands = [c for c in creatures if c in on_bf]
+    if cls == "you_control":
+        cands = [c for c in cands if c in mine]
+    elif cls == "opponent":
+        cands = [c for c in cands if c not in mine]
+    if not cands:
+        return None
+    harmful = verb in _HARMFUL_TARGET
+    if verb == "modify_pt":                                   # a net-negative pump is removal-flavored
+        dp, dt = (int(x) for x in payload.split("/"))
+        harmful = (dp + dt) < 0
+    # prefer enemy creatures for harmful effects, own creatures for beneficial ones, then strongest.
+    def keyf(c):
+        own = c in mine
+        prefer = (not own) if harmful else own
+        return (prefer, powers.get(c, 0))
+    return max(cands, key=keyf)
 
 
 def _sacrifice(state: dict, obj: str) -> None:
