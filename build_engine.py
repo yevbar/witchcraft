@@ -669,6 +669,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_combat_dmg_player(S, P)", ["deals(S, P, _)", "is_player(P)"])
     p.decl("ev_combat_dmg_creature", [("s", "symbol"), ("c", "symbol")])
     p.rule("ev_combat_dmg_creature(S, C)", ["deals(S, C, _)", "creature(C)"])
+    p.decl("ev_dealt_damage", [("c", "symbol")])         # §603 'is dealt damage' — combat damage to a creature
+    p.rule("ev_dealt_damage(C)", ["deals(_, C, N)", "N >= 1", "creature(C)"])
     p.decl("ev_upkeep", [("p", "symbol")])
     p.rule("ev_upkeep(P)", ['current_step("upkeep")', "active_player(P)"])
     p.decl("ev_end_step", [("p", "symbol")])
@@ -703,6 +705,7 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "dealt_damage_self")', "ev_dealt_damage(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_self")', "ev_leaves(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_other")', "ev_leaves(O)", "O != S"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_self")', "ev_attacks(S)"])

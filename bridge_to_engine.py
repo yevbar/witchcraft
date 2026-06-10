@@ -51,6 +51,8 @@ _EVENT = {
     "a_player_casts_a_spell": "any_cast",
     "leaves_the_battlefield": "leaves_self",                 # §603.6d (death/sacrifice leaves modelled)
     "another_permanent_leaves_the_battlefield": "leaves_other",
+    "is_dealt_damage": "dealt_damage_self",                  # §603 (combat damage to the creature modelled)
+    "deals_damage_to_a_player": "combat_damage_to_player",   # under-covers noncombat damage; combat is the path
 }
 
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.

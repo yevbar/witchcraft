@@ -408,6 +408,8 @@ ev_blocks(B) :- blocks(B, _), combat_now().
 ev_combat_dmg_player(S, P) :- deals(S, P, _), is_player(P).
 .decl ev_combat_dmg_creature(s: symbol, c: symbol)
 ev_combat_dmg_creature(S, C) :- deals(S, C, _), creature(C).
+.decl ev_dealt_damage(c: symbol)
+ev_dealt_damage(C) :- deals(_, C, N), N >= 1, creature(C).
 .decl ev_upkeep(p: symbol)
 ev_upkeep(P) :- current_step("upkeep"), active_player(P).
 .decl ev_end_step(p: symbol)
@@ -439,6 +441,7 @@ fires(A, S) :- has_trigger(A, S, "you_cast_creature"), cast_spell(P, Sp), contro
 fires(A, S) :- has_trigger(A, S, "you_cast_noncreature"), cast_spell(P, Sp), controls(P, S), !spell_type(Sp, "creature").
 fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "instant").
 fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "sorcery").
+fires(A, S) :- has_trigger(A, S, "dealt_damage_self"), ev_dealt_damage(S).
 fires(A, S) :- has_trigger(A, S, "leaves_self"), ev_leaves(S).
 fires(A, S) :- has_trigger(A, S, "leaves_other"), ev_leaves(O), O != S.
 fires(A, S) :- has_trigger(A, S, "attacks_self"), ev_attacks(S).
