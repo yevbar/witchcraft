@@ -97,6 +97,14 @@ def _counter_payload(amt, extra) -> str | None:
 # a fixed '+N/+N' / '-N/-N' P/T string (e.g. '+2/+0', '-1/-1') -> (dp, dt). Variable/conditional pumps
 # (+X/+X, '+1/+0_per_…') don't parse to constants and abstain (the engine has no count to feed).
 _PT = re.compile(r"^([+-]\d+)/([+-]\d+)$")
+# a bare 'N/M' P/T (e.g. '3/3') for §613 'becomes a P/T creature' animation. Variable ('X/X') abstains.
+_BARE_PT = re.compile(r"^(\d+)/(\d+)$")
+
+
+def _animation_pt(amt) -> str | None:
+    """The bare 'N/M' P/T an animation clause ('becomes a 3/3 creature') sets, or None for a variable P/T."""
+    m = _BARE_PT.match(str(amt))
+    return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
 def _parse_pt(amt: str) -> tuple[int, int] | None:
@@ -475,6 +483,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("has_trigger", (a, tid, event))
                     emitted = True
                     continue
+                if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
+                    pt = _animation_pt(amt)                   # §613 'becomes a P/T creature' (animate the source)
+                    if pt is not None:
+                        add("trigger_effect", (a, "animate", 0, pt))
+                        add("has_trigger", (a, tid, event))
+                        emitted = True
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
@@ -576,6 +591,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     cp, cls = _counter_payload(amt, extra), _target_class(tgt)
                     if cp is not None and cls is not None:
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"counter|{cp}|{cls}"))
+                        emitted = True
+                        continue
+                if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
+                    pt = _animation_pt(amt)                   # §613 man-land: '{cost}: becomes a P/T creature'
+                    if pt is not None:
+                        add("activated_ability", (a, tid, paid[0], taps, "animate", 0, pt))
                         emitted = True
                         continue
                 r = _resolved_effect(verb, amt, tgt, extra)

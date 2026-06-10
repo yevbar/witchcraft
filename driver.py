@@ -283,6 +283,14 @@ def _apply_effects(state: dict, pending: set) -> None:
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")
         elif eff == "create_token":                          # tgt = predefined token name
             _create_token(state, tgt, ctrl, n)
+        elif eff == "animate":                               # §613 'becomes a P/T creature' (man-lands) until EOT
+            dp, dt = (int(x) for x in tgt.split("/"))         # tgt carries the P/T; feeds the §613 layers
+            eid = f"{a}__anim__{src}"
+            state.setdefault("eff_set_power", set()).add((eid, src, dp, 1))
+            state.setdefault("eff_set_toughness", set()).add((eid, src, dt, 1))
+            state.setdefault("eff_add_type", set()).add((eid, src, "creature"))
+            state.setdefault("until_eot", set()).add((eid,))  # §611.2 wears off at cleanup (still a land/etc.)
+            print(f"    {a}: {src} becomes a {tgt} creature until end of turn")
         else:                                                # pluggable verbs (effect_handlers/*.py)
             h = effect_handlers.APPLY.get(eff)
             if h:
