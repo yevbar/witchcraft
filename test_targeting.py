@@ -380,6 +380,8 @@ def _spell_checks() -> None:
           ("mine",) in st["on_battlefield"] and ("src",) in st["on_battlefield"])
 
     # a real burn spell routes deal_damage to spell_damage, not a dropped/mistranslated player effect.
+    # ONE WORLD: spell_damage is now DERIVED IN DATALOG from the card parse facts the bridge feeds — so
+    # read it back from the ENGINE (driver.run) on a state built from those facts, not from the bridge dict.
     import sim as _sim, card_corpus as _cc
     _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}
     burn = None
@@ -388,8 +390,11 @@ def _spell_checks() -> None:
             f, _ = bridge.card_facts(name, "alice", "x", _db, _co)
         except Exception:
             continue
-        if f.get("spell_damage"):
-            burn = (name, sorted(f["spell_damage"])); break
+        st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect") if k in f}
+        st["is_player"] = {("alice",), ("bob",)}
+        sd = sorted(r for r in driver.run(st, ["spell_damage"])["spell_damage"] if r[0] == "x")
+        if sd:
+            burn = (name, sd); break
     check("a real burn spell routes deal_damage to spell_damage", burn is not None)
 
     # the bridge routes a real removal spell's destroy clause to spell_target, not a dropped effect.

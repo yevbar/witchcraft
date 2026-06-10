@@ -565,6 +565,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
                     # CONDITIONAL (_cond != "-") pscope effect still goes through the old path below (datalog's
                     # rule only derives the unconditional slice), preserving the bridge's behavior exactly.
+                # ONE WORLD (spell slice 2): the CREATURE-scoped single-target / board-scope verbs (the §701
+                # zone moves + grant_keyword + counters), direct DAMAGE and REANIMATION are now DERIVED IN
+                # DATALOG (translate.dl, keyed by tid) for the UNCONDITIONAL case — spell_target/spell_scope/
+                # spell_damage/spell_reanimate. The bridge only feeds the parse facts; it skips its own
+                # emission for the migrated rows (the `continue`s below). modify_pt (a P/T payload, deferred)
+                # and switch_pt still go the python route, so their `add(...)` calls remain.
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in ("creatures_you_control", "all_creatures"):
@@ -573,45 +579,46 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         r = _creature_verb_payload(verb, amt, extra)
                         if r[0] is None:
                             dropped.append((r[1], r[2])); continue
-                        add("spell_scope", (tid, r[0], r[1], scope))
-                        continue
+                        if verb == "modify_pt":                  # P/T board buff stays in the bridge (deferred)
+                            add("spell_scope", (tid, r[0], r[1], scope))
+                        continue                                 # else: spell_scope is DATALOG-derived
                     if scope is None:
                         # §115 single 'target creature' (Murder=destroy, Giant Growth=+3/+3, Unsummon=bounce):
-                        # emit spell_target so the driver makes the §601.2c choice as the spell resolves.
+                        # spell_target so the driver makes the §601.2c choice as the spell resolves.
                         ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
                         if ev is None:
                             dropped.append((payload, cls))
                             continue
-                        add("spell_target", (tid, ev, payload, cls))
-                        continue
+                        if verb == "modify_pt":                  # P/T pump stays in the bridge (deferred)
+                            add("spell_target", (tid, ev, payload, cls))
+                        continue                                 # else: spell_target is DATALOG-derived
                 if verb == "deal_damage":
                     # §120 direct damage from a burn instant/sorcery (Lightning Bolt, Shock, Char). The driver
-                    # picks the target: a creature -> lethality check; a player -> life loss; 'any target' ->
-                    # kill a creature if it can, else go face. Variable/restricted amounts or targets abstain.
+                    # picks the target. ONE WORLD: spell_damage is now DATALOG-derived (translate.dl); the
+                    # bridge still drives the abstain bookkeeping for a variable/restricted amount or target.
                     n = _int(amt)
                     dk = _damage_target(tgt)
                     if n is None or dk is None:
                         dropped.append(("effect", "deal_damage"))
-                        continue
-                    add("spell_damage", (tid, n, dk))
-                    continue
+                    continue                                     # spell_damage is DATALOG-derived on success
                 if verb == "put_counter":
                     # §122 a +1/+1 / -1/-1 counter on a single 'target creature' (Battlefield Promotion) ->
                     # the driver picks; a board scope is applied to each in scope. self/it counters and non-P/T
-                    # / variable counters fall through to the source-counter path (or abstain).
+                    # / variable counters fall through to the source-counter path (or abstain). ONE WORLD:
+                    # the targeted/board counter spell_target/spell_scope is now DATALOG-derived — the bridge
+                    # only `continue`s past the source-counter path when datalog owns the row.
                     cp = _counter_payload(amt, extra)
                     if cp is not None:
                         cls = _target_class(tgt)
                         sc = _scope(tgt)
                         if cls is not None:
-                            add("spell_target", (tid, "counter", cp, cls)); continue
+                            continue                             # spell_target (counter) is DATALOG-derived
                         if sc in ("creatures_you_control", "all_creatures"):
-                            add("spell_scope", (tid, "counter", cp, sc)); continue
+                            continue                             # spell_scope (counter) is DATALOG-derived
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 reanimation (Resurrection, Zombify, Animate Dead): a creature card from a graveyard
-                    # to the battlefield under the caster's control. The driver picks the best graveyard
-                    # creature on resolution. enters tapped iff the clause says so.
-                    add("spell_reanimate", (tid, _reanimate_mode(extra)))
+                    # to the battlefield under the caster's control. ONE WORLD: spell_reanimate is now
+                    # DATALOG-derived (translate.dl); the bridge only feeds the parse facts.
                     continue
                 if verb == "switch_pt" and _target_class(tgt) is not None:   # §613 'switch target creature's P/T'
                     add("spell_target", (tid, "switchpt", "-", _target_class(tgt)))

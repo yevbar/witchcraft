@@ -820,7 +820,9 @@ def _run_spell_reanimate(state: dict, spell: str, ctrl: str) -> None:
     """§701 reanimation: move the best creature card in a graveyard to the battlefield under the caster's
     control (summoning-sick; tapped if the clause said so). The card isn't on the battlefield, so its type
     is read from printed_type, not the engine's `creature` (which requires a battlefield permanent)."""
-    for (_s, mode) in sorted(r for r in state.get("spell_reanimate", set()) if r[0] == spell):
+    # ONE WORLD: spell_reanimate is now an ENGINE relation — DERIVED IN DATALOG from the card parse facts
+    # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine.
+    for (_s, mode) in sorted(r for r in run(state, ["spell_reanimate"])["spell_reanimate"] if r[0] == spell):
         _reanimate_one(state, spell, ctrl, mode)
 
 
@@ -860,7 +862,9 @@ def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
     """§608.2c + §601.2c — a resolving instant/sorcery's single 'target creature' effects: the engine
     surfaced the legal-target class (spell_target), the driver picks the target (removal/tap/bounce ->
     strongest enemy, buff/grant -> strongest own) and applies it. Same machinery as triggered targets."""
-    rows = sorted(r for r in state.get("spell_target", set()) if r[0] == spell)
+    # ONE WORLD: spell_target is now an ENGINE relation — DERIVED IN DATALOG from the card parse facts
+    # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine.
+    rows = sorted(r for r in run(state, ["spell_target"])["spell_target"] if r[0] == spell)
     for (_s, verb, payload, cls) in rows:
         _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
 
@@ -885,9 +889,12 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
     indestructible, kills it via the §704 destroy path); a player target -> life loss; 'any target' ->
     kill a creature if the damage is lethal to a real threat, else go face. (Non-lethal marked damage
     isn't persisted outside combat — a known simplification; the game-relevant outcome is lethality.)"""
-    rows = sorted(r for r in state.get("spell_damage", set()) if r[0] == spell)
+    # ONE WORLD: spell_damage is now an ENGINE relation — DERIVED IN DATALOG from the card parse facts
+    # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine
+    # (the amount comes back a string through souffle, so int(n) before the lethality arithmetic).
+    rows = sorted(r for r in run(state, ["spell_damage"])["spell_damage"] if r[0] == spell)
     for (_s, n, kind) in rows:
-        _apply_damage(state, spell, n, kind, ctrl)
+        _apply_damage(state, spell, int(n), kind, ctrl)
 
 
 def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None:
@@ -957,7 +964,9 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
     """§608 board-scope creature effects on a resolving spell (Overrun: creatures you control get +X/+X;
     Wrath of God: destroy all creatures). The driver expands the scope to concrete creatures — its own
     (creatures_you_control) or every creature (all_creatures) — and applies the verb to each."""
-    rows = sorted(r for r in state.get("spell_scope", set()) if r[0] == spell)
+    # ONE WORLD: spell_scope is now an ENGINE relation — DERIVED IN DATALOG from the card parse facts
+    # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine.
+    rows = sorted(r for r in run(state, ["spell_scope"])["spell_scope"] if r[0] == spell)
     if not rows:
         return
     out = run(state, ["controls", "creature", "cant_be_destroyed"])

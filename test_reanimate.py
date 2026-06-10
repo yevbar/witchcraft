@@ -152,13 +152,20 @@ def _bridge_checks() -> None:
         return bridge.card_facts(name, "alice", "x", db, corpus)
 
     # Resurrection / Zombify: 'return target creature card from your graveyard to the battlefield'.
+    # ONE WORLD: spell_reanimate is now DERIVED IN DATALOG from the card parse facts the bridge feeds — so
+    # read it back from the ENGINE (driver.run) on a state of just those parse facts (instance_of /
+    # card_ability / card_effect — a tiny fact set, so each eval is cheap), not from the bridge dict.
+    def reanimates(name):
+        f, _ = facts(name)
+        st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect") if k in f}
+        st["is_player"] = {("alice",), ("bob",)}
+        return sorted(r for r in driver.run(st, ["spell_reanimate"])["spell_reanimate"] if r[0] == "x")
+
     hit = None
     for nm in ("Resurrection", "Zombify", "Raise Dead"):
-        if nm in corpus:
-            f, _ = facts(nm)
-            if f.get("spell_reanimate"):
-                hit = nm
-                break
+        if nm in corpus and reanimates(nm):
+            hit = nm
+            break
     check("a known reanimation spell emits spell_reanimate", hit is not None)
 
     # the guard: a graveyard OR hand creature-card clause is accepted; a blink 'it' / non-creature abstains.
@@ -168,14 +175,18 @@ def _bridge_checks() -> None:
     check("_reanimate_mode encodes the hand zone", bridge._reanimate_mode("from_hand") == "hand")
     check("_reanimate_mode encodes graveyard + tapped", bridge._reanimate_mode("from_graveyard_tapped") == "graveyard_tapped")
 
-    # corpus body: many reanimation spells now resolve.
+    # corpus body: many reanimation spells now resolve (spell_reanimate DATALOG-derived from the parse facts).
+    # Pre-filter to the cards whose parse facts even contain a return_to_battlefield spell clause before
+    # paying for an engine eval — the rest can't derive spell_reanimate, so the engine confirms only candidates.
     n = 0
     for name in corpus:
         try:
             f, _ = facts(name)
         except Exception:
             continue
-        if f.get("spell_reanimate"):
+        if not any(v == "return_to_battlefield" for (_c, _a, _i, v, *_r) in f.get("card_effect", set())):
+            continue
+        if reanimates(name):
             n += 1
     check("the corpus yields a body of reanimation spells (>= 30)", n >= 30)
 

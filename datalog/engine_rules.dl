@@ -86,6 +86,10 @@
 .decl spell_mode(s: symbol, mode: symbol)
 .decl chose_mode(s: symbol, mode: symbol)
 .decl spell_effect(spell: symbol, effect: symbol, amount: number, target: symbol)
+.decl spell_target(spell: symbol, verb: symbol, payload: symbol, cls: symbol)
+.decl spell_scope(spell: symbol, verb: symbol, payload: symbol, scope: symbol)
+.decl spell_damage(spell: symbol, n: number, kind: symbol)
+.decl spell_reanimate(spell: symbol, mode: symbol)
 .decl until_eot(e: symbol)
 .decl is_keyword(kw: symbol)
 
@@ -694,6 +698,67 @@ self_target("self"). self_target("it").
 trigger_target(IA, "switchpt", "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), target_class(Tgt, Cls).
 trigger_effect(IA, "switchpt", 0, "-") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), self_target(Tgt).
 
+// ONE WORLD (spell slice 2): an instant/sorcery's CREATURE-scoped effects — single-target
+// (spell_target), board-scope (spell_scope), direct DAMAGE (spell_damage) and REANIMATION
+// (spell_reanimate) — DERIVED here from the card parse facts for the UNCONDITIONAL case, keyed by
+// the SPELL instance id (== the bridge's tid; the driver's _run_spell_* run these on resolve). The
+// modify_pt P/T payload and switch_pt still go the python bridge route (P/T parsing deferred).
+// target_class = a CLEAN single-'target creature' slug -> the legal-target class the driver picks
+// within (was bridge._TARGET_CLASS). A restricted/named target abstains (absent).
+.decl target_class(tgt: symbol, cls: symbol)
+target_class("a_target_creature", "any"). target_class("another_target_creature", "any"). target_class("another_target_creature_you_control", "you_control"). target_class("target_creature", "any"). target_class("target_creature_an_opponent_controls", "opponent"). target_class("target_creature_you_control", "you_control"). target_class("target_creature_you_don_t_control", "opponent"). target_class("up_to_one_target_creature", "any").
+// damage_kind = a 'deal N damage to ...' target -> who the driver damages (was bridge._DAMAGE_TARGET).
+.decl damage_kind(tgt: symbol, kind: symbol)
+damage_kind("a_target_creature", "creature_any"). damage_kind("all_creatures", "all_creatures"). damage_kind("all_other_creatures", "all_creatures"). damage_kind("another_target_creature", "creature_any"). damage_kind("any_target", "any_target"). damage_kind("each_creature", "all_creatures"). damage_kind("each_creature_and_each_player", "all_creatures_and_players"). damage_kind("each_creature_with_flying", "all_flyers"). damage_kind("each_creature_with_flying_and_each_player", "all_flyers_and_players"). damage_kind("each_creature_without_flying", "all_ground"). damage_kind("each_creature_without_flying_and_each_player", "all_ground_and_players"). damage_kind("each_opponent", "face"). damage_kind("target_attacking_creature", "creature_opponent"). damage_kind("target_attacking_or_blocking_creature", "creature_opponent"). damage_kind("target_blocking_creature", "creature_opponent"). damage_kind("target_creature", "creature_any"). damage_kind("target_creature_an_opponent_controls", "creature_opponent"). damage_kind("target_creature_you_don_t_control", "creature_opponent"). damage_kind("target_opponent", "face"). damage_kind("target_player", "face"). damage_kind("target_player_or_planeswalker", "face"). damage_kind("that_player", "face"). damage_kind("up_to_one_target_creature", "creature_any"). damage_kind("you", "self"). damage_kind("yourself", "self").
+// board_scope = the board-wide creature scopes the engine resolves (the spell slice of bridge._scope:
+// creatures_you_control + all_creatures + all_other_creatures->all_creatures; self is NOT a spell scope).
+.decl board_scope(tgt: symbol, scope: symbol)
+board_scope("creatures_you_control", "creatures_you_control"). board_scope("all_creatures", "all_creatures"). board_scope("all_other_creatures", "all_creatures").
+// counter_kind = a counter spec (extra column) -> the engine's p1p1/m1m1 (was bridge._counter_kind).
+.decl counter_kind(extra: symbol, kind: symbol)
+counter_kind("+1/+1", "p1p1"). counter_kind("p1p1", "p1p1"). counter_kind("-1/-1", "m1m1"). counter_kind("m1m1", "m1m1").
+// zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —
+// destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).
+.decl zone_move_verb(verb: symbol)
+zone_move_verb("destroy"). zone_move_verb("exile"). zone_move_verb("tap"). zone_move_verb("untap"). zone_move_verb("return_to_hand").
+// seen_extra = the domain of effect EXTRA slugs (the reanimate mode reads its zone/tappedness here).
+.decl seen_extra(e: symbol)
+seen_extra(E) :- card_effect(_, _, _, _, _, _, E, _).
+// reanimate_target = the §701 'creature card from a graveyard' slugs (was bridge._REANIMATE_TARGETS).
+.decl reanimate_target(tgt: symbol)
+reanimate_target("a_creature_card"). reanimate_target("another_target_creature_card"). reanimate_target("creature_card"). reanimate_target("target_creature_card").
+// reanimate_mode = the source ZONE + tappedness the driver reads (was bridge._reanimate_mode):
+// zone is 'hand' if the clause says hand else 'graveyard', plus '_tapped' iff it enters tapped.
+.decl reanimate_mode(extra: symbol, mode: symbol)
+reanimate_mode(E, "hand_tapped") :- seen_extra(E), contains("hand", E), contains("tapped", E).
+reanimate_mode(E, "hand") :- seen_extra(E), contains("hand", E), !contains("tapped", E).
+reanimate_mode(E, "graveyard_tapped") :- seen_extra(E), !contains("hand", E), contains("graveyard", E), contains("tapped", E).
+reanimate_mode(E, "graveyard") :- seen_extra(E), !contains("hand", E), contains("graveyard", E), !contains("tapped", E).
+// an instance's spell put_counter clause -> the 'p1p1:N'/'m1m1:N' payload (was bridge._counter_payload):
+// a P/T counter kind (extra column) + a POSITIVE integer amount. The amount is matched as a
+// positive integer ([1-9][0-9]*, == bridge's int(amt)>0) and concatenated directly (no to_number —
+// souffle's to_number errors on a non-numeric amount even when a match filter precedes it).
+.decl spell_put_counter(spell: symbol, tgt: symbol, payload: symbol)
+spell_put_counter(S, Target, cat(Kind, cat(":", Amount))) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "put_counter", Amount, Target, Extra, "-"), counter_kind(Extra, Kind), match("[1-9][0-9]*", Amount).
+// DERIVE spell_target — a single 'target creature' creature verb the driver targets on resolve.
+// zone moves (destroy/exile/tap/untap/return_to_hand) -> payload '-'; grant_keyword -> ('grant', kw)
+// with the keyword in the EXTRA column; put_counter -> ('counter', 'p1p1:N'/'m1m1:N').
+spell_target(S, Verb, "-", Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, _, Target, _, "-"), zone_move_verb(Verb), target_class(Target, Cls).
+spell_target(S, "grant", Kw, Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-"), engine_keyword(Kw), target_class(Target, Cls).
+spell_target(S, "counter", Payload, Cls) :- spell_put_counter(S, Target, Payload), target_class(Target, Cls).
+// DERIVE spell_scope — a board-wide creature verb the driver expands to every creature in scope.
+// Same verb/payload vocabulary as spell_target, but a board_scope target (creatures_you_control /
+// all_creatures) instead of a single-target class. modify_pt P/T board buffs stay in the bridge.
+spell_scope(S, Verb, "-", Scope) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, _, Target, _, "-"), zone_move_verb(Verb), board_scope(Target, Scope).
+spell_scope(S, "grant", Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-"), engine_keyword(Kw), board_scope(Target, Scope).
+spell_scope(S, "counter", Payload, Scope) :- spell_put_counter(S, Target, Payload), board_scope(Target, Scope).
+// DERIVE spell_damage — §120 direct damage from a burn instant/sorcery. n = the numeric amount,
+// kind = damage_kind(target) (creature lethality / face life loss / sweeper). Variable/restricted abstain.
+spell_damage(S, N, Kind) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "deal_damage", Amount, Target, _, "-"), match("[0-9]+", Amount), N = to_number(Amount), damage_kind(Target, Kind).
+// DERIVE spell_reanimate — §701 put a graveyard/hand creature card onto the battlefield. The
+// reanimate_target gate + the source zone/tappedness mode (reanimate_mode over the EXTRA column).
+spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "return_to_battlefield", _, Target, Extra, "-"), reanimate_target(Target), reanimate_mode(Extra, Mode).
+
 .output power
 .output dies
 .output loses_game
@@ -727,6 +792,10 @@ trigger_effect(IA, "switchpt", 0, "-") :- trig_ability(IA, S, C, A), card_effect
 .output pending_damage
 .output pending_reanimate
 .output spell_effect
+.output spell_target
+.output spell_scope
+.output spell_damage
+.output spell_reanimate
 .output has_keyword
 .output eff_toughness
 .output stack_top
@@ -739,4 +808,4 @@ trigger_effect(IA, "switchpt", 0, "-") :- trig_ability(IA, S, C, A), card_effect
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect until_eot is_keyword
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword
