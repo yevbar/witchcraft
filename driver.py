@@ -37,6 +37,25 @@ DECLARED = set(engine_schema.relations())
 ZONE = {"battlefield": "on_battlefield", "graveyard": "graveyard",
         "hand": "in_hand", "exile": "exile", "library": "library"}
 
+
+def _choose(state: dict, key: str, options, default):
+    """The single seam EVERY player decision routes through — so the shim is a referee, not a hardcoded
+    player. `options` is the legal set (for enumeration by a search/policy layer); `default` is the greedy
+    pick this codebase has always used. Resolution order:
+      * state['_policy'](state, key, options, default) -> choice   (an external policy, e.g. a net/MCTS)
+      * state['_forced'][key]                                      (a specific choice search.apply injects)
+      * default                                                    (the greedy heuristic — unchanged play)
+    A forced choice is validated against `options` when options is a concrete collection (else trusted)."""
+    pol = state.get("_policy")
+    if pol is not None:
+        return pol(state, key, options, default)
+    forced = state.get("_forced")
+    if forced and key in forced:
+        choice = forced[key]
+        if options is None or choice in options:
+            return choice
+    return default
+
 OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "advance_to", "player_damage", "pending"]
 
 
@@ -492,7 +511,8 @@ def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
         own = c in mine
         prefer = (not own) if harmful else own
         return (prefer, powers.get(c, 0))
-    return max(cands, key=keyf)
+    greedy = max(cands, key=keyf)
+    return _choose(state, "target", sorted(cands), greedy)    # §601.2c — the target choice (referee seam)
 
 
 def _sacrifice(state: dict, obj: str) -> None:
@@ -513,8 +533,12 @@ def declare_attackers(state: dict, ap: str) -> None:
     opp = _others(state, ap)[0]
     sick = state.get("_sick", set())                             # §302.6 — entered this turn, no haste
     haste = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "haste"}  # granted-aware (§613 layer 6)
-    attackers = sorted(c for (c,) in run(state, ["may_attack"])["may_attack"]
-                       if (c,) not in sick or c in haste)
+    eligible = sorted(c for (c,) in run(state, ["may_attack"])["may_attack"]
+                      if (c,) not in sick or c in haste)
+    # §508 the attacker-SET choice (referee seam): default greedy = attack with everything eligible.
+    # options=None (a SET-valued choice, not an atom) — legality is enforced by the `c in eligible` clamp.
+    chosen = _choose(state, "attackers", None, frozenset(eligible))
+    attackers = sorted(c for c in eligible if c in chosen)
     state["attacks"] = {(c, opp) for c in attackers}
     if attackers:
         print(f"    {ap} attacks {opp} with {', '.join(attackers)}")
@@ -536,7 +560,10 @@ def declare_blockers(state: dict, ap: str) -> None:
             if (b, a) not in run(probe, ["illegal_block"])["illegal_block"]:
                 blocks[a] = b
                 break
-    state["blocks"] = {(b, a) for a, b in blocks.items()}
+    greedy = frozenset((b, a) for a, b in blocks.items())
+    # §509 the block-ASSIGNMENT choice (referee seam): default greedy = one legal blocker per attacker.
+    chosen = _choose(state, "blocks", None, greedy)
+    state["blocks"] = set(chosen)
     for b, a in sorted(state["blocks"]):
         print(f"    {opp} blocks {a} with {b}")
 
@@ -720,8 +747,9 @@ def _choose_mode(state: dict, spell: str) -> None:
     mode's effects resolve. (The bridge offers a mode only if its effects are resolvable.)"""
     modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell)
     if modes:
-        state.setdefault("chose_mode", set()).add((spell, modes[0]))
-        print(f"      {spell}: chooses mode {modes[0]}")
+        mode = _choose(state, "mode", modes, modes[0])        # §601.2b — the mode choice (referee seam)
+        state.setdefault("chose_mode", set()).add((spell, mode))
+        print(f"      {spell}: chooses mode {mode}")
 
 
 def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
@@ -1102,16 +1130,22 @@ def _cast_phase(state: dict, ap: str) -> None:
         castable = sorted(s for (p, s) in run(state, ["can_cast"])["can_cast"] if p == ap)
         if not castable:
             break
-        spell = castable[0]
-        _spend_mana(state, ap, spell)                        # §601.2g — consume the mana so casts are limited
-        state["in_hand"].discard((ap, spell))
-        _stack_push(state, spell, ap)
-        _choose_mode(state, spell)                           # §601.2b — choose mode(s) if it's a modal spell
-        _fire_cast_triggers(state, ap, spell)                # §601.2i — 'whenever you cast a spell' triggers
-        print(f"    {ap} casts {spell}")
-        _resolve_stack(state, ap, players)                   # response window + top-down resolution
+        _cast_spell(state, ap, castable[0], players)         # greedy: cast the first castable spell
     state["has_priority"] = set()
     _activate_phase(state, ap, players)                      # §602 — then use a non-mana activated ability if able
+
+
+def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
+    """§601 -> §608 cast ONE spell sorcery-speed onto the real stack and resolve it (mode + cast triggers +
+    response window + top-down resolution). The single-spell core of _cast_phase — reused by the env/search
+    so an external policy can cast a CHOSEN spell (with forced mode/target via the _choose seam)."""
+    _spend_mana(state, ap, spell)                            # §601.2g — consume the mana so casts are limited
+    state["in_hand"].discard((ap, spell))
+    _stack_push(state, spell, ap)
+    _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
+    _fire_cast_triggers(state, ap, spell)                    # §601.2i — 'whenever you cast a spell' triggers
+    print(f"    {ap} casts {spell}")
+    _resolve_stack(state, ap, players)                       # response window + top-down resolution
 
 
 def _activatable(state: dict, p: str) -> list:
@@ -1156,7 +1190,12 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     usable = _activatable(state, ap)
     if not usable:
         return
-    a, src, cost, taps, eff, amt, tgt = usable[0]
+    # §602 the activation choice (referee seam): default greedy = activate the first affordable ability;
+    # the option set includes None (decline) so a policy can choose not to activate.
+    chosen = _choose(state, "activate", usable + [None], usable[0])
+    if chosen is None:
+        return
+    a, src, cost, taps, eff, amt, tgt = chosen
     if int(cost):                                            # pay the mana part via the mana model
         _spend_ability_mana(state, ap, int(cost))
     if taps == "T":
