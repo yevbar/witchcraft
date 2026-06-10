@@ -130,10 +130,24 @@ def _bridge_checks() -> None:
     def facts(name):
         return bridge.card_facts(name, "alice", "x", db, corpus)
 
-    # Glorious Anthem: 'Creatures you control get +1/+1' -> static_pt.
+    # ONE WORLD: Glorious Anthem ('Creatures you control get +1/+1') no longer emits a python static_pt —
+    # the bridge feeds the card PARSE facts and the engine DERIVES static_pt from them (translate.dl).
     f, _ = facts("Glorious Anthem")
-    check("Glorious Anthem -> static_pt(+1/+1, creatures_you_control)",
-          ("x", 1, 1, "creatures_you_control") in f.get("static_pt", set()))
+    check("Glorious Anthem: bridge feeds modify_pt parse facts (P/T in AMOUNT column)",
+          any(verb == "modify_pt" and amt == "+1/+1" and tgt == "creatures_you_control"
+              for (_c, _a, _s, verb, amt, tgt, _e, _co) in f.get("card_effect", set())))
+    check("Glorious Anthem: bridge emits NO python static_pt (datalog owns it)",
+          not any(dp == 1 and dt == 1 and sc == "creatures_you_control"
+                  for (_s, dp, dt, sc) in f.get("static_pt", set())))
+
+    # the engine DERIVES the anthem end-to-end: feed an instance's parse facts -> +1/+1 reaches the own board.
+    st = _board()
+    st["instance_of"] = {("lord", "ganthem")}
+    st["card_ability"] = {("ganthem", "a0", "static")}
+    st["card_effect"] = {("ganthem", "a0", 0, "modify_pt", "+1/+1", "creatures_you_control", "-", "-")}
+    pt = _pt(st)
+    check("engine DERIVES static_pt from parse facts -> own board +1/+1 (ally 2/2 -> 3/3, foe stays 3/3)",
+          pt["ally"] == (3, 3) and pt["lord"] == (3, 3) and pt["foe"] == (3, 3))
 
     # ONE WORLD: Concordant Crossroads ('All creatures have haste') no longer emits a python static_grant —
     # the bridge feeds the card PARSE facts and the engine DERIVES static_grant from them (translate.dl).
@@ -203,6 +217,42 @@ def _bridge_checks() -> None:
                         print(f"      MISMATCH {name}: kw={kw} scope={scope} want={want} got={got}")
     check(f"datalog anthem == old bridge for all {migrated} migrated static keyword anthems (0 mismatches)",
           mism == 0)
+
+    # ONE WORLD EQUIVALENCE (P/T): across the whole corpus, for every STATIC modify_pt effect whose amount
+    # parses to a signed (dp,dt) and whose raw target is one of the 4 UNFILTERED scopes, the engine-DERIVED
+    # static_pt (read back through power/eff_toughness on the 3-creature board) must buff EXACTLY the
+    # creatures the OLD python bridge's static_pt(scope) would have, by EXACTLY (dp,dt) — proving datalog ==
+    # bridge. The base board: lord=2/2 own, ally=2/2 own, foe=3/3 opponent.
+    _BASE = {"lord": (2, 2), "ally": (2, 2), "foe": (3, 3)}
+    pt_migrated = pt_mism = 0
+    for name in corpus:
+        e = db.get(ground.slug(name)) or {}
+        for aid, ab in (e.get("abilities") or {}).items():
+            if ab.get("kind") != "static":
+                continue
+            for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
+                if verb != "modify_pt" or (cond and cond != "-"):
+                    continue
+                pt0 = bridge._parse_pt(amt)
+                if pt0 is None or str(tgt) not in bridge._ANTHEM_SCOPE:
+                    continue
+                pt_migrated += 1
+                dp, dt = pt0
+                scope = bridge._ANTHEM_SCOPE[str(tgt)]
+                hit = _SCOPE_HITS[scope]                          # what the OLD bridge static_pt(scope) reached
+                st = _board()
+                st["instance_of"] = {("lord", "c")}
+                st["card_ability"] = {("c", aid, "static")}
+                st["card_effect"] = {("c", aid, int(seq), "modify_pt", str(amt), str(tgt), "-", "-")}
+                got = _pt(st)
+                want = {c: ((bp + dp) if c in hit else bp, (bt + dt) if c in hit else bt)
+                        for c, (bp, bt) in _BASE.items()}
+                if got != want:
+                    pt_mism += 1
+                    if pt_mism <= 5:
+                        print(f"      PT MISMATCH {name}: amt={amt} scope={scope} want={want} got={got}")
+    check(f"datalog P/T anthem == old bridge for all {pt_migrated} migrated static modify_pt anthems (0 mismatches)",
+          pt_mism == 0)
 
 
 def sim_load():

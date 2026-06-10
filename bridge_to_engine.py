@@ -692,6 +692,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     pt = _parse_pt(amt)
                     if pt is None:
                         dropped.append(("modify_pt_amt", amt)); continue
+                    # ONE WORLD: the P/T anthems whose RAW target is one of the 4 unfiltered
+                    # _ANTHEM_SCOPE scopes (identity-mapped, no filter) are now DERIVED IN DATALOG
+                    # (translate.dl: static_pt from the card parse facts via pt_value + anthem_scope).
+                    # The bridge keeps the filtered subtype/type/color lords (static_pt + static_filter),
+                    # the 'attached' aura/equip case, and the singular 'creature'-target normalization.
+                    if fkind is None and str(tgt) in _ANTHEM_SCOPE:
+                        continue
                     add("static_pt", (tid, pt[0], pt[1], scope))
                 else:                                        # grant_keyword — for a static ability the granted
                     kw = amt if amt in _ENGINE_KEYWORDS else extra   # keyword is in `amt` ('have trample'),

@@ -625,6 +625,12 @@ anthem_scope("all_creatures", "all_creatures"). anthem_scope("creatures_you_cont
 .decl engine_keyword(kw: symbol)
 engine_keyword("deathtouch"). engine_keyword("defender"). engine_keyword("flying"). engine_keyword("haste"). engine_keyword("hexproof"). engine_keyword("indestructible"). engine_keyword("infect"). engine_keyword("lifelink"). engine_keyword("menace"). engine_keyword("reach"). engine_keyword("shroud"). engine_keyword("trample"). engine_keyword("vigilance"). engine_keyword("wither").
 static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-"), engine_keyword(Kw), anthem_scope(Target, Scope).
+// ONE WORLD: §611.2 STATIC P/T anthems for the UNFILTERED board scopes -> static_pt, DERIVED
+// from the card parse facts (was bridge's static branch / add('static_pt', ...) — mirrors
+// static_grant but for modify_pt). REUSES pt_value (lexes '+1/+1' -> dp,dt) and anthem_scope
+// (the 4 unfiltered targets); the filtered subtype/type/color lords still go through the python
+// bridge (their targets like 'other_goblins' are NOT in anthem_scope, so they don't derive here).
+static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, Dp, Dt), anthem_scope(Target, Scope).
 
 // ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the
 // card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from

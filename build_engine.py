@@ -983,6 +983,15 @@ def _emit_translate(p) -> None:
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-")',
             "engine_keyword(Kw)", "anthem_scope(Target, Scope)"])
+    p.comment("ONE WORLD: §611.2 STATIC P/T anthems for the UNFILTERED board scopes -> static_pt, DERIVED")
+    p.comment("from the card parse facts (was bridge's static branch / add('static_pt', ...) — mirrors")
+    p.comment("static_grant but for modify_pt). REUSES pt_value (lexes '+1/+1' -> dp,dt) and anthem_scope")
+    p.comment("(the 4 unfiltered targets); the filtered subtype/type/color lords still go through the python")
+    p.comment("bridge (their targets like 'other_goblins' are NOT in anthem_scope, so they don't derive here).")
+    p.rule("static_pt(S, Dp, Dt, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
+            "pt_value(Amount, Dp, Dt)", "anthem_scope(Target, Scope)"])
     p.blank()
     p.comment("ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the")
     p.comment("card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from")
