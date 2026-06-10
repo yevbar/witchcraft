@@ -684,6 +684,35 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
     _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
     _run_spell_damage(state, spell, ctrl)                     # §120 direct damage (Lightning Bolt, Shock, ...)
+    _run_spell_reanimate(state, spell, ctrl)                  # §701 reanimation (Resurrection, Zombify, ...)
+
+
+def _run_spell_reanimate(state: dict, spell: str, ctrl: str) -> None:
+    """§701 reanimation: move the best creature card in a graveyard to the battlefield under the caster's
+    control (summoning-sick; tapped if the clause said so). The card isn't on the battlefield, so its type
+    is read from printed_type, not the engine's `creature` (which requires a battlefield permanent)."""
+    rows = sorted(r for r in state.get("spell_reanimate", set()) if r[0] == spell)
+    if not rows:
+        return
+    gy = {c for (c,) in state.get("graveyard", set())}
+    ptype = state.get("printed_type", set())
+    ppow = {c: int(n) for (c, n) in state.get("printed_power", set())}
+    for (_s, mode) in rows:
+        targets = sorted((c for c in gy if (c, "creature") in ptype),
+                         key=lambda c: ppow.get(c, 0), reverse=True)
+        if not targets:
+            print(f"      {spell} finds no creature card to reanimate")
+            continue
+        c = targets[0]
+        gy.discard(c)
+        state["graveyard"].discard((c,))
+        state.setdefault("on_battlefield", set()).add((c,))
+        state.setdefault("printed_control", set())            # §701 under the caster's control
+        state["printed_control"] = {(p, x) for (p, x) in state["printed_control"] if x != c} | {(ctrl, c)}
+        state.setdefault("_sick", set()).add((c,))            # §302.6 summoning sickness
+        if mode == "tapped":
+            state.setdefault("tapped", set()).add((c,))
+        print(f"      {spell} reanimates {c} -> {ctrl}'s battlefield{' (tapped)' if mode == 'tapped' else ''}")
 
 
 def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:

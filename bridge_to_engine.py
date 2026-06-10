@@ -183,6 +183,15 @@ def _subtype_universe(corpus: dict) -> frozenset:
     return cached
 
 
+# §701 reanimation: a clean 'creature card from a graveyard -> battlefield' clause the driver can resolve.
+# Restricted ('... with mana value 3 or less'), blink ('it'/'that_card'), and from-hand/exile cases abstain.
+_REANIMATE_TARGETS = {"target_creature_card", "a_creature_card", "creature_card", "another_target_creature_card"}
+
+
+def _reanimates(tgt, extra) -> bool:
+    return str(tgt) in _REANIMATE_TARGETS and "graveyard" in str(extra)
+
+
 def _depluralize(word: str, universe: frozenset) -> str | None:
     """Map a pluralized subtype slug ('goblins', 'slivers', 'elves', 'allies') back to the singular subtype
     in the corpus universe, or None. Tries the common English plural rules; accepts only a real subtype."""
@@ -485,6 +494,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                             add("spell_target", (tid, "counter", cp, cls)); continue
                         if sc in ("creatures_you_control", "all_creatures"):
                             add("spell_scope", (tid, "counter", cp, sc)); continue
+                if verb == "return_to_battlefield" and _reanimates(tgt, extra):
+                    # §701 reanimation (Resurrection, Zombify, Animate Dead): a creature card from a graveyard
+                    # to the battlefield under the caster's control. The driver picks the best graveyard
+                    # creature on resolution. enters tapped iff the clause says so.
+                    add("spell_reanimate", (tid, "tapped" if "tapped" in str(extra) else "untapped"))
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))
