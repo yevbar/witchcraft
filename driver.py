@@ -268,7 +268,8 @@ def _apply_creature_effects(state: dict) -> None:
     eff_grant_keyword) that re-derive through the §613 layer system and are cleared at cleanup; a destroy
     moves the creature to its owner's graveyard. The id is deterministic per (ability, creature) so re-
     deriving the same fire across steps is idempotent (set semantics — no double-buffing)."""
-    out = run(state, ["pending_pt", "pending_grant", "pending_destroy"])
+    out = run(state, ["pending_pt", "pending_grant", "pending_destroy",
+                      "pending_exile", "pending_tap", "pending_untap", "pending_return"])
     for (a, dp, dt, c, _ctrl) in sorted(out["pending_pt"]):
         eid = f"{a}__pt__{c}"
         before = (eid, c, int(dp)) in state.get("eff_mod_power", set())
@@ -289,6 +290,25 @@ def _apply_creature_effects(state: dict) -> None:
             state["on_battlefield"].discard((c,))
             state.setdefault("graveyard", set()).add((c,))
             print(f"    trigger {a}: {c} is destroyed -> graveyard")
+    # §701 one-shot zone moves on the resolved creatures (no duration to clear at cleanup).
+    for (a, c, _ctrl) in sorted(out["pending_exile"]):
+        if (c,) in state.get("on_battlefield", set()):       # §701.10 — move it to exile
+            state["on_battlefield"].discard((c,))
+            state.setdefault("exile", set()).add((c,))
+            print(f"    trigger {a}: {c} is exiled -> exile")
+    for (a, c, ctrl) in sorted(out["pending_return"]):
+        if (c,) in state.get("on_battlefield", set()):       # §701.21 bounce — move it to its controller's hand
+            state["on_battlefield"].discard((c,))
+            state.setdefault("in_hand", set()).add((ctrl, c))
+            print(f"    trigger {a}: {c} is returned to {ctrl}'s hand")
+    for (a, c, _ctrl) in sorted(out["pending_tap"]):
+        if (c,) in state.get("on_battlefield", set()) and (c,) not in state.get("tapped", set()):
+            state.setdefault("tapped", set()).add((c,))       # §701.20 tap
+            print(f"    trigger {a}: {c} is tapped")
+    for (a, c, _ctrl) in sorted(out["pending_untap"]):
+        if (c,) in state.get("on_battlefield", set()) and (c,) in state.get("tapped", set()):
+            state["tapped"].discard((c,))                     # §701.20 untap
+            print(f"    trigger {a}: {c} is untapped")
 
 
 def _sacrifice(state: dict, obj: str) -> None:

@@ -176,10 +176,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             a = f"{tid}_{aid}"
             emitted = False
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
-                # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy): payload + a board scope the
-                # engine resolves to concrete creatures, NOT a player-target amount. Single 'target creature'
-                # abstains (needs a choice); only self / creatures_you_control / all_creatures apply.
-                if verb in ("modify_pt", "grant_keyword", "destroy"):
+                # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
+                # exile / tap / untap / return_to_hand): payload + a board scope the engine resolves to
+                # concrete creatures, NOT a player-target amount. Single 'target creature' abstains
+                # (needs a choice); only self / creatures_you_control / all_creatures apply.
+                if verb in ("modify_pt", "grant_keyword", "destroy",
+                            "exile", "tap", "untap", "return_to_hand"):
+                    # a bounce/exile FROM a non-battlefield zone (graveyard/exile/library recursion) is a
+                    # different action than the battlefield zone move this scope model applies — abstain so a
+                    # graveyard-return isn't mistranslated into a battlefield bounce.
+                    if verb in ("return_to_hand", "exile") and extra in ("from_graveyard", "from_exile", "from_library", "from_hand"):
+                        dropped.append(("effect", verb))
+                        continue
                     scope = _scope(tgt)
                     if scope is None:
                         dropped.append(("scope", tgt))
@@ -195,8 +203,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                             dropped.append(("grant_keyword", extra))
                             continue
                         add("trigger_effect_grant", (a, extra, scope))
-                    else:                                    # destroy
+                    elif verb == "destroy":
                         add("trigger_effect_destroy", (a, scope))
+                    elif verb == "exile":                    # §701.10 exile zone move
+                        add("trigger_effect_exile", (a, scope))
+                    elif verb == "tap":                      # §701.20 tap
+                        add("trigger_effect_tap", (a, scope))
+                    elif verb == "untap":                    # §701.20 untap
+                        add("trigger_effect_untap", (a, scope))
+                    else:                                    # return_to_hand (§701.21 bounce)
+                        add("trigger_effect_return", (a, scope))
                     add("has_trigger", (a, tid, event))
                     emitted = True
                     continue

@@ -151,6 +151,13 @@ INPUTS = [
     ("trigger_effect_pt", [("ability", "symbol"), ("dp", "number"), ("dt", "number"), ("scope", "symbol")]),
     ("trigger_effect_grant", [("ability", "symbol"), ("keyword", "symbol"), ("scope", "symbol")]),
     ("trigger_effect_destroy", [("ability", "symbol"), ("scope", "symbol")]),
+    # §701 creature-scoped ZONE MOVES — the SAME scope model as destroy: exile / tap / untap /
+    # return_to_hand (bounce). The engine resolves the scope to concrete creatures (pending_exile/tap/
+    # untap/return) the driver applies as a one-shot zone/tap change (no duration to clear).
+    ("trigger_effect_exile", [("ability", "symbol"), ("scope", "symbol")]),
+    ("trigger_effect_tap", [("ability", "symbol"), ("scope", "symbol")]),
+    ("trigger_effect_untap", [("ability", "symbol"), ("scope", "symbol")]),
+    ("trigger_effect_return", [("ability", "symbol"), ("scope", "symbol")]),
     # §613.4 layer 7c P/T modifier carrying an effect id so a duration ('until end of turn') can clear it
     # at cleanup (the bare mod_power/mod_toughness inputs have no id and persist). Summed into pt7c.
     ("eff_mod_power", [("e", "symbol"), ("c", "symbol"), ("dp", "number")]),
@@ -197,6 +204,10 @@ EXPECT_DECLS = [
     ("expect_pending_pt", [("a", "symbol"), ("c", "symbol")]),
     ("expect_pending_grant", [("a", "symbol"), ("c", "symbol")]),
     ("expect_pending_destroy", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_exile", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_tap", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_untap", [("a", "symbol"), ("c", "symbol")]),
+    ("expect_pending_return", [("a", "symbol"), ("c", "symbol")]),
 ]
 CHECKS = [
     ("dies", "expect_dies(C)", "miss", "dies(C)"),
@@ -225,6 +236,10 @@ CHECKS = [
     ("pend_pt", "expect_pending_pt(A, C)", "miss", "pending_pt(A, _, _, C, _)", "A", "C"),
     ("pend_grant", "expect_pending_grant(A, C)", "miss", "pending_grant(A, _, C, _)", "A", "C"),
     ("pend_destroy", "expect_pending_destroy(A, C)", "miss", "pending_destroy(A, C, _)", "A", "C"),
+    ("pend_exile", "expect_pending_exile(A, C)", "miss", "pending_exile(A, C, _)", "A", "C"),
+    ("pend_tap", "expect_pending_tap(A, C)", "miss", "pending_tap(A, C, _)", "A", "C"),
+    ("pend_untap", "expect_pending_untap(A, C)", "miss", "pending_untap(A, C, _)", "A", "C"),
+    ("pend_return", "expect_pending_return(A, C)", "miss", "pending_return(A, C, _)", "A", "C"),
 ]
 
 SCENARIOS = [
@@ -346,6 +361,16 @@ SCENARIOS = [
     'expect_pending_pt("buff", "lord")', 'expect_pending_pt("buff", "ally")',
     'expect_pending_grant("wings2", "lord")', 'expect_pending_grant("wings2", "ally")',
     'expect_pending_destroy("boom", "lord")',
+    # §701 creature-scoped ZONE MOVES via the same scope model — an 'on attack' ability that
+    # taps/exiles/bounces a board scope resolves to every creature in that scope; untap likewise.
+    'has_trigger("freeze", "lord", "attacks_self")', 'trigger_effect_tap("freeze", "creatures_you_control")',
+    'has_trigger("flicker", "lord", "attacks_self")', 'trigger_effect_exile("flicker", "self")',
+    'has_trigger("unfreeze", "lord", "attacks_self")', 'trigger_effect_untap("unfreeze", "all_creatures")',
+    'has_trigger("recall", "lord", "attacks_self")', 'trigger_effect_return("recall", "self")',
+    'expect_pending_tap("freeze", "lord")', 'expect_pending_tap("freeze", "ally")',
+    'expect_pending_exile("flicker", "lord")',
+    'expect_pending_untap("unfreeze", "lord")', 'expect_pending_untap("unfreeze", "ally")',
+    'expect_pending_return("recall", "lord")',
 ]
 
 
@@ -699,6 +724,10 @@ def _rules(p: Program) -> None:
     p.rule("scope_of(A, Sc)", ["trigger_effect_pt(A, _, _, Sc)"])
     p.rule("scope_of(A, Sc)", ["trigger_effect_grant(A, _, Sc)"])
     p.rule("scope_of(A, Sc)", ["trigger_effect_destroy(A, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_exile(A, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_tap(A, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_untap(A, Sc)"])
+    p.rule("scope_of(A, Sc)", ["trigger_effect_return(A, Sc)"])
     p.comment("pending_pt / pending_grant / pending_destroy — the concrete (creature, payload) the driver applies.")
     p.decl("pending_pt", [("ability", "symbol"), ("dp", "number"), ("dt", "number"), ("creature", "symbol"), ("controller", "symbol")])
     p.rule("pending_pt(A, DP, DT, C, P)", ["trigger_effect_pt(A, DP, DT, _)", "scope_creature(A, S, C)", "controls(P, S)"])
@@ -706,12 +735,22 @@ def _rules(p: Program) -> None:
     p.rule("pending_grant(A, K, C, P)", ["trigger_effect_grant(A, K, _)", "scope_creature(A, S, C)", "controls(P, S)"])
     p.decl("pending_destroy", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
     p.rule("pending_destroy(A, C, P)", ["trigger_effect_destroy(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.comment("§701 creature-scoped ZONE MOVES — same shape as pending_destroy, one row per resolved creature.")
+    p.decl("pending_exile", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_exile(A, C, P)", ["trigger_effect_exile(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.decl("pending_tap", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_tap(A, C, P)", ["trigger_effect_tap(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.decl("pending_untap", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_untap(A, C, P)", ["trigger_effect_untap(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
+    p.decl("pending_return", [("ability", "symbol"), ("creature", "symbol"), ("controller", "symbol")])
+    p.rule("pending_return(A, C, P)", ["trigger_effect_return(A, _)", "scope_creature(A, S, C)", "controls(P, S)"])
     p.blank()
     p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",
              "pending_pt", "pending_grant", "pending_destroy",   # §603 creature-scoped triggered effects
+             "pending_exile", "pending_tap", "pending_untap", "pending_return",  # §701 creature-scoped zone moves
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state

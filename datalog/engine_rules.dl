@@ -48,6 +48,10 @@
 .decl trigger_effect_pt(ability: symbol, dp: number, dt: number, scope: symbol)
 .decl trigger_effect_grant(ability: symbol, keyword: symbol, scope: symbol)
 .decl trigger_effect_destroy(ability: symbol, scope: symbol)
+.decl trigger_effect_exile(ability: symbol, scope: symbol)
+.decl trigger_effect_tap(ability: symbol, scope: symbol)
+.decl trigger_effect_untap(ability: symbol, scope: symbol)
+.decl trigger_effect_return(ability: symbol, scope: symbol)
 .decl eff_mod_power(e: symbol, c: symbol, dp: number)
 .decl eff_mod_toughness(e: symbol, c: symbol, dt: number)
 .decl has_supertype(o: symbol, sup: symbol)
@@ -461,6 +465,10 @@ scope_creature(A, S, C) :- fires(A, S), scope_of(A, "all_creatures"), creature(C
 scope_of(A, Sc) :- trigger_effect_pt(A, _, _, Sc).
 scope_of(A, Sc) :- trigger_effect_grant(A, _, Sc).
 scope_of(A, Sc) :- trigger_effect_destroy(A, Sc).
+scope_of(A, Sc) :- trigger_effect_exile(A, Sc).
+scope_of(A, Sc) :- trigger_effect_tap(A, Sc).
+scope_of(A, Sc) :- trigger_effect_untap(A, Sc).
+scope_of(A, Sc) :- trigger_effect_return(A, Sc).
 // pending_pt / pending_grant / pending_destroy — the concrete (creature, payload) the driver applies.
 .decl pending_pt(ability: symbol, dp: number, dt: number, creature: symbol, controller: symbol)
 pending_pt(A, DP, DT, C, P) :- trigger_effect_pt(A, DP, DT, _), scope_creature(A, S, C), controls(P, S).
@@ -468,6 +476,15 @@ pending_pt(A, DP, DT, C, P) :- trigger_effect_pt(A, DP, DT, _), scope_creature(A
 pending_grant(A, K, C, P) :- trigger_effect_grant(A, K, _), scope_creature(A, S, C), controls(P, S).
 .decl pending_destroy(ability: symbol, creature: symbol, controller: symbol)
 pending_destroy(A, C, P) :- trigger_effect_destroy(A, _), scope_creature(A, S, C), controls(P, S).
+// §701 creature-scoped ZONE MOVES — same shape as pending_destroy, one row per resolved creature.
+.decl pending_exile(ability: symbol, creature: symbol, controller: symbol)
+pending_exile(A, C, P) :- trigger_effect_exile(A, _), scope_creature(A, S, C), controls(P, S).
+.decl pending_tap(ability: symbol, creature: symbol, controller: symbol)
+pending_tap(A, C, P) :- trigger_effect_tap(A, _), scope_creature(A, S, C), controls(P, S).
+.decl pending_untap(ability: symbol, creature: symbol, controller: symbol)
+pending_untap(A, C, P) :- trigger_effect_untap(A, _), scope_creature(A, S, C), controls(P, S).
+.decl pending_return(ability: symbol, creature: symbol, controller: symbol)
+pending_return(A, C, P) :- trigger_effect_return(A, _), scope_creature(A, S, C), controls(P, S).
 
 .output power
 .output dies
@@ -494,6 +511,10 @@ pending_destroy(A, C, P) :- trigger_effect_destroy(A, _), scope_creature(A, S, C
 .output pending_pt
 .output pending_grant
 .output pending_destroy
+.output pending_exile
+.output pending_tap
+.output pending_untap
+.output pending_return
 .output has_keyword
 .output stack_top
 .output resolves
