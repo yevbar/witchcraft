@@ -496,6 +496,8 @@ fires(A, S) :- has_trigger(A, S, "end_step"), ev_end_step(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "beginning_of_combat"), ev_beginning_of_combat(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "sacrificed_self"), ev_sacrifice(S).
 fires(A, S) :- has_trigger(A, S, "sacrificed_other"), ev_sacrifice(O), O != S.
+// §603 'whenever you sacrifice a permanent' — controller-scoped (aristocrats)
+fires(A, S) :- has_trigger(A, S, "your_sacrifice"), ev_sacrifice(O), O != S, controls(P, O), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "phased_out_self"), ev_phase_out(S).
 fires(A, S) :- has_trigger(A, S, "countered_self"), ev_countered(S).
 // §603.9
@@ -507,7 +509,7 @@ fires(A, S) :- has_trigger(A, S, "player_loses_game"), ev_loses_game(_).
 .decl looks_back_in_time(event: symbol)
 looks_back_in_time("permanent leaves the battlefield"). looks_back_in_time("player sacrifices a permanent"). looks_back_in_time("card leaves a graveyard"). looks_back_in_time("object that all players can see is put into a hand or library"). looks_back_in_time("permanent phases out"). looks_back_in_time("object becomes unattached"). looks_back_in_time("player loses control of an object"). looks_back_in_time("player's opponent gains control of an object from that player"). looks_back_in_time("spell is countered"). looks_back_in_time("player loses the game"). looks_back_in_time("player planeswalks away from a plane").
 .decl lookback_bridge(event_key: symbol, phrase: symbol)
-lookback_bridge("dies_self", "permanent leaves the battlefield"). lookback_bridge("dies_other", "permanent leaves the battlefield"). lookback_bridge("sacrificed_self", "player sacrifices a permanent"). lookback_bridge("sacrificed_other", "player sacrifices a permanent"). lookback_bridge("phased_out_self", "permanent phases out"). lookback_bridge("countered_self", "spell is countered"). lookback_bridge("player_loses_game", "player loses the game").
+lookback_bridge("dies_self", "permanent leaves the battlefield"). lookback_bridge("dies_other", "permanent leaves the battlefield"). lookback_bridge("sacrificed_self", "player sacrifices a permanent"). lookback_bridge("sacrificed_other", "player sacrifices a permanent"). lookback_bridge("your_sacrifice", "player sacrifices a permanent"). lookback_bridge("phased_out_self", "permanent phases out"). lookback_bridge("countered_self", "spell is countered"). lookback_bridge("player_loses_game", "player loses the game").
 .decl lookback_trigger(event_key: symbol)
 lookback_trigger(K) :- lookback_bridge(K, P), looks_back_in_time(P).
 // pending carries the SOURCE so self-targeting effects (e.g. a +1/+1 counter on itself) resolve.

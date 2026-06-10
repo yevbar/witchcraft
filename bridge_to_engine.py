@@ -51,6 +51,14 @@ _EVENT = {
     "a_player_casts_a_spell": "any_cast",
     "leaves_the_battlefield": "leaves_self",                 # §603.6d (death/sacrifice leaves modelled)
     "another_permanent_leaves_the_battlefield": "leaves_other",
+    # §603 sacrifice-watching (aristocrats). 'a player sacrifices a permanent' is unrestricted -> any
+    # sacrifice (sacrificed_other). 'you sacrifice a permanent' is controller-scoped -> your_sacrifice.
+    # Type-restricted forms ('you sacrifice a CREATURE/artifact/Food') still abstain (no type filter).
+    "a_player_sacrifices_a_permanent": "sacrificed_other",
+    "a_player_sacrifices_another_permanent": "sacrificed_other",
+    "you_sacrifice": "your_sacrifice",
+    "you_sacrifice_a_permanent": "your_sacrifice",
+    "you_sacrifice_another_permanent": "your_sacrifice",
     "is_dealt_damage": "dealt_damage_self",                  # §603 (combat damage to the creature modelled)
     "deals_damage_to_a_player": "combat_damage_to_player",   # under-covers noncombat damage; combat is the path
 }

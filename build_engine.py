@@ -56,6 +56,7 @@ _LOOKBACK_BRIDGE = [
     ("dies_other", "permanent leaves the battlefield"),
     ("sacrificed_self", "player sacrifices a permanent"),
     ("sacrificed_other", "player sacrifices a permanent"),
+    ("your_sacrifice", "player sacrifices a permanent"),
     ("phased_out_self", "permanent phases out"),
     ("countered_self", "spell is countered"),
     ("player_loses_game", "player loses the game"),
@@ -772,6 +773,7 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "beginning_of_combat")', "ev_beginning_of_combat(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_self")', "ev_sacrifice(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_other")', "ev_sacrifice(O)", "O != S"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_sacrifice")', "ev_sacrifice(O)", "O != S", "controls(P, O)", "controls(P, S)"], note="§603 'whenever you sacrifice a permanent' — controller-scoped (aristocrats)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "phased_out_self")', "ev_phase_out(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "countered_self")', "ev_countered(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "player_loses_game")', "ev_loses_game(_)"], note="§603.9")
