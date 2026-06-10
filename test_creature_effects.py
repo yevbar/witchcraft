@@ -50,8 +50,13 @@ def _bridge_checks() -> None:
           any(dp == 1 and dt == 1 and sc == "creatures_you_control" for _a, dp, dt, sc in pt))
     check("ETB anthem -> trigger_effect_grant(vigilance, creatures_you_control)",
           any(kw == "vigilance" and sc == "creatures_you_control" for _a, kw, sc in gr))
-    check("ETB anthem fired through a real has_trigger(etb_self)",
-          any(ev == "etb_self" for _a, _s, ev in f.get("has_trigger", set())) and not dropped)
+    # ONE WORLD: the bridge no longer emits has_trigger — it feeds the PARSE facts and the engine DERIVES
+    # has_trigger(etb_self) from them. Verify the bridge emits the triggered card_ability whose trigger phrase
+    # maps to etb_self via the event table the datalog rule (has_trigger :- ..., event_map(Phrase, Event)) uses.
+    check("ETB anthem -> bridge feeds card_ability(triggered) + ability_trigger mapping to etb_self (datalog derives has_trigger)",
+          "has_trigger" not in f and not dropped
+          and any(k == "triggered" for (_c, _a, k) in f.get("card_ability", set()))
+          and any(bridge._EVENT.get(ph) == "etb_self" for (_c, _a, ph) in f.get("ability_trigger", set())))
 
     # Event-abstention path: a grant whose trigger event is still unmodelled must NOT mistranslate into a
     # trigger_effect_grant. Found dynamically (robust as more events get mapped over time) — there are

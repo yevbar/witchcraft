@@ -454,7 +454,6 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                             dropped.append((payload, cls))     # (reason_kind, reason_detail)
                             continue
                         add("trigger_target", (a, ev, payload, cls))
-                        add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
                     if verb == "modify_pt":
@@ -478,7 +477,6 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("trigger_effect_untap", (a, scope))
                     else:                                    # return_to_hand (§701.21 bounce)
                         add("trigger_effect_return", (a, scope))
-                    add("has_trigger", (a, tid, event))
                     emitted = True
                     continue
                 if verb == "deal_damage":
@@ -488,7 +486,6 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     n, dk = _int(amt), _damage_target(tgt)
                     if n is not None and dk is not None:
                         add("trigger_damage", (a, n, dk))
-                        add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
                 if verb == "put_counter":
@@ -499,43 +496,39 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     cls = _target_class(tgt)
                     if cp is not None and cls is not None:
                         add("trigger_target", (a, "counter", cp, cls))
-                        add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
                     # graveyard creature under the controller's control on resolution.
                     add("trigger_reanimate", (a, _reanimate_mode(extra)))
-                    add("has_trigger", (a, tid, event))
                     emitted = True
                     continue
                 if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
                     pt = _animation_pt(amt)                   # §613 'becomes a P/T creature' (animate the source)
                     if pt is not None:
                         add("trigger_effect", (a, "animate", 0, pt))
-                        add("has_trigger", (a, tid, event))
                         emitted = True
                         continue
                 if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
                     if str(tgt) in ("self", "it"):
                         add("trigger_effect", (a, "switchpt", 0, "-"))
-                        add("has_trigger", (a, tid, event)); emitted = True; continue
+                        emitted = True; continue
                     if _target_class(tgt) is not None:
                         add("trigger_target", (a, "switchpt", "-", _target_class(tgt)))
-                        add("has_trigger", (a, tid, event)); emitted = True; continue
+                        emitted = True; continue
                 if verb in _PSCOPE_DATALOG:                   # ONE WORLD: draw/gain_life/lose_life/mill/discard
-                    add("has_trigger", (a, tid, event))       # trigger_effect is now DERIVED IN DATALOG from the
-                    emitted = True                            # card parse facts (translate.dl), not the python bridge
-                    continue
+                    emitted = True                            # has_trigger + trigger_effect are now DERIVED IN
+                    continue                                  # DATALOG from the card parse facts (translate.dl)
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
-                add("has_trigger", (a, tid, event))
                 add("trigger_effect", (a, r[0], r[1], r[2]))
                 emitted = True
-            if not emitted:
-                out.get("has_trigger", set()).discard((a, tid, event))
+            # ONE WORLD: has_trigger is now DERIVED IN DATALOG for EVERY mapped-event triggered ability — so the
+            # bridge no longer emits or suppresses it. event is still gated above to drive the trigger_* payloads.
+            _ = emitted
         elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
                 if verb in _CREATURE_VERBS:

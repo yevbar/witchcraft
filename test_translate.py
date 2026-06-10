@@ -29,7 +29,7 @@ def _fires_state(card: str, aid: str, phrase: str, effect: tuple) -> dict:
     return {
         "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
         "on_battlefield": {("i",)}, "printed_type": {("i", "creature")}, "printed_control": {("alice", "i")},
-        "has_trigger": {("i_" + aid, "i", "upkeep")},          # the bridge still feeds has_trigger
+        # ONE WORLD: has_trigger is no longer fed — the engine DERIVES it from the parse facts below.
         "instance_of": {("i", card)},
         "card_ability": {(card, aid, "triggered")},
         "ability_trigger": {(card, aid, phrase)},
@@ -49,9 +49,12 @@ def _derivation_checks():
     ]
     for verb, amt, tgt, eff, n, scope in cases:
         st = _fires_state("c", "a0", "the_beginning_of_your_upkeep", (0, verb, amt, tgt))
-        pend = driver.run(st, ["pending"])["pending"]
-        ok = ("i_a0", eff, str(n), scope, "i", "alice") in pend
+        out = driver.run(st, ["pending", "fires"])
+        ok = ("i_a0", eff, str(n), scope, "i", "alice") in out["pending"]
         check(f"datalog derives {verb} {amt} ({tgt}) -> pending({eff}, {n}, {scope})", ok)
+        # ONE WORLD: has_trigger is now DERIVED IN DATALOG (no manual feed) — proven via `fires`, which
+        # derives only from has_trigger. (has_trigger isn't an .output, so `fires` is the readable proxy.)
+        check(f"datalog DERIVES has_trigger for {verb} (fires(i_a0, i))", ("i_a0", "i") in out["fires"])
 
     # variable amount and unrecognized constructs ABSTAIN (no derivation), like the bridge did.
     st = _fires_state("c", "a0", "the_beginning_of_your_upkeep", (0, "draw", "X", "you"))

@@ -898,6 +898,12 @@ def _emit_translate(p) -> None:
     p.comment("the instance-level ability id, matching the bridge's f'{tid}_{aid}'.")
     p.decl("inst_ability", [("ia", "symbol"), ("source", "symbol"), ("aid", "symbol"), ("card", "symbol")])
     p.rule("inst_ability(cat(S, cat(\"_\", A)), S, A, C)", ["instance_of(S, C)", "card_ability(C, A, _)"])
+    p.comment("DERIVE has_trigger for EVERY triggered ability whose §603 trigger-phrase maps to an engine event")
+    p.comment("(was bridge: add('has_trigger', (f'{tid}_{aid}', tid, _EVENT[trigger]))). The instance ability id")
+    p.comment("cat(S,'_',A) == f'{tid}_{aid}', the source is the instance S, the event is event_map(Phrase).")
+    p.rule("has_trigger(IA, S, Event)",
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, Event)"])
     p.comment("DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.")
     p.rule("trigger_effect(IA, Eff, N, Scope)",
            ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',

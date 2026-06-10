@@ -58,8 +58,14 @@ def _bridge_checks() -> None:
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
     def ev(name):
+        # ONE WORLD: the bridge no longer emits has_trigger — it feeds the parse facts and the datalog rule
+        #   has_trigger(IA, S, Event) :- ..., ability_trigger(C, A, Phrase), event_map(Phrase, Event)
+        # derives the events. Read the same set the engine derives: each triggered ability's trigger phrase
+        # mapped through the event table (event_map == bridge._EVENT).
         f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
-        return {e for (_a, _s, e) in f.get("has_trigger", set())}
+        triggered = {(c, a) for (c, a, k) in f.get("card_ability", set()) if k == "triggered"}
+        return {bridge._EVENT[ph] for (c, a, ph) in f.get("ability_trigger", set())
+                if (c, a) in triggered and ph in bridge._EVENT}
 
     if "Mayhem Devil" in corpus:
         check("Mayhem Devil ('a player sacrifices a permanent') -> sacrificed_other",
@@ -82,7 +88,11 @@ def _bridge_checks() -> None:
             f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
         except Exception:
             continue
-        if any(e in ("your_sacrifice", "sacrificed_other") for (_a, _s, e) in f.get("has_trigger", set())):
+        # ONE WORLD: derive the events the engine's has_trigger rule would (trigger phrase -> event_map).
+        triggered = {(c, a) for (c, a, k) in f.get("card_ability", set()) if k == "triggered"}
+        events = {bridge._EVENT[ph] for (c, a, ph) in f.get("ability_trigger", set())
+                  if (c, a) in triggered and ph in bridge._EVENT}
+        if events & {"your_sacrifice", "sacrificed_other"}:
             n += 1
     check("the corpus yields a body of sacrifice-watchers (>= 10)", n >= 10)
 

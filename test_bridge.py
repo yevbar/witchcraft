@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 
 import card_corpus
 import sim
+import driver
 import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
@@ -39,16 +40,32 @@ def run() -> None:
     check("keyword creature -> printed_keyword(flying, vigilance)",
           {("x", "flying"), ("x", "vigilance")} <= f.get("printed_keyword", set()))
 
-    # a supported death trigger: the bridge emits has_trigger(dies_self) + the card PARSE facts; the
-    # player-scoped effect (lose 2 life) is DERIVED IN DATALOG (translate.dl), not the python bridge.
+    # a supported death trigger: ONE WORLD — the bridge feeds ONLY the card PARSE facts (no has_trigger,
+    # no trigger_effect); the engine DERIVES both has_trigger(dies_self) and the player-scoped effect
+    # (lose 2 life) in DATALOG (translate.dl) from those facts.
     f, dropped = facts("Tattered Mummy")
-    ht = f.get("has_trigger", set())
-    check("dies trigger -> has_trigger(..., dies_self)", any(ev == "dies_self" for _, _, ev in ht))
+    check("the bridge no longer emits has_trigger (datalog derives it)", "has_trigger" not in f)
+    check("the bridge feeds the card PARSE facts (one world): card_ability(triggered) + ability_trigger(dies)",
+          ("tattered_mummy", "a0", "triggered") in f.get("card_ability", set())
+          and ("tattered_mummy", "a0", "dies") in f.get("ability_trigger", set()))
     check("the bridge feeds the card PARSE facts (one world): card_effect(lose_life, 2, each_opponent)",
           any(verb == "lose_life" and amt == "2" and tgt == "each_opponent"
               for (_c, _a, _s, verb, amt, tgt, _e, _co) in f.get("card_effect", set())))
     check("the engine DERIVES the effect from those facts (no python trigger_effect emitted)",
           not f.get("trigger_effect") and not dropped)
+    # the engine DERIVES has_trigger end-to-end: feed the parse facts + kill the source (0 toughness SBA) and
+    # confirm the dies_self trigger fires (fires derives only from has_trigger) and the effect resolves.
+    st = {k: set(v) for k, v in f.items()}                    # facts() built this instance with tid "x"
+    st["on_battlefield"] = {("x",)}
+    st["printed_toughness"] = {("x", 0)}
+    st.setdefault("is_player", set()).update({("alice",), ("bob",)})
+    st.setdefault("active_player", set()).add(("alice",))
+    st.setdefault("current_step", set()).add(("upkeep",))
+    eng = driver.run(st, ["fires", "pending"])
+    check("the engine DERIVES has_trigger(dies_self) from the parse facts (fires(x_a0, x))",
+          ("x_a0", "x") in eng["fires"])
+    check("...and resolves the derived effect -> pending(lose_life, 2, each_opponent)",
+          ("x_a0", "lose_life", "2", "each_opponent", "x", "alice") in eng["pending"])
 
     # an UNsupported effect abstains (no mistranslation) — Gravedigger's ETB return_to_hand
     f, dropped = facts("Gravedigger")
