@@ -466,42 +466,218 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, cur)}
 
 
+# --- §405 THE STACK: push -> priority window -> resolve top -----------------------------------------
+# `on_stack(obj, pos)` is the engine's stack (pos = depth, higher resolves first via stack_top). The
+# driver tracks per-object bookkeeping the engine doesn't need — who controls it and how it resolves —
+# in `_stack_info[obj] = controller`. Mana is paid by the mana model (_spend_mana); the engine still
+# authors can_cast / resolves / fizzles / countered / enters_*.
+
+def _stack_push(state: dict, obj: str, controller: str) -> None:
+    """§601.2 / §405.1 — put a just-cast spell (or activated ability) on top of the stack."""
+    positions = [p for (_o, p) in state.get("on_stack", set())]
+    pos = (max(positions) + 1) if positions else 0
+    state.setdefault("on_stack", set()).add((obj, pos))
+    state.setdefault("_stack_info", {})[obj] = controller
+
+
+def _stack_remove(state: dict, obj: str) -> None:
+    state["on_stack"] = {(o, p) for (o, p) in state.get("on_stack", set()) if o != obj}
+    state.get("_stack_info", {}).pop(obj, None)
+
+
+def _spell_effects(state: dict, spell: str) -> list:
+    return sorted(r for r in state.get("spell_effect", set()) if r[0] == spell)
+
+
+def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
+    """§608.2c — a resolving instant/sorcery runs its effects, then goes to the graveyard. `counter`
+    removes its target from the stack (the engine's `countered` event then lets any 'when countered'
+    trigger fire); the rest are applied via _apply_effects (the shared effect resolver)."""
+    pending = set()
+    for (_s, eff, amt, tgt) in _spell_effects(state, spell):
+        if eff == "counter":                                 # §701.5 — counter the spell below it on the stack
+            victim = _counter_target(state, spell)
+            if victim is not None:
+                print(f"      {spell} counters {victim}")
+                state["countered"] = {(victim,)}             # §603.10e look-back event for 'when countered'
+                _apply_effects(state, run(state, ["pending"])["pending"])
+                state["countered"] = set()
+                _stack_remove(state, victim)
+                _to_graveyard(state, victim)
+            else:
+                print(f"      {spell} has no spell to counter")
+        else:                                                # shared effect resolver (§603 -> §608 vocabulary)
+            _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
+
+
+def _counter_target(state: dict, counterspell: str) -> str | None:
+    """The spell a counterspell counters: the topmost OTHER object on the stack (the one it was cast
+    in response to). With a one-deep response window that's the spell directly below it."""
+    below = sorted(((p, o) for (o, p) in state.get("on_stack", set()) if o != counterspell), reverse=True)
+    return below[0][1] if below else None
+
+
+def _to_graveyard(state: dict, obj: str) -> None:
+    """§608.2m / §405.5 — a resolved or countered spell that isn't a permanent goes to the graveyard."""
+    state.setdefault("graveyard", set()).add((obj,))
+
+
+def _resolve_top(state: dict) -> None:
+    """§608 — resolve the top object of the stack once all players have passed. A spell that resolves
+    enters the battlefield (permanent, applying §614 ETB replacements) or runs its effects then hits the
+    graveyard (instant/sorcery); a fizzled/countered spell leaves with no effect. The engine derives
+    resolves / fizzles / enters_* — the driver just moves the object and applies what's derived."""
+    state["all_passed"] = {("yes",)}
+    out = run(state, ["stack_top", "resolves", "fizzles", "enters_battlefield",
+                      "enters_tapped", "enters_with_counter"])
+    state["all_passed"] = set()
+    top = next((o for (o,) in out["stack_top"]), None)
+    if top is None:                                          # nothing the engine recognizes on the stack
+        state["on_stack"] = set(); state["_stack_info"] = {}  # clear so the priority loop can't hang
+        return
+    ctrl = state.get("_stack_info", {}).get(top, next(iter(state["active_player"]))[0])
+    _stack_remove(state, top)
+    if top in state.get("_ability_effect", {}):              # §602 a resolving activated ability (not a spell)
+        eff, amt, tgt, src, actrl = state["_ability_effect"].pop(top)
+        print(f"    {top} resolves (activated ability)")
+        _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
+        return
+    if (top,) in out["fizzles"]:
+        print(f"    {top} fizzles (no legal target) -> graveyard")
+        _to_graveyard(state, top)
+        return
+    if (top,) in out["enters_battlefield"]:                  # a permanent spell becomes a permanent
+        print(f"    {top} resolves -> battlefield")
+        state["on_battlefield"].add((top,))
+        state.setdefault("printed_control", set()).add((ctrl, top))
+        state.setdefault("_sick", set()).add((top,))         # §302.6 summoning sickness until controller's next turn
+        if (top,) in out["enters_tapped"]:
+            state.setdefault("tapped", set()).add((top,)); print(f"      {top} enters tapped")
+        for (c, k, n) in sorted(out["enters_with_counter"]):
+            if c == top:
+                _bump_counter(state, top, k, int(n)); print(f"      {top} enters with {n} {k} counter")
+        # §603.2a — the permanent's own enters ability triggers AS it enters. Re-assert it as the resolving
+        # object (ev_etb only holds while resolving) with the permanent now on the battlefield so
+        # 'creatures you control' scopes include it; _apply_effects applies both player- and creature-scoped
+        # ETB pendings, then it leaves the stack for good.
+        maxd = max([d for (_o, d) in state.get("on_stack", set())], default=-1)
+        state.setdefault("on_stack", set()).add((top, maxd + 1))
+        state["all_passed"] = {("yes",)}
+        _apply_effects(state, run(state, ["pending"])["pending"])
+        state["all_passed"] = set()
+        _stack_remove(state, top)
+        return
+    print(f"    {top} resolves")                             # an instant/sorcery: run effects, then graveyard
+    _run_spell_effects(state, top, ctrl)
+    _to_graveyard(state, top)
+
+
+def _cast_instant_response(state: dict, p: str) -> bool:
+    """§405.2 RESPONSE WINDOW — player `p` (with priority) may cast ONE instant from hand onto the stack
+    in response to whatever is on top. Greedy: casts the first castable instant (this is how a held
+    counterspell answers a spell on the stack). Returns True if it cast something (priority resets)."""
+    state["has_priority"] = {(p,)}
+    castable = sorted(s for (q, s) in run(state, ["can_cast"])["can_cast"]
+                      if q == p and (s, "instant") in state.get("spell_type", set()))
+    if not castable:
+        return False
+    spell = castable[0]
+    _spend_mana(state, p, spell)                             # mana model owns payment
+    state["in_hand"].discard((p, spell))
+    _stack_push(state, spell, p)
+    print(f"    {p} responds: casts {spell} (onto the stack)")
+    return True
+
+
+def _resolve_stack(state: dict, ap: str, players: list) -> None:
+    """§117.4 / §405.5 — run the priority loop until the stack empties: after each push, every non-active
+    player gets a response window; when all pass, the top resolves. Repeat until the stack is empty."""
+    while state.get("on_stack"):
+        responded = False
+        for p in players:                                    # §405.2 non-active players may respond first
+            if p != ap and _cast_instant_response(state, p):
+                responded = True
+                break
+        if responded:
+            continue                                         # a response was added; re-open priority on the new top
+        _resolve_top(state)                                  # all passed -> resolve the top object
+    state["has_priority"] = set()
+
+
 def _cast_phase(state: dict, ap: str) -> None:
-    """§601 -> §608 (sorcery-speed): the active player casts each spell it can. Each goes on the
-    stack and resolves; a creature becomes a permanent (applying §614 ETB replacements), and a
-    spell whose targets are all illegal fizzles (§608.2b). The engine derives can_cast / resolves
-    / fizzles / enters_*; the driver just moves the spell and applies the result."""
+    """§601 -> §608 (sorcery-speed): the active player casts each spell it can, ONE at a time, each onto
+    the real stack. After every cast a RESPONSE WINDOW opens (non-active players may cast an instant — a
+    held counterspell answers here); the stack then resolves top-down. The engine derives
+    can_cast / resolves / fizzles / countered / enters_* — the driver pushes, runs priority, and applies
+    what's derived. Mana is paid by the mana model (_develop_mana / _spend_mana); effects via _apply_effects."""
     _develop_mana(state, ap)                                 # §305 land drop + refresh mana from lands
-    state["has_priority"] = {(ap,)}                          # §601 active player has priority in its main phase
+    players = sorted(q for (q,) in state["is_player"])
     while True:
+        state["has_priority"] = {(ap,)}                      # §601 active player has priority in its main phase
         castable = sorted(s for (p, s) in run(state, ["can_cast"])["can_cast"] if p == ap)
         if not castable:
             break
         spell = castable[0]
         _spend_mana(state, ap, spell)                        # §601.2g — consume the mana so casts are limited
         state["in_hand"].discard((ap, spell))
-        state["on_stack"], state["all_passed"] = {(spell, 0)}, {("yes",)}   # cast; no responses here
-        out = run(state, ["fizzles", "enters_battlefield", "enters_tapped", "enters_with_counter"])
-        if (spell,) in out["fizzles"]:
-            state["on_stack"], state["all_passed"] = set(), set()
-            print(f"    {ap} casts {spell} -> fizzles (no legal target)")
-            continue
-        print(f"    {ap} casts {spell} -> resolves")
-        if (spell,) in out["enters_battlefield"]:
-            state["on_battlefield"].add((spell,))
-            state.setdefault("printed_control", set()).add((ap, spell))
-            state.setdefault("_sick", set()).add((spell,))   # §302.6 — summoning sick until its controller's next turn
-            if (spell,) in out["enters_tapped"]:
-                state.setdefault("tapped", set()).add((spell,)); print(f"      {spell} enters tapped")
-            for (c, k, n) in sorted(out["enters_with_counter"]):
-                if c == spell:
-                    _bump_counter(state, spell, k, int(n)); print(f"      {spell} enters with {n} {k} counter")
-            # §603.2a — the spell's own ETB ability triggers as it enters. The permanent is now on the
-            # battlefield (so scopes resolve) AND still on the stack (so enters_battlefield/ev_etb holds),
-            # so the engine derives the ETB pendings here; the driver applies them while that context holds.
-            _apply_effects(state, run(state, ["pending"])["pending"])
-        state["on_stack"], state["all_passed"] = set(), set()
+        _stack_push(state, spell, ap)
+        print(f"    {ap} casts {spell}")
+        _resolve_stack(state, ap, players)                   # response window + top-down resolution
     state["has_priority"] = set()
+    _activate_phase(state, ap, players)                      # §602 — then use a non-mana activated ability if able
+
+
+def _activatable(state: dict, p: str) -> list:
+    """§602.5 — the activated abilities player p can pay for right now: source on the battlefield and
+    controlled by p, its {T} part untappable (source untapped & not summoning-sick), enough mana for the
+    mana part. Returns (ability_id, source, mana_cost, taps_self, eff, amount, target) rows."""
+    bf = state.get("on_battlefield", set())
+    ctrl = state.get("printed_control", set())
+    tapped = state.get("tapped", set())
+    sick = state.get("_sick", set())
+    mana = next((m for (q, m) in state.get("mana_available", set()) if q == p), 0)
+    out = []
+    for row in state.get("activated_ability", set()):
+        a, src, cost, taps, eff, amt, tgt = row
+        if (src,) not in bf or (p, src) not in ctrl:
+            continue
+        if int(cost) > mana:
+            continue
+        if taps == "T" and ((src,) in tapped or (src,) in sick):
+            continue                                         # can't pay {T}: already tapped or summoning sick
+        out.append(row)
+    return sorted(out)
+
+
+def _activate_phase(state: dict, ap: str, players: list) -> None:
+    """§602 — the active player activates ONE non-mana activated ability it can afford, pushing it onto
+    the stack to resolve (with a response window) like a spell. Greedy single activation keeps the loop
+    decisive; the ability's effect runs through the shared _apply_effects."""
+    usable = _activatable(state, ap)
+    if not usable:
+        return
+    a, src, cost, taps, eff, amt, tgt = usable[0]
+    if int(cost):                                            # pay the mana part via the mana model
+        _spend_ability_mana(state, ap, int(cost))
+    if taps == "T":
+        state.setdefault("tapped", set()).add((src,))        # §602.2 pay {T}
+    state.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
+    _stack_push(state, a, ap)
+    print(f"    {ap} activates {a} ({src}: {eff} {amt})")
+    _resolve_stack(state, ap, players)
+
+
+def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
+    """Pay an activated ability's mana cost by tapping that many untapped lands/mana-creatures — the same
+    payment shape as _spend_mana, reused so abilities deplete mana faithfully (the mana model owns it)."""
+    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
+    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set()) and (ap, c) in ctrl and (c,) not in tapped)
+    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
+                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
+    for c in (lands + dorks)[:cost]:
+        state.setdefault("tapped", set()).add((c,))
+    cur = next((m for (q, m) in state.get("mana_available", set()) if q == ap), 0)
+    state["mana_available"] = {(q, m) for (q, m) in state.get("mana_available", set()) if q != ap} | {(ap, max(0, cur - cost))}
 
 
 def _end_of_turn(state: dict) -> None:

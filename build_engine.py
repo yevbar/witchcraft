@@ -713,6 +713,7 @@ def _rules(p: Program) -> None:
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",
              "pending_pt", "pending_grant", "pending_destroy",   # §603 creature-scoped triggered effects
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
+             "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature")    # derived (from printed_*); the driver reads these, not raw state
 
 

@@ -45,6 +45,7 @@ _EFFECT = {
     "create": "create_token",
     "mill": "mill",
     "discard": "discard",
+    "counter": "counter",        # §701.5 — counter the targeted spell on the stack (counterspells)
 }
 
 # effect target -> the engine's player-target vocabulary (controller vs every opponent).
@@ -89,6 +90,48 @@ def _int(amt) -> int | None:
     return int(amt) if str(amt).lstrip("-").isdigit() else None
 
 
+def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
+    """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
+    resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
+    so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution)."""
+    eff = _EFFECT.get(verb)
+    if eff is None:
+        return None
+    if eff == "counter":                                     # §701.5 'counter target spell' — amount unused
+        return ("counter", 0, "target_spell")
+    n = _int(amt)
+    if n is None:
+        return None
+    target = _counter_kind(extra) if eff == "add_counter" else _target(tgt)
+    if target is None:
+        return None
+    return (eff, n, target)
+
+
+# an activated ability's cost the loop can pay: a pure mana cost ({2}{W}…), optionally with {T}. We
+# parse it to (mana:int, taps_self:bool); anything else (Sacrifice/Discard/{X}/loyalty) abstains.
+def _activated_cost(cost: str) -> tuple | None:
+    if cost is None:
+        return None
+    parts = [p.strip() for p in str(cost).split(",")]
+    mana, taps = 0, False
+    for part in parts:
+        syms = _MV_SYM.findall(part)
+        if not syms and part:                                # bare words like 'Sacrifice ~' — abstain
+            return None
+        for sym in syms:
+            head = sym.split("/")[0]
+            if head == "T":
+                taps = True
+            elif head.isdigit():
+                mana += int(head)
+            elif head in ("X", "Y", "Z"):
+                return None                                   # variable cost — defer
+            else:
+                mana += 1                                     # a colored/hybrid pip costs 1 (colorless abstraction)
+    return (mana, taps)
+
+
 # keywords the engine models as printed_keyword inputs (it derives flying/evasion/etc. from these).
 _ENGINE_KEYWORDS = {"flying", "reach", "defender", "menace", "hexproof", "shroud", "indestructible",
                     "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste"}
@@ -121,53 +164,74 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
     for aid, ab in f.get("abilities", {}).items():
-        if ab.get("kind") != "triggered":
-            continue                                          # spells/activated need a resolution path the engine lacks
-        event = _EVENT.get(ab.get("trigger"))
-        if event is None:
-            dropped.append(("event", ab.get("trigger")))
-            continue
-        a = f"{tid}_{aid}"
-        emitted = False
-        for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
-            # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy): payload + a board scope the
-            # engine resolves to concrete creatures, NOT a player-target amount. Single 'target creature'
-            # abstains (needs a choice); only self / creatures_you_control / all_creatures apply.
-            if verb in ("modify_pt", "grant_keyword", "destroy"):
-                scope = _scope(tgt)
-                if scope is None:
-                    dropped.append(("scope", tgt))
+        kind = ab.get("kind")
+        if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
+            event = _EVENT.get(ab.get("trigger"))
+            if event is None:
+                dropped.append(("event", ab.get("trigger")))
+                continue
+            a = f"{tid}_{aid}"
+            emitted = False
+            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy): payload + a board scope the
+                # engine resolves to concrete creatures, NOT a player-target amount. Single 'target creature'
+                # abstains (needs a choice); only self / creatures_you_control / all_creatures apply.
+                if verb in ("modify_pt", "grant_keyword", "destroy"):
+                    scope = _scope(tgt)
+                    if scope is None:
+                        dropped.append(("scope", tgt))
+                        continue
+                    if verb == "modify_pt":
+                        pt = _parse_pt(amt)
+                        if pt is None:
+                            dropped.append(("modify_pt_amt", amt))
+                            continue
+                        add("trigger_effect_pt", (a, pt[0], pt[1], scope))
+                    elif verb == "grant_keyword":
+                        if extra not in _ENGINE_KEYWORDS:    # only keywords the engine models (else it'd no-op)
+                            dropped.append(("grant_keyword", extra))
+                            continue
+                        add("trigger_effect_grant", (a, extra, scope))
+                    else:                                    # destroy
+                        add("trigger_effect_destroy", (a, scope))
+                    add("has_trigger", (a, tid, event))
+                    emitted = True
                     continue
-                if verb == "modify_pt":
-                    pt = _parse_pt(amt)
-                    if pt is None:
-                        dropped.append(("modify_pt_amt", amt))
-                        continue
-                    add("trigger_effect_pt", (a, pt[0], pt[1], scope))
-                elif verb == "grant_keyword":
-                    if extra not in _ENGINE_KEYWORDS:        # only keywords the engine models (else it'd no-op)
-                        dropped.append(("grant_keyword", extra))
-                        continue
-                    add("trigger_effect_grant", (a, extra, scope))
-                else:                                        # destroy
-                    add("trigger_effect_destroy", (a, scope))
+                r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
+                if r is None:
+                    dropped.append(("effect", verb))
+                    continue
                 add("has_trigger", (a, tid, event))
+                add("trigger_effect", (a, r[0], r[1], r[2]))
                 emitted = True
+            if not emitted:
+                out.get("has_trigger", set()).discard((a, tid, event))
+        elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
+            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                r = _resolved_effect(verb, amt, tgt, extra)
+                if r is None:
+                    dropped.append(("effect", verb))
+                    continue
+                add("spell_effect", (tid, r[0], r[1], r[2]))  # driver runs these when the spell resolves
+        elif kind == "activated":                            # §602 — a non-mana activated ability the AI can use
+            if f.get("mana", {}).get(aid) is not None:
+                continue                                      # a mana ability ('{T}: Add') is handled by the mana model
+            paid = _activated_cost(ab.get("cost"))
+            if paid is None:
+                dropped.append(("activated_cost", ab.get("cost")))
                 continue
-            eff = _EFFECT.get(verb)
-            n = _int(amt)
-            if eff is None or n is None:
-                dropped.append(("effect", verb))
+            a = f"{tid}_{aid}"
+            emitted = False
+            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                r = _resolved_effect(verb, amt, tgt, extra)
+                if r is None:
+                    dropped.append(("effect", verb))
+                    continue
+                # activated_ability(ability_id, source, mana_cost, taps_self, eff, amount, target)
+                add("activated_ability", (a, tid, paid[0], "T" if paid[1] else "-", r[0], r[1], r[2]))
+                emitted = True
+            if not emitted:
                 continue
-            target = _counter_kind(extra) if eff == "add_counter" else _target(tgt)
-            if target is None:
-                dropped.append(("counter_kind", extra))
-                continue
-            add("has_trigger", (a, tid, event))
-            add("trigger_effect", (a, eff, n, target))
-            emitted = True
-        if not emitted:
-            out.get("has_trigger", set()).discard((a, tid, event))
     return out, dropped
 
 
