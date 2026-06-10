@@ -740,7 +740,14 @@ def _develop_mana(state: dict, ap: str) -> None:
             state.setdefault("printed_control", set()).add((ap, land))
             played.add((ap,))
             print(f"    {ap} plays land {land}")
-    # build the colored pool: tally untapped sources by the color each produces.
+    _refresh_mana_pool(state, ap)
+
+
+def _refresh_mana_pool(state: dict, ap: str) -> None:
+    """Stock ap's COLORED mana pool (§106) from the untapped sources it controls — each contributes one
+    mana of its produced color (land_produces) — plus the flat mana_available count for the legacy
+    fallback / cache continuity. The land-PLAY half lives in _develop_mana; this is the pool refresh
+    alone, so a reconstructed board (e.g. the Forge bridge) can stock mana without a land drop."""
     sources = _untapped_sources(state, ap)
     if not sources:
         return  # no driver-managed lands/dorks: leave any pre-seeded mana_pool/mana_available as-is (demos)

@@ -81,12 +81,170 @@ def random_policy(seed: int = 0):
     return pol
 
 
-def engine_policy(state, key, options, default):
-    """HOOK for an engine-backed bot: reconstruct our datalog facts from the Forge observation (`state`),
-    run env lookahead/eval, and map the best move back to one of `options`. Not implemented (faithful
-    Forge-state -> our-facts translation is a separate effort); falls back to Forge's default so a game
-    stays legal. This is where 'a Python player DRIVING the engine' slots in."""
-    return default
+# ---- engine-backed policy: OUR engine provides and plays the move (Forge owns the state) --------------
+# Forge guarantees the offered options are legal; the COMPLETENESS signal is whether OUR rules engine can
+# independently MODEL each option (recognize the card/ability) and ENDORSE it (derive it as legal/playable
+# in our own model). A modeled+endorsed move means our engine understands that game situation; an option we
+# can't model or endorse is a coverage GAP we record. The bot always returns a VALID Forge option — when our
+# engine endorses one it plays that; otherwise it falls back (and logs the gap). This is the "Stockfish for
+# Magic": the shim's own engine choosing the move in a Forge-refereed game.
+
+# Forge zone -> (our relation, is it player-scoped?). battlefield/graveyard/exile are arity-1 (card,);
+# hand/library are arity-2 (player, card) — matching the engine's .decl for each.
+_OBS_ZONE = {"battlefield": ("on_battlefield", False), "graveyard": ("graveyard", False),
+             "exile": ("exile", False), "hand": ("in_hand", True), "library": ("in_library", True)}
+
+
+def reconstruct(obs: dict, seat: str):
+    """Build OUR driver state from a Forge observation snapshot (players/life/step + per-zone cards, each
+    {id, name, controller, tapped?, counters?}). Each named card is bridged from cards.dl via its ORACLE
+    NAME (bridge.card_facts) under its Forge id, so our engine reasons over the same board Forge shows.
+    Returns (state, unmodeled) where `unmodeled` lists (zone, name) cards our interpreter doesn't cover —
+    the direct completeness gaps. Cards not in our corpus still get a bare object (so id plumbing works)."""
+    import driver
+    import bridge_to_engine as bridge
+    import sim
+    import card_corpus
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    players = obs.get("players") or [seat]
+    life = {p: int(v) for p, v in (obs.get("life") or {}).items()}
+    state: dict = {
+        "is_player": {(p,) for p in players},
+        "active_player": {(obs.get("active", players[0]),)},
+        "current_step": {(obs.get("step", "precombat_main"),)},
+        "life": {(p, life.get(p, 20)) for p in players},
+        "on_battlefield": set(), "in_hand": set(), "graveyard": set(), "exile": set(),
+        "in_library": set(), "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
+        "_land_played": set(),
+    }
+    unmodeled: list = []
+    for zone, cards in (obs.get("zones") or {}).items():
+        spec = _OBS_ZONE.get(zone)
+        if spec is None:
+            continue
+        rel, player_scoped = spec
+        for card in cards:
+            cid, name = str(card["id"]), card["name"]
+            ctrl = card.get("controller", seat)
+            state.setdefault(rel, set()).add((ctrl, cid) if player_scoped else (cid,))
+            state.setdefault("printed_control", set()).add((ctrl, cid))
+            if name not in corpus:                           # a card our interpreter doesn't model -> gap
+                unmodeled.append((zone, name))
+                continue
+            facts, _ = bridge.card_facts(name, ctrl, cid, db, corpus)
+            for r, rows in facts.items():
+                state.setdefault(r, set()).update(rows)
+            c = corpus[name]
+            for t in c.get("types") or []:                   # castable/playable from hand
+                state.setdefault("spell_type", set()).add((cid, t.lower()))
+            state.setdefault("mana_cost", set()).add((cid, bridge._mana_value(c.get("manaCost"))))
+            bridge._register_colored(state, cid, c)
+            if card.get("tapped"):
+                state["tapped"].add((cid,))
+            for kind, k in (card.get("counters") or {}).items():
+                driver._bump_counter(state, cid, kind, int(k))
+    bridge._materialize_printed(state)
+    return state, unmodeled
+
+
+class EnginePolicy:
+    """A policy (state, key, options, default)->choice in which OUR datalog engine selects the move. It
+    reconstructs the board from the Forge observation, asks the engine what it can model/endorse among the
+    offered options, plays an endorsed move when one exists (else falls back), and records coverage stats
+    — the running indication of how completely our engine models a real game. `__call__` matches the
+    ForgePlayer policy seam, so it drops in wherever random_policy/greedy_policy go."""
+
+    def __init__(self, fallback=greedy_policy):
+        self.fallback = fallback
+        self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
+                      "unmodeled_cards": set(), "by_kind": {}}
+
+    def __call__(self, obs, key, options, default):
+        seat = obs.get("seat")
+        handler = getattr(self, f"_pick_{key}", None)
+        self.stats["decisions"] += 1
+        if handler is None or seat is None:
+            return self.fallback(obs, key, options, default)
+        try:
+            import driver
+            state, unmodeled = reconstruct(obs, seat)
+            self.stats["unmodeled_cards"].update(n for _z, n in unmodeled)
+            choice, modeled, endorsed, offered, used_engine = handler(driver, state, seat, options, default)
+        except Exception:
+            return self.fallback(obs, key, options, default)
+        bk = self.stats["by_kind"].setdefault(key, {"offered": 0, "modeled": 0, "endorsed": 0, "engine": 0})
+        bk["offered"] += offered; bk["modeled"] += modeled; bk["endorsed"] += endorsed; bk["engine"] += used_engine
+        self.stats["offered"] += offered; self.stats["modeled"] += modeled; self.stats["endorsed"] += endorsed
+        self.stats["engine_decided"] += used_engine
+        return choice if choice is not None else self.fallback(obs, key, options, default)
+
+    # each _pick_* returns (choice, modeled, endorsed, offered, used_engine)
+    def _pick_action(self, driver, state, seat, options, default):
+        """Cast a spell OUR engine derives as castable (can_cast); else pass. The completeness check: of the
+        spell options Forge offers, how many does our engine recognize (modeled) and deem castable (endorsed)."""
+        driver._refresh_mana_pool(state, seat)               # stock mana from the reconstructed lands
+        state["has_priority"] = {(seat,)}                    # §117 — can_cast is gated on holding priority
+        can = {s for (p, s) in driver.run(state, ["can_cast"])["can_cast"] if p == seat}
+        objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
+        spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
+        modeled = sum(1 for o in spells if str(o["id"]) in objs)
+        endorsed_opts = [o for o in spells if str(o["id"]) in can]
+        choice = endorsed_opts[0] if endorsed_opts else default       # cast if we can, else Forge's default (pass)
+        return choice, modeled, len(endorsed_opts), len(spells), 1
+
+    def _pick_target(self, driver, state, seat, options, default):
+        """Target an entity our engine models as a legal creature target."""
+        creatures = {c for (c,) in driver.run(state, ["creature"])["creature"]}
+        opts = [o for o in options if isinstance(o, dict)]
+        modeled = [o for o in opts if str(o["id"]) in creatures]
+        choice = modeled[0] if modeled else (opts[0] if opts else default)
+        return choice, len(modeled), len(modeled), len(opts), 1
+
+    def _pick_attackers(self, driver, state, seat, options, default):
+        """Among Forge's candidate attack declarations, pick the one whose attackers OUR engine endorses
+        (may_attack) and that swings widest — our engine choosing the attack."""
+        eligible = {c for (c,) in driver.run(state, ["may_attack"])["may_attack"]}
+        best, best_n = default, -1
+        offered = sum(len(c) for c in options if c)
+        endorsed = 0
+        for cand in options:
+            ok = [pair for pair in cand if str(pair[0]) in eligible]
+            if len(ok) > best_n:
+                best, best_n = (cand if len(ok) == len(cand) else ok), len(ok)
+            endorsed = max(endorsed, len(ok))
+        return best, endorsed, endorsed, max(offered, 1), 1
+
+    def _pick_blocks(self, driver, state, seat, options, default):
+        """Among Forge's candidate block assignments, pick one our engine deems legal (no illegal_block)."""
+        legal_cand, endorsed = default, 0
+        for cand in options:
+            probe = driver.clone_state(state)
+            probe["blocks"] = {tuple(p) for p in cand}
+            bad = driver.run(probe, ["illegal_block"])["illegal_block"]
+            if not bad and len(cand) >= endorsed:
+                legal_cand, endorsed = cand, len(cand)
+        return legal_cand, endorsed, endorsed, max(sum(len(c) for c in options if c), 1), 1
+
+    def coverage(self) -> dict:
+        """A completeness report: of the options Forge offered at engine-handled decisions, the fraction our
+        engine MODELED (recognized) and ENDORSED (derived as legal/playable), plus the cards it couldn't model."""
+        s = self.stats
+        frac = lambda a, b: round(a / b, 3) if b else None
+        return {
+            "decisions": s["decisions"], "engine_decided": s["engine_decided"],
+            "options_offered": s["offered"], "modeled": s["modeled"], "endorsed": s["endorsed"],
+            "modeled_frac": frac(s["modeled"], s["offered"]), "endorsed_frac": frac(s["endorsed"], s["offered"]),
+            "unmodeled_cards": sorted(s["unmodeled_cards"]), "by_kind": s["by_kind"],
+        }
+
+
+def engine_policy(obs, key, options, default):
+    """Module-level convenience: a single shared EnginePolicy instance (so its coverage() accumulates)."""
+    return _ENGINE_SINGLETON(obs, key, options, default)
+
+
+_ENGINE_SINGLETON = EnginePolicy()
 
 
 class ForgePlayer:
