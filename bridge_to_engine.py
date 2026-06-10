@@ -566,7 +566,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):
                     dropped.append(("static", verb))
                     continue
-                parsed = _anthem_target(tgt, corpus)
+                if str(tgt) in ("enchanted_creature", "equipped_creature"):
+                    parsed = ("attached", None, None)        # §301/§303 buff the attached creature
+                else:
+                    parsed = _anthem_target(tgt, corpus)
                 if parsed is None:
                     dropped.append(("static_scope", tgt))
                     continue

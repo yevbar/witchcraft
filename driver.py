@@ -364,6 +364,20 @@ def _apply_creature_effects(state: dict) -> None:
             continue
         state["_reanimated"].add((a, s))
         _reanimate_one(state, a, ctrl, mode)
+    _aura_sba(state)                                          # §704.5n an Aura whose host left -> graveyard
+
+
+def _aura_sba(state: dict) -> None:
+    """§704.5n state-based action — an Aura attached to a creature that has left the battlefield is put into
+    its owner's graveyard (and its attachment cleared), so its static buff stops applying."""
+    bf = state.get("on_battlefield", set())
+    for (aura, host) in sorted(state.get("attached_to", set())):
+        if (host,) not in bf:
+            state["attached_to"].discard((aura, host))
+            if (aura,) in bf:
+                bf.discard((aura,))
+                state.setdefault("graveyard", set()).add((aura,))
+                print(f"    {aura} falls off (host {host} gone) -> graveyard")
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
@@ -856,6 +870,42 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
             _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
 
 
+def _static_attached_pt(state: dict, perm: str) -> int:
+    """The net P/T swing a permanent's 'attached creature' static buff carries (sum of dp+dt), or 0 if it
+    only grants a keyword. Used to pick a friendly vs. enemy host for an Aura."""
+    return sum(int(dp) + int(dt) for (s, dp, dt, sc) in state.get("static_pt", set())
+              if s == perm and sc == "attached")
+
+
+def _has_attached_static(state: dict, perm: str) -> bool:
+    return any(s == perm and sc == "attached" for (s, _dp, _dt, sc) in state.get("static_pt", set())) \
+        or any(s == perm and sc == "attached" for (s, _kw, sc) in state.get("static_grant", set()))
+
+
+def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
+    """§303.4 an Aura enters the battlefield attached to a creature. We attach only Auras that carry a
+    P/T or keyword 'enchanted creature' static buff (the engine applies it via attached_to): a beneficial
+    aura (net +P/T, or a keyword grant) goes on the controller's strongest creature, a negative one on the
+    opponent's strongest. Auras with no legal host stay unattached (no effect)."""
+    if (aura, "aura") not in state.get("printed_subtype", set()) or not _has_attached_static(state, aura):
+        return
+    out = run(state, ["controls", "creature", "power"])
+    controls = {(p, c) for (p, c) in out["controls"]}
+    creatures = {c for (c,) in out["creature"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in controls if p == ctrl}
+    harmful = _static_attached_pt(state, aura) < 0
+    cands = [c for c in creatures if c in on_bf and c != aura and ((c not in mine) if harmful else (c in mine))]
+    if not cands:                                            # no legal host of the wanted side -> any creature
+        cands = [c for c in creatures if c in on_bf and c != aura]
+    if not cands:
+        return
+    host = max(cands, key=lambda c: powers.get(c, 0))
+    state.setdefault("attached_to", set()).add((aura, host))
+    print(f"      {aura} is attached to {host}")
+
+
 def _counter_target(state: dict, counterspell: str) -> str | None:
     """The spell a counterspell counters: the topmost OTHER object on the stack (the one it was cast
     in response to). With a one-deep response window that's the spell directly below it."""
@@ -903,6 +953,7 @@ def _resolve_top(state: dict) -> None:
         state["on_battlefield"].add((top,))
         state.setdefault("printed_control", set()).add((ctrl, top))
         state.setdefault("_sick", set()).add((top,))         # §302.6 summoning sickness until controller's next turn
+        _attach_aura(state, top, ctrl)                        # §303.4 an Aura enters attached to a creature
         if (top,) in out["enters_tapped"]:
             state.setdefault("tapped", set()).add((top,)); print(f"      {top} enters tapped")
         for (c, k, n) in sorted(out["enters_with_counter"]):

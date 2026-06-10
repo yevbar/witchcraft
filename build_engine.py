@@ -180,6 +180,9 @@ INPUTS = [
     # an optional FILTER narrowing a static anthem to a subtype/type/color ('Other Goblins get +1/+1',
     # 'Artifact creatures you control', 'Green creatures'): fkind in {subtype,type,color}, fval the value.
     ("static_filter", [("source", "symbol"), ("fkind", "symbol"), ("fval", "symbol")]),
+    # §301/§303 ATTACHMENT — which creature an Aura/Equipment is attached to (the driver maintains it). A
+    # static buff scoped to 'enchanted_creature'/'equipped_creature' applies to that creature (scope=attached).
+    ("attached_to", [("permanent", "symbol"), ("creature", "symbol")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
     ("has_supertype", [("o", "symbol"), ("sup", "symbol")]),      # §205.4 supertypes (legendary etc.)
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
@@ -488,6 +491,7 @@ def _rules(p: Program) -> None:
     p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "C != S", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S", "filter_ok(S, C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"attached\")", "on_battlefield(S)", "attached_to(S, C)", "creature(C)"])
     p.comment("static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources")
     p.comment("buffing one creature stay distinct tuples and both sum / both grant).")
     p.decl("static_mod_power", [("source", "symbol"), ("c", "symbol"), ("dp", "number")])

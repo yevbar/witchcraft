@@ -60,6 +60,7 @@
 .decl static_pt(source: symbol, dp: number, dt: number, scope: symbol)
 .decl static_grant(source: symbol, kw: symbol, scope: symbol)
 .decl static_filter(source: symbol, fkind: symbol, fval: symbol)
+.decl attached_to(permanent: symbol, creature: symbol)
 .decl has_supertype(o: symbol, sup: symbol)
 .decl sacrificed(o: symbol)
 .decl phased_out(o: symbol)
@@ -185,6 +186,7 @@ anthem_creature(S, C) :- static_src(S, "creatures_you_control"), on_battlefield(
 anthem_creature(S, C) :- static_src(S, "other_creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), C != S, filter_ok(S, C).
 anthem_creature(S, C) :- static_src(S, "all_creatures"), on_battlefield(S), creature(C), filter_ok(S, C).
 anthem_creature(S, C) :- static_src(S, "other_creatures"), on_battlefield(S), creature(C), C != S, filter_ok(S, C).
+anthem_creature(S, C) :- static_src(S, "attached"), on_battlefield(S), attached_to(S, C), creature(C).
 // static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources
 // buffing one creature stay distinct tuples and both sum / both grant).
 .decl static_mod_power(source: symbol, c: symbol, dp: number)
