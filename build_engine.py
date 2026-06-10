@@ -923,6 +923,21 @@ def _emit_translate(p) -> None:
             'card_effect(Card, A, _, Verb, Amount, Target, _, "-")',
             "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
             "player_scope(Target, Scope)"])
+    p.blank()
+    p.comment("ONE WORLD: §611.2 STATIC keyword-anthem grants for the UNFILTERED board scopes -> static_grant,")
+    p.comment("DERIVED here from the card parse facts (was bridge's static branch / add('static_grant', ...)).")
+    p.comment("anthem_scope = the 4 unfiltered _ANTHEM_SCOPE targets -> engine scope (identity; filtered")
+    p.comment("subtype/type/color lords still go through the python bridge's _anthem_target + static_filter).")
+    p.decl("anthem_scope", [("target", "symbol"), ("scope", "symbol")])
+    p.facts([f'anthem_scope("{t}", "{s}")' for t, s in sorted(_b._ANTHEM_SCOPE.items())])
+    p.comment("engine_keyword = the keywords the engine models (was bridge._ENGINE_KEYWORDS). For a STATIC")
+    p.comment("grant the granted keyword is in the effect's AMOUNT column ('... have trample'), not extra.")
+    p.decl("engine_keyword", [("kw", "symbol")])
+    p.facts([f'engine_keyword("{kw}")' for kw in sorted(_b._ENGINE_KEYWORDS)])
+    p.rule("static_grant(S, Kw, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-")',
+            "engine_keyword(Kw)", "anthem_scope(Target, Scope)"])
 
 
 def build(with_tests: bool) -> str:

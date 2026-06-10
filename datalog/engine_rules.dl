@@ -600,6 +600,18 @@ trigger_effect(IA, Eff, N, Scope) :- inst_ability(IA, S, A, C), card_ability(C, 
 // by the SPELL instance id (== the bridge's tid; the driver's _run_spell_effects runs it on resolve).
 spell_effect(Spell, Eff, N, Scope) :- instance_of(Spell, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), match("[0-9]+", Amount), N = to_number(Amount), player_scope(Target, Scope).
 
+// ONE WORLD: §611.2 STATIC keyword-anthem grants for the UNFILTERED board scopes -> static_grant,
+// DERIVED here from the card parse facts (was bridge's static branch / add('static_grant', ...)).
+// anthem_scope = the 4 unfiltered _ANTHEM_SCOPE targets -> engine scope (identity; filtered
+// subtype/type/color lords still go through the python bridge's _anthem_target + static_filter).
+.decl anthem_scope(target: symbol, scope: symbol)
+anthem_scope("all_creatures", "all_creatures"). anthem_scope("creatures_you_control", "creatures_you_control"). anthem_scope("other_creatures", "other_creatures"). anthem_scope("other_creatures_you_control", "other_creatures_you_control").
+// engine_keyword = the keywords the engine models (was bridge._ENGINE_KEYWORDS). For a STATIC
+// grant the granted keyword is in the effect's AMOUNT column ('... have trample'), not extra.
+.decl engine_keyword(kw: symbol)
+engine_keyword("deathtouch"). engine_keyword("defender"). engine_keyword("flying"). engine_keyword("haste"). engine_keyword("hexproof"). engine_keyword("indestructible"). engine_keyword("infect"). engine_keyword("lifelink"). engine_keyword("menace"). engine_keyword("reach"). engine_keyword("shroud"). engine_keyword("trample"). engine_keyword("vigilance"). engine_keyword("wither").
+static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-"), engine_keyword(Kw), anthem_scope(Target, Scope).
+
 .output power
 .output dies
 .output loses_game

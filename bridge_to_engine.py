@@ -682,6 +682,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     kw = amt if amt in _ENGINE_KEYWORDS else extra   # keyword is in `amt` ('have trample'),
                     if kw not in _ENGINE_KEYWORDS:               # unlike triggered/activated (in `extra`).
                         dropped.append(("grant_keyword", kw)); continue
+                    # ONE WORLD: the keyword-in-AMOUNT grants whose RAW target is one of the 4 unfiltered
+                    # _ANTHEM_SCOPE scopes (identity-mapped, no filter) are now DERIVED IN DATALOG
+                    # (translate.dl: static_grant from the card parse facts). The bridge keeps the filtered
+                    # subtype/type/color lords (static_filter), the 'attached' aura/equip case, the singular
+                    # 'creature'-target normalization, and any keyword-in-`extra` grant.
+                    if fkind is None and amt in _ENGINE_KEYWORDS and str(tgt) in _ANTHEM_SCOPE:
+                        continue
                     add("static_grant", (tid, kw, scope))
                 if fkind is not None:                         # a subtype/type/color lord -> narrow the anthem
                     add("static_filter", (tid, fkind, fval))
