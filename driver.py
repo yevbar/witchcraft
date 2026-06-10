@@ -283,6 +283,9 @@ def _apply_effects(state: dict, pending: set) -> None:
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")
         elif eff == "create_token":                          # tgt = predefined token name
             _create_token(state, tgt, ctrl, n)
+        elif eff == "fog":                                   # §615 Fog — prevent all combat damage this turn
+            state.setdefault("prevent_all_combat", set()).add(("yes",))
+            print(f"    {a}: all combat damage is prevented this turn")
         elif eff == "animate":                               # §613 'becomes a P/T creature' (man-lands) until EOT
             dp, dt = (int(x) for x in tgt.split("/"))         # tgt carries the P/T; feeds the §613 layers
             eid = f"{a}__anim__{src}"
@@ -1176,6 +1179,7 @@ def _end_of_turn(state: dict) -> None:
     # again next turn — they only prevent a re-derived trigger doubling within a single firing window.
     state["_reanimated"] = set()
     state["_counter_applied"] = set()
+    state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:

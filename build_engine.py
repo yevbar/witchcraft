@@ -189,6 +189,7 @@ INPUTS = [
     ("phased_out", [("o", "symbol")]),                            # §603.10b a permanent phased out
     ("countered", [("o", "symbol")]),                             # §603.10e a spell was countered
     ("cast_spell", [("p", "symbol"), ("s", "symbol")]),           # §601 a player just put a spell on the stack
+    ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
     ("repl_enters_tapped", [("e", "symbol"), ("c", "symbol")]),                             # §614 "enters tapped"
@@ -538,6 +539,8 @@ def _rules(p: Program) -> None:
     p.decl("deals", [("s", "symbol"), ("t", "symbol"), ("n", "number")])
     p.decl("prevented", [("src", "symbol"), ("tgt", "symbol")])
     p.rule("prevented(S, T)", ["repl_prevent_damage(_, S, T)"], note="§615 — prevented damage isn't dealt")
+    p.rule("prevented(S, T)", ["prevent_all_combat(_)", "creature(S)", "creature(T)"], note="§615 Fog — all combat damage prevented")
+    p.rule("prevented(S, P)", ["prevent_all_combat(_)", "creature(S)", "is_player(P)"])
     p.rule("deals(A, B, N)", ["combat_now()", "blocks(B, A)", "!illegal_block(B, A)", "!cant_attack(A)", "!prevented(A, B)", "power(A, N)"])
     p.rule("deals(B, A, N)", ["combat_now()", "blocks(B, A)", "!illegal_block(B, A)", "!cant_attack(A)", "!prevented(B, A)", "power(B, N)"])
     p.rule("deals(A, D, N)", ["combat_now()", "attacks(A, D)", "is_player(D)", "!blocked(A)", "!cant_attack(A)", "!prevented(A, D)", "power(A, N)"], note="a creature that can't attack (§702.3b) or whose damage is prevented (§615) deals none")

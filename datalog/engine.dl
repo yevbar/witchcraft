@@ -66,6 +66,7 @@
 .decl phased_out(o: symbol)
 .decl countered(o: symbol)
 .decl cast_spell(p: symbol, s: symbol)
+.decl prevent_all_combat(marker: symbol)
 .decl repl_prevent_damage(e: symbol, src: symbol, tgt: symbol)
 .decl repl_enters_tapped(e: symbol, c: symbol)
 .decl repl_enters_with_counter(e: symbol, c: symbol, kind: symbol, n: number)
@@ -237,6 +238,9 @@ blocked(A) :- blocks(B, A), !illegal_block(B, A).
 .decl prevented(src: symbol, tgt: symbol)
 // §615 — prevented damage isn't dealt
 prevented(S, T) :- repl_prevent_damage(_, S, T).
+// §615 Fog — all combat damage prevented
+prevented(S, T) :- prevent_all_combat(_), creature(S), creature(T).
+prevented(S, P) :- prevent_all_combat(_), creature(S), is_player(P).
 deals(A, B, N) :- combat_now(), blocks(B, A), !illegal_block(B, A), !cant_attack(A), !prevented(A, B), power(A, N).
 deals(B, A, N) :- combat_now(), blocks(B, A), !illegal_block(B, A), !cant_attack(A), !prevented(B, A), power(B, N).
 // a creature that can't attack (§702.3b) or whose damage is prevented (§615) deals none

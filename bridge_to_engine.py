@@ -314,6 +314,10 @@ def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
     so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution)."""
+    if verb == "prevent_damage":                             # §615 Fog: 'prevent all combat damage this turn'.
+        if str(amt) == "all" and ("combat" in str(tgt) or "combat" in str(extra)):
+            return ("fog", 0, "-")                           # the driver sets prevent_all_combat for the turn
+        return None                                          # targeted/partial prevention shields abstain
     eff = _EFFECT.get(verb)
     if eff is None:
         import effect_handlers                                # pluggable verbs (effect_handlers/*.py)
