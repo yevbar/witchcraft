@@ -76,11 +76,25 @@ def _bridge_checks() -> None:
     check("unmodelled-event grant abstains, no trigger_effect_grant",
           _unmapped is not None and not f.get("trigger_effect_grant"))
 
-    # A single 'target creature' destroy (Nekrataal) ABSTAINS — needs an AI choice.
+    # A single 'target creature' destroy (Nekrataal) ABSTAINS — its RESTRICTED target
+    # (target_nonartifact_nonblack_creature) isn't a clean target class. ONE WORLD: the single-target
+    # destroy now lives in datalog (translate.dl, trigger_target via target_class), so the abstain is a
+    # NON-derivation, not a python `dropped` reason. The invariant: NOT mistranslated into a board-scope
+    # trigger_effect_destroy, and the engine derives NO pending_target for the restricted target (fed here
+    # on a forced-firing upkeep trigger so `fires` is true — the abstain is purely the unmapped class).
     f, dropped = facts("Nekrataal")
-    check("single-target destroy abstains (scope drop), not mistranslated",
-          ("scope", "target_nonartifact_nonblack_creature") in dropped
-          and not f.get("trigger_effect_destroy"))
+    nek = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
+        "on_battlefield": {("x",)}, "printed_type": {("x", "creature")}, "printed_control": {("alice", "x")},
+        "instance_of": {("x", "nekrataal")},
+        "card_ability": {("nekrataal", "a1", "triggered")},
+        "ability_trigger": {("nekrataal", "a1", "the_beginning_of_your_upkeep")},
+        "card_effect": {("nekrataal", "a1", 0, "destroy", "-", "target_nonartifact_nonblack_creature", "-", "-")},
+        "counter": set(), "tapped": set(),
+    }
+    check("single-target destroy abstains (restricted target), not mistranslated",
+          not f.get("trigger_effect_destroy")
+          and not driver.run(nek, ["pending_target"])["pending_target"])
 
     # A variable pump (+X/+X / per-creature) can't become constants -> abstains.
     pt_amt = bridge._parse_pt("+X/+X")

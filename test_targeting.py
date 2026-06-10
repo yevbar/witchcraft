@@ -158,18 +158,41 @@ def _trigger_damage_checks() -> None:
     _run(st)
     check("triggered any_target with nothing killable goes face (bob 19)", ("bob", 19) in st["life"])
 
-    # the bridge routes a real ETB-burn trigger to trigger_damage, not a mistranslated player effect.
-    import sim, card_corpus
+    # ONE WORLD: a real triggered-damage card's trigger_damage is now DERIVED IN DATALOG (translate.dl)
+    # from the card parse facts — the python bridge no longer emits it. Find a card with a clean triggered
+    # deal_damage (int amount + a mapped damage target), feed its parse facts on a forced-firing upkeep
+    # trigger, and prove the engine derives pending_damage (proxy for trigger_damage, which isn't .output).
+    import sim, card_corpus, ground
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     found = None
     for name in corpus:
-        try:
-            f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
-        except Exception:
-            continue
-        if f.get("trigger_damage"):
-            found = (name, sorted(f["trigger_damage"])); break
-    check("a real triggered-damage card routes to trigger_damage", found is not None)
+        e = db.get(ground.slug(name)) or {}
+        for aid, ab in (e.get("abilities") or {}).items():
+            if ab.get("kind") != "triggered" or ab.get("trigger") not in bridge._EVENT:
+                continue
+            for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
+                if verb == "deal_damage" and bridge._int(amt) is not None \
+                        and bridge._damage_target(tgt) is not None and cond in ("-", None):
+                    found = (ground.slug(name), aid, int(seq), str(amt), str(tgt),
+                             bridge._int(amt), bridge._damage_target(tgt))
+                    break
+            if found:
+                break
+        if found:
+            break
+    card, aid, seq, amt, tgt, n, kind = found
+    dst = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
+        "on_battlefield": {("x",)}, "printed_type": {("x", "creature")}, "printed_control": {("alice", "x")},
+        "instance_of": {("x", card)},
+        "card_ability": {(card, aid, "triggered")},
+        "ability_trigger": {(card, aid, "the_beginning_of_your_upkeep")},
+        "card_effect": {(card, aid, seq, "deal_damage", amt, tgt, "-", "-")},
+        "counter": set(), "tapped": set(),
+    }
+    pend = driver.run(dst, ["pending_damage"])["pending_damage"]
+    check("datalog DERIVES trigger_damage for a real triggered-damage card (-> pending_damage)",
+          found is not None and (f"x_{aid}", "x", str(n), kind, "alice") in pend)
 
 
 def _counter_checks() -> None:

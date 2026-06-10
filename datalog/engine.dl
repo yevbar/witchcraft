@@ -630,6 +630,70 @@ printed_color(I, Col) :- instance_of(I, C), card_color(C, Col).
 // only the keywords the engine models become printed_keyword (mirrors the bridge's _ENGINE_KEYWORDS guard).
 printed_keyword(I, Kw) :- instance_of(I, C), card_keyword(C, Kw), engine_keyword(Kw).
 
+// ONE WORLD: §115/§120/§122/§701 TRIGGERED single-target / damage / counter / reanimate / switch-
+// P/T -> trigger_target / trigger_damage / trigger_reanimate, DERIVED from the card parse facts
+// (was the bridge's triggered single-target/deal_damage/put_counter/return_to_battlefield/switch_pt
+// blocks). NOTE: modify_pt (needs P/T parsing) is NOT migrated — it stays in the python bridge.
+// a triggered ability instance whose trigger maps to an engine event — the gate the trigger_* rows
+// share with has_trigger (so they only derive for an ability that actually fires).
+.decl trig_ability(ia: symbol, source: symbol, card: symbol, aid: symbol)
+trig_ability(IA, S, A, Aid) :- inst_ability(IA, S, Aid, A), card_ability(A, Aid, "triggered"), ability_trigger(A, Aid, Phrase), event_map(Phrase, _).
+// target_class = a CLEAN single 'target creature' slug -> the legal-target CLASS the driver picks
+// within (was bridge._TARGET_CLASS). Restricted/named targets are absent here, so they abstain.
+.decl target_class(tgt: symbol, class: symbol)
+target_class("a_target_creature", "any"). target_class("another_target_creature", "any"). target_class("another_target_creature_you_control", "you_control"). target_class("target_creature", "any"). target_class("target_creature_an_opponent_controls", "opponent"). target_class("target_creature_you_control", "you_control"). target_class("target_creature_you_don_t_control", "opponent"). target_class("up_to_one_target_creature", "any").
+// single_verb = the creature verbs whose single-target case the engine surfaces (NOT modify_pt:
+// that needs P/T parsing, deferred). grant_keyword maps to 'grant'; the rest map to themselves.
+.decl single_verb(verb: symbol, ev: symbol)
+single_verb("tap", "tap"). single_verb("untap", "untap"). single_verb("destroy", "destroy"). single_verb("exile", "exile"). single_verb("return_to_hand", "return_to_hand").
+// a non-battlefield-zone bounce/exile (from graveyard/exile/library/hand) is a DIFFERENT action
+// than the battlefield zone move this single-target model applies — the bridge abstained on it.
+.decl nonbf_zone(extra: symbol)
+nonbf_zone("from_graveyard"). nonbf_zone("from_exile"). nonbf_zone("from_library"). nonbf_zone("from_hand").
+// DERIVE trigger_target for a single 'target creature' tap/untap/destroy/exile/return_to_hand —
+// verb mapped via single_verb, payload '-', class via target_class (was _single_target_payload).
+trigger_target(IA, Ev, "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, Verb, _, Tgt, Extra, "-"), single_verb(Verb, Ev), target_class(Tgt, Cls), !nonbf_zone(Extra).
+// DERIVE trigger_target for a single-target grant_keyword: verb 'grant', payload the keyword (in
+// engine_keyword else abstain, was _creature_verb_payload's grant branch), class via target_class.
+trigger_target(IA, "grant", Kw, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "grant_keyword", _, Tgt, Kw, "-"), engine_keyword(Kw), target_class(Tgt, Cls).
+// damage_kind = a 'deal N damage to ...' target -> who the driver damages (was bridge._DAMAGE_TARGET).
+.decl damage_kind(tgt: symbol, kind: symbol)
+damage_kind("a_target_creature", "creature_any"). damage_kind("all_creatures", "all_creatures"). damage_kind("all_other_creatures", "all_creatures"). damage_kind("another_target_creature", "creature_any"). damage_kind("any_target", "any_target"). damage_kind("each_creature", "all_creatures"). damage_kind("each_creature_and_each_player", "all_creatures_and_players"). damage_kind("each_creature_with_flying", "all_flyers"). damage_kind("each_creature_with_flying_and_each_player", "all_flyers_and_players"). damage_kind("each_creature_without_flying", "all_ground"). damage_kind("each_creature_without_flying_and_each_player", "all_ground_and_players"). damage_kind("each_opponent", "face"). damage_kind("target_attacking_creature", "creature_opponent"). damage_kind("target_attacking_or_blocking_creature", "creature_opponent"). damage_kind("target_blocking_creature", "creature_opponent"). damage_kind("target_creature", "creature_any"). damage_kind("target_creature_an_opponent_controls", "creature_opponent"). damage_kind("target_creature_you_don_t_control", "creature_opponent"). damage_kind("target_opponent", "face"). damage_kind("target_player", "face"). damage_kind("target_player_or_planeswalker", "face"). damage_kind("that_player", "face"). damage_kind("up_to_one_target_creature", "creature_any"). damage_kind("you", "self"). damage_kind("yourself", "self").
+// DERIVE trigger_damage for triggered direct damage: N = int(amount), kind via damage_kind (was
+// the deal_damage block — n and dk both non-None). A non-integer amount has no match and abstains.
+trigger_damage(IA, N, Kind) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "deal_damage", Amount, Tgt, _, "-"), match("-?[0-9]+", Amount), N = to_number(Amount), damage_kind(Tgt, Kind).
+// counter_kind = a '+1/+1' / '-1/-1' counter slug -> the engine's p1p1/m1m1 (was bridge._counter_kind).
+.decl counter_kind(extra: symbol, kind: symbol)
+counter_kind("+1/+1", "p1p1"). counter_kind("p1p1", "p1p1"). counter_kind("-1/-1", "m1m1"). counter_kind("m1m1", "m1m1").
+// DERIVE trigger_target for a single-target put_counter: verb 'counter', payload 'p1p1:N'/'m1m1:N'
+// (kind via counter_kind, N a positive int — was _counter_payload), class via target_class.
+trigger_target(IA, "counter", Payload, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "put_counter", Amount, Tgt, Extra, "-"), counter_kind(Extra, Knd), match("[0-9]+", Amount), to_number(Amount) > 0, target_class(Tgt, Cls), Payload = cat(Knd, cat(":", Amount)).
+// reanimate_target = a clean 'creature card from a graveyard' slug the driver can reanimate (was
+// bridge._REANIMATE_TARGETS). Combined with a graveyard/hand source zone in `extra` (_reanimates).
+.decl reanimate_target(tgt: symbol)
+reanimate_target("a_creature_card"). reanimate_target("another_target_creature_card"). reanimate_target("creature_card"). reanimate_target("target_creature_card").
+// reanimate_mode = encode the source ZONE + tappedness of a 'put creature card onto the battlefield'
+// clause into the driver's mode (was bridge._reanimate_mode): 'hand'/'graveyard'[+'_tapped'].
+.decl reanimate_mode(extra: symbol, mode: symbol)
+reanimate_mode(E, "hand_tapped") :- card_effect(_, _, _, _, _, _, E, _), contains("hand", E), contains("tapped", E).
+reanimate_mode(E, "hand") :- card_effect(_, _, _, _, _, _, E, _), contains("hand", E), !contains("tapped", E).
+reanimate_mode(E, "graveyard_tapped") :- card_effect(_, _, _, _, _, _, E, _), !contains("hand", E), contains("tapped", E).
+reanimate_mode(E, "graveyard") :- card_effect(_, _, _, _, _, _, E, _), !contains("hand", E), !contains("tapped", E).
+// reanimate_gate = the extra encodes a graveyard/hand source (was _reanimates' substring test).
+.decl reanimate_gate(extra: symbol)
+reanimate_gate(E) :- card_effect(_, _, _, _, _, _, E, _), contains("graveyard", E).
+reanimate_gate(E) :- card_effect(_, _, _, _, _, _, E, _), contains("hand", E).
+// DERIVE trigger_reanimate for a triggered 'return a creature card to the battlefield' (was the
+// return_to_battlefield block — _reanimates gates the target+extra, _reanimate_mode encodes mode).
+trigger_reanimate(IA, Mode) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "return_to_battlefield", _, Tgt, Extra, "-"), reanimate_target(Tgt), reanimate_gate(Extra), reanimate_mode(Extra, Mode).
+// self_target = the 'this creature itself' target slugs (was the bridge's str(tgt) in (self, it)).
+.decl self_target(tgt: symbol)
+self_target("self"). self_target("it").
+// DERIVE the §613 layer-7d switch P/T: a SINGLE 'target creature' -> trigger_target(switchpt,-,class);
+// a SELF/it switch -> trigger_effect(switchpt, 0, -) (was the switch_pt block's two cases).
+trigger_target(IA, "switchpt", "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), target_class(Tgt, Cls).
+trigger_effect(IA, "switchpt", 0, "-") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), self_target(Tgt).
+
 .output power
 .output dies
 .output loses_game

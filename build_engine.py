@@ -964,6 +964,107 @@ def _emit_translate(p) -> None:
     p.rule("printed_color(I, Col)", ["instance_of(I, C)", "card_color(C, Col)"])
     p.comment("only the keywords the engine models become printed_keyword (mirrors the bridge's _ENGINE_KEYWORDS guard).")
     p.rule("printed_keyword(I, Kw)", ["instance_of(I, C)", "card_keyword(C, Kw)", "engine_keyword(Kw)"])
+    p.blank()
+    _emit_translate_triggered_target(p)
+
+
+# ONE WORLD — the TRIGGERED single-target / direct-damage / counter / reanimate / switch-P/T operational
+# relations (trigger_target / trigger_damage / trigger_reanimate), derived in DATALOG from the card parse
+# facts (was bridge_to_engine.card_facts' triggered branch + _single_target_payload / _damage_target /
+# _counter_payload / _reanimate_mode / switch_pt blocks). Gated on a triggered ability whose §603 trigger
+# maps to an engine event (event_map, so it only derives where has_trigger derives) and an UNCONDITIONAL
+# effect (card_effect cond column == "-"). The instance ability id cat(S,"_",A) == the bridge's f"{tid}_{aid}".
+def _emit_translate_triggered_target(p) -> None:
+    import bridge_to_engine as _b
+    p.comment("ONE WORLD: §115/§120/§122/§701 TRIGGERED single-target / damage / counter / reanimate / switch-")
+    p.comment("P/T -> trigger_target / trigger_damage / trigger_reanimate, DERIVED from the card parse facts")
+    p.comment("(was the bridge's triggered single-target/deal_damage/put_counter/return_to_battlefield/switch_pt")
+    p.comment("blocks). NOTE: modify_pt (needs P/T parsing) is NOT migrated — it stays in the python bridge.")
+    p.comment("a triggered ability instance whose trigger maps to an engine event — the gate the trigger_* rows")
+    p.comment("share with has_trigger (so they only derive for an ability that actually fires).")
+    p.decl("trig_ability", [("ia", "symbol"), ("source", "symbol"), ("card", "symbol"), ("aid", "symbol")])
+    p.rule("trig_ability(IA, S, A, Aid)",
+           ["inst_ability(IA, S, Aid, A)", 'card_ability(A, Aid, "triggered")',
+            "ability_trigger(A, Aid, Phrase)", "event_map(Phrase, _)"])
+    p.comment("target_class = a CLEAN single 'target creature' slug -> the legal-target CLASS the driver picks")
+    p.comment("within (was bridge._TARGET_CLASS). Restricted/named targets are absent here, so they abstain.")
+    p.decl("target_class", [("tgt", "symbol"), ("class", "symbol")])
+    p.facts([f'target_class("{t}", "{c}")' for t, c in sorted(_b._TARGET_CLASS.items())])
+    p.comment("single_verb = the creature verbs whose single-target case the engine surfaces (NOT modify_pt:")
+    p.comment("that needs P/T parsing, deferred). grant_keyword maps to 'grant'; the rest map to themselves.")
+    p.decl("single_verb", [("verb", "symbol"), ("ev", "symbol")])
+    p.facts(['single_verb("tap", "tap")', 'single_verb("untap", "untap")',
+             'single_verb("destroy", "destroy")', 'single_verb("exile", "exile")',
+             'single_verb("return_to_hand", "return_to_hand")'])
+    p.comment("a non-battlefield-zone bounce/exile (from graveyard/exile/library/hand) is a DIFFERENT action")
+    p.comment("than the battlefield zone move this single-target model applies — the bridge abstained on it.")
+    p.decl("nonbf_zone", [("extra", "symbol")])
+    p.facts(['nonbf_zone("from_graveyard")', 'nonbf_zone("from_exile")',
+             'nonbf_zone("from_library")', 'nonbf_zone("from_hand")'])
+    p.comment("DERIVE trigger_target for a single 'target creature' tap/untap/destroy/exile/return_to_hand —")
+    p.comment("verb mapped via single_verb, payload '-', class via target_class (was _single_target_payload).")
+    p.rule("trigger_target(IA, Ev, \"-\", Cls)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, Verb, _, Tgt, Extra, "-")',
+            "single_verb(Verb, Ev)", "target_class(Tgt, Cls)", "!nonbf_zone(Extra)"])
+    p.comment("DERIVE trigger_target for a single-target grant_keyword: verb 'grant', payload the keyword (in")
+    p.comment("engine_keyword else abstain, was _creature_verb_payload's grant branch), class via target_class.")
+    p.rule("trigger_target(IA, \"grant\", Kw, Cls)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "grant_keyword", _, Tgt, Kw, "-")',
+            "engine_keyword(Kw)", "target_class(Tgt, Cls)"])
+    p.comment("damage_kind = a 'deal N damage to ...' target -> who the driver damages (was bridge._DAMAGE_TARGET).")
+    p.decl("damage_kind", [("tgt", "symbol"), ("kind", "symbol")])
+    p.facts([f'damage_kind("{t}", "{k}")' for t, k in sorted(_b._DAMAGE_TARGET.items())])
+    p.comment("DERIVE trigger_damage for triggered direct damage: N = int(amount), kind via damage_kind (was")
+    p.comment("the deal_damage block — n and dk both non-None). A non-integer amount has no match and abstains.")
+    p.rule("trigger_damage(IA, N, Kind)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "deal_damage", Amount, Tgt, _, "-")',
+            'match("-?[0-9]+", Amount)', "N = to_number(Amount)", "damage_kind(Tgt, Kind)"])
+    p.comment("counter_kind = a '+1/+1' / '-1/-1' counter slug -> the engine's p1p1/m1m1 (was bridge._counter_kind).")
+    p.decl("counter_kind", [("extra", "symbol"), ("kind", "symbol")])
+    p.facts(['counter_kind("+1/+1", "p1p1")', 'counter_kind("p1p1", "p1p1")',
+             'counter_kind("-1/-1", "m1m1")', 'counter_kind("m1m1", "m1m1")'])
+    p.comment("DERIVE trigger_target for a single-target put_counter: verb 'counter', payload 'p1p1:N'/'m1m1:N'")
+    p.comment("(kind via counter_kind, N a positive int — was _counter_payload), class via target_class.")
+    p.rule("trigger_target(IA, \"counter\", Payload, Cls)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "put_counter", Amount, Tgt, Extra, "-")',
+            "counter_kind(Extra, Knd)", 'match("[0-9]+", Amount)', "to_number(Amount) > 0",
+            "target_class(Tgt, Cls)", 'Payload = cat(Knd, cat(":", Amount))'])
+    p.comment("reanimate_target = a clean 'creature card from a graveyard' slug the driver can reanimate (was")
+    p.comment("bridge._REANIMATE_TARGETS). Combined with a graveyard/hand source zone in `extra` (_reanimates).")
+    p.decl("reanimate_target", [("tgt", "symbol")])
+    p.facts([f'reanimate_target("{t}")' for t in sorted(_b._REANIMATE_TARGETS)])
+    p.comment("reanimate_mode = encode the source ZONE + tappedness of a 'put creature card onto the battlefield'")
+    p.comment("clause into the driver's mode (was bridge._reanimate_mode): 'hand'/'graveyard'[+'_tapped'].")
+    p.decl("reanimate_mode", [("extra", "symbol"), ("mode", "symbol")])
+    p.rule("reanimate_mode(E, \"hand_tapped\")", ['card_effect(_, _, _, _, _, _, E, _)', 'contains("hand", E)', 'contains("tapped", E)'])
+    p.rule("reanimate_mode(E, \"hand\")", ['card_effect(_, _, _, _, _, _, E, _)', 'contains("hand", E)', '!contains("tapped", E)'])
+    p.rule("reanimate_mode(E, \"graveyard_tapped\")", ['card_effect(_, _, _, _, _, _, E, _)', '!contains("hand", E)', 'contains("tapped", E)'])
+    p.rule("reanimate_mode(E, \"graveyard\")", ['card_effect(_, _, _, _, _, _, E, _)', '!contains("hand", E)', '!contains("tapped", E)'])
+    p.comment("reanimate_gate = the extra encodes a graveyard/hand source (was _reanimates' substring test).")
+    p.decl("reanimate_gate", [("extra", "symbol")])
+    p.rule("reanimate_gate(E)", ['card_effect(_, _, _, _, _, _, E, _)', 'contains("graveyard", E)'])
+    p.rule("reanimate_gate(E)", ['card_effect(_, _, _, _, _, _, E, _)', 'contains("hand", E)'])
+    p.comment("DERIVE trigger_reanimate for a triggered 'return a creature card to the battlefield' (was the")
+    p.comment("return_to_battlefield block — _reanimates gates the target+extra, _reanimate_mode encodes mode).")
+    p.rule("trigger_reanimate(IA, Mode)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "return_to_battlefield", _, Tgt, Extra, "-")',
+            "reanimate_target(Tgt)", "reanimate_gate(Extra)", "reanimate_mode(Extra, Mode)"])
+    p.comment("self_target = the 'this creature itself' target slugs (was the bridge's str(tgt) in (self, it)).")
+    p.decl("self_target", [("tgt", "symbol")])
+    p.facts(['self_target("self")', 'self_target("it")'])
+    p.comment("DERIVE the §613 layer-7d switch P/T: a SINGLE 'target creature' -> trigger_target(switchpt,-,class);")
+    p.comment("a SELF/it switch -> trigger_effect(switchpt, 0, -) (was the switch_pt block's two cases).")
+    p.rule("trigger_target(IA, \"switchpt\", \"-\", Cls)",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "switch_pt", _, Tgt, _, "-")', "target_class(Tgt, Cls)"])
+    p.rule("trigger_effect(IA, \"switchpt\", 0, \"-\")",
+           ["trig_ability(IA, S, C, A)",
+            'card_effect(C, A, _, "switch_pt", _, Tgt, _, "-")', "self_target(Tgt)"])
 
 
 def build(with_tests: bool) -> str:

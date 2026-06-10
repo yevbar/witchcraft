@@ -471,6 +471,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         continue
                     scope = _scope(tgt)
                     if scope is None:
+                        # §115 single 'target creature'. ONE WORLD: for tap/untap/destroy/exile/return_to_hand/
+                        # grant_keyword the engine DERIVES trigger_target in datalog (translate.dl) from the
+                        # card parse facts — the bridge just stops emitting. modify_pt's single-target case
+                        # stays here (it needs P/T parsing, deferred to a later wave).
+                        if verb != "modify_pt":
+                            continue
                         ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)  # §115 driver picks
                         if ev is None:
                             dropped.append((payload, cls))     # (reason_kind, reason_detail)
@@ -502,28 +508,28 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     emitted = True
                     continue
                 if verb == "deal_damage":
-                    # §120 triggered direct damage (Flametongue Kavu, pingers). The driver picks the target;
-                    # a creature target no longer mistranslates into damage to the controller. Variable/
-                    # restricted amounts or targets abstain to the player-scoped path below (each_opponent).
-                    n, dk = _int(amt), _damage_target(tgt)
-                    if n is not None and dk is not None:
-                        add("trigger_damage", (a, n, dk))
+                    # §120 triggered direct damage (Flametongue Kavu, pingers). The driver picks the target.
+                    # ONE WORLD: the engine DERIVES trigger_damage in datalog (translate.dl, n=int(amt) +
+                    # damage_kind) — the bridge just stops emitting when it would (a clean int amount + a
+                    # mapped target). Variable/restricted amounts or targets still fall through to the
+                    # player-scoped path below (each_opponent), unchanged.
+                    if _int(amt) is not None and _damage_target(tgt) is not None:
                         emitted = True
                         continue
                 if verb == "put_counter":
                     # §122 a +1/+1 / -1/-1 counter on a single 'target creature' -> the driver picks. self/it
                     # (a counter on the source) falls through to the source-counter path below; non-P/T
-                    # counters and variable counts abstain there too.
-                    cp = _counter_payload(amt, extra)
-                    cls = _target_class(tgt)
-                    if cp is not None and cls is not None:
-                        add("trigger_target", (a, "counter", cp, cls))
+                    # counters and variable counts abstain there too. ONE WORLD: the engine DERIVES the
+                    # trigger_target('counter', 'p1p1:N'/'m1m1:N', class) in datalog (translate.dl) — the
+                    # bridge just stops emitting when it would (a P/T counter, positive count, mapped class).
+                    if _counter_payload(amt, extra) is not None and _target_class(tgt) is not None:
                         emitted = True
                         continue
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
-                    # graveyard creature under the controller's control on resolution.
-                    add("trigger_reanimate", (a, _reanimate_mode(extra)))
+                    # graveyard creature under the controller's control on resolution. ONE WORLD: the engine
+                    # DERIVES trigger_reanimate(a, mode) in datalog (translate.dl, reanimate_target +
+                    # reanimate_gate + reanimate_mode) — the bridge just stops emitting.
                     emitted = True
                     continue
                 if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
@@ -533,11 +539,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         emitted = True
                         continue
                 if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
+                    # ONE WORLD: the engine DERIVES both cases in datalog (translate.dl): a self/it switch ->
+                    # trigger_effect('switchpt', 0, '-'); a single 'target creature' -> trigger_target(
+                    # 'switchpt', '-', class). The bridge just stops emitting.
                     if str(tgt) in ("self", "it"):
-                        add("trigger_effect", (a, "switchpt", 0, "-"))
                         emitted = True; continue
                     if _target_class(tgt) is not None:
-                        add("trigger_target", (a, "switchpt", "-", _target_class(tgt)))
                         emitted = True; continue
                 if verb in _PSCOPE_DATALOG:                   # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     emitted = True                            # has_trigger + trigger_effect are now DERIVED IN
