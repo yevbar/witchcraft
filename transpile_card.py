@@ -1526,16 +1526,47 @@ _CRESTR = [
 def _combat_restriction(unit, ctx):
     """'<subject> can('t) <combat-verb> <qualifier>.' — a static combat restriction with a condition
     (§508/§509). The qualifier is recorded as a descriptive slug (like a trigger/condition slug)."""
-    m = re.match(r"^(~|enchanted creature|equipped creature|enchanted permanent|equipped permanent|"
-                 r"enchanted artifact|enchanted land|enchanted player|that creature|that permanent|"
-                 r"creatures|all creatures|creature spells) (can.+?)\.?$",
-                 unit.raw, re.I)
+    # leading conditional/temporal wrappers ('As long as …', 'During your turn, …', 'Until …', 'This
+    # turn, …', 'Except for …') carry a condition we won't fold into a flat restriction slug — abstain
+    # and let the dedicated conditional-static handlers take them.
+    if re.match(r"^(?:As long as|During|Until|This turn|Next turn|Except for)\b", unit.raw, re.I):
+        return None
+    # broadened subject: any §508/§509-restrictable SET (type/color/keyword subsets, 'Creatures you
+    # control [with …]', 'Cowards', a legendary's short name via the _try_patterns ~-substitution) —
+    # not just the old fixed alternation. The required '(can…)' clause + _CRESTR qualifier keeps it
+    # from grabbing non-combat lines.
+    # _TGT misses BARE plural subjects ('Creatures', 'creature spells') the old fixed list had, so
+    # union them back in alongside the broadened _TGT sets.
+    m = re.match(rf"^({_TGT}|creatures|creature spells) (can.+?)\.?$", unit.raw, re.I)
     if not m:
+        return None
+    # On a one-shot spell, a 'target …' subject is the SPELL'S OWN target — 'Target creature can't be
+    # blocked this turn' is a one-shot effect that belongs to _spell, not a static card_restriction. So
+    # decline only the target-led subjects on instants/sorceries; non-target subjects ('~ can't be
+    # copied') keep their prior _combat_restriction coverage.
+    if ({"Instant", "Sorcery"} & _types(ctx)
+            and re.match(r"^(?:up to \w+ |any number of |another |a (?:second|third|fourth) )?(?:\w+ )?target\b",
+                         m.group(1), re.I)):
         return None
     who = _target_slug(m.group(1))
     # a second, non-restriction effect ('… and has shroud', '… and gets +1/+1') must NOT be buried in
-    # the restriction slug — abstain rather than emit a conflated fact (prime directive).
+    # the restriction slug — abstain rather than emit a conflated fact (prime directive). (Kept as the
+    # original guard so the broadened subject is PURELY ADDITIVE — no previously-covered line regresses.)
     if re.search(r" and (?:has|have|gains?|is|gets?|can't|becomes?) ", m.group(2), re.I):
+        return None
+    # a SEPARATE non-restriction effect folded into the qualifier (a grant of an ability, a redirect,
+    # a second sentence) makes the slug a conflation — abstain (guardian_beast 'they have indestructible',
+    # dog_umbra 'otherwise has umbra armor', togglodyte 'and prevent all damage'). These markers are
+    # chosen to NOT fire on a legit second RESTRICTION clause (Faith's Fetters '…, and its activated
+    # abilities can't be activated'), which the line above already permits as established behavior.
+    if re.search(r"\b(?:otherwise|prevent all|this effect doesn't)\b", m.group(2), re.I):
+        return None
+    # ', and <NEW SUBJECT> can…' is a second restriction on a DIFFERENT subject (Autumn's Veil 'Spells
+    # you control can't be countered…, and creatures you control can't be the targets…') — a conflation;
+    # abstain. The new-subject list excludes 'its' so Faith's Fetters' same-permanent ', and its
+    # activated abilities can't be activated' continuation is still permitted.
+    if re.search(r", and (?:creatures?|players?|permanents?|lands?|artifacts?|enchantments?|spells?|"
+                 r"tokens?|they|you|your opponents?|each) ", m.group(2), re.I):
         return None
     for pat, prefix in _CRESTR:
         mm = re.match("^" + pat + "$", m.group(2), re.I)
