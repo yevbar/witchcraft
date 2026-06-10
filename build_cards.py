@@ -129,6 +129,14 @@ def build() -> tuple[str, dict]:
     p.decl("card_intensify", [("card", "symbol"), ("scope", "symbol"), ("amount", "symbol")])
     p.decl("card_augment", [("card", "symbol"), ("cost", "symbol")])
     p.decl("card_poison_tolerance", [("card", "symbol"), ("bonus", "symbol")])
+    # SUPPLEMENTAL (Un-set / Unfinity / Acorn / digital-only) mechanics absent from rules.txt §702 —
+    # captured faithfully as descriptive card_* relations (NOT grounded card_keyword), like the block
+    # above, so these cards' lines ground instead of abstaining.
+    p.decl("card_teamwork", [("card", "symbol"), ("n", "number")])
+    p.decl("card_get_tickets", [("card", "symbol"), ("n", "number")])
+    p.decl("card_sticker", [("card", "symbol"), ("frame", "symbol"), ("kind", "symbol"), ("target", "symbol")])
+    p.decl("card_assemble_contraption", [("card", "symbol"), ("frame", "symbol"), ("count", "symbol")])
+    p.decl("card_spellbook", [("card", "symbol"), ("frame", "symbol"), ("op", "symbol")])
     p.blank()
     for cid, nm in sorted(names.items()):
         p.fact(f'card_name("{cid}", "{nm}")')
@@ -144,7 +152,9 @@ def build() -> tuple[str, dict]:
              "card_damage_redirect", "card_damage_multiplier", "card_life_floor", "card_static_player", "card_additional_cost",
              "card_static", "card_restriction", "card_grants_ability", "card_cost_modifier", "card_cda",
              "card_level", "card_class_level", "card_ticket_pt", "card_specialize",
-             "card_intensity", "card_intensify", "card_augment", "card_poison_tolerance")
+             "card_intensity", "card_intensify", "card_augment", "card_poison_tolerance",
+             "card_teamwork", "card_get_tickets", "card_sticker", "card_assemble_contraption",
+             "card_spellbook")
     p.blank()
     p.comment("conformance — a grounded keyword the rules define (§702.9) on a known card")
     p.conformance(

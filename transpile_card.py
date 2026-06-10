@@ -1996,6 +1996,137 @@ def _poison_tolerance(unit, ctx):
     return CardOut(cid, [f'card_poison_tolerance("{cid}", "{m.group(1)}")'], "poison_tolerance")
 
 
+# --- SUPPLEMENTAL clusters (Unfinity stickers/tickets/teamwork, Contraptions, Alchemy spellbooks) ---
+# None of these are defined in this rules.txt §702 roster, so per the prime directive we do NOT mint a
+# grounded card_keyword for them — each gets a DEDICATED descriptive card_* relation. To stay faithful,
+# every handler matches the WHOLE oracle line: a compound body whose non-supplemental half wouldn't
+# ground on its own ABSTAINS (returns None) rather than emitting a partial fact.
+
+def _teamwork(unit, ctx):
+    """'Teamwork N' — the Unfinity keyword ability with a numeric parameter. NOT in this rules.txt KB,
+    so recorded descriptively as card_teamwork(card, N) rather than a grounded §702 keyword."""
+    m = re.match(r"^Teamwork (\d+)\.?$", unit.raw, re.I)
+    if not m:
+        return None
+    return CardOut(ctx["id"], [f'card_teamwork("{ctx["id"]}", {m.group(1)})'], "teamwork")
+
+
+# A sticker-placement clause: 'put a[n] [<kind>] sticker[s] on <target>'. <kind> is one of the four
+# Unfinity sticker categories (name / art / power and toughness / ability) or absent (a plain sticker).
+_STICKER_KIND = {"name": "name", "art": "art", "power and toughness": "power_and_toughness",
+                 "ability": "ability"}
+_STICKER_PUT = re.compile(
+    r"^you may put (?:up to \w+ )?(?:a |an )?(?:(?P<kind>name|art|power and toughness|ability) )?sticker(?:s)? "
+    r"on (?P<target>[^.,]+?)\.?$", re.I)
+
+
+def _sticker_clause(text):
+    """Parse a bare 'you may put [a] [<kind>] sticker on <target>' clause -> (kind, target_slug) or
+    None. Used by _sticker for both the trigger frames and the modal-bullet/standalone forms."""
+    m = _STICKER_PUT.match(text.strip().rstrip("."))
+    if not m:
+        return None
+    kind = _STICKER_KIND.get((m.group("kind") or "").strip().lower(), "plain")
+    target = ground.slug(m.group("target"))
+    return (kind, target) if target else None
+
+
+# 'When/Whenever/As ~ <event>, [you get {TK}…, then ]you may put … sticker on …' — the productive
+# Unfinity sticker frames. The optional 'you get {TK}{TK}…, then ' ticket-gain prefix is itself a
+# supplemental mechanic, captured as a SEPARATE card_get_tickets fact (both halves grounded faithfully).
+# the body is restricted to a SINGLE sentence ([^.]) so a compound line with a follow-on sentence
+# ('… name sticker on it. You gain X life …') can't swallow the second effect into the target slug.
+_STICKER_FRAME = re.compile(
+    r"^(?P<trig>When|Whenever|As) ~ (?P<event>enters|attacks|deals combat damage to a player), "
+    r"(?:you get (?P<tk>(?:\{TK\})+), then )?(?P<body>you may put [^.]+?)\.?$", re.I)
+_FRAME_EVENT = {"enters": "enters", "attacks": "attacks",
+                "deals combat damage to a player": "combat_damage"}
+
+
+def _sticker(unit, ctx):
+    """Unfinity STICKER frames (a digital/supplemental mechanic NOT in this rules.txt KB). Three whole-
+    line shapes, all recorded descriptively:
+      • 'When/Whenever/As ~ <event>, [you get {TK}…, then ]you may put a[ <kind>] sticker on <target>.'
+        -> card_sticker(card, <event>, <kind>, <target>) (+ card_get_tickets for any {TK} prefix);
+      • '• You may put … sticker on <target>.' (a modal bullet) -> frame 'modal';
+      • a bare 'Put an art sticker on <target>.' / standalone 'You may put …' -> frame 'standalone'.
+    The body must be EXACTLY a sticker-placement clause (no trailing 'and …'/'. …' second effect), so a
+    compound line whose remainder wouldn't ground abstains rather than emit a partial fact."""
+    cid = ctx["id"]
+    raw = unit.raw.strip()
+    # modal bullet: '• You may put … sticker on …'
+    if raw.startswith("•"):
+        sc = _sticker_clause(raw[1:].strip())
+        if sc:
+            return CardOut(cid, [f'card_sticker("{cid}", "modal", "{sc[0]}", "{sc[1]}")'], "sticker")
+        return None
+    m = _STICKER_FRAME.match(raw)
+    if m:
+        sc = _sticker_clause(m.group("body"))
+        if not sc:
+            return None
+        facts = []
+        if m.group("tk"):
+            facts.append(f'card_get_tickets("{cid}", {m.group("tk").count("{TK}")})')
+        frame = _FRAME_EVENT[m.group("event").lower()]
+        facts.append(f'card_sticker("{cid}", "{frame}", "{sc[0]}", "{sc[1]}")')
+        return CardOut(cid, facts, "sticker")
+    # bare standalone placement ('Put an art sticker on …' imperative, or 'You may put …') — single clause
+    if re.match(r"^(?:You may )?put ", raw, re.I) and "." not in raw.rstrip("."):
+        body = re.sub(r"^Put ", "you may put ", raw, flags=re.I) if not raw.lower().startswith("you may") else raw
+        sc = _sticker_clause(body)
+        if sc:
+            return CardOut(cid, [f'card_sticker("{cid}", "standalone", "{sc[0]}", "{sc[1]}")'], "sticker")
+    return None
+
+
+# Contraption assembly (the Unstable 'assemble a Contraption' mechanic — NOT in this rules.txt KB).
+_CONTRAPTION_COUNT = {"a": "1", "two": "2", "x": "x"}
+_ASSEMBLE = re.compile(r"^assemble (?P<n>a|two|X) Contraptions?\.?$", re.I)
+_ETB_ASSEMBLE = re.compile(r"^When ~ enters, (?:it|~) assembles a Contraption\.?$", re.I)
+
+
+def _assemble_contraption(unit, ctx):
+    """Contraption assembly, a supplemental (Unstable) mechanic with no §702 grounding. Two whole-line
+    shapes recorded descriptively as card_assemble_contraption(card, frame, count):
+      • 'When ~ enters, it/~ assembles a Contraption.'  -> frame 'enters', count '1';
+      • a bare imperative 'Assemble a/two/X Contraption(s).' (spell or modal bullet) -> frame 'spell'.
+    Anchored whole-line so compound bodies ('… then assemble a Contraption', '… for each …') abstain."""
+    cid = ctx["id"]
+    raw = unit.raw.strip()
+    if _ETB_ASSEMBLE.match(raw):
+        return CardOut(cid, [f'card_assemble_contraption("{cid}", "enters", "1")'], "assemble_contraption")
+    bullet = raw[1:].strip() if raw.startswith("•") else raw
+    m = _ASSEMBLE.match(bullet)
+    if m:
+        cnt = _CONTRAPTION_COUNT[m.group("n").lower()]
+        frame = "modal" if raw.startswith("•") else "spell"
+        return CardOut(cid, [f'card_assemble_contraption("{cid}", "{frame}", "{cnt}")'], "assemble_contraption")
+    return None
+
+
+# Spellbook draft/conjure (Alchemy/Conspiracy 'spellbook' zone — NOT in this rules.txt KB). Kept TIGHT:
+# only the bare 'draft a card from <X>'s spellbook' clause, optionally under a simple known trigger
+# frame. Compound lines ('… and exile it', '… then put those cards onto the battlefield', '… twice')
+# carry a SECOND effect that wouldn't ground on its own, so they abstain (faithful-or-abstain).
+_SPELLBOOK_FRAME = re.compile(
+    r"^(?:(?P<trig>When|Whenever|As) ~ (?P<event>enters|dies|attacks), )?"
+    r"draft a card from ~'s spellbook\.?$", re.I)
+_SPELLBOOK_EVENT = {"enters": "enters", "dies": "dies", "attacks": "attacks"}
+
+
+def _spellbook(unit, ctx):
+    """'[<trigger>, ]draft a card from ~'s spellbook.' — the cleanest spellbook frame, recorded
+    descriptively as card_spellbook(card, frame, 'draft'). frame is the trigger event ('enters'/'dies'/
+    'attacks') or 'standalone' for the bare imperative. Tight on purpose: any compound continuation
+    abstains so we never emit a partial fact for the ungrounded second half."""
+    m = _SPELLBOOK_FRAME.match(unit.raw.strip())
+    if not m:
+        return None
+    frame = _SPELLBOOK_EVENT.get((m.group("event") or "").lower(), "standalone")
+    return CardOut(ctx["id"], [f'card_spellbook("{ctx["id"]}", "{frame}", "draft")'], "spellbook")
+
+
 def _ready_to_run(unit, ctx):
     """'Ready to run' (a named keyword on the 'Runner' subgame cards, NOT in this rules.txt KB) — a
     bare designation marker. Recorded descriptively as card_static('ready_to_run') so the line is
@@ -2085,6 +2216,7 @@ def _static_conjuncts(unit, ctx):
 
 
 _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket_pt,
+             _teamwork, _sticker, _assemble_contraption, _spellbook,
              _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
