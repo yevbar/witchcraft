@@ -312,6 +312,24 @@ def _spell_checks() -> None:
         driver._run_spell_effects(st, "bolt", "alice")
     check("any_target with nothing killable goes face (bob 20 -> 19)", ("bob", 19) in st["life"])
 
+    # §120 board sweeper 'Pyroclasm' (2 to each creature) -> kills every creature with toughness <= 2
+    # (mine 2/2, small 1/1, src 1/1), leaving the 5/5 'big'. Both sides hit.
+    st = _base()
+    st["spell_damage"] = {("pyro", 2, "all_creatures")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "pyro", "alice")
+    check("board sweeper kills all small creatures (mine/small/src die)",
+          all((c,) in st["graveyard"] for c in ("mine", "small", "src")))
+    check("board sweeper spares the tough creature (big 5/5 survives)", ("big",) in st["on_battlefield"])
+
+    # 'Pestilence'-style 'N to each creature and each player' also drains both players.
+    st = _base()
+    st["spell_damage"] = {("pest", 1, "all_creatures_and_players")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "pest", "alice")
+    check("each-creature-and-player damage hits both players (alice & bob to 19)",
+          ("alice", 19) in st["life"] and ("bob", 19) in st["life"])
+
     # a real burn spell routes deal_damage to spell_damage, not a dropped/mistranslated player effect.
     import sim as _sim, card_corpus as _cc
     _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}

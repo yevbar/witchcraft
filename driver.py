@@ -851,6 +851,13 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
             kill(tgt)
         elif opp is not None:
             print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
+    elif kind in ("all_creatures", "all_creatures_and_players"):   # §120 a board sweeper (Pyroclasm, Pestilence)
+        for c in sorted(c for c in creatures if c in on_bf):
+            if tough.get(c, 1) <= n:
+                kill(c)
+        if kind == "all_creatures_and_players":
+            for p in sorted(q for (q,) in state.get("is_player", set())):
+                print(f"      {label} deals {n} to {p} -> {_adjust_life(state, p, -n)} life")
 
 
 def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
