@@ -131,6 +131,30 @@ def _equipment_checks() -> None:
     check("the equipment's attachment is cleared", not st3["attached_to"])
 
 
+def _control_checks() -> None:
+    # §613 a control-stealing Aura (Control Magic, Persuasion): attaches to the opponent's strongest creature
+    # and feeds eff_gain_control so the engine flips control to the Aura's controller.
+    st = _board()
+    st["printed_subtype"].add(("magic", "aura"))
+    st["on_battlefield"].add(("magic",))
+    st["aura_control"] = {("magic",)}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._attach_aura(st, "magic", "alice")
+    check("a control Aura attaches to the opponent's strongest creature (ogre)",
+          ("magic", "ogre") in st["attached_to"])
+    controls = {(p, c) for (p, c) in driver.run(st, ["controls"])["controls"]}
+    check("control is flipped to the Aura's controller (alice controls ogre)", ("alice", "ogre") in controls)
+    check("the original controller no longer controls it (not bob)", ("bob", "ogre") not in controls)
+
+    # when the stolen creature leaves, the steal ends (eff_gain_control cleared) and the Aura goes to graveyard.
+    st["on_battlefield"].discard(("ogre",))
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._aura_sba(st)
+    check("the control-steal ends when the host leaves (eff_gain_control cleared)",
+          not st.get("eff_gain_control"))
+    check("the control Aura goes to the graveyard (§704.5n)", ("magic",) in st["graveyard"])
+
+
 def _bridge_checks() -> None:
     import sim, card_corpus
     db = sim.load_db()
@@ -147,8 +171,13 @@ def _bridge_checks() -> None:
         check("Bonesplitter -> static_pt(+2/+0, attached)",
               ("x", 2, 0, "attached") in f.get("static_pt", set()))
 
-    # corpus body of attachment buffs.
-    n = 0
+    # Control Magic: 'you control enchanted creature' -> aura_control marker.
+    if "Control Magic" in corpus:
+        f, _ = bridge.card_facts("Control Magic", "alice", "x", db, corpus)
+        check("Control Magic -> aura_control", ("x",) in f.get("aura_control", set()))
+
+    # corpus body of attachment buffs + control auras.
+    nb = nc = 0
     for name in corpus:
         try:
             f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
@@ -156,13 +185,17 @@ def _bridge_checks() -> None:
             continue
         if any(sc == "attached" for (_s, *_r, sc) in f.get("static_pt", set())) \
            or any(sc == "attached" for (_s, _kw, sc) in f.get("static_grant", set())):
-            n += 1
-    check("the corpus yields a body of attachment buffs (>= 100)", n >= 100)
+            nb += 1
+        if f.get("aura_control"):
+            nc += 1
+    check("the corpus yields a body of attachment buffs (>= 100)", nb >= 100)
+    check("the corpus yields a body of control Auras (>= 20)", nc >= 20)
 
 
 def run() -> None:
     _driver_checks()
     _equipment_checks()
+    _control_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

@@ -610,6 +610,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue
         elif kind == "static":                               # §611.2 — a continuous anthem/lord ability
             for _seq, verb, amt, tgt, extra, cond in ab.get("effects", []):
+                # §613 'you control enchanted creature' (Control Magic, Persuasion): a control-stealing Aura.
+                # The driver feeds eff_gain_control when it attaches — flag the Aura so it targets an enemy.
+                if verb == "gain_control" and str(tgt) in ("enchanted_creature", "enchanted_permanent"):
+                    add("aura_control", (tid,))
+                    continue
                 # only the unconditional board anthems map (a condition the engine can't evaluate, or a
                 # subtype/attachment-restricted scope, abstains). modify_pt -> static_pt, grant -> static_grant.
                 if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):

@@ -384,6 +384,8 @@ def _aura_sba(state: dict) -> None:
     for (perm, host) in sorted(state.get("attached_to", set())):
         if (host,) not in bf:
             state["attached_to"].discard((perm, host))
+            if state.get("eff_gain_control"):                # a control-Aura's steal ends with the attachment
+                state["eff_gain_control"] = {r for r in state["eff_gain_control"] if r[0] != f"{perm}__ctrl"}
             if (perm, "aura") in subtype and (perm,) in bf:  # §704.5n an Aura with no legal host dies
                 bf.discard((perm,))
                 state.setdefault("graveyard", set()).add((perm,))
@@ -919,11 +921,14 @@ def _has_attached_static(state: dict, perm: str) -> bool:
 
 
 def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
-    """§303.4 an Aura enters the battlefield attached to a creature. We attach only Auras that carry a
-    P/T or keyword 'enchanted creature' static buff (the engine applies it via attached_to): a beneficial
-    aura (net +P/T, or a keyword grant) goes on the controller's strongest creature, a negative one on the
-    opponent's strongest. Auras with no legal host stay unattached (no effect)."""
-    if (aura, "aura") not in state.get("printed_subtype", set()) or not _has_attached_static(state, aura):
+    """§303.4 an Aura enters the battlefield attached to a creature. We attach Auras that carry a P/T or
+    keyword 'enchanted creature' static buff (applied via attached_to) or that STEAL control (Control Magic,
+    via eff_gain_control): a beneficial buff goes on the controller's strongest creature; a negative buff or
+    a control-steal goes on the opponent's strongest. Auras with no legal host stay unattached (no effect)."""
+    is_control = (aura,) in state.get("aura_control", set())
+    if (aura, "aura") not in state.get("printed_subtype", set()):
+        return
+    if not _has_attached_static(state, aura) and not is_control:
         return
     out = run(state, ["controls", "creature", "power"])
     controls = {(p, c) for (p, c) in out["controls"]}
@@ -931,7 +936,7 @@ def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
     powers = {c: int(n) for (c, n) in out["power"]}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
-    harmful = _static_attached_pt(state, aura) < 0
+    harmful = is_control or _static_attached_pt(state, aura) < 0   # a control-steal targets an enemy
     cands = [c for c in creatures if c in on_bf and c != aura and ((c not in mine) if harmful else (c in mine))]
     if not cands:                                            # no legal host of the wanted side -> any creature
         cands = [c for c in creatures if c in on_bf and c != aura]
@@ -940,6 +945,9 @@ def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
     host = max(cands, key=lambda c: powers.get(c, 0))
     state.setdefault("attached_to", set()).add((aura, host))
     print(f"      {aura} is attached to {host}")
+    if is_control:                                           # §613 layer 2 — the Aura's controller takes control
+        state.setdefault("eff_gain_control", set()).add((f"{aura}__ctrl", ctrl, host, 1))
+        print(f"      {aura}: {ctrl} gains control of {host}")
 
 
 def _equip(state: dict, equipment: str, ctrl: str) -> None:
