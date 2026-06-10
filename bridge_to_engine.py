@@ -94,6 +94,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     for kw in f.get("keywords", set()):
         if kw in _ENGINE_KEYWORDS:
             add("printed_keyword", (tid, kw))
+    if f.get("mana"):                                         # §605 activated mana ability ('{T}: Add …')
+        add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
     for aid, ab in f.get("abilities", {}).items():
         if ab.get("kind") != "triggered":

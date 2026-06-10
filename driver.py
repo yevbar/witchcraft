@@ -351,13 +351,24 @@ def _develop_mana(state: dict, ap: str) -> None:
             print(f"    {ap} plays land {land}")
     lands = sum(1 for (c,) in state.get("on_battlefield", set())
                 if (c, "land") in state.get("printed_type", set()) and (ap, c) in state.get("printed_control", set()))
-    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, lands)}
+    dorks = sum(1 for (c,) in state.get("on_battlefield", set())   # §605 mana creatures (Llanowar Elves, …)
+                if (c,) in state.get("mana_source", set()) and (ap, c) in state.get("printed_control", set())
+                and (c,) not in state.get("tapped", set()) and (c,) not in state.get("_sick", set()))
+    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, lands + dorks)}
 
 
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
-    """Deduct a cast spell's cost from the active player's available mana (§601.2g) — the engine checks
-    affordability but doesn't consume, so without this one land would pay for every spell that turn."""
+    """Pay a spell's cost (§601.2g) by TAPPING that many untapped mana sources — lands first, then
+    non-sick mana creatures. Tapping (not just decrementing a counter) is what makes mana deplete
+    faithfully: a tapped source can't pay again this turn or attack, and it untaps next turn. Also lower
+    the current phase's available count so the rest of this cast loop sees the reduced mana."""
     cost = next((c for (s, c) in state.get("mana_cost", set()) if s == spell), 0)
+    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
+    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set()) and (ap, c) in ctrl and (c,) not in tapped)
+    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
+                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
+    for c in (lands + dorks)[:cost]:
+        state.setdefault("tapped", set()).add((c,))
     cur = next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
     state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
 
