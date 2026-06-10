@@ -53,9 +53,9 @@ def _bridge_checks() -> None:
     check("ETB anthem fired through a real has_trigger(etb_self)",
           any(ev == "etb_self" for _a, _s, ev in f.get("has_trigger", set())) and not dropped)
 
-    # Kruin Striker grants the source (self) trample on a trigger -> self scope.
-    f, _ = facts("Kruin Striker")
-    # (its trigger event isn't engine-modelled, so it abstains on the event — assert no mistranslation)
+    # Seeker of the Way grants self lifelink on 'you cast a noncreature spell' — a still-unmodelled event,
+    # so it abstains on the event (no trigger_effect_grant) rather than mistranslate.
+    f, _ = facts("Seeker of the Way")
     check("unmodelled-event grant abstains, no trigger_effect_grant",
           not f.get("trigger_effect_grant"))
 

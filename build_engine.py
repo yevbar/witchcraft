@@ -685,6 +685,12 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "etb_other")', "ev_etb(O)", "O != S"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "dies_self")', "ev_dies(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "dies_other")', "ev_dies(O)", "O != S"])
+    # §603 restricted 'another creature [you control]' enters/dies — join creature + shared controller so
+    # the trigger fires only for the right OTHER permanents (etb_other/dies_other alone are too broad).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "other_creature_etb")', "ev_etb(O)", "O != S", "creature(O)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_etb")', "ev_etb(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "other_creature_dies")', "ev_dies(O)", "O != S", "creature(O)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_dies")', "ev_dies(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_self")', "ev_attacks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "blocks_self")', "ev_blocks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_player")', "ev_combat_dmg_player(S, _)"])

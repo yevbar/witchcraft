@@ -33,6 +33,15 @@ _EVENT = {
     "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
     "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
+    # §603 'another creature [you control]' enters/dies — the engine restricts to creature + controller.
+    "another_creature_enters": "other_creature_etb",
+    "a_creature_enters": "other_creature_etb",
+    "another_creature_you_control_enters": "your_creature_etb",
+    "a_creature_you_control_enters": "your_creature_etb",
+    "another_creature_dies": "other_creature_dies",
+    "a_creature_dies": "other_creature_dies",
+    "another_creature_you_control_dies": "your_creature_dies",
+    "a_creature_you_control_dies": "your_creature_dies",
 }
 
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.

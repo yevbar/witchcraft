@@ -425,6 +425,10 @@ fires(A, S) :- has_trigger(A, S, "etb_self"), ev_etb(S).
 fires(A, S) :- has_trigger(A, S, "etb_other"), ev_etb(O), O != S.
 fires(A, S) :- has_trigger(A, S, "dies_self"), ev_dies(S).
 fires(A, S) :- has_trigger(A, S, "dies_other"), ev_dies(O), O != S.
+fires(A, S) :- has_trigger(A, S, "other_creature_etb"), ev_etb(O), O != S, creature(O).
+fires(A, S) :- has_trigger(A, S, "your_creature_etb"), ev_etb(O), O != S, creature(O), controls(P, O), controls(P, S).
+fires(A, S) :- has_trigger(A, S, "other_creature_dies"), ev_dies(O), O != S, creature(O).
+fires(A, S) :- has_trigger(A, S, "your_creature_dies"), ev_dies(O), O != S, creature(O), controls(P, O), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "attacks_self"), ev_attacks(S).
 fires(A, S) :- has_trigger(A, S, "blocks_self"), ev_blocks(S).
 fires(A, S) :- has_trigger(A, S, "combat_damage_to_player"), ev_combat_dmg_player(S, _).
