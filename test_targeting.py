@@ -155,6 +155,35 @@ def _spell_checks() -> None:
     check("spell bounce returns strongest enemy to its owner's hand",
           ("bob", "big") in st["in_hand"] and ("big",) not in st["on_battlefield"])
 
+    # 'Overrun' (creatures you control get +3/+3) -> pumps ALL of alice's creatures, none of bob's.
+    st = _base()
+    st["spell_scope"] = {("overrun", "modify_pt", "3/3", "creatures_you_control")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "overrun", "alice")
+    p = _powers(st)
+    check("spell scope creatures_you_control pumps all own (mine 2->5, src 1->4)",
+          p.get("mine") == 5 and p.get("src") == 4)
+    check("spell scope creatures_you_control leaves enemies (big stays 5, small 1)",
+          p.get("big") == 5 and p.get("small") == 1)
+
+    # 'Wrath of God' (destroy all creatures) -> every creature to the graveyard.
+    st = _base()
+    st["spell_scope"] = {("wrath", "destroy", "-", "all_creatures")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "wrath", "alice")
+    check("spell scope all_creatures destroys the whole board",
+          all((c,) in st["graveyard"] for c in ("mine", "big", "small", "src"))
+          and not st["on_battlefield"])
+
+    # a board wipe spares indestructible creatures (§702.12b).
+    st = _base()
+    st["printed_keyword"] = {("big", "indestructible")}
+    st["spell_scope"] = {("wrath", "destroy", "-", "all_creatures")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "wrath", "alice")
+    check("board wipe spares the indestructible creature (big survives)",
+          ("big",) in st["on_battlefield"] and ("mine",) in st["graveyard"])
+
     # the bridge routes a real removal spell's destroy clause to spell_target, not a dropped effect.
     import sim, card_corpus
     db = sim.load_db()

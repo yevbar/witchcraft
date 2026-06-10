@@ -667,6 +667,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
         else:                                                # shared effect resolver (§603 -> §608 vocabulary)
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
     _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)
+    _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
 
 
 def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
@@ -685,6 +686,27 @@ def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
     for (_s, verb, payload, cls) in rows:
         tgt = _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures)
         if tgt is not None:
+            _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
+
+
+def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
+    """§608 board-scope creature effects on a resolving spell (Overrun: creatures you control get +X/+X;
+    Wrath of God: destroy all creatures). The driver expands the scope to concrete creatures — its own
+    (creatures_you_control) or every creature (all_creatures) — and applies the verb to each."""
+    rows = sorted(r for r in state.get("spell_scope", set()) if r[0] == spell)
+    if not rows:
+        return
+    out = run(state, ["controls", "creature", "cant_be_destroyed"])
+    indestructible = {c for (c,) in out["cant_be_destroyed"]}
+    controls = {(p, c) for (p, c) in out["controls"]}
+    creatures = {c for (c,) in out["creature"]}
+    owner_of = {c: p for (p, c) in controls}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in controls if p == ctrl}
+    for (_s, verb, payload, scope) in rows:
+        targets = sorted(c for c in creatures if c in on_bf
+                         and (scope == "all_creatures" or c in mine))
+        for tgt in targets:
             _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
 
 
