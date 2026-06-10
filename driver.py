@@ -861,11 +861,18 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
             kill(tgt)
         elif opp is not None:
             print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
-    elif kind in ("all_creatures", "all_creatures_and_players"):   # §120 a board sweeper (Pyroclasm, Pestilence)
-        for c in sorted(c for c in creatures if c in on_bf):
+    elif kind.startswith(("all_creatures", "all_ground", "all_flyers")):   # §120 a board sweeper (Pyroclasm,
+        flyers = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "flying"}  # Earthquake, Hurricane)
+        def hit(c):                                            # Earthquake spares flyers; Hurricane hits only them
+            if kind.startswith("all_ground"):
+                return c not in flyers
+            if kind.startswith("all_flyers"):
+                return c in flyers
+            return True
+        for c in sorted(c for c in creatures if c in on_bf and hit(c)):
             if tough.get(c, 1) <= n:
                 kill(c)
-        if kind == "all_creatures_and_players":
+        if kind.endswith("_and_players"):
             for p in sorted(q for (q,) in state.get("is_player", set())):
                 print(f"      {label} deals {n} to {p} -> {_adjust_life(state, p, -n)} life")
 

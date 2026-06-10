@@ -330,6 +330,32 @@ def _spell_checks() -> None:
     check("each-creature-and-player damage hits both players (alice & bob to 19)",
           ("alice", 19) in st["life"] and ("bob", 19) in st["life"])
 
+    # §120 'Earthquake' (N to each creature WITHOUT flying and each player) spares flyers; 'Hurricane'
+    # (N to each creature WITH flying and each player) hits only flyers.
+    st = _base()
+    st["printed_power"] = {("mine", 2), ("big", 1), ("small", 1), ("src", 1)}   # make 'big' a small FLYER so
+    st["printed_toughness"] = st["printed_power"]                                 # only the flying filter spares it
+    st["printed_keyword"] = {("big", "flying")}
+    st["spell_damage"] = {("quake", 2, "all_ground_and_players")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "quake", "alice")
+    check("Earthquake kills the ground creatures (mine/small/src die)",
+          all((c,) in st["graveyard"] for c in ("mine", "small", "src")))
+    check("Earthquake spares the flyer via the filter (small flyer 'big' survives 2 dmg)",
+          ("big",) in st["on_battlefield"])
+
+    st = _base()
+    st["printed_power"] = {("mine", 2), ("big", 1), ("small", 1), ("src", 1)}
+    st["printed_toughness"] = st["printed_power"]
+    st["printed_keyword"] = {("big", "flying"), ("small", "flying")}  # two small flyers
+    st["spell_damage"] = {("cane", 2, "all_flyers")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "cane", "alice")
+    check("Hurricane kills the flyers (big & small)",
+          ("big",) in st["graveyard"] and ("small",) in st["graveyard"])
+    check("Hurricane spares the ground creatures (mine & src)",
+          ("mine",) in st["on_battlefield"] and ("src",) in st["on_battlefield"])
+
     # a real burn spell routes deal_damage to spell_damage, not a dropped/mistranslated player effect.
     import sim as _sim, card_corpus as _cc
     _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}

@@ -150,10 +150,14 @@ _DAMAGE_TARGET = {
     "target_player": "face", "target_opponent": "face", "each_opponent": "face",
     "that_player": "face", "target_player_or_planeswalker": "face",
     "you": "self", "yourself": "self",
-    # board sweepers (Pyroclasm, Anger of the Gods, Pestilence, Earthquake): the driver applies the
-    # lethality check to every creature, and to every player for the '...and each player' variants.
+    # board sweepers (Pyroclasm, Anger of the Gods, Pestilence): the driver applies the lethality check to
+    # every creature, and to every player for the '...and each player' variants. The flying-filtered forms
+    # (Earthquake hits only non-flyers, Hurricane only flyers) restrict the creature set by the keyword.
     "each_creature": "all_creatures", "all_creatures": "all_creatures", "all_other_creatures": "all_creatures",
     "each_creature_and_each_player": "all_creatures_and_players",
+    "each_creature_without_flying": "all_ground", "each_creature_with_flying": "all_flyers",
+    "each_creature_without_flying_and_each_player": "all_ground_and_players",
+    "each_creature_with_flying_and_each_player": "all_flyers_and_players",
 }
 
 
