@@ -333,12 +333,35 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     return None
 
 
+# §106.1a — the five colors plus colorless; a mana-creature (dork) abstains to colorless mana.
+_COLORS = ("white", "blue", "black", "red", "green", "colorless")
+
+
+def _untapped_sources(state: dict, ap: str) -> list[tuple[str, str | None]]:
+    """The active player's untapped mana sources as (source_id, color_or_None): each untapped land it
+    controls paired with each color it produces (land_produces, from the bridge), then each non-sick
+    mana creature as colorless (§605). A land with no produced color still taps as a colorless source."""
+    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
+    produces = state.get("land_produces", set())
+    out: list[tuple[str, str | None]] = []
+    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
+                   and (ap, c) in ctrl and (c,) not in tapped)
+    for c in lands:
+        cols = sorted(col for (s, col) in produces if s == c)
+        out.append((c, cols[0] if cols else "colorless"))     # one color per land (basics are monocolor)
+    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
+                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
+    for c in dorks:
+        out.append((c, "colorless"))                          # §605 mana dork -> colorless (kept simple)
+    return out
+
+
 def _develop_mana(state: dict, ap: str) -> None:
-    """Driver-side §305 land mechanics the datalog engine leaves to the apply-and-loop (it models mana
-    as a colorless count and lands as 'played', not 'cast'). Play ONE land this turn (§305.2) from the
-    active player's hand, then refresh its available mana to the lands it controls — each taps for 1.
-    The engine still authors casting legality (can_cast/can_afford); this only stocks the resource the
-    loop owns. Faithful within the engine's colorless-mana abstraction."""
+    """Driver-side §305 land mechanics the datalog engine leaves to the apply-and-loop. Play ONE land
+    this turn (§305.2) from the active player's hand, then refresh its COLORED mana pool (§106) from the
+    untapped lands it controls — each contributes one mana of its produced color (land_produces). The
+    engine authors casting legality (can_cast/can_afford over mana_pool); this only stocks the pool. A
+    flat mana_available count is kept in sync for the legacy fallback / cache continuity."""
     played = state.setdefault("_land_played", set())          # driver bookkeeping; not a souffle relation
     if (ap,) not in played:
         land = next((s for (p, s) in sorted(state.get("in_hand", set()))
@@ -349,28 +372,68 @@ def _develop_mana(state: dict, ap: str) -> None:
             state.setdefault("printed_control", set()).add((ap, land))
             played.add((ap,))
             print(f"    {ap} plays land {land}")
-    lands = sum(1 for (c,) in state.get("on_battlefield", set())
-                if (c, "land") in state.get("printed_type", set()) and (ap, c) in state.get("printed_control", set()))
-    dorks = sum(1 for (c,) in state.get("on_battlefield", set())   # §605 mana creatures (Llanowar Elves, …)
-                if (c,) in state.get("mana_source", set()) and (ap, c) in state.get("printed_control", set())
-                and (c,) not in state.get("tapped", set()) and (c,) not in state.get("_sick", set()))
-    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, lands + dorks)}
+    # build the colored pool: tally untapped sources by the color each produces.
+    sources = _untapped_sources(state, ap)
+    if not sources:
+        return  # no driver-managed lands/dorks: leave any pre-seeded mana_pool/mana_available as-is (demos)
+    by_color: dict[str, int] = {}
+    for _src, col in sources:
+        by_color[col] = by_color.get(col, 0) + 1
+    state["mana_pool"] = {(p, c, n) for (p, c, n) in state.get("mana_pool", set()) if p != ap} \
+        | {(ap, col, n) for col, n in by_color.items()}
+    total = sum(by_color.values())
+    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, total)}
 
 
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
-    """Pay a spell's cost (§601.2g) by TAPPING that many untapped mana sources — lands first, then
-    non-sick mana creatures. Tapping (not just decrementing a counter) is what makes mana deplete
-    faithfully: a tapped source can't pay again this turn or attack, and it untaps next turn. Also lower
-    the current phase's available count so the rest of this cast loop sees the reduced mana."""
-    cost = next((c for (s, c) in state.get("mana_cost", set()) if s == spell), 0)
-    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
-    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set()) and (ap, c) in ctrl and (c,) not in tapped)
-    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
-                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
-    for c in (lands + dorks)[:cost]:
-        state.setdefault("tapped", set()).add((c,))
-    cur = next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
-    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
+    """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources: first one right-color source per
+    colored pip (mana_pip), then any remaining untapped source per generic (mana_generic). Tapping (not
+    just decrementing) makes mana deplete faithfully — a tapped source can't pay again this turn or
+    attack, and untaps next turn. The colored pool / flat count are refreshed from what's left untapped
+    so the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
+    pips: dict[str, int] = {}
+    for (s, col, n) in state.get("mana_pip", set()):
+        if s == spell:
+            pips[col] = pips.get(col, 0) + int(n)
+    generic = sum(int(n) for (s, n) in state.get("mana_generic", set()) if s == spell)
+    if not pips and generic == 0 and (spell, generic) not in state.get("mana_generic", set()):
+        generic = next((int(c) for (s, c) in state.get("mana_cost", set()) if s == spell), 0)  # legacy fallback
+
+    sources = _untapped_sources(state, ap)                    # (id, color) pairs, lands first then dorks
+    if not sources:                                           # pre-seeded flat mana (demos): decrement count only
+        cost = generic + sum(pips.values())
+        cur = next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
+        state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
+        return
+    used: set[str] = set()
+    # 1) pay each colored pip from an untapped source of that exact color.
+    for col, need in pips.items():
+        paid = 0
+        for sid, scol in sources:
+            if paid >= need:
+                break
+            if sid in used or scol != col:
+                continue
+            used.add(sid); paid += 1
+    # 2) pay generic from any remaining untapped source (color-agnostic, §202.1).
+    paid = 0
+    for sid, _scol in sources:
+        if paid >= generic:
+            break
+        if sid in used:
+            continue
+        used.add(sid); paid += 1
+    for sid in used:
+        state.setdefault("tapped", set()).add((sid,))
+    # refresh the pool/count from sources still untapped after this payment.
+    by_color: dict[str, int] = {}
+    for sid, col in sources:
+        if sid not in used:
+            by_color[col] = by_color.get(col, 0) + 1
+    state["mana_pool"] = {(p, c, n) for (p, c, n) in state.get("mana_pool", set()) if p != ap} \
+        | {(ap, col, n) for col, n in by_color.items()}
+    cur = sum(by_color.values())
+    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, cur)}
 
 
 def _cast_phase(state: dict, ap: str) -> None:

@@ -133,6 +133,12 @@ INPUTS = [
     ("spell_type", [("spell", "symbol"), ("t", "symbol")]),
     ("mana_cost", [("spell", "symbol"), ("n", "number")]),
     ("mana_available", [("p", "symbol"), ("n", "number")]),
+    # §202/§106 COLORED mana. A spell's cost is generic + per-color pips; the player has a colored pool
+    # (the driver stocks it from untapped lands' produced colors). A color absent from mana_pip costs 0.
+    ("mana_generic", [("spell", "symbol"), ("n", "number")]),               # §202.1 generic portion
+    ("mana_pip", [("spell", "symbol"), ("col", "symbol"), ("n", "number")]), # §202.1 colored pips
+    ("mana_pool", [("p", "symbol"), ("col", "symbol"), ("n", "number")]),    # §106 available mana, by color
+    ("land_produces", [("c", "symbol"), ("col", "symbol")]),                 # §305.6 a land's mana color
     ("on_stack", [("o", "symbol"), ("pos", "number")]),
     ("all_passed", [("marker", "symbol")]),
     ("targets", [("spell", "symbol"), ("target", "symbol")]),
@@ -481,8 +487,28 @@ def _rules(p: Program) -> None:
     p.rule("zone_change(O, F, T)", ["zone_move_proposed(O, F, T)", "!blocked_move(O, F, T)"])
     p.blank()
     p.comment("§117.1a — can_cast = timing + affordability + legal targets.")
+    p.comment("§202/§106 COLORED affordability. A spell is payable iff the player's colored pool covers")
+    p.comment("every colored pip from THAT color, and the total pool covers the whole cost (generic is")
+    p.comment("paid from any leftover mana). That joint condition — per-color coverage AND total coverage")
+    p.comment("— is exactly when a payment assignment exists. A color with no mana_pip row needs 0 of it.")
+    p.decl("pip_need", [("s", "symbol"), ("col", "symbol"), ("n", "number")])
+    p.rule("pip_need(S, Col, N)", ["mana_pip(S, Col, N)"])
+    p.decl("pip_shortfall", [("p", "symbol"), ("s", "symbol")])
+    p.rule("pip_shortfall(P, S)", ["in_hand(P, S)", "pip_need(S, Col, N)", "Have = sum X : { mana_pool(P, Col, X) }", "Have < N"],
+           note="some color's pips exceed that color's pool")
+    p.decl("colored_total", [("s", "symbol"), ("n", "number")])
+    p.rule("colored_total(S, N)", ["mana_generic(S, _)", "G = sum X : { mana_generic(S, X) }", "Pi = sum X : { mana_pip(S, _, X) }", "N = G + Pi"],
+           note="§202.3 total = generic + all pips")
+    p.decl("pool_total", [("p", "symbol"), ("n", "number")])
+    p.rule("pool_total(P, N)", ["is_player(P)", "N = sum X : { mana_pool(P, _, X) }"])
+    p.decl("has_colored_cost", [("s", "symbol")])
+    p.rule("has_colored_cost(S)", ["mana_generic(S, _)"])
+    p.rule("has_colored_cost(S)", ["mana_pip(S, _, _)"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
-    p.rule("can_afford(P, S)", ["in_hand(P, S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"])
+    p.rule("can_afford(P, S)", ["in_hand(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],
+           note="§106/§202 colored payment exists")
+    p.rule("can_afford(P, S)", ["in_hand(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"],
+           note="legacy flat-mana fallback when no colored cost is supplied")
     p.decl("illegal_target", [("s", "symbol"), ("t", "symbol")])
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "shroud")'], note="§702.18")
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "hexproof")', "in_hand(P, S)", "controls(TC, T)", "P != TC"], note="§702.11b")

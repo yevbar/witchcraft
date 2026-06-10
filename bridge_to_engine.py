@@ -124,6 +124,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     return out, dropped
 
 
+def _register_colored(state: dict, tid: str, c: dict) -> None:
+    """Emit the colored-mana characteristics (§202/§106) for a card instance: each spell's colored cost
+    as mana_pip(spell, color, n) + mana_generic(spell, n), and each LAND's produced colors as
+    land_produces(land, color). These let the driver build a colored pool and pay pips from the right
+    colors. `mana_cost` (the colorless CMC) is still emitted alongside for the cache key / fallbacks."""
+    generic, pips = _parse_cost(c.get("manaCost"))
+    state.setdefault("mana_generic", set()).add((tid, generic))
+    for col, k in pips.items():
+        state.setdefault("mana_pip", set()).add((tid, col, k))
+    if "Land" in (c.get("types") or []):
+        for col in _land_colors(c):
+            state.setdefault("land_produces", set()).add((tid, col))
+
+
 def make_state(boards: dict, life: int = 20) -> dict:
     """Assemble a full driver state of REAL cards. `boards` = {player: {"battlefield": [names],
     "hand": [names], "library": int}}. Every card's characteristics/abilities come from the bridge;
@@ -145,8 +159,9 @@ def make_state(boards: dict, life: int = 20) -> dict:
         for rel, rows in facts.items():
             state.setdefault(rel, set()).update(rows)
         state.setdefault(zone, set()).add((tid,) if zone != "in_hand" else (pl, tid))
+        c = corpus.get(name, {})
+        _register_colored(state, tid, c)                     # land_produces for lands; pips/generic for spells
         if zone == "in_hand":                                # castable: spell type + cmc + available mana
-            c = corpus.get(name, {})
             for t in c.get("types") or []:
                 state.setdefault("spell_type", set()).add((tid, t.lower()))
             state.setdefault("mana_cost", set()).add((tid, _mana_value(c.get("manaCost"))))
@@ -165,6 +180,12 @@ def make_state(boards: dict, life: int = 20) -> dict:
 
 _MV_SYM = re.compile(r"\{([^}]+)\}")
 
+# §106.1a — the five colors of mana plus colorless. WUBRG single-letter pips map to these.
+_COLORS = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green", "C": "colorless"}
+# basic land subtype (§305.6) -> the one color of mana it produces (§106.1).
+_BASIC_LAND_COLOR = {"Forest": "green", "Island": "blue", "Swamp": "black",
+                     "Mountain": "red", "Plains": "white"}
+
 
 def _mana_value(cost) -> int:
     """Converted mana cost (§202.3) from a manaCost string like '{4}{G}{G}' -> 6: numeric symbols add
@@ -181,6 +202,47 @@ def _mana_value(cost) -> int:
         else:
             total += 1
     return total
+
+
+def _parse_cost(cost) -> tuple[int, dict[str, int]]:
+    """Decompose a manaCost string (§202.1) into (generic, {color: pip_count}). Numeric symbols add to
+    the generic requirement; a single-letter WUBRG/C symbol is one colored pip; {X}/{Y}/{Z} count 0.
+    FOCUS simplification: a hybrid or phyrexian symbol like '{G/W}' or '{G/P}' is counted as ONE GENERIC
+    (its head split off and abstained to generic), keeping the model to basic pips + generic."""
+    generic = 0
+    pips: dict[str, int] = {}
+    if not cost:
+        return 0, pips
+    for sym in _MV_SYM.findall(str(cost)):
+        if "/" in sym:                                   # hybrid/phyrexian -> 1 generic (kept simple)
+            generic += 1
+            continue
+        if sym.isdigit():
+            generic += int(sym)
+        elif sym in ("X", "Y", "Z"):
+            continue
+        elif sym in _COLORS:
+            col = _COLORS[sym]
+            pips[col] = pips.get(col, 0) + 1
+        else:                                            # snow / unknown pip -> 1 generic
+            generic += 1
+    return generic, pips
+
+
+def _land_colors(c: dict) -> list[str]:
+    """The colors of mana a LAND produces (§305.6 basic-land subtypes; else the corpus colorIdentity as
+    a faithful approximation for nonbasics). Empty -> the land taps for no colored mana (abstain)."""
+    cols = []
+    for st in c.get("subtypes") or []:
+        if st in _BASIC_LAND_COLOR:
+            cols.append(_BASIC_LAND_COLOR[st])
+    if cols:
+        return list(dict.fromkeys(cols))
+    for ci in c.get("colorIdentity") or []:              # nonbasic: approximate by color identity
+        col = _COLORS.get(ci)
+        if col:
+            cols.append(col)
+    return list(dict.fromkeys(cols))
 
 
 def make_deck_state(decks: dict, seed: int = 0, hand: int = 7, life: int = 20) -> dict:
@@ -212,6 +274,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int = 7, life: int = 20) -
         for t in c.get("types") or []:                       # castable/playable when it reaches the hand
             state.setdefault("spell_type", set()).add((tid, t.lower()))
         state.setdefault("mana_cost", set()).add((tid, _mana_value(c.get("manaCost"))))
+        _register_colored(state, tid, c)                     # §202/§106 colored cost + land color production
         if zone == "in_hand":
             state["in_hand"].add((pl, tid))
         else:
@@ -286,11 +349,22 @@ def main() -> None:
     print(f"  abstained clause kinds: {dict(sorted(r['drop_kinds'].items(), key=lambda x: -x[1]))}")
 
 
+# §202/§106 — each deck now runs the lands that produce its spells' pip colors. alice is Gruul
+# (green/red): Forests + Mountains feed Grizzly Bears {1}{G}, Craw Wurm {4}{G}{G}, Gray Ogre {2}{R},
+# Hill Giant {3}{R}. bob is Dimir (blue/black): Islands + Swamps feed Storm Crow {1}{U},
+# Wind Drake {2}{U}, Tattered Mummy {1}{B}. An off-color spell can't be cast without its pip's land.
 _DEMO_DECKS = {
-    "alice": ["Forest"] * 9 + ["Grizzly Bears"] * 3 + ["Gray Ogre"] * 2 + ["Hill Giant"] * 2
-             + ["Craw Wurm"] + ["Tattered Mummy"] * 2,
-    "bob": ["Forest"] * 9 + ["Storm Crow"] * 3 + ["Wind Drake"] * 2 + ["Hill Giant"] * 2
-           + ["Gray Ogre"] * 2 + ["Tattered Mummy"],
+    "alice": ["Forest"] * 6 + ["Mountain"] * 4 + ["Grizzly Bears"] * 3 + ["Gray Ogre"] * 2
+             + ["Hill Giant"] * 2 + ["Craw Wurm"],
+    "bob": ["Island"] * 6 + ["Swamp"] * 4 + ["Storm Crow"] * 3 + ["Wind Drake"] * 3
+           + ["Tattered Mummy"] * 2,
+}
+
+# A DUAL-COLOR proving deck: alice runs only Forests but holds a red Gray Ogre ({2}{R}) it can't cast
+# without a Mountain, alongside a green Grizzly Bears ({1}{G}) it can — used by test_colored_mana.py.
+_DUAL_TEST_DECKS = {
+    "alice": ["Forest"] * 10 + ["Grizzly Bears"] * 5 + ["Gray Ogre"] * 5,
+    "bob": ["Swamp"] * 10 + ["Tattered Mummy"] * 5 + ["Storm Crow"] * 5,
 }
 
 

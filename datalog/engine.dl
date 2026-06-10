@@ -35,6 +35,10 @@
 .decl spell_type(spell: symbol, t: symbol)
 .decl mana_cost(spell: symbol, n: number)
 .decl mana_available(p: symbol, n: number)
+.decl mana_generic(spell: symbol, n: number)
+.decl mana_pip(spell: symbol, col: symbol, n: number)
+.decl mana_pool(p: symbol, col: symbol, n: number)
+.decl land_produces(c: symbol, col: symbol)
 .decl on_stack(o: symbol, pos: number)
 .decl all_passed(marker: symbol)
 .decl targets(spell: symbol, target: symbol)
@@ -248,8 +252,28 @@ blocked_move(O, F, T) :- zone_move_proposed(O, F, T), has_type(O, Ty), cant_ente
 zone_change(O, F, T) :- zone_move_proposed(O, F, T), !blocked_move(O, F, T).
 
 // §117.1a — can_cast = timing + affordability + legal targets.
+// §202/§106 COLORED affordability. A spell is payable iff the player's colored pool covers
+// every colored pip from THAT color, and the total pool covers the whole cost (generic is
+// paid from any leftover mana). That joint condition — per-color coverage AND total coverage
+// — is exactly when a payment assignment exists. A color with no mana_pip row needs 0 of it.
+.decl pip_need(s: symbol, col: symbol, n: number)
+pip_need(S, Col, N) :- mana_pip(S, Col, N).
+.decl pip_shortfall(p: symbol, s: symbol)
+// some color's pips exceed that color's pool
+pip_shortfall(P, S) :- in_hand(P, S), pip_need(S, Col, N), Have = sum X : { mana_pool(P, Col, X) }, Have < N.
+.decl colored_total(s: symbol, n: number)
+// §202.3 total = generic + all pips
+colored_total(S, N) :- mana_generic(S, _), G = sum X : { mana_generic(S, X) }, Pi = sum X : { mana_pip(S, _, X) }, N = G + Pi.
+.decl pool_total(p: symbol, n: number)
+pool_total(P, N) :- is_player(P), N = sum X : { mana_pool(P, _, X) }.
+.decl has_colored_cost(s: symbol)
+has_colored_cost(S) :- mana_generic(S, _).
+has_colored_cost(S) :- mana_pip(S, _, _).
 .decl can_afford(p: symbol, s: symbol)
-can_afford(P, S) :- in_hand(P, S), mana_cost(S, C), mana_available(P, M), M >= C.
+// §106/§202 colored payment exists
+can_afford(P, S) :- in_hand(P, S), has_colored_cost(S), colored_total(S, C), pool_total(P, M), M >= C, !pip_shortfall(P, S).
+// legacy flat-mana fallback when no colored cost is supplied
+can_afford(P, S) :- in_hand(P, S), !has_colored_cost(S), mana_cost(S, C), mana_available(P, M), M >= C.
 .decl illegal_target(s: symbol, t: symbol)
 // §702.18
 illegal_target(S, T) :- targets(S, T), has_keyword(T, "shroud").
