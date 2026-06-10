@@ -97,6 +97,40 @@ def _driver_checks() -> None:
     check("an aura with no P/T-or-keyword buff isn't attached here", not st["attached_to"])
 
 
+def _equipment_checks() -> None:
+    # §301.5 the driver equips an Equipment to the controller's strongest creature; the buff then applies.
+    st = _board()
+    st["printed_subtype"].add(("sword", "equipment"))
+    st["on_battlefield"].add(("sword",))
+    st["static_pt"] = {("sword", 2, 0, "attached")}
+    st["attached_to"] = set()
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._equip(st, "sword", "alice")
+    check("equip attaches to the controller's strongest creature (bear)", ("sword", "bear") in st["attached_to"])
+    check("the equipped creature gets the buff (bear 2/0 -> 4)", _powers(st).get("bear") == 4)
+
+    # equip MOVES from a prior host (§701.3) rather than stacking attachments.
+    st2 = _board()
+    st2["printed_subtype"].add(("sword", "equipment"))
+    st2["static_pt"] = {("sword", 2, 0, "attached")}
+    st2["attached_to"] = {("sword", "wolf")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._equip(st2, "sword", "alice")
+    check("re-equip moves the equipment (only one host)",
+          ("sword", "bear") in st2["attached_to"] and ("sword", "wolf") not in st2["attached_to"])
+
+    # §704.5q — when the equipped creature leaves, the Equipment UNATTACHES but stays on the battlefield.
+    st3 = _board()
+    st3["printed_subtype"].add(("sword", "equipment"))
+    st3["on_battlefield"].add(("sword",))
+    st3["attached_to"] = {("sword", "bear")}
+    st3["on_battlefield"].discard(("bear",))
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._aura_sba(st3)
+    check("an Equipment whose host left stays on the battlefield (§704.5q)", ("sword",) in st3["on_battlefield"])
+    check("the equipment's attachment is cleared", not st3["attached_to"])
+
+
 def _bridge_checks() -> None:
     import sim, card_corpus
     db = sim.load_db()
@@ -128,6 +162,7 @@ def _bridge_checks() -> None:
 
 def run() -> None:
     _driver_checks()
+    _equipment_checks()
     _bridge_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

@@ -368,16 +368,20 @@ def _apply_creature_effects(state: dict) -> None:
 
 
 def _aura_sba(state: dict) -> None:
-    """§704.5n state-based action — an Aura attached to a creature that has left the battlefield is put into
-    its owner's graveyard (and its attachment cleared), so its static buff stops applying."""
+    """§704.5 state-based actions on attachments whose host has left the battlefield: an Aura is put into
+    its owner's graveyard (§704.5n), an Equipment merely becomes unattached and stays (§704.5q). Either way
+    the attachment is cleared so the static buff stops applying."""
     bf = state.get("on_battlefield", set())
-    for (aura, host) in sorted(state.get("attached_to", set())):
+    subtype = state.get("printed_subtype", set())
+    for (perm, host) in sorted(state.get("attached_to", set())):
         if (host,) not in bf:
-            state["attached_to"].discard((aura, host))
-            if (aura,) in bf:
-                bf.discard((aura,))
-                state.setdefault("graveyard", set()).add((aura,))
-                print(f"    {aura} falls off (host {host} gone) -> graveyard")
+            state["attached_to"].discard((perm, host))
+            if (perm, "aura") in subtype and (perm,) in bf:  # §704.5n an Aura with no legal host dies
+                bf.discard((perm,))
+                state.setdefault("graveyard", set()).add((perm,))
+                print(f"    {perm} falls off (host {host} gone) -> graveyard")
+            else:                                            # §704.5q an Equipment just unattaches
+                print(f"    {perm} becomes unattached (host {host} gone)")
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
@@ -906,6 +910,22 @@ def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
     print(f"      {aura} is attached to {host}")
 
 
+def _equip(state: dict, equipment: str, ctrl: str) -> None:
+    """§301.5 attach (or move) an Equipment to the controller's strongest creature — its 'equipped creature'
+    static buff then applies via attached_to. Equip buffs are beneficial, so it always goes on an own
+    creature; an existing attachment is moved (§701.3)."""
+    out = run(state, ["controls", "creature", "power"])
+    powers = {c: int(n) for (c, n) in out["power"]}
+    creatures = {c for (c,) in out["creature"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = [c for (p, c) in out["controls"] if p == ctrl and c in creatures and c in on_bf]
+    if not mine:
+        return
+    host = max(mine, key=lambda c: powers.get(c, 0))
+    state["attached_to"] = {(a, c) for (a, c) in state.get("attached_to", set()) if a != equipment} | {(equipment, host)}
+    print(f"      {equipment} is equipped to {host}")
+
+
 def _counter_target(state: dict, counterspell: str) -> str | None:
     """The spell a counterspell counters: the topmost OTHER object on the stack (the one it was cast
     in response to). With a one-deep response window that's the spell directly below it."""
@@ -941,6 +961,8 @@ def _resolve_top(state: dict) -> None:
             _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
         elif eff == "cdamage":                               # §120 direct damage -> driver picks the target
             _apply_damage(state, top, amt, tgt, actrl)
+        elif eff == "equip":                                 # §301.5 attach the Equipment to a creature
+            _equip(state, src, actrl)
         else:
             _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
@@ -1052,6 +1074,12 @@ def _activatable(state: dict, p: str) -> list:
             continue
         if taps == "T" and ((src,) in tapped or (src,) in sick):
             continue                                         # can't pay {T}: already tapped or summoning sick
+        if eff == "equip":                                   # §301.5 only worth equipping if currently
+            if any(a2 == src for (a2, _c) in state.get("attached_to", set())):
+                continue                                     # unattached (no re-equip churn) and ...
+            if not any(pp == p and cc in {c for (c,) in run(state, ["creature"])["creature"]}
+                       for (pp, cc) in run(state, ["controls"])["controls"]):
+                continue                                     # ... the controller has a creature to hold it
         out.append(row)
     return sorted(out)
 

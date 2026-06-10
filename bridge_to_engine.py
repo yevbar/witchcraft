@@ -192,6 +192,13 @@ def _reanimates(tgt, extra) -> bool:
     return str(tgt) in _REANIMATE_TARGETS and "graveyard" in str(extra)
 
 
+def _equip_cost(text) -> int | None:
+    """The mana value of an Equipment's 'Equip {N}' cost, parsed from rules text, or None for a non-mana
+    equip cost ('Equip—Sacrifice a creature') the loop can't pay."""
+    m = re.search(r"[Ee]quip[^\n{]*?(\{[^}]*\}(?:\s*\{[^}]*\})*)", str(text or ""))
+    return _mana_value(m.group(1)) if m else None
+
+
 def _depluralize(word: str, universe: frozenset) -> str | None:
     """Map a pluralized subtype slug ('goblins', 'slivers', 'elves', 'allies') back to the singular subtype
     in the corpus universe, or None. Tries the common English plural rules; accepts only a real subtype."""
@@ -601,6 +608,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_mode", (tid, mode))               # engine input -> active_mode(s,m) :- spell_mode, chose_mode
                 for row in mode_effs:
                     add("spell_effect_mode", row)            # driver-side: resolved only for the chosen mode
+
+    # §301.5 EQUIPMENT — an Equipment with the 'equip' keyword and an 'equipped creature' static buff gets an
+    # equip ability the driver can use: '{cost}: Attach to target creature you control'. The cost is parsed
+    # from the rules text ('Equip {2}'); a non-mana equip cost abstains. The static buff already applies via
+    # attached_to once the driver attaches it.
+    subs = {s.lower() for s in (c.get("subtypes") or [])}
+    has_attached = any(r[-1] == "attached" for r in out.get("static_pt", set())) \
+        or any(r[-1] == "attached" for r in out.get("static_grant", set()))
+    if "equipment" in subs and "equip" in (f.get("keywords") or set()) and has_attached:
+        cost = _equip_cost(c.get("text"))
+        if cost is not None:
+            add("activated_ability", (f"{tid}_equip", tid, cost, "-", "equip", 0, "-"))
     return out, dropped
 
 
