@@ -544,6 +544,18 @@ def _choose_mode(state: dict, spell: str) -> None:
         print(f"      {spell}: chooses mode {modes[0]}")
 
 
+def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
+    """§601.2i — 'whenever you cast a spell' triggers fire as the spell goes on the stack. Open the cast
+    window (cast_spell) so the engine fires the matching cast-triggers, then apply only the NEW pending
+    the cast produced (diff vs. the pre-cast pending) so unrelated triggers aren't double-applied. The
+    cast window stays set across _apply_effects so cast-triggered creature effects fire too."""
+    before = run(state, ["pending"])["pending"]
+    state["cast_spell"] = {(caster, spell)}
+    new = run(state, ["pending"])["pending"] - before
+    _apply_effects(state, new)
+    state["cast_spell"] = set()
+
+
 def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
     """§608.2c — a resolving instant/sorcery runs its effects, then goes to the graveyard. `counter`
     removes its target from the stack (the engine's `countered` event then lets any 'when countered'
@@ -646,6 +658,7 @@ def _cast_instant_response(state: dict, p: str) -> bool:
     state["in_hand"].discard((p, spell))
     _stack_push(state, spell, p)
     _choose_mode(state, spell)                               # §601.2b — modal instant chooses its mode
+    _fire_cast_triggers(state, p, spell)                     # §601.2i — cast triggers
     print(f"    {p} responds: casts {spell} (onto the stack)")
     return True
 
@@ -683,6 +696,7 @@ def _cast_phase(state: dict, ap: str) -> None:
         state["in_hand"].discard((ap, spell))
         _stack_push(state, spell, ap)
         _choose_mode(state, spell)                           # §601.2b — choose mode(s) if it's a modal spell
+        _fire_cast_triggers(state, ap, spell)                # §601.2i — 'whenever you cast a spell' triggers
         print(f"    {ap} casts {spell}")
         _resolve_stack(state, ap, players)                   # response window + top-down resolution
     state["has_priority"] = set()

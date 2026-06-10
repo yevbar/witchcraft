@@ -42,6 +42,13 @@ _EVENT = {
     "a_creature_dies": "other_creature_dies",
     "another_creature_you_control_dies": "your_creature_dies",
     "a_creature_you_control_dies": "your_creature_dies",
+    # §601 cast triggers — the driver feeds cast_spell for the cast window.
+    "you_cast": "you_cast",
+    "you_cast_a_spell": "you_cast",
+    "you_cast_a_creature_spell": "you_cast_creature",
+    "you_cast_a_noncreature_spell": "you_cast_noncreature",
+    "you_cast_an_instant_or_sorcery_spell": "you_cast_instant_or_sorcery",
+    "a_player_casts_a_spell": "any_cast",
 }
 
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.

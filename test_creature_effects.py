@@ -53,11 +53,23 @@ def _bridge_checks() -> None:
     check("ETB anthem fired through a real has_trigger(etb_self)",
           any(ev == "etb_self" for _a, _s, ev in f.get("has_trigger", set())) and not dropped)
 
-    # Seeker of the Way grants self lifelink on 'you cast a noncreature spell' — a still-unmodelled event,
-    # so it abstains on the event (no trigger_effect_grant) rather than mistranslate.
-    f, _ = facts("Seeker of the Way")
+    # Event-abstention path: a grant whose trigger event is still unmodelled must NOT mistranslate into a
+    # trigger_effect_grant. Found dynamically (robust as more events get mapped over time) — there are
+    # always structurally-unmappable events (subtype/count/targeting-gated).
+    import bridge_to_engine as _B, card_corpus as _cc, ground as _g
+    _db = _B.sim.load_db()
+    _unmapped = None
+    for _c in _cc.load_cards():
+        _e = _db.get(_g.slug(_c["name"]), {})
+        if any(ab.get("kind") == "triggered" and ab.get("trigger") not in _B._EVENT
+               and any(v == "grant_keyword" and ex in _B._ENGINE_KEYWORDS
+                       for (_s, v, _a, _t, ex, _co) in ab.get("effects", []))
+               for ab in (_e.get("abilities") or {}).values()):
+            _unmapped = _c["name"]
+            break
+    f, _ = facts(_unmapped)
     check("unmodelled-event grant abstains, no trigger_effect_grant",
-          not f.get("trigger_effect_grant"))
+          _unmapped is not None and not f.get("trigger_effect_grant"))
 
     # A single 'target creature' destroy (Nekrataal) ABSTAINS — needs an AI choice.
     f, dropped = facts("Nekrataal")

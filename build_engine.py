@@ -167,6 +167,7 @@ INPUTS = [
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
     ("phased_out", [("o", "symbol")]),                            # §603.10b a permanent phased out
     ("countered", [("o", "symbol")]),                             # §603.10e a spell was countered
+    ("cast_spell", [("p", "symbol"), ("s", "symbol")]),           # §601 a player just put a spell on the stack
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
     ("repl_enters_tapped", [("e", "symbol"), ("c", "symbol")]),                             # §614 "enters tapped"
@@ -691,6 +692,14 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_etb")', "ev_etb(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "other_creature_dies")', "ev_dies(O)", "O != S", "creature(O)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_dies")', "ev_dies(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
+    # §601.2 cast triggers — 'whenever you cast a [creature/noncreature/instant or sorcery] spell'. The
+    # driver sets cast_spell(caster, spell) for the cast window; the trigger fires for the caster's sources.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast")', "cast_spell(P, _)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_cast")', "cast_spell(_, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_creature")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "creature")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_self")', "ev_attacks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "blocks_self")', "ev_blocks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_player")', "ev_combat_dmg_player(S, _)"])

@@ -58,6 +58,7 @@
 .decl sacrificed(o: symbol)
 .decl phased_out(o: symbol)
 .decl countered(o: symbol)
+.decl cast_spell(p: symbol, s: symbol)
 .decl repl_prevent_damage(e: symbol, src: symbol, tgt: symbol)
 .decl repl_enters_tapped(e: symbol, c: symbol)
 .decl repl_enters_with_counter(e: symbol, c: symbol, kind: symbol, n: number)
@@ -429,6 +430,12 @@ fires(A, S) :- has_trigger(A, S, "other_creature_etb"), ev_etb(O), O != S, creat
 fires(A, S) :- has_trigger(A, S, "your_creature_etb"), ev_etb(O), O != S, creature(O), controls(P, O), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "other_creature_dies"), ev_dies(O), O != S, creature(O).
 fires(A, S) :- has_trigger(A, S, "your_creature_dies"), ev_dies(O), O != S, creature(O), controls(P, O), controls(P, S).
+fires(A, S) :- has_trigger(A, S, "you_cast"), cast_spell(P, _), controls(P, S).
+fires(A, S) :- has_trigger(A, S, "any_cast"), cast_spell(_, _).
+fires(A, S) :- has_trigger(A, S, "you_cast_creature"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "creature").
+fires(A, S) :- has_trigger(A, S, "you_cast_noncreature"), cast_spell(P, Sp), controls(P, S), !spell_type(Sp, "creature").
+fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "instant").
+fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "sorcery").
 fires(A, S) :- has_trigger(A, S, "attacks_self"), ev_attacks(S).
 fires(A, S) :- has_trigger(A, S, "blocks_self"), ev_blocks(S).
 fires(A, S) :- has_trigger(A, S, "combat_damage_to_player"), ev_combat_dmg_player(S, _).
