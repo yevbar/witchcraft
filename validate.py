@@ -6,7 +6,7 @@ Three checks, so that interpreting cards can never silently change the game's ru
      conformance scaffolding). This is what guarantees cards compose with the rules engine without
      overwriting it: a card fact lands in a card_* relation, never in `effect`/`ability`/etc. that the
      rules engine reasons over. (Cards that "change the rules" — max hand size, extra lands, can't-gain-
-     life — are recorded as card_static_player / card_static and only apply WHEN that card is in play;
+     life — are recorded as static_player / static and only apply WHEN that card is in play;
      the engine reads them, the rules datalog never does.)
 
   2. SOUNDNESS — datalog/cards.dl compiles and its conformance query passes (souffle). The rules side
@@ -39,13 +39,23 @@ def _decls(path: Path) -> set:
 
 
 def isolation_check():
-    card = _decls(_DL / "cards.dl") - _SCAFFOLD
-    rules = set()
+    """UNIFICATION check (formerly isolation). The cards and the rules are ONE world now — a card's
+    facts populate the SAME relations as the rules (CR §112–113). So a shared relation name is desired,
+    not forbidden; what we must guard is that a shared relation has a MATCHING schema (same arity), else
+    souffle can't merge the two .decl forms. Returns (mismatched, shared, ncard, nrule):
+      - shared:     relations cards.dl contributes to that the rules also declare (intentional unification)
+      - mismatched: of those, the ones whose arity DISAGREES with the rules' decl — a real bug to fix
+                    (these are the relations still pending schema reconciliation)."""
+    card_t = _decl_types(_DL / "cards.dl")
+    rule_t: dict = {}
     for f in _DL.glob("*.dl"):
         if f.name != "cards.dl":
-            rules |= _decls(f)
-    collisions = (card & rules) - _SCAFFOLD
-    return collisions, len(card), len(rules)
+            rule_t.update(_decl_types(f))
+    card = set(card_t) - _SCAFFOLD
+    rules = set(rule_t) - _SCAFFOLD
+    shared = (card & rules) - _SCAFFOLD
+    mismatched = {r for r in shared if len(card_t[r]) != len(rule_t[r])}
+    return mismatched, shared, len(card), len(rules)
 
 
 def _decl_types(path: Path) -> dict:
@@ -134,12 +144,12 @@ def main(full: bool = False):
     print(f"PIPELINE VALIDATION (rules + cards) — {'FULL' if full else 'FAST'} mode")
     print("=" * 64)
 
-    collisions, ncard, nrule = isolation_check()
-    print(f"\n1. ISOLATION — card relations: {ncard}, rules relations: {nrule}")
-    if collisions:
-        print(f"   ✗ COLLISIONS (cards could overwrite rules!): {sorted(collisions)}")
+    mismatched, shared, ncard, nrule = isolation_check()
+    print(f"\n1. UNIFICATION — card-emitted relations: {ncard}, rules relations: {nrule}, shared (one world): {len(shared)}")
+    if mismatched:
+        print(f"   ✗ SCHEMA MISMATCH on shared relations (pending reconciliation): {sorted(mismatched)}")
     else:
-        print("   ✓ no card relation collides with a rules relation — cards can't mutate the rules")
+        print(f"   ✓ cards contribute to {len(shared)} shared relations, all schema-compatible — one world")
 
     bad = validate_facts()
     print(f"\n2. FACT SOUNDNESS (fast — arity + number/symbol types, no souffle)")

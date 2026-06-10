@@ -1,6 +1,6 @@
 """sim.py — a small, reviewable Python shim that EXECUTES real cards from the grounded facts.
 
-The point: the facts emitted by transpile_card (ability / effect / card_keyword / card_mana_ability …)
+The point: the facts emitted by transpile_card (ability / effect / printed_keyword / mana_ability …)
 are a real, executable IR. This shim loads them from datalog/cards.dl and runs a tiny game state — no
 card logic is hardcoded here, only a handler per GROUNDED verb (the same closed vocabulary the eventual
 C++ engine will switch on). If a card's text wasn't interpreted, the card simply has no facts to run
@@ -32,19 +32,19 @@ def load_db():
         if not m:
             continue
         rel, a = m.group(1), _args(m.group(2))
-        if rel == "card_name":
+        if rel == "name":
             db.setdefault(a[0], {}).update(name=a[1])
-        elif rel == "card_keyword":
+        elif rel == "printed_keyword":
             db.setdefault(a[0], {}).setdefault("keywords", set()).add(a[1])
-        elif rel == "card_mana_ability":
+        elif rel == "mana_ability":
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], [])
-        elif rel == "card_adds_mana":
+        elif rel == "adds_mana":
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], []).append(a[2])
         elif rel == "card_ability":
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
-        elif rel == "card_ability_cost":
+        elif rel == "ability_cost":
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
-        elif rel == "card_ability_trigger":
+        elif rel == "ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
         elif rel == "card_effect":
             extra = a[6] if len(a) > 6 else "-"

@@ -8,9 +8,9 @@ A pattern fn takes (unit, ctx) and returns a CardOut | None. ctx carries the car
 etc. for patterns that need it. Patterns are tried in order; first hit wins.
 
 Slice 1 (this file): keyword abilities — the productive head of the distribution.
-  _kw_line   "Flying" / "Flying, vigilance" / "First strike"   -> card_keyword(card, kw)
-  _kw_param  "Enchant creature" / "Equip {S}" / "Ward {S}"     -> card_keyword(card, kw)
-                                                                + card_keyword_param(card, kw, arg)
+  _kw_line   "Flying" / "Flying, vigilance" / "First strike"   -> printed_keyword(card, kw)
+  _kw_param  "Enchant creature" / "Equip {S}" / "Ward {S}"     -> printed_keyword(card, kw)
+                                                                + keyword_param(card, kw, arg)
 Later slices (registered here as they land): mana abilities, activated "cost: effect", triggered
 "when/whenever/at …", spell effects (reusing transpile.py's grammar patterns).
 """
@@ -154,9 +154,9 @@ def _kw_line(unit, ctx):
         return None
     facts = []
     for kw, param in grounded:
-        facts.append(f'card_keyword("{ctx["id"]}", "{kw}")')
+        facts.append(f'printed_keyword("{ctx["id"]}", "{kw}")')
         if param:
-            facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{param}")')
+            facts.append(f'keyword_param("{ctx["id"]}", "{kw}", "{param}")')
     return CardOut(ctx["id"], facts, "kw_line")
 
 
@@ -170,9 +170,9 @@ def _typecycling(unit, ctx):
     if g is None or g[0] != "cycling" or g[1] is None:
         return None
     cid = ctx["id"]
-    facts = [f'card_keyword("{cid}", "cycling")', f'card_keyword_param("{cid}", "cycling", "{g[1]}")']
+    facts = [f'printed_keyword("{cid}", "cycling")', f'keyword_param("{cid}", "cycling", "{g[1]}")']
     if m.group(2):
-        facts.append(f'card_keyword_param("{cid}", "cycling", "cost_{ground.slug(m.group(2))}")')
+        facts.append(f'keyword_param("{cid}", "cycling", "cost_{ground.slug(m.group(2))}")')
     return CardOut(cid, facts, "typecycling")
 
 
@@ -187,9 +187,9 @@ def _kw_param(unit, ctx):
     if gv and gv[1] and " " in body:
         kw, param = gv
         arg = body[len(first):].strip()
-        facts = [f'card_keyword("{ctx["id"]}", "{kw}")', f'card_keyword_param("{ctx["id"]}", "{kw}", "{param}")']
+        facts = [f'printed_keyword("{ctx["id"]}", "{kw}")', f'keyword_param("{ctx["id"]}", "{kw}", "{param}")']
         if arg:
-            facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{ground.slug(arg)}")')
+            facts.append(f'keyword_param("{ctx["id"]}", "{kw}", "{ground.slug(arg)}")')
         return CardOut(ctx["id"], facts, "kw_param")
     s = ground.slug(body)
     for kw in _KW_BY_LEN:
@@ -197,9 +197,9 @@ def _kw_param(unit, ctx):
             return None                                   # bare keyword — _kw_line's job
         if s.startswith(kw + "_"):
             arg = body[len(kw.replace("_", " ")):].strip()
-            facts = [f'card_keyword("{ctx["id"]}", "{kw}")']
+            facts = [f'printed_keyword("{ctx["id"]}", "{kw}")']
             if arg:
-                facts.append(f'card_keyword_param("{ctx["id"]}", "{kw}", "{ground.slug(arg) or arg}")')
+                facts.append(f'keyword_param("{ctx["id"]}", "{kw}", "{ground.slug(arg) or arg}")')
             return CardOut(ctx["id"], facts, "kw_param", meta={"arg": arg})
     return None
 
@@ -214,9 +214,9 @@ def _prototype(unit, ctx):
     if not m or "prototype" not in ground.keyword_abilities():
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_keyword("{cid}", "prototype")',
-                         f'card_keyword_param("{cid}", "prototype", "cost_{ground.slug(m.group(1))}")',
-                         f'card_keyword_param("{cid}", "prototype", "pt_{m.group(2)}")'], "prototype")
+    return CardOut(cid, [f'printed_keyword("{cid}", "prototype")',
+                         f'keyword_param("{cid}", "prototype", "cost_{ground.slug(m.group(1))}")',
+                         f'keyword_param("{cid}", "prototype", "pt_{m.group(2)}")'], "prototype")
 
 
 def _mana_ability(unit, ctx):
@@ -235,9 +235,9 @@ def _mana_ability(unit, ctx):
     if not prod:
         return None
     cid = ctx["id"]
-    facts = [f'card_mana_ability("{cid}", "{cost}")']
+    facts = [f'mana_ability("{cid}", "{cost}")']
     for p in prod:
-        facts.append(f'card_adds_mana("{cid}", "{cost}", "{p}")')
+        facts.append(f'adds_mana("{cid}", "{cost}", "{p}")')
     return CardOut(cid, facts, "mana_ability", meta={"cost": cost, "produces": prod})
 
 
@@ -685,7 +685,7 @@ _LANDTYPE_SET = re.compile(
 def _land_type_set(unit, ctx):
     """'<lands> are/is <basic type(s)> [in addition to their other types].' — a §305.7 land
     type-changing static (Blood Moon, Conversion, Yavimaya, Celestial Dawn, Lush Growth). Emits one
-    card_land_type_set(cid, scope, type, mode) per resulting basic type. Abstains unless the scope is
+    land_type_set(cid, scope, type, mode) per resulting basic type. Abstains unless the scope is
     a recognized land set AND every result is a basic land type — so 'All creatures are black' or
     'Enchanted land is the chosen type' fall through rather than mint a bogus land-type fact."""
     m = _LANDTYPE_SET.match(unit.raw)
@@ -723,7 +723,7 @@ def _land_type_set(unit, ctx):
         return None
     mode = "additional" if m.group("add") else "replace"
     cid = ctx["id"]
-    facts = [f'card_land_type_set("{cid}", "{scope}", "{t}", "{mode}")' for t in dict.fromkeys(types)]
+    facts = [f'land_type_set("{cid}", "{scope}", "{t}", "{mode}")' for t in dict.fromkeys(types)]
     return CardOut(cid, facts, "land_type_set")
 
 
@@ -747,7 +747,7 @@ def _damage_redirect(unit, ctx):
     if not frm or not to:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_damage_redirect("{cid}", "{frm}", "{to}")'], "damage_redirect")
+    return CardOut(cid, [f'damage_redirect("{cid}", "{frm}", "{to}")'], "damage_redirect")
 
 
 _FACTOR = {"double": "2", "twice": "2", "triple": "3"}
@@ -762,7 +762,7 @@ def _damage_multiplier(unit, ctx):
     """Damage-multiplication replacement statics (§614/616): 'If <source> would deal damage [to <X>],
     it deals double/triple that damage instead' (Furnace of Rath, Gratuitous Violence, Fiery
     Emancipation, Gisela, Obosh) and 'Double/Triple all damage <X> would deal' (Mjölnir, Collective
-    Inferno). Emits card_damage_multiplier(cid, source, factor, target). Anchored at ^If/^Double/^Triple
+    Inferno). Emits damage_multiplier(cid, source, factor, target). Anchored at ^If/^Double/^Triple
     so the ability-word/temporary wrappers (Hellbent/Delirium —, 'until your next turn') fall through;
     'this turn'/'until' temporary versions abstain (they're one-shots), as do non-2/3 factors."""
     r = unit.raw
@@ -777,14 +777,14 @@ def _damage_multiplier(unit, ctx):
         src = ground.slug(m.group("src"))
         tgt = ground.slug(m.group("tgt")[4:]) if m.group("tgt") else "-"
         if src and tgt:
-            return CardOut(cid, [f'card_damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "{tgt}")'],
+            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "{tgt}")'],
                            "damage_multiplier")
         return None
     m = _DMG_MULT_B.match(r)
     if m:
         src = ground.slug(m.group("src"))
         if src:
-            return CardOut(cid, [f'card_damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "-")'],
+            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "-")'],
                            "damage_multiplier")
     return None
 
@@ -806,7 +806,7 @@ def _life_floor(unit, ctx):
     if not cond:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_life_floor("{cid}", {m.group("floor")}, "{cond}")'], "life_floor")
+    return CardOut(cid, [f'life_floor("{cid}", {m.group("floor")}, "{cond}")'], "life_floor")
 
 
 def _static_effect(unit, ctx):
@@ -876,15 +876,15 @@ def _activated(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     cost_facts = [f'card_ability("{cid}", "{aid}", "activated")',
-                  f'card_ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
+                  f'ability_cost("{cid}", "{aid}", "{m.group("cost").strip()}")']
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:
-        return CardOut(cid, cost_facts + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "activated")
+        return CardOut(cid, cost_facts + [f'modal("{cid}", "{ground.slug(mh.group(1))}")'], "activated")
     body, mods = _split_modifiers(m.group("body"))
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    cost_facts += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
 
 
@@ -910,7 +910,7 @@ def _replacement(unit, ctx):
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     ev = ground.slug(m.group("cond"))
     head = [f'card_ability("{cid}", "{aid}", "replacement")',
-            f'card_ability_trigger("{cid}", "{aid}", "{ev}")']
+            f'ability_trigger("{cid}", "{aid}", "{ev}")']
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "replacement")
 
 
@@ -928,15 +928,15 @@ def _triggered(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     trig = ground.slug(m.group("trig"))
-    head = [f'card_ability("{cid}", "{aid}", "triggered")', f'card_ability_trigger("{cid}", "{aid}", "{trig}")']
+    head = [f'card_ability("{cid}", "{aid}", "triggered")', f'ability_trigger("{cid}", "{aid}", "{trig}")']
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:
-        return CardOut(cid, head + [f'card_modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
+        return CardOut(cid, head + [f'modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
     body, mods = _split_modifiers(m.group("body"))
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    head += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
 
 
@@ -955,8 +955,8 @@ def _loyalty(unit, ctx):
     effects = _parse_body(body) if body else None
     if not effects:
         return None
-    facts = [f'card_ability("{cid}", "{aid}", "loyalty")', f'card_ability_cost("{cid}", "{aid}", "{cost}")']
-    facts += [f'card_ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+    facts = [f'card_ability("{cid}", "{aid}", "loyalty")', f'ability_cost("{cid}", "{aid}", "{cost}")']
+    facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
     return CardOut(cid, facts + _effect_facts(cid, aid, effects), "loyalty")
 
 
@@ -979,7 +979,7 @@ def _saga_chapter(unit, ctx):
     facts = [f'card_ability("{cid}", "{aid}", "saga_chapter")']
     for ch in m.group("ch").split(", "):
         if ch in _ROMAN:
-            facts.append(f'card_ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
+            facts.append(f'ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
     return CardOut(cid, facts + _effect_facts(cid, aid, effects), "saga_chapter")
 
 
@@ -987,16 +987,16 @@ def _etb_choose(unit, ctx):
     """'As ~ enters, choose a <X>.' — an as-enters choice replacement (§614.12/§603.6e).
 
     Two shapes:
-      - CATEGORY: 'choose a color' / 'choose a basic land type' -> card_etb_choose(cid, category)
+      - CATEGORY: 'choose a color' / 'choose a basic land type' -> etb_choose(cid, category)
       - EXPLICIT options: 'choose Khans or Dragons' / 'choose odd or even' /
-        'choose Elemental, Elf, ..., or Treefolk' -> one card_etb_choose_option(cid, opt) each.
+        'choose Elemental, Elf, ..., or Treefolk' -> one etb_choose_option(cid, opt) each.
     The controller makes the choice; only this "(~|it) enters, choose ..." subject is handled (the
     'each player chooses' / 'an opponent chooses' / 'secretly choose' variants have a different
     chooser and are left to abstain rather than mis-attribute who decides)."""
     cid = ctx["id"]
     m = re.match(r"^As (?:~|it) enters, choose (?:a|an) (.+?)\.?$", unit.raw, re.I)
     if m:
-        return CardOut(cid, [f'card_etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
+        return CardOut(cid, [f'etb_choose("{cid}", "{ground.slug(m.group(1))}")'], "etb_choose")
     m = re.match(r"^As (?:~|it) enters, choose (?P<opts>.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
@@ -1014,7 +1014,7 @@ def _etb_choose(unit, ctx):
     slugs = [ground.slug(o) for o in opts]
     if not all(slugs):                      # every option must ground to a clean slug, else abstain
         return None
-    return CardOut(cid, [f'card_etb_choose_option("{cid}", "{s}")' for s in slugs], "etb_choose")
+    return CardOut(cid, [f'etb_choose_option("{cid}", "{s}")' for s in slugs], "etb_choose")
 
 
 def _as_enters(unit, ctx):
@@ -1032,7 +1032,7 @@ def _as_enters(unit, ctx):
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     return CardOut(cid, [f'card_ability("{cid}", "{aid}", "triggered")',
-                         f'card_ability_trigger("{cid}", "{aid}", "enters")']
+                         f'ability_trigger("{cid}", "{aid}", "enters")']
                    + _effect_facts(cid, aid, effects), "triggered")
 
 
@@ -1065,7 +1065,7 @@ def _static_player(unit, ctx):
     cid, r = ctx["id"], unit.raw
 
     def mk(tag):
-        return CardOut(cid, [f'card_static_player("{cid}", "{tag}")'], "static_player")
+        return CardOut(cid, [f'static_player("{cid}", "{tag}")'], "static_player")
 
     for pat, tag in _STATIC_PLAYER:
         if re.match(pat, r, re.I):
@@ -1195,7 +1195,7 @@ def _card_static(unit, ctx):
         if m:
             # a tag ending in '_' with a capturing pattern keeps the captured value (e.g. 'x_cant_be_0')
             full = tag + ground.slug(m.group(1)) if (tag.endswith("_") and m.groups()) else tag
-            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{full}")'], "card_static")
+            return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{full}")'], "static")
     return None
 
 
@@ -1238,19 +1238,19 @@ _CANT_REGEN = re.compile(
 
 def _cant_regenerate(unit, ctx):
     """'<subject> can't be regenerated[ this turn].' — a §701.15c no-regeneration rider (the tail of a
-    destroy/damage line). Emits a faithful card_static slug naming the affected set + scope."""
+    destroy/damage line). Emits a faithful static slug naming the affected set + scope."""
     m = _CANT_REGEN.match(unit.raw.strip().rstrip("."))
     if not m:
         return None
     subj = ground.slug(m.group("subj"))
     scope = "_this_turn" if m.group("turn") else ""
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{subj}_cant_be_regenerated{scope}")'],
-                   "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{subj}_cant_be_regenerated{scope}")'],
+                   "static")
 
 
 def _mana_rider(unit, ctx):
     """A mana-pool / spend-restriction rider sentence (§106/§500.4/§605) — see _MANA_RIDER. Emits one
-    faithful card_static slug so the surrounding 'Add {…}. <rider>' line grounds as a whole."""
+    faithful static slug so the surrounding 'Add {…}. <rider>' line grounds as a whole."""
     s = unit.raw.strip().rstrip(".")
     for pat, tag in _MANA_RIDER:
         m = re.match(pat, s, re.I)
@@ -1262,7 +1262,7 @@ def _mana_rider(unit, ctx):
         else:                                                  # duration-prefixed pool-persistence slug
             dur = next((gd[k] for k in ("d1", "d2") if gd.get(k)), None)
             full = (f"until_{ground.slug(dur)}_" if dur else "") + tag
-        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{full[:120]}")'], "card_static")
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{full[:120]}")'], "static")
     return None
 
 
@@ -1381,7 +1381,7 @@ def _etb_tapped(unit, ctx):
     if mc:
         cid = ctx["id"]
         return CardOut(cid, [f'card_enters_tapped("{cid}", "-")',
-                             f'card_enters_with_counters("{cid}", "{ground.slug(mc.group(2))}", "{ground.slug(mc.group(1))}")'],
+                             f'enters_with_counters("{cid}", "{ground.slug(mc.group(2))}", "{ground.slug(mc.group(1))}")'],
                        "etb_tapped")
     m = re.match(r"^~ enters tapped(?: unless (.+?))?(?: if (.+?))?\.?$", unit.raw)
     if m:
@@ -1393,7 +1393,7 @@ def _etb_tapped(unit, ctx):
                  r"(?:its controller's|your|their) (?:next )?untap step\.?$", unit.raw, re.I)
     if m:
         cid = ctx["id"]
-        return CardOut(cid, [f'card_enters_tapped("{cid}", "-")', f'card_doesnt_untap("{cid}", "self")'], "etb_tapped")
+        return CardOut(cid, [f'card_enters_tapped("{cid}", "-")', f'doesnt_untap("{cid}", "self")'], "etb_tapped")
     # leading-conditional tapland: 'If <cond>, ~ enters tapped.' (Cave of the Frost Dragon family).
     m = re.match(r"^If (.+?), ~ enters tapped\.?$", unit.raw, re.I)
     if not m:
@@ -1409,7 +1409,7 @@ def _ability_activation_static(unit, ctx):
         return None
     tag = "activated_abilities_of_" + ground.slug(m.group(1)) + "_cant_be_activated" + \
           ("_unless_" + ground.slug(m.group(2)) if m.group(2) else "")
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{tag}")'], "static")
 
 
 def _enters_tapped_others(unit, ctx):
@@ -1428,7 +1428,7 @@ def _enters_tapped_others(unit, ctx):
     scope = {" your opponents control": "opponents_", " an opponent controls": "opponents_",
              " you control": "you_", None: ""}[m.group(2)]
     cid = ctx["id"]
-    return CardOut(cid, [f'card_static("{cid}", "{scope}{types}_enter_{m.group(3).lower()}")'], "card_static")
+    return CardOut(cid, [f'static("{cid}", "{scope}{types}_enter_{m.group(3).lower()}")'], "static")
 
 
 def _modal(unit, ctx):
@@ -1443,12 +1443,12 @@ def _modal(unit, ctx):
         return None
     cid = ctx["id"]
     mode = ground.slug(m.group(1)) + ("_at_random" if m.group("rand") else "")
-    facts = [f'card_modal("{cid}", "{mode}")']
+    facts = [f'modal("{cid}", "{mode}")']
     if m.group("cmd"):
         # conditional 'choose more' rider (commander / kicked / teamwork / max speed / …) — descriptive slug.
-        facts.append(f'card_static("{cid}", "{ground.slug(m.group("cmd"))[:120]}")')
+        facts.append(f'static("{cid}", "{ground.slug(m.group("cmd"))[:120]}")')
     if m.group("rep"):
-        facts.append(f'card_static("{cid}", "modal_repeat_allowed")')
+        facts.append(f'static("{cid}", "modal_repeat_allowed")')
     return CardOut(cid, facts, "modal")
 
 
@@ -1468,7 +1468,7 @@ def _mode_option(unit, ctx):
     if not effects:
         return None
     cid, aid = ctx["id"], f"mode{ctx.get('seq', 0)}"
-    return CardOut(cid, [f'card_mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
+    return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
 
 
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
@@ -1494,7 +1494,7 @@ def _cant(unit, ctx):
     if not all(a in _CANT for a in actions):
         return None
     cid, who = ctx["id"], _target_slug(m.group(1))
-    return CardOut(cid, [f'card_cant("{cid}", "{who}", "{_CANT[a]}")' for a in actions], "cant")
+    return CardOut(cid, [f'cant("{cid}", "{who}", "{_CANT[a]}")' for a in actions], "cant")
 
 
 # complex static combat restrictions with a qualifier (§508/§509) — captured as a descriptive slug.
@@ -1595,7 +1595,7 @@ def _grant_quoted_to_set(unit, ctx):
     ability grant to a SUBSET of permanents (the anthem analogue of _granted_ability). Also covers the
     soulbond wrapper 'As long as ~ is paired with another creature, each of those creatures has "…"'
     and 'As long as <cond>, <subj> has "…"', recording the pairing/condition in the duration slot.
-    Emits one card_grants_ability per quoted ability; abstains if any quoted body slugs empty."""
+    Emits one grants_ability per quoted ability; abstains if any quoted body slugs empty."""
     if {"Instant", "Sorcery"} & _types(ctx):
         return None
     m = _GRANT_SET.match(unit.raw)
@@ -1613,7 +1613,7 @@ def _grant_quoted_to_set(unit, ctx):
     else:
         dur = "-"
     cid = ctx["id"]
-    facts = [f'card_grants_ability("{cid}", "{who}", "{ab}", "{dur}")' for ab in abs_slugs]
+    facts = [f'grants_ability("{cid}", "{who}", "{ab}", "{dur}")' for ab in abs_slugs]
     return CardOut(cid, facts, "grant_quoted_to_set")
 
 
@@ -1636,7 +1636,7 @@ def _granted_ability(unit, ctx):
         return None
     cid = ctx["id"]
     dur = "until_end_of_turn" if m.group("dur") else "-"
-    return CardOut(cid, [f'card_grants_ability("{cid}", "{_target_slug(m.group("who"))}", "{ab}", "{dur}")'],
+    return CardOut(cid, [f'grants_ability("{cid}", "{_target_slug(m.group("who"))}", "{ab}", "{dur}")'],
                    "granted_ability")
 
 
@@ -1647,7 +1647,7 @@ _GRANT_KW_AB = re.compile(rf'^(?P<who>{_SUBJ}) (?:has|have|gains?) (?P<kw>[\w,{{
 def _grant_kw_and_ability(unit, ctx):
     """'<subject> has <keyword(s)> and "<quoted ability>".' — an Aura/Equipment §613.6 grant of BOTH a
     keyword AND a quoted ability (Bequeathal, Underworld Rage-Hound auras …). Emits one grant_keyword
-    effect per keyword plus a card_grants_ability; abstains unless every keyword grounds."""
+    effect per keyword plus a grants_ability; abstains unless every keyword grounds."""
     m = _GRANT_KW_AB.match(unit.raw)
     if not m:
         return None
@@ -1662,7 +1662,7 @@ def _grant_kw_and_ability(unit, ctx):
     facts += [f'card_effect("{cid}", "{aid}", {i}, "grant_keyword", "{kw}", "{who}", "-", "-")'
               for i, (kw, _p) in enumerate(grounded)]
     dur = "until_end_of_turn" if m.group("dur") else "-"
-    facts.append(f'card_grants_ability("{cid}", "{who}", "{ab}", "{dur}")')
+    facts.append(f'grants_ability("{cid}", "{who}", "{ab}", "{dur}")')
     return CardOut(cid, facts, "granted_ability")
 
 
@@ -1699,7 +1699,7 @@ def _additional_cost(unit, ctx):
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_additional_cost("{cid}", "{ground.slug(m.group(1))}")'], "additional_cost")
+    return CardOut(cid, [f'additional_cost("{cid}", "{ground.slug(m.group(1))}")'], "additional_cost")
 
 
 def _exert(unit, ctx):
@@ -1710,13 +1710,13 @@ def _exert(unit, ctx):
     if not m or "exert" not in ground.keyword_actions():
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    facts = [f'card_static("{cid}", "may_exert_as_it_attacks")']
+    facts = [f'static("{cid}", "may_exert_as_it_attacks")']
     if m.group("body"):
         effects = _parse_body(m.group("body"))
         if not effects:
             return None
         facts += [f'card_ability("{cid}", "{aid}", "triggered")',
-                  f'card_ability_trigger("{cid}", "{aid}", "exert_attacks")']
+                  f'ability_trigger("{cid}", "{aid}", "exert_attacks")']
         facts += _effect_facts(cid, aid, effects)
     return CardOut(cid, facts, "exert")
 
@@ -1727,8 +1727,8 @@ def _enter_as_copy(unit, ctx):
     m = re.match(r"^You may have ~ enter as a copy of (.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "enters_as_copy_of_{ground.slug(m.group(1))}")'],
-                   "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "enters_as_copy_of_{ground.slug(m.group(1))}")'],
+                   "static")
 
 
 def _escapes_with(unit, ctx):
@@ -1738,8 +1738,8 @@ def _escapes_with(unit, ctx):
     if not m or "escape" not in ground.keyword_abilities():
         return None
     return CardOut(ctx["id"],
-                   [f'card_static("{ctx["id"]}", "escapes_with_{ground.slug(m.group(1))}_{ground.slug(m.group(2))}_counter")'],
-                   "card_static")
+                   [f'static("{ctx["id"]}", "escapes_with_{ground.slug(m.group(1))}_{ground.slug(m.group(2))}_counter")'],
+                   "static")
 
 
 def _assign_damage_unblocked(unit, ctx):
@@ -1748,8 +1748,8 @@ def _assign_damage_unblocked(unit, ctx):
     if not re.match(r"^You may have ~ assign its combat damage as though it weren't blocked\.?$",
                     unit.raw, re.I):
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "may_assign_damage_as_though_unblocked")'],
-                   "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "may_assign_damage_as_though_unblocked")'],
+                   "static")
 
 
 def _cast_as_flash(unit, ctx):
@@ -1759,23 +1759,23 @@ def _cast_as_flash(unit, ctx):
     m = re.match(r"^You may cast ~ as though it had flash(?:[.,]? (.+?))?\.?$", unit.raw, re.I)
     if m:
         tag = "cast_as_though_flash" + ("_" + ground.slug(m.group(1)) if m.group(1) else "")
-        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{tag}")'], "card_static")
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{tag}")'], "static")
     # 'You may cast <X> spells as though they had flash' — a flash-grant scoped to a spell class.
     m = re.match(r"^You may cast (.+?) as though they had flash\.?$", unit.raw, re.I)
     if m:
-        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "cast_{ground.slug(m.group(1))}_as_flash")'], "card_static")
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "cast_{ground.slug(m.group(1))}_as_flash")'], "static")
     # 'The next <spell class> you cast this turn can be cast as though it had flash.' — one-shot flash grant.
     m = re.match(r"^The next (.+?) you cast this turn can be cast as though it had flash\.?$", unit.raw, re.I)
     if m:
-        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "next_{ground.slug(m.group(1))}_as_flash")'], "card_static")
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "next_{ground.slug(m.group(1))}_as_flash")'], "static")
     # 'The first/next <spell class> you cast each/this turn has <keyword[ N]>.' — grants a §702 keyword
     # to a scoped spell; grounds only if the keyword is in the §702 roster.
     m = re.match(r"^The (first|next) (.+?) you cast (?:each|this) turn has ([\w ]+?)\.?$", unit.raw, re.I)
     if m:
         kw = _ground_kw(m.group(3).strip())
         if kw and kw[0]:
-            return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "{m.group(1).lower()}_{ground.slug(m.group(2))}_has_{kw[0]}")'],
-                           "card_static")
+            return CardOut(ctx["id"], [f'static("{ctx["id"]}", "{m.group(1).lower()}_{ground.slug(m.group(2))}_has_{kw[0]}")'],
+                           "static")
     return None
 
 
@@ -1785,7 +1785,7 @@ def _alt_cost(unit, ctx):
     m = re.match(r"^You may (.+?) rather than pay (~'s mana cost|its mana cost|the mana cost(?: for [\w' ]+?)?|the equip cost[\w' ]*?)(?:[,.].*)?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "alt_cost_{ground.slug(m.group(1))}_for_{ground.slug(m.group(2))}")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "alt_cost_{ground.slug(m.group(1))}_for_{ground.slug(m.group(2))}")'], "static")
 
 
 def _enters_with_counters(unit, ctx):
@@ -1795,7 +1795,7 @@ def _enters_with_counters(unit, ctx):
                   r"equal to (.+?)\.?$", unit.raw)
     if md:
         cid = ctx["id"]
-        return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(md.group(1))}", "equal_to_{ground.slug(md.group(2))}")'],
+        return CardOut(cid, [f'enters_with_counters("{cid}", "{ground.slug(md.group(1))}", "equal_to_{ground.slug(md.group(2))}")'],
                        "enters_with_counters")
     m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
                  r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
@@ -1804,7 +1804,7 @@ def _enters_with_counters(unit, ctx):
     cid = ctx["id"]
     cond = m.group("cond") or (unit.raw.lower().startswith("if ") and "conditional") or None
     n = ground.slug(m.group(1)) if not cond else "var"
-    return CardOut(cid, [f'card_enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{n}")'],
+    return CardOut(cid, [f'enters_with_counters("{cid}", "{ground.slug(m.group(2))}", "{n}")'],
                    "enters_with_counters")
 
 
@@ -1813,25 +1813,25 @@ def _cast_restriction(unit, ctx):
     m = re.match(r"^Cast ~ only (.+?)\.?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "cast_only_{ground.slug(m.group(1))}")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "cast_only_{ground.slug(m.group(1))}")'], "static")
 
 
 def _doesnt_untap(unit, ctx):
     """'~ / Enchanted creature doesn't untap during …untap step.' — an untap restriction (§502).
     Also the SET form 'Creatures with power 3 or greater / Nonbasic lands / Islands don't untap during
     their controllers' untap steps' (Meekstone, Back to Basics, Choke, Intruder Alarm, Hokori): the
-    subject set is slugged faithfully into the same card_doesnt_untap target slot."""
+    subject set is slugged faithfully into the same doesnt_untap target slot."""
     cid = ctx["id"]
     m = re.match(r"^(~|Enchanted \w+|Equipped \w+|That creature|That permanent) doesn't untap "
                  r"during (?:its controller's|your|their)(?: next)? untap step\.?$", unit.raw, re.I)
     if m:
-        return CardOut(cid, [f'card_doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
+        return CardOut(cid, [f'doesnt_untap("{cid}", "{_target_slug(m.group(1))}")'], "doesnt_untap")
     m = re.match(r"^(?P<subj>.+?) don't untap during (?:their controllers'|their) untap steps?\.?$",
                  unit.raw, re.I)
     if m:
         subj = ground.slug(m.group("subj"))
         if subj:
-            return CardOut(cid, [f'card_doesnt_untap("{cid}", "{subj}")'], "doesnt_untap")
+            return CardOut(cid, [f'doesnt_untap("{cid}", "{subj}")'], "doesnt_untap")
     return None
 
 
@@ -1845,17 +1845,17 @@ def _cost_modifier(unit, ctx):
     if m:
         sc = ground.slug(m.group(4)) if m.group(4) else \
             ("if_" + ground.slug(m.group("cond")) if m.group("cond") else "-")
-        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", "self", "{sc}")'],
+        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", "self", "{sc}")'],
                        "cost_modifier")
     m = re.match(r"^([\w'~ ]*?spells?[\w'~ ]*?) costs? ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
     if m:
-        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
+        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
                             f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
     # '~'s/this ability costs {S} less to activate [for each …]' — activated-ability cost reduction
     m = re.match(r"^(?:~'s abilities?|this ability|abilities you activate) costs? ((?:\{[^}]+\})+|\d+) (less|more) to activate(?: (.+?))?\.?$", unit.raw, re.I)
     if m:
         sc = ground.slug(m.group(3)) if m.group(3) else "-"
-        return CardOut(cid, [f'card_cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "activated_ability", "{sc}")'],
+        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "activated_ability", "{sc}")'],
                        "cost_modifier")
     return None
 
@@ -1866,7 +1866,7 @@ def _class_level(unit, ctx):
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_class_level("{cid}", "{m.group(1)}", "{m.group(2)}")'], "class_level")
+    return CardOut(cid, [f'class_level("{cid}", "{m.group(1)}", "{m.group(2)}")'], "class_level")
 
 
 def _cda(unit, ctx):
@@ -1880,7 +1880,7 @@ def _cda(unit, ctx):
     val = ground.slug(m.group(3))
     if m.group("dur"):
         val += "_during_" + ground.slug(m.group("dur"))
-    return CardOut(cid, [f'card_cda("{cid}", "{ground.slug(m.group(2))}", "{val}")'], "cda")
+    return CardOut(cid, [f'cda("{cid}", "{ground.slug(m.group(2))}", "{val}")'], "cda")
 
 
 def _painland(unit, ctx):
@@ -1913,7 +1913,7 @@ def _station_band(unit, ctx):
     if not bo:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_level("{cid}", "station", "{m.group(1)}_plus")'] + bo.facts, "station")
+    return CardOut(cid, [f'level("{cid}", "station", "{m.group(1)}_plus")'] + bo.facts, "station")
 
 
 def _specialize(unit, ctx):
@@ -1923,36 +1923,36 @@ def _specialize(unit, ctx):
     m = re.match(r"^Specialize ((?:\{[^}]+\})+)$", unit.raw)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_specialize("{ctx["id"]}", "{m.group(1)}")'], "specialize")
+    return CardOut(ctx["id"], [f'specialize("{ctx["id"]}", "{m.group(1)}")'], "specialize")
 
 
 def _ticket_pt(unit, ctx):
     """Unfinity ticket cards (acorn): '{TK}{TK} — N/N' sets the creature's power/toughness when that
     many tickets have been paid — an alternate-P/T threshold table, structurally like a leveler band.
-    One fact per row: card_ticket_pt(card, ticket_count, "P/T")."""
+    One fact per row: ticket_pt(card, ticket_count, "P/T")."""
     m = re.match(r"^((?:\{TK\})+)\s*[—-]\s*([+-]?\d+/[+-]?\d+)$", unit.raw)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_ticket_pt("{cid}", {m.group(1).count("{TK}")}, "{m.group(2)}")'],
+    return CardOut(cid, [f'ticket_pt("{cid}", {m.group(1).count("{TK}")}, "{m.group(2)}")'],
                    "ticket_pt")
 
 
 # --- descriptive mechanics ABSENT from this rules.txt KB -------------------------------------------
 # These are named keyword/parameter mechanics from supplemental/newer sets that the §702 roster in
-# rules.txt does NOT define, so per the prime directive we must NOT emit a grounded card_keyword for
-# them. Each gets a DEDICATED descriptive relation (like card_specialize / card_ticket_pt) that records
+# rules.txt does NOT define, so per the prime directive we must NOT emit a grounded printed_keyword for
+# them. Each gets a DEDICATED descriptive relation (like specialize / ticket_pt) that records
 # the card's text faithfully without over-claiming a rules-defined keyword the engine can't validate.
 
 def _starting_intensity(unit, ctx):
     """'Starting intensity N' (the Intensity mechanic, a custom/Un- set keyword NOT in this rules.txt
-    KB) — sets the permanent's initial intensity count. Recorded descriptively as card_intensity with
+    KB) — sets the permanent's initial intensity count. Recorded descriptively as intensity with
     kind 'starting' and the integer value."""
     m = re.match(r"^Starting intensity (\d+)\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_intensity("{cid}", "starting", "{m.group(1)}")'], "intensity")
+    return CardOut(cid, [f'intensity("{cid}", "starting", "{m.group(1)}")'], "intensity")
 
 
 def _intensify_static(unit, ctx):
@@ -1970,45 +1970,45 @@ def _intensify_static(unit, ctx):
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_intensify("{cid}", "{ground.slug(m.group("who"))}", "{m.group("n")}")'],
+    return CardOut(cid, [f'intensify("{cid}", "{ground.slug(m.group("who"))}", "{m.group("n")}")'],
                    "intensify")
 
 
 def _augment(unit, ctx):
     """'Augment {cost}' (the Unstable Augment keyword — a half-card mechanic NOT defined in this
-    rules.txt §702 roster). Recorded descriptively as card_augment with the augment cost, like
-    card_specialize, so the card's text is captured without over-claiming a grounded keyword."""
+    rules.txt §702 roster). Recorded descriptively as augment with the augment cost, like
+    specialize, so the card's text is captured without over-claiming a grounded keyword."""
     m = re.match(r"^Augment ((?:\{[^}]+\})+)$", unit.raw)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_augment("{cid}", "{m.group(1)}")'], "augment")
+    return CardOut(cid, [f'augment("{cid}", "{m.group(1)}")'], "augment")
 
 
 def _poison_tolerance(unit, ctx):
     """'Poison Tolerance +N' (a supplemental/silver-border mechanic NOT in this rules.txt KB) — raises
-    the poison threshold before the player loses. Recorded descriptively as card_poison_tolerance with
+    the poison threshold before the player loses. Recorded descriptively as poison_tolerance with
     the integer bonus; we do NOT claim a grounded keyword."""
     m = re.match(r"^Poison Tolerance \+(\d+)\.?$", unit.raw, re.I)
     if not m:
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_poison_tolerance("{cid}", "{m.group(1)}")'], "poison_tolerance")
+    return CardOut(cid, [f'poison_tolerance("{cid}", "{m.group(1)}")'], "poison_tolerance")
 
 
 # --- SUPPLEMENTAL clusters (Unfinity stickers/tickets/teamwork, Contraptions, Alchemy spellbooks) ---
 # None of these are defined in this rules.txt §702 roster, so per the prime directive we do NOT mint a
-# grounded card_keyword for them — each gets a DEDICATED descriptive card_* relation. To stay faithful,
+# grounded printed_keyword for them — each gets a DEDICATED descriptive card_* relation. To stay faithful,
 # every handler matches the WHOLE oracle line: a compound body whose non-supplemental half wouldn't
 # ground on its own ABSTAINS (returns None) rather than emitting a partial fact.
 
 def _teamwork(unit, ctx):
     """'Teamwork N' — the Unfinity keyword ability with a numeric parameter. NOT in this rules.txt KB,
-    so recorded descriptively as card_teamwork(card, N) rather than a grounded §702 keyword."""
+    so recorded descriptively as teamwork(card, N) rather than a grounded §702 keyword."""
     m = re.match(r"^Teamwork (\d+)\.?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_teamwork("{ctx["id"]}", {m.group(1)})'], "teamwork")
+    return CardOut(ctx["id"], [f'teamwork("{ctx["id"]}", {m.group(1)})'], "teamwork")
 
 
 # A sticker-placement clause: 'put a[n] [<kind>] sticker[s] on <target>'. <kind> is one of the four
@@ -2033,7 +2033,7 @@ def _sticker_clause(text):
 
 # 'When/Whenever/As ~ <event>, [you get {TK}…, then ]you may put … sticker on …' — the productive
 # Unfinity sticker frames. The optional 'you get {TK}{TK}…, then ' ticket-gain prefix is itself a
-# supplemental mechanic, captured as a SEPARATE card_get_tickets fact (both halves grounded faithfully).
+# supplemental mechanic, captured as a SEPARATE get_tickets fact (both halves grounded faithfully).
 # the body is restricted to a SINGLE sentence ([^.]) so a compound line with a follow-on sentence
 # ('… name sticker on it. You gain X life …') can't swallow the second effect into the target slug.
 _STICKER_FRAME = re.compile(
@@ -2047,7 +2047,7 @@ def _sticker(unit, ctx):
     """Unfinity STICKER frames (a digital/supplemental mechanic NOT in this rules.txt KB). Three whole-
     line shapes, all recorded descriptively:
       • 'When/Whenever/As ~ <event>, [you get {TK}…, then ]you may put a[ <kind>] sticker on <target>.'
-        -> card_sticker(card, <event>, <kind>, <target>) (+ card_get_tickets for any {TK} prefix);
+        -> sticker(card, <event>, <kind>, <target>) (+ get_tickets for any {TK} prefix);
       • '• You may put … sticker on <target>.' (a modal bullet) -> frame 'modal';
       • a bare 'Put an art sticker on <target>.' / standalone 'You may put …' -> frame 'standalone'.
     The body must be EXACTLY a sticker-placement clause (no trailing 'and …'/'. …' second effect), so a
@@ -2058,7 +2058,7 @@ def _sticker(unit, ctx):
     if raw.startswith("•"):
         sc = _sticker_clause(raw[1:].strip())
         if sc:
-            return CardOut(cid, [f'card_sticker("{cid}", "modal", "{sc[0]}", "{sc[1]}")'], "sticker")
+            return CardOut(cid, [f'sticker("{cid}", "modal", "{sc[0]}", "{sc[1]}")'], "sticker")
         return None
     m = _STICKER_FRAME.match(raw)
     if m:
@@ -2067,16 +2067,16 @@ def _sticker(unit, ctx):
             return None
         facts = []
         if m.group("tk"):
-            facts.append(f'card_get_tickets("{cid}", {m.group("tk").count("{TK}")})')
+            facts.append(f'get_tickets("{cid}", {m.group("tk").count("{TK}")})')
         frame = _FRAME_EVENT[m.group("event").lower()]
-        facts.append(f'card_sticker("{cid}", "{frame}", "{sc[0]}", "{sc[1]}")')
+        facts.append(f'sticker("{cid}", "{frame}", "{sc[0]}", "{sc[1]}")')
         return CardOut(cid, facts, "sticker")
     # bare standalone placement ('Put an art sticker on …' imperative, or 'You may put …') — single clause
     if re.match(r"^(?:You may )?put ", raw, re.I) and "." not in raw.rstrip("."):
         body = re.sub(r"^Put ", "you may put ", raw, flags=re.I) if not raw.lower().startswith("you may") else raw
         sc = _sticker_clause(body)
         if sc:
-            return CardOut(cid, [f'card_sticker("{cid}", "standalone", "{sc[0]}", "{sc[1]}")'], "sticker")
+            return CardOut(cid, [f'sticker("{cid}", "standalone", "{sc[0]}", "{sc[1]}")'], "sticker")
     return None
 
 
@@ -2088,20 +2088,20 @@ _ETB_ASSEMBLE = re.compile(r"^When ~ enters, (?:it|~) assembles a Contraption\.?
 
 def _assemble_contraption(unit, ctx):
     """Contraption assembly, a supplemental (Unstable) mechanic with no §702 grounding. Two whole-line
-    shapes recorded descriptively as card_assemble_contraption(card, frame, count):
+    shapes recorded descriptively as assemble_contraption(card, frame, count):
       • 'When ~ enters, it/~ assembles a Contraption.'  -> frame 'enters', count '1';
       • a bare imperative 'Assemble a/two/X Contraption(s).' (spell or modal bullet) -> frame 'spell'.
     Anchored whole-line so compound bodies ('… then assemble a Contraption', '… for each …') abstain."""
     cid = ctx["id"]
     raw = unit.raw.strip()
     if _ETB_ASSEMBLE.match(raw):
-        return CardOut(cid, [f'card_assemble_contraption("{cid}", "enters", "1")'], "assemble_contraption")
+        return CardOut(cid, [f'assemble_contraption("{cid}", "enters", "1")'], "assemble_contraption")
     bullet = raw[1:].strip() if raw.startswith("•") else raw
     m = _ASSEMBLE.match(bullet)
     if m:
         cnt = _CONTRAPTION_COUNT[m.group("n").lower()]
         frame = "modal" if raw.startswith("•") else "spell"
-        return CardOut(cid, [f'card_assemble_contraption("{cid}", "{frame}", "{cnt}")'], "assemble_contraption")
+        return CardOut(cid, [f'assemble_contraption("{cid}", "{frame}", "{cnt}")'], "assemble_contraption")
     return None
 
 
@@ -2117,24 +2117,24 @@ _SPELLBOOK_EVENT = {"enters": "enters", "dies": "dies", "attacks": "attacks"}
 
 def _spellbook(unit, ctx):
     """'[<trigger>, ]draft a card from ~'s spellbook.' — the cleanest spellbook frame, recorded
-    descriptively as card_spellbook(card, frame, 'draft'). frame is the trigger event ('enters'/'dies'/
+    descriptively as spellbook(card, frame, 'draft'). frame is the trigger event ('enters'/'dies'/
     'attacks') or 'standalone' for the bare imperative. Tight on purpose: any compound continuation
     abstains so we never emit a partial fact for the ungrounded second half."""
     m = _SPELLBOOK_FRAME.match(unit.raw.strip())
     if not m:
         return None
     frame = _SPELLBOOK_EVENT.get((m.group("event") or "").lower(), "standalone")
-    return CardOut(ctx["id"], [f'card_spellbook("{ctx["id"]}", "{frame}", "draft")'], "spellbook")
+    return CardOut(ctx["id"], [f'spellbook("{ctx["id"]}", "{frame}", "draft")'], "spellbook")
 
 
 def _ready_to_run(unit, ctx):
     """'Ready to run' (a named keyword on the 'Runner' subgame cards, NOT in this rules.txt KB) — a
-    bare designation marker. Recorded descriptively as card_static('ready_to_run') so the line is
+    bare designation marker. Recorded descriptively as static('ready_to_run') so the line is
     captured without claiming a grounded §702 keyword."""
     if not re.match(r"^Ready to run\.?$", unit.raw, re.I):
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_static("{cid}", "ready_to_run")'], "ready_to_run")
+    return CardOut(cid, [f'static("{cid}", "ready_to_run")'], "ready_to_run")
 
 
 def _leveler(unit, ctx):
@@ -2147,9 +2147,9 @@ def _leveler(unit, ctx):
     m = re.match(r"^LEVEL (\d+)(?:-(\d+)|(\+))$", unit.raw, re.I)
     if m:
         hi = m.group(2) or ("max" if m.group(3) else m.group(1))
-        return CardOut(cid, [f'card_level("{cid}", "band", "{m.group(1)}_{hi}")'], "leveler")
+        return CardOut(cid, [f'level("{cid}", "band", "{m.group(1)}_{hi}")'], "leveler")
     if re.match(r"^[+-]?\d+/[+-]?\d+$", unit.raw):
-        return CardOut(cid, [f'card_level("{cid}", "pt", "{unit.raw}")'], "leveler")
+        return CardOut(cid, [f'level("{cid}", "pt", "{unit.raw}")'], "leveler")
     return None
 
 
@@ -2157,7 +2157,7 @@ def _enters_prepared(unit, ctx):
     """'~ enters prepared.' — gains the prepared designation as it enters (§722.3)."""
     if not re.match(r"^~ enters prepared\.?$", unit.raw, re.I):
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "enters_prepared")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "enters_prepared")'], "static")
 
 
 def _can_block_additional(unit, ctx):
@@ -2165,11 +2165,11 @@ def _can_block_additional(unit, ctx):
     — a static blocking ability (§509). Subject is ~ or a creature subset."""
     sub = r"(?:~|each creature you control|creatures you control)"
     if re.match(rf"^{sub} can block any number of creatures\.?$", unit.raw, re.I):
-        return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_any_number")'], "card_static")
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "can_block_any_number")'], "static")
     m = re.match(rf"^{sub} can block an additional (?:creature|\w+ creatures?)(?: each combat)?\.?$", unit.raw, re.I)
     if not m:
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "can_block_additional")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "can_block_additional")'], "static")
 
 
 def _assigns_toughness(unit, ctx):
@@ -2178,7 +2178,7 @@ def _assigns_toughness(unit, ctx):
     if not re.match(r"^(?:~|each creature you control|creatures you control|each creature) assigns? "
                     r"combat damage equal to its toughness rather than its power\.?$", unit.raw, re.I):
         return None
-    return CardOut(ctx["id"], [f'card_static("{ctx["id"]}", "assigns_combat_damage_as_toughness")'], "card_static")
+    return CardOut(ctx["id"], [f'static("{ctx["id"]}", "assigns_combat_damage_as_toughness")'], "static")
 
 
 def _attacks_each_combat(unit, ctx):
@@ -2186,7 +2186,7 @@ def _attacks_each_combat(unit, ctx):
     if not re.match(r"^~ attacks each combat if able\.?$", unit.raw):
         return None
     cid = ctx["id"]
-    return CardOut(cid, [f'card_attacks_each_combat("{cid}")'], "attacks_each_combat")
+    return CardOut(cid, [f'attacks_each_combat("{cid}")'], "attacks_each_combat")
 
 
 def _static_conjuncts(unit, ctx):

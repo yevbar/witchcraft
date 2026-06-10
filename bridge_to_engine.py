@@ -2,7 +2,7 @@
 engine's input relations, so driver.py simulates actual Magic cards instead of hand-coded demo state.
 
 This is the missing seam between the two interpreted datalog worlds: the per-card oracle facts
-(card_effect / card_keyword / card_ability, from transpile_card.py) and the playable rules engine
+(card_effect / printed_keyword / card_ability, from transpile_card.py) and the playable rules engine
 (engine_rules.dl, driven by driver.py). The bridge translates a card instance into the engine's
 vocabulary — printed_type/power/toughness, printed_keyword, has_trigger/trigger_effect — and the
 engine derives the game; the bridge authors no rules.

@@ -1,7 +1,7 @@
 """build_cards.py — emit datalog/cards.dl: grounded facts for every interpretable oracle ability unit.
 
 The card-side analogue of the build_*.py rules emitters. Each fact uses only rules-grounded relations
-(card_keyword grounds in §702, card_mana_ability in §605/§107). Output is gitignored: unlike the rules
+(printed_keyword grounds in §702, mana_ability in §605/§107). Output is gitignored: unlike the rules
 datalog (derived from the committed rules.txt), cards.dl derives from MTGJSON bulk data that isn't in
 the repo, so it's regenerated locally, not committed.
 
@@ -81,85 +81,85 @@ def build() -> tuple[str, dict]:
 
     p = Program()
     p.comment("cards.dl — grounded card-oracle facts, interpreted from MTGJSON oracle text. GENERATED.")
-    p.comment("Every relation grounds in rules.txt: card_keyword -> §702; card_mana_ability -> §605/§107.")
+    p.comment("Every relation grounds in rules.txt: printed_keyword -> §702; mana_ability -> §605/§107.")
     p.blank()
-    p.decl("card_name", [("id", "symbol"), ("name", "symbol")])
-    p.decl("card_keyword", [("card", "symbol"), ("keyword", "symbol")])
-    p.decl("card_keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])
-    p.decl("card_mana_ability", [("card", "symbol"), ("cost", "symbol")])
-    p.decl("card_adds_mana", [("card", "symbol"), ("cost", "symbol"), ("produces", "symbol")])
+    p.decl("name", [("id", "symbol"), ("name", "symbol")])
+    p.decl("printed_keyword", [("card", "symbol"), ("keyword", "symbol")])
+    p.decl("keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])
+    p.decl("mana_ability", [("card", "symbol"), ("cost", "symbol")])
+    p.decl("adds_mana", [("card", "symbol"), ("cost", "symbol"), ("produces", "symbol")])
     p.decl("card_ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")])
-    p.decl("card_ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
-    p.decl("card_ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
-    p.decl("card_ability_modifier", [("card", "symbol"), ("aid", "symbol"), ("modifier", "symbol")])
+    p.decl("ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
+    p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
+    p.decl("ability_modifier", [("card", "symbol"), ("aid", "symbol"), ("modifier", "symbol")])
     p.decl("card_effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"),
                       ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol"),
                       ("extra", "symbol"), ("cond", "symbol")])
-    p.decl("card_mode_option", [("card", "symbol"), ("aid", "symbol")])
-    p.decl("card_modal", [("card", "symbol"), ("mode", "symbol")])
-    p.decl("card_cant", [("card", "symbol"), ("who", "symbol"), ("action", "symbol")])
-    p.decl("card_additional_cost", [("card", "symbol"), ("cost", "symbol")])
-    p.decl("card_doesnt_untap", [("card", "symbol"), ("who", "symbol")])
-    p.decl("card_attacks_each_combat", [("card", "symbol")])
-    p.decl("card_enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
+    p.decl("mode_option", [("card", "symbol"), ("aid", "symbol")])
+    p.decl("modal", [("card", "symbol"), ("mode", "symbol")])
+    p.decl("cant", [("card", "symbol"), ("who", "symbol"), ("action", "symbol")])
+    p.decl("additional_cost", [("card", "symbol"), ("cost", "symbol")])
+    p.decl("doesnt_untap", [("card", "symbol"), ("who", "symbol")])
+    p.decl("attacks_each_combat", [("card", "symbol")])
+    p.decl("enters_with_counters", [("card", "symbol"), ("kind", "symbol"), ("n", "symbol")])
     p.decl("card_enters_tapped", [("card", "symbol"), ("condition", "symbol")])
-    p.decl("card_etb_choose", [("card", "symbol"), ("what", "symbol")])
+    p.decl("etb_choose", [("card", "symbol"), ("what", "symbol")])
     # as-enters choice among an EXPLICIT option set ("choose Khans or Dragons", "choose odd or
-    # even") — one fact per literal option, vs card_etb_choose which names the CATEGORY chosen.
-    p.decl("card_etb_choose_option", [("card", "symbol"), ("option", "symbol")])
+    # even") — one fact per literal option, vs etb_choose which names the CATEGORY chosen.
+    p.decl("etb_choose_option", [("card", "symbol"), ("option", "symbol")])
     # §305.7 land type-changing static: <scope> lands become <land_type>, replacing or in addition.
-    p.decl("card_land_type_set", [("card", "symbol"), ("scope", "symbol"), ("land_type", "symbol"), ("mode", "symbol")])
+    p.decl("land_type_set", [("card", "symbol"), ("scope", "symbol"), ("land_type", "symbol"), ("mode", "symbol")])
     # §614 replacement effects: damage redirection (A's damage dealt to B) and the life-total floor.
-    p.decl("card_damage_redirect", [("card", "symbol"), ("from", "symbol"), ("to", "symbol")])
-    p.decl("card_life_floor", [("card", "symbol"), ("floor", "number"), ("condition", "symbol")])
+    p.decl("damage_redirect", [("card", "symbol"), ("from", "symbol"), ("to", "symbol")])
+    p.decl("life_floor", [("card", "symbol"), ("floor", "number"), ("condition", "symbol")])
     # §614/616 damage-multiplication replacement: <source>'s damage [to <target>] is multiplied xN.
-    p.decl("card_damage_multiplier", [("card", "symbol"), ("source", "symbol"), ("factor", "number"), ("target", "symbol")])
-    p.decl("card_static_player", [("card", "symbol"), ("rule", "symbol")])
-    p.decl("card_static", [("card", "symbol"), ("tag", "symbol")])
+    p.decl("damage_multiplier", [("card", "symbol"), ("source", "symbol"), ("factor", "number"), ("target", "symbol")])
+    p.decl("static_player", [("card", "symbol"), ("rule", "symbol")])
+    p.decl("static", [("card", "symbol"), ("tag", "symbol")])
     p.decl("card_restriction", [("card", "symbol"), ("who", "symbol"), ("restriction", "symbol")])
-    p.decl("card_grants_ability", [("card", "symbol"), ("who", "symbol"), ("card_ability", "symbol"), ("duration", "symbol")])
-    p.decl("card_cost_modifier", [("card", "symbol"), ("dir", "symbol"), ("amount", "symbol"), ("scope", "symbol"), ("condition", "symbol")])
-    p.decl("card_cda", [("card", "symbol"), ("characteristic", "symbol"), ("definition", "symbol")])
-    p.decl("card_level", [("card", "symbol"), ("kind", "symbol"), ("value", "symbol")])
-    p.decl("card_class_level", [("card", "symbol"), ("cost", "symbol"), ("level", "symbol")])
-    p.decl("card_ticket_pt", [("card", "symbol"), ("tickets", "number"), ("pt", "symbol")])
-    p.decl("card_specialize", [("card", "symbol"), ("cost", "symbol")])
+    p.decl("grants_ability", [("card", "symbol"), ("who", "symbol"), ("card_ability", "symbol"), ("duration", "symbol")])
+    p.decl("cost_modifier", [("card", "symbol"), ("dir", "symbol"), ("amount", "symbol"), ("scope", "symbol"), ("condition", "symbol")])
+    p.decl("cda", [("card", "symbol"), ("characteristic", "symbol"), ("definition", "symbol")])
+    p.decl("level", [("card", "symbol"), ("kind", "symbol"), ("value", "symbol")])
+    p.decl("class_level", [("card", "symbol"), ("cost", "symbol"), ("level", "symbol")])
+    p.decl("ticket_pt", [("card", "symbol"), ("tickets", "number"), ("pt", "symbol")])
+    p.decl("specialize", [("card", "symbol"), ("cost", "symbol")])
     # descriptive mechanics absent from this rules.txt KB (not grounded §702 keywords)
-    p.decl("card_intensity", [("card", "symbol"), ("kind", "symbol"), ("value", "symbol")])
-    p.decl("card_intensify", [("card", "symbol"), ("scope", "symbol"), ("amount", "symbol")])
-    p.decl("card_augment", [("card", "symbol"), ("cost", "symbol")])
-    p.decl("card_poison_tolerance", [("card", "symbol"), ("bonus", "symbol")])
+    p.decl("intensity", [("card", "symbol"), ("kind", "symbol"), ("value", "symbol")])
+    p.decl("intensify", [("card", "symbol"), ("scope", "symbol"), ("amount", "symbol")])
+    p.decl("augment", [("card", "symbol"), ("cost", "symbol")])
+    p.decl("poison_tolerance", [("card", "symbol"), ("bonus", "symbol")])
     # SUPPLEMENTAL (Un-set / Unfinity / Acorn / digital-only) mechanics absent from rules.txt §702 —
-    # captured faithfully as descriptive card_* relations (NOT grounded card_keyword), like the block
+    # captured faithfully as descriptive card_* relations (NOT grounded printed_keyword), like the block
     # above, so these cards' lines ground instead of abstaining.
-    p.decl("card_teamwork", [("card", "symbol"), ("n", "number")])
-    p.decl("card_get_tickets", [("card", "symbol"), ("n", "number")])
-    p.decl("card_sticker", [("card", "symbol"), ("frame", "symbol"), ("kind", "symbol"), ("target", "symbol")])
-    p.decl("card_assemble_contraption", [("card", "symbol"), ("frame", "symbol"), ("count", "symbol")])
-    p.decl("card_spellbook", [("card", "symbol"), ("frame", "symbol"), ("op", "symbol")])
+    p.decl("teamwork", [("card", "symbol"), ("n", "number")])
+    p.decl("get_tickets", [("card", "symbol"), ("n", "number")])
+    p.decl("sticker", [("card", "symbol"), ("frame", "symbol"), ("kind", "symbol"), ("target", "symbol")])
+    p.decl("assemble_contraption", [("card", "symbol"), ("frame", "symbol"), ("n", "symbol")])  # 'count' is a souffle reserved word
+    p.decl("spellbook", [("card", "symbol"), ("frame", "symbol"), ("op", "symbol")])
     p.blank()
     for cid, nm in sorted(names.items()):
-        p.fact(f'card_name("{cid}", "{nm}")')
+        p.fact(f'name("{cid}", "{nm}")')
     p.blank()
     for f in facts:
         p.fact(f)
     p.blank()
-    p.output("card_keyword", "card_keyword_param", "card_mana_ability", "card_adds_mana",
-             "card_ability", "card_ability_cost", "card_ability_trigger", "card_ability_modifier", "card_effect", "card_mode_option",
-             "card_modal",
-             "card_cant", "card_doesnt_untap", "card_attacks_each_combat", "card_enters_with_counters",
-             "card_enters_tapped", "card_etb_choose", "card_etb_choose_option", "card_land_type_set",
-             "card_damage_redirect", "card_damage_multiplier", "card_life_floor", "card_static_player", "card_additional_cost",
-             "card_static", "card_restriction", "card_grants_ability", "card_cost_modifier", "card_cda",
-             "card_level", "card_class_level", "card_ticket_pt", "card_specialize",
-             "card_intensity", "card_intensify", "card_augment", "card_poison_tolerance",
-             "card_teamwork", "card_get_tickets", "card_sticker", "card_assemble_contraption",
-             "card_spellbook")
+    p.output("printed_keyword", "keyword_param", "mana_ability", "adds_mana",
+             "card_ability", "ability_cost", "ability_trigger", "ability_modifier", "card_effect", "mode_option",
+             "modal",
+             "cant", "doesnt_untap", "attacks_each_combat", "enters_with_counters",
+             "card_enters_tapped", "etb_choose", "etb_choose_option", "land_type_set",
+             "damage_redirect", "damage_multiplier", "life_floor", "static_player", "additional_cost",
+             "static", "card_restriction", "grants_ability", "cost_modifier", "cda",
+             "level", "class_level", "ticket_pt", "specialize",
+             "intensity", "intensify", "augment", "poison_tolerance",
+             "teamwork", "get_tickets", "sticker", "assemble_contraption",
+             "spellbook")
     p.blank()
     p.comment("conformance — a grounded keyword the rules define (§702.9) on a known card")
     p.conformance(
         [("expect_kw", [("card", "symbol"), ("keyword", "symbol")])],
-        [("kw", "expect_kw(C, K)", "miss", "card_keyword(C, K)")])
+        [("kw", "expect_kw(C, K)", "miss", "printed_keyword(C, K)")])
     p.fact('expect_kw("serra_angel", "flying")')
     return p.text(), {"cards_with_facts": len(names), "facts": len(facts), "by_pattern": dict(by_pattern),
                       "cards_full": cards_full, "cards_total": cards_total}
