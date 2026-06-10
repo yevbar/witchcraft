@@ -746,7 +746,7 @@ trigger_effect(IA, "animate", 0, Payload) :- trig_ability(IA, S, C, A), card_eff
 // (spell_target), board-scope (spell_scope), direct DAMAGE (spell_damage) and REANIMATION
 // (spell_reanimate) — DERIVED here from the card parse facts for the UNCONDITIONAL case, keyed by
 // the SPELL instance id (== the bridge's tid; the driver's _run_spell_* run these on resolve). The
-// modify_pt P/T payload and switch_pt still go the python bridge route (P/T parsing deferred).
+// modify_pt P/T payload (single-target + board-scope) and switch_pt are now DERIVED too (via pt_value).
 // the spell slice REUSES the shared fact tables target_class / damage_kind / counter_kind /
 // reanimate_target / reanimate_mode / reanimate_gate emitted by _emit_translate_triggered_target
 // (emitted earlier). These two are spell-only:
@@ -770,12 +770,20 @@ spell_put_counter(S, Target, cat(Kind, cat(":", Amount))) :- instance_of(S, Card
 spell_target(S, Verb, "-", Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, _, Target, _, "-"), zone_move_verb(Verb), target_class(Target, Cls).
 spell_target(S, "grant", Kw, Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-"), engine_keyword(Kw), target_class(Target, Cls).
 spell_target(S, "counter", Payload, Cls) :- spell_put_counter(S, Target, Payload), target_class(Target, Cls).
+// modify_pt single-target P/T pump/shrink (Giant Growth): payload 'dp/dt' lexed via pt_value
+// (REUSED foundation table — souffle can't parse '+1/+1'). Matches the bridge's f'{dp}/{dt}'.
+spell_target(S, "modify_pt", Payload, Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, Dp, Dt), target_class(Target, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
+// switch_pt single-target §613 layer-7d P/T switch (no payload — the verb says it all).
+spell_target(S, "switchpt", "-", Cls) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "switch_pt", _, Target, _, "-"), target_class(Target, Cls).
 // DERIVE spell_scope — a board-wide creature verb the driver expands to every creature in scope.
 // Same verb/payload vocabulary as spell_target, but a board_scope target (creatures_you_control /
-// all_creatures) instead of a single-target class. modify_pt P/T board buffs stay in the bridge.
+// all_creatures) instead of a single-target class.
 spell_scope(S, Verb, "-", Scope) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, Verb, _, Target, _, "-"), zone_move_verb(Verb), board_scope(Target, Scope).
 spell_scope(S, "grant", Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-"), engine_keyword(Kw), board_scope(Target, Scope).
 spell_scope(S, "counter", Payload, Scope) :- spell_put_counter(S, Target, Payload), board_scope(Target, Scope).
+// modify_pt board-scope P/T anthem-on-resolution (Overrun): payload 'dp/dt' via pt_value, same
+// as the single-target modify_pt rule but a board_scope target instead of a target_class.
+spell_scope(S, "modify_pt", Payload, Scope) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, Dp, Dt), board_scope(Target, Scope), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
 // DERIVE spell_damage — §120 direct damage from a burn instant/sorcery. n = the numeric amount,
 // kind = damage_kind(target) (creature lethality / face life loss / sweeper). Variable/restricted abstain.
 spell_damage(S, N, Kind) :- instance_of(S, Card), card_ability(Card, A, "spell"), card_effect(Card, A, _, "deal_damage", Amount, Target, _, "-"), match("[0-9]+", Amount), N = to_number(Amount), damage_kind(Target, Kind).

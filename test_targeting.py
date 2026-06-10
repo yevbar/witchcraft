@@ -396,7 +396,9 @@ def _spell_checks() -> None:
             burn = (name, sd); break
     check("a real burn spell routes deal_damage to spell_damage", burn is not None)
 
-    # the bridge routes a real removal spell's destroy clause to spell_target, not a dropped effect.
+    # a real removal/pump spell's single-target clause routes to spell_target, not a dropped effect.
+    # ONE WORLD: spell_target (incl. modify_pt now) is DERIVED IN DATALOG from the card parse facts the
+    # bridge feeds — so read it back from the ENGINE (driver.run) on a state built from those facts.
     import sim, card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
@@ -406,8 +408,11 @@ def _spell_checks() -> None:
             f, _ = bridge.card_facts(name, "alice", "x", db, corpus)
         except Exception:
             continue
-        if any(v in ("destroy", "modify_pt", "return_to_hand") for (_s, v, _p, _c) in f.get("spell_target", set())):
-            found = (name, sorted(f["spell_target"]))
+        st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect") if k in f}
+        st["is_player"] = {("alice",), ("bob",)}
+        rows = sorted(r for r in driver.run(st, ["spell_target"])["spell_target"] if r[0] == "x")
+        if any(v in ("destroy", "modify_pt", "return_to_hand") for (_s, v, _p, _c) in rows):
+            found = (name, rows)
             break
     check("a real instant/sorcery routes a single-target verb to spell_target", found is not None)
 

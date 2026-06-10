@@ -10,7 +10,9 @@ creature-target / board-scope / damage / reanimate relations:
 
 This proves: (1) the engine DERIVES each relation end-to-end from the parse facts; (2) the derivation EQUALS
 the OLD python bridge emission ACROSS THE WHOLE CORPUS (0 mismatches per relation). modify_pt's P/T payload
-and switch_pt are NOT migrated (P/T parsing deferred) — they still go the python route and are excluded here.
+(single-target spell_target + board-scope spell_scope) and switch_pt are now DERIVED too — the payload is
+lexed by the pt_value foundation table (souffle can't parse '+1/+1'), so they're included in the corpus
+equivalence below (the OLD bridge oracle replicates the pre-migration python f'{dp}/{dt}' emission).
 """
 
 from __future__ import annotations
@@ -58,6 +60,14 @@ def _derivation_checks():
           ("grant", "flying", "any") in _derived("c", "a0", [(0, "grant_keyword", "-", "target_creature", "flying")], "spell_target"))
     check("datalog derives spell put_counter +1/+1 x2 (target) -> spell_target(counter, p1p1:2, any)",
           ("counter", "p1p1:2", "any") in _derived("c", "a0", [(0, "put_counter", "2", "target_creature", "+1/+1")], "spell_target"))
+    # modify_pt single-target P/T pump/shrink (Giant Growth): payload 'dp/dt' lexed via pt_value.
+    check("datalog derives spell modify_pt +3/+3 (target) -> spell_target(modify_pt, 3/3, any)",
+          ("modify_pt", "3/3", "any") in _derived("c", "a0", [(0, "modify_pt", "+3/+3", "target_creature", "-")], "spell_target"))
+    check("datalog derives spell modify_pt -2/-0 (target) -> spell_target(modify_pt, -2/0, any) (negatives)",
+          ("modify_pt", "-2/0", "any") in _derived("c", "a0", [(0, "modify_pt", "-2/-0", "target_creature", "-")], "spell_target"))
+    # switch_pt single-target §613 layer-7d switch -> spell_target(switchpt, -, class), no P/T payload.
+    check("datalog derives spell switch_pt (target) -> spell_target(switchpt, -, any)",
+          ("switchpt", "-", "any") in _derived("c", "a0", [(0, "switch_pt", "-", "target_creature", "-")], "spell_target"))
     # an unrecognized keyword (grant) and a restricted target ABSTAIN, like the bridge did.
     check("grant of a non-engine keyword abstains (no spell_target)",
           not _derived("c", "a0", [(0, "grant_keyword", "-", "target_creature", "fakeword")], "spell_target"))
@@ -73,6 +83,10 @@ def _derivation_checks():
     check("datalog derives spell put_counter -1/-1 (all_creatures) -> spell_scope(counter, m1m1:1, all_creatures)",
           ("counter", "m1m1:1", "all_creatures") in
           _derived("c", "a0", [(0, "put_counter", "1", "all_creatures", "-1/-1")], "spell_scope"))
+    # modify_pt board-scope P/T anthem-on-resolution (Overrun): payload 'dp/dt' lexed via pt_value.
+    check("datalog derives spell modify_pt +3/+3 (creatures_you_control) -> spell_scope(modify_pt, 3/3, creatures_you_control)",
+          ("modify_pt", "3/3", "creatures_you_control") in
+          _derived("c", "a0", [(0, "modify_pt", "+3/+3", "creatures_you_control", "-")], "spell_scope"))
 
     # spell_damage — §120 direct damage.
     check("datalog derives spell deal_damage 3 (any_target) -> spell_damage(3, any_target)",
@@ -95,9 +109,10 @@ def _derivation_checks():
 
 def _old_bridge_rows(verb, amt, tgt, extra):
     """The OLD (pre-migration) bridge spell-branch emission for one effect clause -> {rel: row(without tid)}.
-    Replicates the python control flow exactly (the modify_pt/switch_pt paths are excluded — not migrated)."""
+    Replicates the python control flow exactly — INCLUDING the modify_pt single-target/board-scope and
+    switch_pt paths (the f'{dp}/{dt}' payload + 'switchpt' class) the python bridge emitted before migration."""
     out = {}
-    if verb in bridge._CREATURE_VERBS and verb != "modify_pt":
+    if verb in bridge._CREATURE_VERBS:
         scope = bridge._scope(tgt)
         if scope in ("creatures_you_control", "all_creatures"):
             r = bridge._creature_verb_payload(verb, amt, extra)
@@ -127,6 +142,9 @@ def _old_bridge_rows(verb, amt, tgt, extra):
         return out
     if verb == "return_to_battlefield" and bridge._reanimates(tgt, extra):
         out["spell_reanimate"] = (bridge._reanimate_mode(extra),)
+        return out
+    if verb == "switch_pt" and bridge._target_class(tgt) is not None:   # §613 'switch target creature's P/T'
+        out["spell_target"] = ("switchpt", "-", bridge._target_class(tgt))
     return out
 
 

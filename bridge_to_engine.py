@@ -553,8 +553,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # zone moves + grant_keyword + counters), direct DAMAGE and REANIMATION are now DERIVED IN
                 # DATALOG (translate.dl, keyed by tid) for the UNCONDITIONAL case — spell_target/spell_scope/
                 # spell_damage/spell_reanimate. The bridge only feeds the parse facts; it skips its own
-                # emission for the migrated rows (the `continue`s below). modify_pt (a P/T payload, deferred)
-                # and switch_pt still go the python route, so their `add(...)` calls remain.
+                # emission for the migrated rows (the `continue`s below). modify_pt (a P/T payload, lexed via
+                # the pt_value foundation table) and switch_pt are now DATALOG-derived too — no python add().
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in ("creatures_you_control", "all_creatures"):
@@ -563,9 +563,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         r = _creature_verb_payload(verb, amt, extra)
                         if r[0] is None:
                             dropped.append((r[1], r[2])); continue
-                        if verb == "modify_pt":                  # P/T board buff stays in the bridge (deferred)
-                            add("spell_scope", (tid, r[0], r[1], scope))
-                        continue                                 # else: spell_scope is DATALOG-derived
+                        continue                                 # spell_scope (incl. modify_pt) is DATALOG-derived
                     if scope is None:
                         # §115 single 'target creature' (Murder=destroy, Giant Growth=+3/+3, Unsummon=bounce):
                         # spell_target so the driver makes the §601.2c choice as the spell resolves.
@@ -573,9 +571,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         if ev is None:
                             dropped.append((payload, cls))
                             continue
-                        if verb == "modify_pt":                  # P/T pump stays in the bridge (deferred)
-                            add("spell_target", (tid, ev, payload, cls))
-                        continue                                 # else: spell_target is DATALOG-derived
+                        continue                                 # spell_target (incl. modify_pt) is DATALOG-derived
                 if verb == "deal_damage":
                     # §120 direct damage from a burn instant/sorcery (Lightning Bolt, Shock, Char). The driver
                     # picks the target. ONE WORLD: spell_damage is now DATALOG-derived (translate.dl); the
@@ -605,8 +601,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # DATALOG-derived (translate.dl); the bridge only feeds the parse facts.
                     continue
                 if verb == "switch_pt" and _target_class(tgt) is not None:   # §613 'switch target creature's P/T'
-                    add("spell_target", (tid, "switchpt", "-", _target_class(tgt)))
-                    continue
+                    continue                                     # spell_target (switchpt) is DATALOG-derived
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))
