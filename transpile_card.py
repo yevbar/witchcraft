@@ -750,6 +750,45 @@ def _damage_redirect(unit, ctx):
     return CardOut(cid, [f'card_damage_redirect("{cid}", "{frm}", "{to}")'], "damage_redirect")
 
 
+_FACTOR = {"double": "2", "twice": "2", "triple": "3"}
+_DMG_MULT_A = re.compile(
+    r"^If (?P<src>.+?) would deal (?:combat |noncombat )?damage(?P<tgt> to [^,]+?)?, "
+    r"(?:it|that source|that creature|that spell) deals (?P<factor>double|triple|twice) "
+    r"that (?:damage|much damage)(?: to [^,.]+?)? instead\.?$", re.I)
+_DMG_MULT_B = re.compile(r"^(?P<factor>Double|Triple) all damage (?P<src>.+?) would deal\.?$", re.I)
+
+
+def _damage_multiplier(unit, ctx):
+    """Damage-multiplication replacement statics (§614/616): 'If <source> would deal damage [to <X>],
+    it deals double/triple that damage instead' (Furnace of Rath, Gratuitous Violence, Fiery
+    Emancipation, Gisela, Obosh) and 'Double/Triple all damage <X> would deal' (Mjölnir, Collective
+    Inferno). Emits card_damage_multiplier(cid, source, factor, target). Anchored at ^If/^Double/^Triple
+    so the ability-word/temporary wrappers (Hellbent/Delirium —, 'until your next turn') fall through;
+    'this turn'/'until' temporary versions abstain (they're one-shots), as do non-2/3 factors."""
+    r = unit.raw
+    # abstain on any temporary duration or embedded condition — a 'while/as long as' clause would be
+    # swallowed into the target slug (Rollercrusher's Delirium 'while there are four or more card
+    # types …'), and 'this turn'/'until' versions are one-shots, not permanent multiplier statics.
+    if re.search(r"\bthis turn\b|\buntil\b|\bwhile\b|\bas long as\b", r, re.I):
+        return None
+    cid = ctx["id"]
+    m = _DMG_MULT_A.match(r)
+    if m:
+        src = ground.slug(m.group("src"))
+        tgt = ground.slug(m.group("tgt")[4:]) if m.group("tgt") else "-"
+        if src and tgt:
+            return CardOut(cid, [f'card_damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "{tgt}")'],
+                           "damage_multiplier")
+        return None
+    m = _DMG_MULT_B.match(r)
+    if m:
+        src = ground.slug(m.group("src"))
+        if src:
+            return CardOut(cid, [f'card_damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "-")'],
+                           "damage_multiplier")
+    return None
+
+
 _LIFE_FLOOR = re.compile(
     r"^(?:(?P<cond>If .+?|As long as .+?), )?damage that would reduce your life total to less than "
     r"\d+ reduces it to (?P<floor>\d+) instead\.?$", re.I)
@@ -2016,7 +2055,8 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
-             _static_control, _prevent_static, _land_type_set, _damage_redirect, _life_floor, _static_effect]
+             _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
+             _life_floor, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
