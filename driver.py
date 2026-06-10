@@ -225,6 +225,25 @@ def _apply_effects(state: dict, pending: set) -> None:
         elif eff == "draw":
             for _ in range(n):
                 _draw(state, ctrl)
+        elif eff == "mill":                                  # §701.13 — top n of library to graveyard
+            for p in players:
+                order = state.get("_lib_order", {}).get(p)
+                for _ in range(n):
+                    card = order.pop(0) if order else next(
+                        (c for (pp, c) in sorted(state.get("in_library", set())) if pp == p), None)
+                    if card is None:
+                        break
+                    state["in_library"].discard((p, card))
+                    state.setdefault("graveyard", set()).add((card,))
+                print(f"    trigger {a}: {p} mills {n}")
+        elif eff == "discard":                               # §701.8 — discard n from hand
+            for p in players:
+                hand = sorted(c for (pp, c) in state.get("in_hand", set()) if pp == p)
+                for card in hand[:n]:
+                    state["in_hand"].discard((p, card))
+                    state.setdefault("graveyard", set()).add((card,))
+                if hand:
+                    print(f"    trigger {a}: {p} discards {min(n, len(hand))}")
         elif eff == "add_counter":                           # tgt = counter kind (p1p1/m1m1), on the source
             _bump_counter(state, src, tgt, n)
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")

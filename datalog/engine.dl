@@ -373,6 +373,8 @@ ev_combat_dmg_creature(S, C) :- deals(S, C, _), creature(C).
 ev_upkeep(P) :- current_step("upkeep"), active_player(P).
 .decl ev_end_step(p: symbol)
 ev_end_step(P) :- current_step("end"), active_player(P).
+.decl ev_beginning_of_combat(p: symbol)
+ev_beginning_of_combat(P) :- current_step("beginning_of_combat"), active_player(P).
 // §603.10 look-back events (sacrifice / phase out / counter / a player losing).
 .decl ev_sacrifice(o: symbol)
 ev_sacrifice(O) :- sacrificed(O).
@@ -394,6 +396,7 @@ fires(A, S) :- has_trigger(A, S, "combat_damage_to_player"), ev_combat_dmg_playe
 fires(A, S) :- has_trigger(A, S, "combat_damage_to_creature"), ev_combat_dmg_creature(S, _).
 fires(A, S) :- has_trigger(A, S, "upkeep"), ev_upkeep(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "end_step"), ev_end_step(P), controls(P, S).
+fires(A, S) :- has_trigger(A, S, "beginning_of_combat"), ev_beginning_of_combat(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "sacrificed_self"), ev_sacrifice(S).
 fires(A, S) :- has_trigger(A, S, "sacrificed_other"), ev_sacrifice(O), O != S.
 fires(A, S) :- has_trigger(A, S, "phased_out_self"), ev_phase_out(S).

@@ -586,6 +586,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_upkeep(P)", ['current_step("upkeep")', "active_player(P)"])
     p.decl("ev_end_step", [("p", "symbol")])
     p.rule("ev_end_step(P)", ['current_step("end")', "active_player(P)"])
+    p.decl("ev_beginning_of_combat", [("p", "symbol")])      # §507/§603 'at the beginning of combat on your turn'
+    p.rule("ev_beginning_of_combat(P)", ['current_step("beginning_of_combat")', "active_player(P)"])
     p.comment("§603.10 look-back events (sacrifice / phase out / counter / a player losing).")
     p.decl("ev_sacrifice", [("o", "symbol")])
     p.rule("ev_sacrifice(O)", ["sacrificed(O)"])
@@ -606,6 +608,7 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_creature")', "ev_combat_dmg_creature(S, _)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "beginning_of_combat")', "ev_beginning_of_combat(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_self")', "ev_sacrifice(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_other")', "ev_sacrifice(O)", "O != S"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "phased_out_self")', "ev_phase_out(S)"])

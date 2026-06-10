@@ -27,9 +27,12 @@ _EVENT = {
     "enters": "etb_self",
     "dies": "dies_self",
     "attacks": "attacks_self",
+    "blocks": "blocks_self",
     "the_beginning_of_your_upkeep": "upkeep",
     "the_beginning_of_your_end_step": "end_step",
+    "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
+    "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
 }
 
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.
@@ -40,6 +43,8 @@ _EFFECT = {
     "deal_damage": "deal_damage",
     "put_counter": "add_counter",
     "create": "create_token",
+    "mill": "mill",
+    "discard": "discard",
 }
 
 # effect target -> the engine's player-target vocabulary (controller vs every opponent).
