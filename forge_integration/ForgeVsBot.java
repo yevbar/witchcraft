@@ -35,6 +35,8 @@ import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
 import forge.game.cost.CostPartMana;
 import forge.game.mana.ManaConversionMatrix;
+import forge.game.mana.ManaCostBeingPaid;
+import forge.game.mana.Mana;
 import forge.game.player.DelayedReveal;
 import forge.game.player.Player;
 import forge.game.player.PlayerActionConfirmMode;
@@ -270,10 +272,84 @@ public class ForgeVsBot {
         static final java.util.Map<String, Integer> FORGE_AI = new java.util.TreeMap<>();
         private static void tally(String m) { FORGE_AI.merge(m, 1, Integer::sum); }
 
+        // OUR mana payment: decide which untapped lands to tap (greedy color-match) and pay from the pool —
+        // no Forge-AI chooser. Falls back to super (mechanical) only for costs we don't handle (hybrid/X/snow)
+        // or if our plan can't cover it, so the game never breaks; that fallback is tallied.
         @Override public boolean payManaCost(ManaCost toPay, CostPartMana cp, SpellAbility sa, String prompt, ManaConversionMatrix mx, boolean effect) {
-            tally("payManaCost (which lands to tap)"); return super.payManaCost(toPay, cp, sa, prompt, mx, effect); }
+            try { if (manualPay(toPay, sa)) return true; } catch (Throwable t) { /* fall through */ }
+            tally("payManaCost (fallback)");
+            return super.payManaCost(toPay, cp, sa, prompt, mx, effect);
+        }
+
+        private boolean producesColor(Card c, char col) {
+            for (SpellAbility ma : c.getManaAbilities()) {
+                String prod = ma.getManaPart().mana(ma);
+                if (prod != null && prod.indexOf(col) >= 0) return true;
+            }
+            return false;
+        }
+
+        private boolean manualPay(ManaCost toPay, SpellAbility sa) {
+            String cs = toPay.toString();                       // e.g. "{2}{R}"
+            if (java.util.regex.Pattern.compile("\\{(?!\\d+\\}|[WUBRG]\\})[^}]*\\}").matcher(cs).find())
+                return false;                                   // a non-basic symbol (hybrid/X/snow/…) -> let super pay
+            java.util.Map<Character, Integer> need = new java.util.HashMap<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{([WUBRG])\\}").matcher(cs);
+            while (m.find()) need.merge(m.group(1).charAt(0), 1, Integer::sum);
+            int generic = toPay.getGenericCost();
+            Player me = getPlayer();
+            java.util.List<Card> untapped = new java.util.ArrayList<>();
+            for (Card c : me.getCardsIn(ZoneType.Battlefield))
+                if (!c.isTapped() && !c.getManaAbilities().isEmpty()) untapped.add(c);
+            java.util.List<Card> plan = new java.util.ArrayList<>();
+            java.util.Set<Card> used = new java.util.HashSet<>();
+            for (java.util.Map.Entry<Character, Integer> e : need.entrySet()) {   // cover colored pips
+                int cnt = e.getValue();
+                for (Card c : untapped) {
+                    if (cnt == 0) break;
+                    if (!used.contains(c) && producesColor(c, e.getKey())) { plan.add(c); used.add(c); cnt--; }
+                }
+                if (cnt > 0) return false;                      // can't make this color from our lands
+            }
+            for (Card c : untapped) {                           // cover generic with anything left
+                if (generic == 0) break;
+                if (!used.contains(c)) { plan.add(c); used.add(c); generic--; }
+            }
+            if (generic > 0) return false;                      // not enough lands
+            ManaCostBeingPaid cost = new ManaCostBeingPaid(toPay);
+            for (Card land : plan) {                            // tap each chosen land, produce its mana into our pool
+                SpellAbility ma = land.getManaAbilities().iterator().next();
+                ma.getManaPart().produceMana(ma);
+                land.tap(false, ma, me);
+            }
+            me.getManaPool().payManaCostFromPool(cost, sa, false, new java.util.ArrayList<Mana>());
+            return cost.isPaid();
+        }
+
+        // OUR combat-damage assignment: lethal-first across the blockers in order (overkill dumped on the
+        // last) — replaces Forge's strategic ComputerUtilCombat.distributeAIDamage. No trample-to-player here.
         @Override public java.util.Map<Card, Integer> assignCombatDamage(Card a, CardCollectionView bl, CardCollectionView rem, int dmg, GameEntity de, boolean ord) {
-            tally("assignCombatDamage"); return super.assignCombatDamage(a, bl, rem, dmg, de, ord); }
+            try {
+                java.util.List<Card> blk = new java.util.ArrayList<>();
+                for (Card b : bl) blk.add(b);
+                if (blk.isEmpty()) { tally("assignCombatDamage (no blockers->super)"); return super.assignCombatDamage(a, bl, rem, dmg, de, ord); }
+                java.util.Map<Card, Integer> out = new java.util.LinkedHashMap<>();
+                int left = dmg;
+                for (int i = 0; i < blk.size(); i++) {
+                    Card b = blk.get(i);
+                    int lethal = Math.max(1, b.getNetToughness() - b.getDamage());
+                    int give = (i == blk.size() - 1) ? left : Math.min(left, lethal);
+                    out.put(b, Math.max(0, give));
+                    left -= give;
+                    if (left <= 0) break;
+                }
+                return out;
+            } catch (Throwable t) {
+                tally("assignCombatDamage (fallback)");
+                return super.assignCombatDamage(a, bl, rem, dmg, de, ord);
+            }
+        }
+
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
             tally("orderBlockers"); return super.orderBlockers(a, b); }
         @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
