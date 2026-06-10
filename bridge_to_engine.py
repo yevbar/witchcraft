@@ -49,6 +49,8 @@ _EVENT = {
     "you_cast_a_noncreature_spell": "you_cast_noncreature",
     "you_cast_an_instant_or_sorcery_spell": "you_cast_instant_or_sorcery",
     "a_player_casts_a_spell": "any_cast",
+    "leaves_the_battlefield": "leaves_self",                 # §603.6d (death/sacrifice leaves modelled)
+    "another_permanent_leaves_the_battlefield": "leaves_other",
 }
 
 # cards.dl effect verb -> the effect name the shim's _apply_effects resolves. Unmapped verbs abstain.

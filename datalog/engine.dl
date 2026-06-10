@@ -397,6 +397,9 @@ may_attack(C) :- active_player(P), controls(P, C), creature(C), !cant_attack(C).
 ev_etb(O) :- enters_battlefield(O).
 .decl ev_dies(c: symbol)
 ev_dies(C) :- dies(C).
+.decl ev_leaves(c: symbol)
+ev_leaves(C) :- dies(C).
+ev_leaves(O) :- sacrificed(O).
 .decl ev_attacks(a: symbol)
 ev_attacks(A) :- attacks(A, _), combat_now().
 .decl ev_blocks(b: symbol)
@@ -436,6 +439,8 @@ fires(A, S) :- has_trigger(A, S, "you_cast_creature"), cast_spell(P, Sp), contro
 fires(A, S) :- has_trigger(A, S, "you_cast_noncreature"), cast_spell(P, Sp), controls(P, S), !spell_type(Sp, "creature").
 fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "instant").
 fires(A, S) :- has_trigger(A, S, "you_cast_instant_or_sorcery"), cast_spell(P, Sp), controls(P, S), spell_type(Sp, "sorcery").
+fires(A, S) :- has_trigger(A, S, "leaves_self"), ev_leaves(S).
+fires(A, S) :- has_trigger(A, S, "leaves_other"), ev_leaves(O), O != S.
 fires(A, S) :- has_trigger(A, S, "attacks_self"), ev_attacks(S).
 fires(A, S) :- has_trigger(A, S, "blocks_self"), ev_blocks(S).
 fires(A, S) :- has_trigger(A, S, "combat_damage_to_player"), ev_combat_dmg_player(S, _).

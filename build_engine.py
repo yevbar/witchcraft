@@ -658,6 +658,9 @@ def _rules(p: Program) -> None:
     p.rule("ev_etb(O)", ["enters_battlefield(O)"])
     p.decl("ev_dies", [("c", "symbol")])
     p.rule("ev_dies(C)", ["dies(C)"])
+    p.decl("ev_leaves", [("c", "symbol")])               # §603.6d 'leaves the battlefield' — a superset of dies
+    p.rule("ev_leaves(C)", ["dies(C)"])                  # a creature dying leaves the battlefield
+    p.rule("ev_leaves(O)", ["sacrificed(O)"])            # so does a sacrificed permanent (bounce/exile via effects: TODO)
     p.decl("ev_attacks", [("a", "symbol")])
     p.rule("ev_attacks(A)", ["attacks(A, _)", "combat_now()"])
     p.decl("ev_blocks", [("b", "symbol")])
@@ -700,6 +703,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_self")', "ev_leaves(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_other")', "ev_leaves(O)", "O != S"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_self")', "ev_attacks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "blocks_self")', "ev_blocks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_player")', "ev_combat_dmg_player(S, _)"])
