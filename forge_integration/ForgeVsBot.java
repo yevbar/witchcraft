@@ -12,8 +12,10 @@
 //          java -Djava.awt.headless=true -DbotHost=127.0.0.1 -DbotPort=$PORT -cp $FATJAR:out ForgeVsBot
 
 import com.google.common.collect.Lists;
+import com.google.common.eventbus.Subscribe;
 
 import forge.GuiDesktop;
+import forge.game.event.GameEventTurnPhase;
 import forge.LobbyPlayer;
 import forge.ai.ComputerUtilAbility;
 import forge.ai.ComputerUtilCost;
@@ -269,6 +271,45 @@ public class ForgeVsBot {
         }
     }
 
+    // ---------- state dumper: write the REAL Forge board to JSONL each phase (for the renderer) ----------
+    static class Dumper {
+        private final Game game;
+        private final PrintWriter w;
+        Dumper(Game game, PrintWriter w) { this.game = game; this.w = w; }
+
+        @Subscribe
+        public void onPhase(GameEventTurnPhase ev) {
+            try {
+                StringBuilder b = new StringBuilder("{\"turn\":").append(game.getPhaseHandler().getTurn());
+                b.append(",\"phase\":\"").append(esc(String.valueOf(ev.phase()))).append("\"");
+                b.append(",\"active\":\"").append(esc(game.getPhaseHandler().getPlayerTurn() != null
+                        ? game.getPhaseHandler().getPlayerTurn().getName() : "")).append("\"");
+                b.append(",\"players\":[");
+                int pi = 0;
+                for (Player p : game.getPlayers()) {
+                    b.append(pi++ > 0 ? "," : "").append("{\"name\":\"").append(esc(p.getName())).append("\"");
+                    b.append(",\"life\":").append(p.getLife());
+                    b.append(",\"hand\":").append(p.getCardsIn(ZoneType.Hand).size());
+                    b.append(",\"library\":").append(p.getCardsIn(ZoneType.Library).size());
+                    b.append(",\"graveyard\":").append(p.getCardsIn(ZoneType.Graveyard).size());
+                    b.append(",\"battlefield\":[");
+                    int ci = 0;
+                    for (Card c : p.getCardsIn(ZoneType.Battlefield)) {
+                        String kind = c.isLand() ? "land" : (c.isCreature() ? "creature" : "other");
+                        b.append(ci++ > 0 ? "," : "").append("{\"name\":\"").append(esc(c.getName()))
+                         .append("\",\"kind\":\"").append(kind).append("\",\"tapped\":").append(c.isTapped());
+                        if (c.isCreature()) b.append(",\"pow\":").append(c.getNetPower()).append(",\"tou\":").append(c.getNetToughness());
+                        b.append("}");
+                    }
+                    b.append("]}");
+                }
+                b.append("]}");
+                w.println(b.toString());
+                w.flush();
+            } catch (Throwable t) { /* never let dumping disturb the game */ }
+        }
+    }
+
     // ---------- setup ----------
     static void initForge() {
         GuiBase.setInterface(new GuiDesktop() { @Override public String getAssetsDir() { return ASSETS; } });
@@ -305,6 +346,16 @@ public class ForgeVsBot {
         rules.setGamesPerMatch(1);
         Match match = new Match(rules, players, "witchcraft-vs-forge");
         Game game = new Game(players, rules, match);
+
+        String dumpPath = System.getProperty("dump");          // -Ddump=/path/game.jsonl -> record board per phase
+        if (dumpPath != null) {
+            try {
+                PrintWriter dw = new PrintWriter(new java.io.FileWriter(dumpPath));
+                game.subscribeToEvents(new Dumper(game, dw));
+                System.out.println("[dump] writing board snapshots to " + dumpPath);
+            } catch (Exception e) { System.out.println("[dump] failed: " + e); }
+        }
+
         System.out.println("Starting: Witchcraft-Engine (our datalog engine via Python) vs Forge-AI ...");
         long t0 = System.currentTimeMillis();
         match.startGame(game);

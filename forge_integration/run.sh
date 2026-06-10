@@ -28,8 +28,15 @@ BOT=$!
 sleep 1
 
 echo "== running Forge (our engine vs Forge AI), headless =="
+# set RECORD=1 to dump the board per phase and render an mp4 (needs python3-pillow + ffmpeg)
+DUMP_ARG=""; [ "${RECORD:-0}" = "1" ] && DUMP_ARG="-Ddump=/tmp/forge_game.jsonl"
 FORGE_ASSETS="$FORGE/forge-gui/" "$JDK/bin/java" -Djava.awt.headless=true \
-    -DbotHost=127.0.0.1 -DbotPort="$PORT" -cp "$FATJAR:$OUT" ForgeVsBot \
-    2>&1 | grep -E "Starting|RESULT|\[bot\]|\[engine\]" || true
+    -DbotHost=127.0.0.1 -DbotPort="$PORT" $DUMP_ARG -cp "$FATJAR:$OUT" ForgeVsBot \
+    2>&1 | grep -E "Starting|RESULT|\[bot\]|\[engine\]|\[dump\]" || true
 
 wait "$BOT" 2>/dev/null || true
+
+if [ "${RECORD:-0}" = "1" ]; then
+    echo "== rendering tabletop mp4 =="
+    python3 "$HERE/render.py" /tmp/forge_game.jsonl "${VIDEO:-/tmp/witchcraft_vs_forge.mp4}" "${FPS:-4}"
+fi
