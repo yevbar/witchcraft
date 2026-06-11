@@ -228,7 +228,7 @@ def _advance_one(state: dict) -> None:
         state["current_step"] = out["advance_to"]
     else:                                                       # past cleanup -> next player's turn (§500.6)
         players = sorted(p for (p,) in state["is_player"])
-        nxt = players[(players.index(ap) + 1) % len(players)]
+        nxt = driver._next_active_player(state, ap, players)     # next player — or an extra turn (§500.7)
         state["active_player"] = {(nxt,)}
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()

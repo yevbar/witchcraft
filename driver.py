@@ -197,6 +197,19 @@ def _others(state: dict, p: str) -> list[str]:
     return sorted(q for (q,) in state["is_player"] if q != p)
 
 
+def _next_active_player(state: dict, ap: str, players: list[str]) -> str:
+    """§500.7 — who is the active player for the NEXT turn. Normally the next player in turn order; but if
+    the current active player has a pending EXTRA TURN (effect_handlers/players.extra_turn set state
+    ['_extra_turns'][ap]), they keep the turn — consume one extra-turn marker and stay active (§500.7 extra
+    turns are taken by the same player before the turn passes)."""
+    extra = state.setdefault("_extra_turns", {})
+    if extra.get(ap, 0) > 0:
+        extra[ap] -= 1
+        print(f"    {ap} takes an extra turn (§500.7)")
+        return ap
+    return players[(players.index(ap) + 1) % len(players)]
+
+
 def _creatures_of(state: dict, p: str) -> list[str]:
     """Creatures p controls — from the engine's DERIVED controls/creature (which fold in
     printed_control/printed_type and the layer system), not raw state, so a permanent that
@@ -1666,7 +1679,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if not out["advance_to"]:                            # past cleanup -> turn ends
                 break
             state["current_step"] = out["advance_to"]            # advance to the engine's next step
-        nxt_p = players[(players.index(ap) + 1) % len(players)]  # pass the turn (§500.6)
+        nxt_p = _next_active_player(state, ap, players)          # pass the turn (§500.6) — or take an extra one
         state["active_player"] = {(nxt_p,)}
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over

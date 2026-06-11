@@ -1,0 +1,182 @@
+"""test_permanents.py — PERMANENT-STATE & EXTRA-TURN effect verbs (permanents.py + turns.py).
+
+Each verb is exercised end-to-end through the real resolution path: encode (cards.dl clause ->
+engine (eff,amount,target)) and apply (mutate driver state when the effect resolves). We build a
+tiny state, fire the effect via the handler's APPLY, and assert the tapped/counter/turn state changed
+correctly — and that ABSTAINED clauses encode to None (no mistranslation).
+
+Run: python3 effect_handlers/test_permanents.py   (no datalog/cards.dl needed — pure handler logic)
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import driver
+import effect_handlers
+
+effect_handlers.load()
+
+CHECKS: list[tuple[str, bool]] = []
+
+
+def check(name: str, cond: bool) -> None:
+    CHECKS.append((name, bool(cond)))
+
+
+def _enc(verb, amt, tgt, extra="-"):
+    return effect_handlers.ENCODE[verb](verb, amt, tgt, extra)
+
+
+def _fire(state, eff, n, tgt, src, ctrl="alice"):
+    effect_handlers.APPLY[eff](driver, state, "ab", n, tgt, src, ctrl)
+
+
+# ── untap: encode faithful-or-abstain ─────────────────────────────────────────
+def _encode_checks() -> None:
+    check("untap self -> untap_self", _enc("untap", "-", "self") == ("untap_self", 0, "-"))
+    check("untap it -> untap_self", _enc("untap", "-", "it") == ("untap_self", 0, "-"))
+    check("untap target land -> untap_own land", _enc("untap", "-", "target_land") == ("untap_own", 0, "land"))
+    check("untap target permanent -> untap_own any", _enc("untap", "-", "target_permanent") == ("untap_own", 0, "any"))
+    check("untap target artifact -> untap_own artifact", _enc("untap", "-", "target_artifact") == ("untap_own", 0, "artifact"))
+    check("untap another target permanent -> untap_own other_any",
+          _enc("untap", "-", "another_target_permanent") == ("untap_own", 0, "other_any"))
+    # an OPPONENT-facing / unreadable untap target abstains (we won't guess an unfaithful target).
+    check("untap target creature an opponent controls abstains",
+          _enc("untap", "-", "target_creature_an_opponent_controls") is None)
+    check("untap two other target legendary creatures abstains (multi-target)",
+          _enc("untap", "-", "two_other_target_legendary_creatures") is None)
+    check("untap target nonland permanent abstains (unreadable class)",
+          _enc("untap", "-", "target_nonland_permanent") is None)
+
+    # proliferate always resolves (deterministic superset choice).
+    check("proliferate encodes", _enc("proliferate", "-", "-") == ("proliferate", 0, "-"))
+
+    # extra_turn: clean controller / target-player forms resolve; 'each opponent' abstains.
+    check("extra_turn you -> 1", _enc("extra_turn", "1", "you") == ("extra_turn", 1, "controller"))
+    check("extra_turn no count = 1", _enc("extra_turn", "-", "you") == ("extra_turn", 1, "controller"))
+    check("extra_turn target player -> controller", _enc("extra_turn", "1", "target_player") == ("extra_turn", 1, "controller"))
+    check("extra_turn each opponent abstains", _enc("extra_turn", "1", "each_opponent") is None)
+
+
+# ── apply ─────────────────────────────────────────────────────────────────────
+def _base():
+    return {
+        "is_player": {("alice",), ("bob",)},
+        "on_battlefield": set(), "tapped": set(),
+        "printed_control": set(), "printed_type": set(),
+        "counter": set(),
+    }
+
+
+def _apply_checks() -> None:
+    # untap_self: untaps the SOURCE permanent (the Grim/Basalt Monolith combo).
+    st = _base()
+    st["on_battlefield"] = {("monolith",)}
+    st["tapped"] = {("monolith",)}
+    _fire(st, "untap_self", 0, "-", src="monolith")
+    check("untap_self untaps the source", ("monolith",) not in st["tapped"])
+    # no-op when already untapped.
+    _fire(st, "untap_self", 0, "-", src="monolith")
+    check("untap_self on untapped source is a no-op", ("monolith",) not in st["tapped"])
+
+    # untap_own land (Deserted Temple): untaps one of the CONTROLLER's own tapped lands. The source itself
+    # is a land here -> prefer untapping the source.
+    st = _base()
+    st["on_battlefield"] = {("temple",), ("forest",), ("bobland",)}
+    st["printed_control"] = {("alice", "temple"), ("alice", "forest"), ("bob", "bobland")}
+    st["printed_type"] = {("temple", "land"), ("forest", "land"), ("bobland", "land")}
+    st["tapped"] = {("temple",), ("forest",), ("bobland",)}
+    _fire(st, "untap_own", 0, "land", src="temple")
+    check("untap_own prefers the source land", ("temple",) not in st["tapped"])
+    check("untap_own leaves an opponent's land tapped", ("bobland",) in st["tapped"])
+    check("untap_own untaps exactly one (forest still tapped)", ("forest",) in st["tapped"])
+
+    # untap_own with the source not a candidate -> canonical-first own tapped permanent.
+    st = _base()
+    st["on_battlefield"] = {("aaa",), ("zzz",)}
+    st["printed_control"] = {("alice", "aaa"), ("alice", "zzz")}
+    st["printed_type"] = {("aaa", "land"), ("zzz", "land")}
+    st["tapped"] = {("aaa",), ("zzz",)}
+    _fire(st, "untap_own", 0, "land", src="elsewhere")
+    check("untap_own picks canonical-first when source not eligible", ("aaa",) not in st["tapped"])
+
+    # untap_own 'other_' (§601 'another target permanent'): must untap a DIFFERENT own permanent, never src.
+    st = _base()
+    st["on_battlefield"] = {("src",), ("other",)}
+    st["printed_control"] = {("alice", "src"), ("alice", "other")}
+    st["printed_type"] = {("src", "artifact"), ("other", "artifact")}
+    st["tapped"] = {("src",), ("other",)}
+    _fire(st, "untap_own", 0, "other_any", src="src")
+    check("untap_own other excludes the source", ("src",) in st["tapped"])
+    check("untap_own other untaps a different own permanent", ("other",) not in st["tapped"])
+
+    # untap_own no eligible permanent -> no-op (none tapped).
+    st = _base()
+    _fire(st, "untap_own", 0, "land", src="x")
+    check("untap_own with no candidates is a no-op", st["tapped"] == set())
+
+    # proliferate: add one of every counter KIND already present, across permanents AND players.
+    st = _base()
+    st["counter"] = {("crea", "p1p1", 2), ("planeswalker", "loyalty", 3), ("bob", "poison", 1)}
+    _fire(st, "proliferate", 0, "-", src="src")
+    check("proliferate bumps p1p1 2->3", ("crea", "p1p1", 3) in st["counter"])
+    check("proliferate bumps loyalty 3->4", ("planeswalker", "loyalty", 4) in st["counter"])
+    check("proliferate bumps a player's poison 1->2", ("bob", "poison", 2) in st["counter"])
+    # proliferate with no counters anywhere is a clean no-op.
+    st = _base()
+    _fire(st, "proliferate", 0, "-", src="src")
+    check("proliferate with no counters is a no-op", st["counter"] == set())
+
+    # extra_turn: bumps the controller's pending-extra-turn marker; the driver loop consumes it.
+    st = _base()
+    _fire(st, "extra_turn", 1, "controller", src="src", ctrl="alice")
+    check("extra_turn records one pending extra turn", st["_extra_turns"]["alice"] == 1)
+    _fire(st, "extra_turn", 2, "controller", src="src", ctrl="alice")
+    check("extra_turn accumulates", st["_extra_turns"]["alice"] == 3)
+    # the driver helper consumes the marker, keeping the same player active.
+    nxt = driver._next_active_player(st, "alice", ["alice", "bob"])
+    check("driver keeps the turn while an extra turn is pending", nxt == "alice")
+    check("driver consumes one extra-turn marker", st["_extra_turns"]["alice"] == 2)
+
+
+def _driver_activation_checks() -> None:
+    """End-to-end: an 'untap_self' activated ability (Grim/Basalt Monolith) resolves through the REAL
+    driver activation -> stack -> resolution path and untaps the source — proving the wiring, not just the
+    handler. The monolith is tapped (it added mana); the {4} ability untaps it (alice has the mana)."""
+    import contextlib
+    import io
+    st = {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+        "life": {("alice", 20), ("bob", 20)}, "current_step": {("postcombat_main",)},
+        "on_battlefield": {("monolith",)}, "printed_type": {("monolith", "artifact")},
+        "printed_control": {("alice", "monolith")},
+        "mana_available": {("alice", 4), ("bob", 0)},
+        # the §602 untap ability: {4} (no {T} in the cost), eff 'untap_self'. (As the bridge emits it.)
+        "activated_ability": {("monolith_a2", "monolith", 4, "-", "untap_self", 0, "-")},
+        "counter": set(), "tapped": {("monolith",)}, "_sick": set(),
+        "on_stack": set(), "_stack_info": {}, "in_hand": set(), "graveyard": set(), "exile": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._activate_phase(st, "alice", ["alice", "bob"])
+    check("driver: untap_self ability untaps the monolith end-to-end", ("monolith",) not in st["tapped"])
+    check("driver: the {4} untap cost was paid (alice 4 -> 0 mana)", ("alice", 0) in st["mana_available"])
+
+
+def run() -> None:
+    _encode_checks()
+    _apply_checks()
+    _driver_activation_checks()
+    passed = sum(1 for _, ok in CHECKS if ok)
+    for name, ok in CHECKS:
+        print(f"  {'ok  ' if ok else 'FAIL'} {name}")
+    print(f"\n{passed}/{len(CHECKS)} checks passed")
+    if passed != len(CHECKS):
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

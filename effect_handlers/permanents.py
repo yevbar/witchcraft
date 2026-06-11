@@ -1,0 +1,123 @@
+"""effect_handlers/permanents.py — PERMANENT-STATE effects on the SOURCE or a chosen own permanent.
+
+Own these cards.dl effect verbs (each toggles a permanent's tapped state or proliferates counters — all
+resolvable WITHOUT a board scope the engine derives, so they ride the player-scoped trigger_effect path):
+
+  - untap   (§701.20) — 'Untap this artifact' (the §602 untap-combos: Grim/Basalt Monolith, the man-lands
+            that untap themselves) and 'Untap target land/permanent/artifact' (Deserted Temple). We resolve
+            only the choice-free / own-board cases:
+              • untap self / it          -> untap the SOURCE permanent (the activated combo piece).
+              • untap target land/permanent/artifact -> untap one of the CONTROLLER'S OWN tapped permanents
+                of that class (untapping your own ramp source is always a legal, beneficial choice). A
+                target restricted to an OPPONENT's permanent, or a class we can't read, ABSTAINS — we won't
+                guess an unfaithful target.
+            tap is deliberately NOT owned here: 'tap target X' is almost always an OPPONENT-facing tempo
+            play whose target the engine must choose, handled by the creature-target machinery (or abstains).
+
+  - proliferate (§701.27) — 'for each counter on a permanent/player you choose, add another of that kind'.
+            Fully deterministic and always faithful: add one more counter of each kind already present, on
+            every permanent that has a counter (and every counter a player has). No choice loses value —
+            proliferating EVERY eligible counter is a legal superset of any single choice's benefit, and the
+            §701.27 'any number' lets you proliferate all of them.
+
+FAITHFUL-OR-ABSTAIN: encode -> None for anything we can't resolve correctly. See effect_handlers/__init__.py
+for the @encoder / @applier contract and the driver helpers reachable on D.
+"""
+
+from __future__ import annotations
+
+from effect_handlers import encoder, applier
+
+
+# ── untap ───────────────────────────────────────────────────────────────────────────────────────────
+_SELF_TGT = {"self", "it"}
+
+# 'untap target <class>' slugs whose class we can read AND default to the controller's OWN board — untapping
+# your own ramp/permanent is always a legal, beneficial choice (no unfaithful guess). The class restricts
+# WHICH of the controller's tapped permanents we untap; 'permanent' = any.
+_OWN_TARGET = {
+    "target_land": "land", "target_permanent": "any", "target_artifact": "artifact",
+    "target_creature_you_control": "creature", "target_land_you_control": "land",
+    "target_permanent_you_control": "any", "target_artifact_you_control": "artifact",
+}
+# 'untap ANOTHER target …' — same own-board resolution, but the SOURCE is not a legal target (§601 'another'),
+# so we must untap a DIFFERENT own permanent. Encoded with an 'other_' class prefix the applier honors.
+_OTHER_TARGET = {
+    "another_target_land": "land", "another_target_permanent": "any", "another_target_artifact": "artifact",
+}
+
+
+@encoder("untap")
+def _encode_untap(verb, amt, tgt, extra):
+    t = str(tgt)
+    if t in _SELF_TGT:
+        return ("untap_self", 0, "-")
+    cls = _OWN_TARGET.get(t)
+    if cls is not None:
+        return ("untap_own", 0, cls)
+    cls = _OTHER_TARGET.get(t)
+    if cls is not None:
+        return ("untap_own", 0, "other_" + cls)             # untap a DIFFERENT own permanent (§601 'another')
+    return None                                              # opponent-facing / unreadable target -> abstain
+
+
+@applier("untap_self")
+def _apply_untap_self(D, state, a, n, tgt, src, ctrl):
+    """§701.20 — untap the SOURCE permanent (the activated untap-combo piece). A no-op if it isn't tapped."""
+    if (src,) in state.get("tapped", set()):
+        state["tapped"].discard((src,))
+        print(f"    {a}: {src} is untapped")
+
+
+def _own_tapped(state: dict, ctrl: str, cls: str) -> list:
+    """The controller's tapped permanents (on the battlefield, controlled by ctrl) of class `cls` ('any' /
+    'land' / 'artifact' / 'creature'), canonical order — judged from the surfaced printed identity."""
+    bf = state.get("on_battlefield", set())
+    own = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
+    tapped = {c for (c,) in state.get("tapped", set())}
+    ptype = state.get("printed_type", set())
+    out = []
+    for c in sorted(own & tapped & {x for (x,) in bf}):
+        if cls == "any" or (c, cls) in ptype:
+            out.append(c)
+    return out
+
+
+@applier("untap_own")
+def _apply_untap_own(D, state, a, n, tgt, src, ctrl):
+    """§701.20 — untap ONE of the controller's own tapped permanents of class `tgt` (a faithful, beneficial
+    'untap target …' resolution). Prefer untapping the SOURCE if it qualifies (the self-untap idiom written
+    as 'untap target land' on a land), else the canonical-first own tapped permanent. No-op if none."""
+    cls = str(tgt)
+    other = cls.startswith("other_")                        # §601 'another target …' — the source is excluded
+    if other:
+        cls = cls[len("other_"):]
+    cands = _own_tapped(state, ctrl, cls)
+    if other:
+        cands = [c for c in cands if c != src]
+    if not cands:
+        return
+    # untapping yourself is the most common intent (a self-untap ramp piece) — unless 'another' forbids it.
+    pick = src if (not other and src in cands) else cands[0]
+    state["tapped"].discard((pick,))
+    print(f"    {a}: {ctrl} untaps {pick}")
+
+
+# ── proliferate (§701.27) ────────────────────────────────────────────────────────────────────────────
+@encoder("proliferate")
+def _encode_proliferate(verb, amt, tgt, extra):
+    # proliferate carries no useful amt/target — it always acts on every eligible counter. Always faithful.
+    return ("proliferate", 0, "-")
+
+
+@applier("proliferate")
+def _apply_proliferate(D, state, a, n, tgt, src, ctrl):
+    """§701.27 — for every permanent/player that has any counter, add one more of each KIND already there.
+    Deterministic and faithful: proliferating ALL eligible counters is the maximal legal §701.27 choice."""
+    counters = state.get("counter", set())                  # (object, kind, count) — permanents AND players
+    # snapshot the kinds present per object BEFORE mutating, so we add exactly one per existing kind.
+    present = {(o, k) for (o, k, c) in counters if int(c) > 0}
+    for (o, k) in sorted(present):
+        D._bump_counter(state, o, k, 1)
+    if present:
+        print(f"    {a}: {ctrl} proliferates ({len(present)} counter kind(s) advanced)")
