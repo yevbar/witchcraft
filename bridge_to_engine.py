@@ -1029,14 +1029,21 @@ def _land_colors(c: dict) -> list[str]:
 
 
 def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
-                    life: int | None = None, variant: str = "default") -> dict:
+                    life: int | None = None, variant: str = "default",
+                    commanders: dict | None = None) -> dict:
     """Assemble a full-game driver state from REAL decks. `decks` = {player: [card_name, …]} (the whole
     library list). Each card is bridged from cards.dl (printed_*, triggers) with a unique id and is made
     castable/playable (spell_type + mana_cost), then the deck is shuffled with the state's SEEDED RNG
     (the same clone-safe stream in-game shuffles use), opening hands drawn, and a real library ORDER
     recorded so draws come off the true top. Per-variant starting life/hand size are READ from the
     interpreted rules (driver._variant_*), not hardcoded. Everything a card does comes from the
-    interpreter; only turn scaffolding is added here."""
+    interpreter; only turn scaffolding is added here.
+
+    COMMANDER (§903): pass `commanders` = {player: [commander_name, …]} (and variant="commander"). Each
+    commander is bridged like any spell but seeded into a NEW `command_zone` (not the library/hand); the
+    `decks` list is the 99-card singleton library (shuffled, opening hand drawn from it). Starting life
+    (40) is READ from the rules (starting.dl) via the variant. The shim records `_commander_owner` and
+    `_cmd_casts` (the §903.8 recast-tax count) so driver.cast_commander can cast from the command zone."""
     import driver
     db, corpus = sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
     players = list(decks)
@@ -1049,6 +1056,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
         "is_player": {(p,) for p in players}, "life": {(p, life) for p in players},
         "counter": set(), "tapped": set(), "attacks": set(), "blocks": set(),
         "on_battlefield": set(), "in_hand": set(), "in_library": set(),
+        "command_zone": set(), "_commander_owner": set(), "_cmd_casts": {},
         "_lib_order": {p: [] for p in players}, "_land_played": set(),
         "_seed": seed, "_variant": variant,
     }
@@ -1069,12 +1077,17 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
         _register_colored(state, tid, c)                     # §202/§106 colored cost + land color production
         if zone == "in_hand":
             state["in_hand"].add((pl, tid))
+        elif zone == "command_zone":                         # §903 — the commander starts in the command zone
+            state["command_zone"].add((pl, tid))
+            state["_commander_owner"].add((pl, tid))
         else:
             state["in_library"].add((pl, tid))
             state["_lib_order"][pl].append(tid)
         return tid
 
     for pl, deck in decks.items():
+        for cname in (commanders or {}).get(pl, []):         # §903 commanders -> command zone (before the draw)
+            load(cname, pl, "command_zone")
         order = list(deck)
         rng.shuffle(order)
         for nm in order[:hand]:
@@ -1083,6 +1096,26 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
             load(nm, pl, "in_library")
     _materialize_printed(state)                               # ONE WORLD: fold engine-derived printed_* back in
     return state
+
+
+# --- §903.4 COLOR-IDENTITY legality + the Commander decks we build --------------------------------------
+
+def color_identity_of(name: str, corpus: dict | None = None) -> set:
+    """§903.4 — a card's color identity: the colors in its mana cost AND in any color indicators / mana
+    symbols in its rules text. The corpus precomputes this as `colorIdentity` (WUBRG letters); use it."""
+    if corpus is None:
+        corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    return set(corpus.get(name, {}).get("colorIdentity") or [])
+
+
+def color_identity_legal(commander_names: list, deck: list, corpus: dict | None = None) -> tuple:
+    """§903.4 — a Commander deck is legal only if EVERY card's color identity is a subset of the combined
+    color identity of its commander(s). Returns (ok, offenders) — offenders = the cards that break it."""
+    if corpus is None:
+        corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    allowed = set().union(*(color_identity_of(cn, corpus) for cn in commander_names)) if commander_names else set()
+    offenders = sorted({nm for nm in deck if not color_identity_of(nm, corpus) <= allowed})
+    return (not offenders, offenders)
 
 
 def play_real_game(decks: dict, seed: int = 0, max_turns: int = 40) -> str | None:
@@ -1158,6 +1191,35 @@ _DEMO_DECKS = {
 _DUAL_TEST_DECKS = {
     "alice": ["Forest"] * 10 + ["Grizzly Bears"] * 5 + ["Gray Ogre"] * 5,
     "bob": ["Swamp"] * 10 + ["Tattered Mummy"] * 5 + ["Storm Crow"] * 5,
+}
+
+
+# --- §903 COMMANDER decks (1v1 / Duel Commander) -------------------------------------------------------
+# Two MONO-color, color-identity-legal (§903.4) Commander decks the engine can actually run: a creature
+# commander + a 100-card singleton deck (the 99 here, all vanilla/simple so casting + combat resolve
+# through the interpreter). Magda (mono-RED, {1}{R} 2/1) vs Isamaru (mono-WHITE, {W} 2/2). Each 99 is a
+# pile of distinct mono-color vanilla creatures (singleton) topped up with basics to 99 — every card's
+# color identity ⊆ the commander's, so color_identity_legal() passes. The commander itself lives in the
+# command zone (make_deck_state's `commanders=`), NOT in the 99.
+_CMD_RED_99 = [
+    "Goblin Piker", "Gray Ogre", "Hill Giant", "Hurloon Minotaur", "Canyon Minotaur",
+    "Borderland Minotaur", "Pensive Minotaur", "Earth Elemental", "Fire Elemental", "Frost Ogre",
+    "Onakke Ogre", "Ogre Warrior", "Lizard Warrior", "Minotaur Warrior", "Goblin Roughrider",
+    "Goblin Assailant", "Frenzied Raptor", "Falkenrath Reaver", "Feral Maaka", "Raging Bull",
+    "Highland Giant", "Lowland Giant", "Tor Giant", "Summit Prowler", "Shatterskull Giant",
+]
+_CMD_WHITE_99 = [
+    "Silvercoat Lion", "Savannah Lions", "Elite Vanguard", "Glory Seeker", "Pillarfield Ox",
+    "Pearled Unicorn", "Regal Unicorn", "Devoted Hero", "Eager Cadet", "Squire",
+    "Border Guard", "Knight of the Keep", "Knight Errant", "Siege Mastodon", "Silent Artisan",
+    "Sanctuary Cat", "Prowling Caracal", "Oreskos Swiftclaw", "Raptor Companion", "Expedition Envoy",
+    "Yoked Ox", "Loxodon Convert", "Great Hart", "Valiant Guard", "Volunteer Militia",
+]
+# §903.4 singleton 100-card: the named singles + enough basics to reach 99 (the commander is the 100th).
+_COMMANDER_COMMANDERS = {"alice": ["Magda, Brazen Outlaw"], "bob": ["Isamaru, Hound of Konda"]}
+_COMMANDER_DECKS = {
+    "alice": _CMD_RED_99 + ["Mountain"] * (99 - len(_CMD_RED_99)),
+    "bob": _CMD_WHITE_99 + ["Plains"] * (99 - len(_CMD_WHITE_99)),
 }
 
 

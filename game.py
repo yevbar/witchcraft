@@ -31,6 +31,8 @@ import env
 import bridge_to_engine as bridge
 
 DECKS = bridge._DEMO_DECKS              # the on-color Gruul vs Dimir demo decks (real cards)
+COMMANDER_DECKS = bridge._COMMANDER_DECKS          # §903 1v1 Commander: Magda (mono-R) vs Isamaru (mono-W)
+COMMANDERS = bridge._COMMANDER_COMMANDERS          # {player: [commander name]} for the command zone
 
 
 # ---- policies (the agent) -----------------------------------------------------------------------------
@@ -111,26 +113,37 @@ def _policy_dispatch(policies: dict):
     return choose
 
 
-def new_game(decks: dict, variant: str = "default", seed: int = 0, policies: dict | None = None) -> dict:
+def new_game(decks: dict, variant: str = "default", seed: int = 0, policies: dict | None = None,
+             commanders: dict | None = None) -> dict:
     """Build a ready-to-play game: real decks bridged + shuffled (seeded), per-variant life/hand from the
     rules, opening hands drawn, London mulligan run. If `policies` ({player: policy}) is given, install a
-    dispatcher on the _choose seam so the driver's internal sub-choices follow each seat's policy."""
-    state = bridge.make_deck_state(decks, seed=seed, variant=variant)
+    dispatcher on the _choose seam so the driver's internal sub-choices follow each seat's policy. For
+    Commander (§903), pass `commanders` ({player: [name]}) — each goes to the command zone (life 40 etc.
+    read from the rules via variant="commander")."""
+    state = bridge.make_deck_state(decks, seed=seed, variant=variant, commanders=commanders)
     mulligan(state, list(decks), variant=variant)
     if policies:
         state["_policy"] = _policy_dispatch(policies)
     return state
 
 
+def new_commander_game(seed: int = 0, policies: dict | None = None) -> dict:
+    """A 1v1 (Duel) Commander game (§903): the two mono-color Commander decks, each commander in its
+    command zone, 40 life, a 7-card opening hand from the 99. Ready to play through env."""
+    return new_game(COMMANDER_DECKS, variant="commander", seed=seed, policies=policies,
+                    commanders=COMMANDERS)
+
+
 # ---- self-play (the agent loop) -----------------------------------------------------------------------
 
 def self_play(decks: dict, variant: str = "two-player", seed: int = 0, policy=random_policy,
-              max_decisions: int = 4000, verbose: bool = False) -> str | None:
+              max_decisions: int = 4000, verbose: bool = False, commanders: dict | None = None) -> str | None:
     """Play a FULL game through the referee with `policy` choosing among env.legal_actions, to a terminal
     state. Returns the winner ('alice'|'bob'|None on a draw / decision cap). The complete agent loop —
     observe the legal actions, pick one, step — over the same surface an AlphaZero policy would drive.
-    `policy` also resolves the driver's internal sub-choices (same signature)."""
-    state = new_game(decks, variant=variant, seed=seed)
+    `policy` also resolves the driver's internal sub-choices (same signature). Pass `commanders` (and
+    variant="commander") for a §903 Commander game."""
+    state = new_game(decks, variant=variant, seed=seed, commanders=commanders)
     state["_policy"] = policy                               # internal sub-choices use the same policy
     sink = (lambda: contextlib.nullcontext()) if verbose else (lambda: contextlib.redirect_stdout(io.StringIO()))
     with sink():
@@ -144,6 +157,14 @@ def self_play(decks: dict, variant: str = "two-player", seed: int = 0, policy=ra
             a = policy(s, "action", acts, acts[0])
             s = env.step(s, a)
     return env.winner(s)
+
+
+def self_play_commander(seed: int = 0, policy=random_policy, max_decisions: int = 4000,
+                        verbose: bool = False) -> str | None:
+    """A full 1v1 (Duel) Commander game (§903) through the referee with `policy` — the same agent loop as
+    self_play, but Magda vs Isamaru with commanders in the command zone and 40 life."""
+    return self_play(COMMANDER_DECKS, variant="commander", seed=seed, policy=policy,
+                     max_decisions=max_decisions, verbose=verbose, commanders=COMMANDERS)
 
 
 def demo(seed: int = 7) -> None:

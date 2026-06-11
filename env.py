@@ -187,6 +187,8 @@ def legal_actions(state: dict) -> list[tuple]:
         for spell in castable:
             for ch in _cast_choices(state, spell):
                 actions.append(("cast", ap, spell, ch))
+        for cmd in driver.can_cast_commander(state, ap):     # §903.6 — cast the commander from the command zone
+            actions.append(("cast_commander", ap, cmd))
         for ab in driver._activatable(state, ap):
             for ch in _activate_choices(state, ab):
                 actions.append(("activate", ap, ab, ch))
@@ -280,6 +282,10 @@ def step(state: dict, action: tuple) -> dict:
             s["_forced"] = dict(choices)
             driver._cast_spell(s, ap, spell, players)
             s["_forced"] = {}
+        elif kind == "cast_commander":                          # §903.6 — cast commander from the command zone
+            _, ap, cmd = action
+            driver._develop_mana(s, ap)                         # §305 land drop + mana (mirrors _cast_phase entry)
+            driver.cast_commander(s, ap, cmd, players)
         elif kind == "activate":
             _, ap, ab, choices = action
             s["_forced"] = {"target": choices["target"]} if "target" in choices else {}

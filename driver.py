@@ -687,6 +687,11 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
             return p
     for (c, frm, to) in sorted(out["zone_change"]):              # §701.8a zone moves
         state.setdefault(ZONE[frm], set()).discard((c,))
+        # §903.9 / §704.5 commander replacement: a commander headed to graveyard/exile (or hand/library)
+        # MAY instead go to the command zone (a _choose decision); if taken, skip the normal destination.
+        if _is_commander(state, c) and to in ("graveyard", "exile", "hand", "library") \
+                and _commander_replacement(state, c, to):
+            continue
         state.setdefault(ZONE[to], set()).add((c,))
         verb = "dies" if (frm, to) == ("battlefield", "graveyard") else f"moves {frm}"
         print(f"    {c} {verb} -> {to}")
@@ -1237,6 +1242,11 @@ def _cast_phase(state: dict, ap: str) -> None:
     what's derived. Mana is paid by the mana model (_develop_mana / _spend_mana); effects via _apply_effects."""
     _develop_mana(state, ap)                                 # §305 land drop + refresh mana from lands
     players = sorted(q for (q,) in state["is_player"])
+    # §903.6 — greedy: cast the commander from the command zone when affordable (default-on, like spells)
+    for cmd in can_cast_commander(state, ap):
+        if _choose(state, "cast_commander", (cmd, None), cmd):
+            cast_commander(state, ap, cmd, players)
+            break
     while True:
         state["has_priority"] = {(ap,)}                      # §601 active player has priority in its main phase
         castable = sorted(s for (p, s) in run(state, ["can_cast"])["can_cast"] if p == ap)
@@ -1258,6 +1268,108 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     _fire_cast_triggers(state, ap, spell)                    # §601.2i — 'whenever you cast a spell' triggers
     print(f"    {ap} casts {spell}")
     _resolve_stack(state, ap, players)                       # response window + top-down resolution
+
+
+# --- §903 COMMANDER (the command zone, the recast tax, and the §903.9 / §704.5 replacement) -----------
+# The DATALOG ENGINE owns the rules (starting_life("commander", 40) in starting.dl; cast_permission /
+# resolves_to over the spell's TYPE; can_afford over the mana model). The SHIM owns the STATE the engine
+# doesn't carry across casts: which object is whose commander, the command-zone membership, and the
+# per-commander recast count that becomes the §903.8 "{2} for each previous time" tax. The commander is
+# made a normal castable spell (spell_type + mana_pip/_generic, like any hand card); only the SOURCE ZONE
+# (command_zone, not in_hand) and the tax differ — so this reuses _cast_spell / the resolve path wholesale.
+
+def _commanders_of(state: dict, p: str) -> list[str]:
+    """The commanders player p owns that are CURRENTLY in the command zone (castable from there)."""
+    return sorted(c for (pp, c) in state.get("command_zone", set()) if pp == p)
+
+
+def _commander_tax(state: dict, cmd: str) -> int:
+    """§903.8 — {2} generic for EACH previous time this commander was cast from the command zone."""
+    return 2 * state.get("_cmd_casts", {}).get(cmd, 0)
+
+
+def _apply_commander_tax(state: dict, cmd: str, announce: bool = False) -> dict:
+    """Fold the §903.8 recast tax into the commander's mana cost at the COST LEVEL (so the existing mana
+    model pays it untouched): bump mana_generic and mana_cost by {2}×prior-casts. Returns a snapshot of
+    the rows changed so _restore_commander_tax can put the printed cost back after the cast. `announce`
+    prints the surcharge (only the real cast does — the affordability PROBE stays quiet)."""
+    tax = _commander_tax(state, cmd)
+    gen_rows = {(s, n) for (s, n) in state.get("mana_generic", set()) if s == cmd}
+    cost_rows = {(s, n) for (s, n) in state.get("mana_cost", set()) if s == cmd}
+    snap = {"mana_generic": gen_rows, "mana_cost": cost_rows}
+    if tax:
+        state["mana_generic"] = ({r for r in state.get("mana_generic", set()) if r[0] != cmd}
+                                 | ({(cmd, int(n) + tax) for (_s, n) in gen_rows} or {(cmd, tax)}))
+        state["mana_cost"] = ({r for r in state.get("mana_cost", set()) if r[0] != cmd}
+                              | {(cmd, int(n) + tax) for (_s, n) in cost_rows})
+        if announce:
+            print(f"    (commander tax: +{{{tax}}} for {state['_cmd_casts'].get(cmd, 0)} prior cast(s))")
+    return snap
+
+
+def _restore_commander_tax(state: dict, cmd: str, snap: dict) -> None:
+    """Put the commander's PRINTED cost back (the tax is only a casting surcharge, not a new printed cost)."""
+    for rel, rows in snap.items():
+        state[rel] = {r for r in state.get(rel, set()) if r[0] != cmd} | rows
+
+
+def can_cast_commander(state: dict, p: str) -> list[str]:
+    """§903.6 — the commanders p may cast from the command zone RIGHT NOW: in the command zone, sorcery
+    speed (active player, a main phase, empty stack), and affordable INCLUDING the §903.8 tax. Mana
+    legality is the engine's can_afford, checked against the tax-bumped cost via a probe state."""
+    ap = next(iter(state["active_player"]))[0]
+    if p != ap:
+        return []
+    step = next(iter(state["current_step"]))[0]
+    if step not in ("precombat_main", "postcombat_main") or state.get("on_stack"):
+        return []
+    out = []
+    for cmd in _commanders_of(state, p):
+        probe = clone_state(state)
+        snap = _apply_commander_tax(probe, cmd)               # tax-bumped cost on the probe
+        probe["in_hand"] = set(probe.get("in_hand", set())) | {(p, cmd)}   # can_afford reads in_hand
+        probe["has_priority"] = {(p,)}
+        affordable = any(q == p and s == cmd for (q, s) in run(probe, ["can_cast"])["can_cast"])
+        _restore_commander_tax(probe, cmd, snap)
+        if affordable:
+            out.append(cmd)
+    return out
+
+
+def cast_commander(state: dict, ap: str, cmd: str, players: list) -> None:
+    """§903.6 — cast commander `cmd` from the command zone (sorcery speed) paying its cost + the §903.8
+    {2}×prior-casts tax. Reuses _cast_spell wholesale: the only differences are the SOURCE ZONE (remove
+    from command_zone, drop it into in_hand for the one cast so _cast_spell's in_hand.discard + the
+    engine's can_cast see it) and the tax (folded into the cost, then restored). Records the cast so the
+    NEXT cast-from-command-zone costs {2} more."""
+    snap = _apply_commander_tax(state, cmd, announce=True)     # §903.8 surcharge at the cost level
+    state.setdefault("command_zone", set()).discard((ap, cmd))
+    state.setdefault("in_hand", set()).add((ap, cmd))          # the source-zone shim: cast it as if from hand
+    print(f"    {ap} casts commander {cmd} from the command zone")
+    _cast_spell(state, ap, cmd, players)                      # reuse the whole cast -> resolve -> ETB path
+    state.setdefault("_cmd_casts", {})[cmd] = state.get("_cmd_casts", {}).get(cmd, 0) + 1
+    _restore_commander_tax(state, cmd, snap)                   # the tax was a one-cast surcharge
+
+
+def _commander_replacement(state: dict, cmd: str, to_zone: str) -> bool:
+    """§903.9 / §704.5 — when a commander WOULD move to a graveyard or exile (or hand/library), its owner
+    MAY instead put it into the command zone. A referee decision through the _choose seam (default = use
+    the replacement, the strategically standard line). Returns True if it was redirected to the command
+    zone. Each return increments the recast tax (§903.8) for the next cast."""
+    owner = next((p for (p, c) in state.get("_commander_owner", set()) if c == cmd), None)
+    if owner is None:
+        return False
+    use_cz = _choose(state, "commander_replacement", (True, False), True)
+    if not use_cz:
+        return False
+    state.setdefault("command_zone", set()).add((owner, cmd))
+    state.setdefault("_sick", set()).discard((cmd,))
+    print(f"    {cmd} would move to {to_zone}; {owner} returns it to the command zone instead (§903.9)")
+    return True
+
+
+def _is_commander(state: dict, obj: str) -> bool:
+    return any(c == obj for (_p, c) in state.get("_commander_owner", set()))
 
 
 def _activatable(state: dict, p: str) -> list:
