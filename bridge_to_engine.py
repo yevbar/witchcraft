@@ -293,6 +293,12 @@ def _anthem_target(tgt: str, corpus: dict):
 # single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
 _CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
 
+# §701.18 SEARCH-PLACEMENT — the object slugs that denote the just-searched card ('it' / 'that card').
+# A `search` clause and the immediately-following destination clause naming one of these are folded into a
+# single atomic search_to_<dest> spell_effect (see _fold_search_placements); spell_effect carries no clause
+# order, so the search and its placement must resolve together.
+_SEARCHED_CARD_OBJ = {"it", "that_card", "that_land", "the_card"}
+
 
 def _creature_verb_payload(verb, amt, extra):
     """The engine (verb, payload) for a creature-scoped verb, independent of WHICH creatures it hits:
@@ -336,6 +342,66 @@ def _datalog_owns(verb, amt, tgt, extra) -> bool:
         spec = str(extra)
         return str(amt).isdigit() and spec not in ("", "-")
     return False
+
+
+# §701 the destination-clause verb -> the zone a just-searched card goes to. return_to_battlefield's
+# tappedness rides in `extra` (handled in _fold_search_placements). put_in_hand is the declarative variant
+# of return_to_hand ('put that card into your hand') for the same single searched card.
+_SEARCH_DEST = {"return_to_hand": "hand", "put_in_hand": "hand", "put_on_top": "top", "put_on_bottom": "bottom"}
+
+
+def _fold_search_placements(effs: list, emit) -> set:
+    """§701.18 + §701 — fold each `search` clause together with its destination clause into ONE atomic
+    search_to_<dest> effect (the on-resolution relations carry no clause order, so a search and its
+    placement can't resolve as separate rows). For each fold, calls emit(eff, amount, target) once. Returns
+    the set of clause INDICES consumed (the search, its destination, and any §701.20 shuffle folded with
+    them), so the caller skips them. Folds a search whose §701.18 predicate AND whose destination clause we
+    can resolve; everything else is left to the normal per-clause paths.
+
+    The fold absorbs:
+      • the destination clause naming the searched card ('it'/'that card') — to hand / top / bottom /
+        battlefield (with tappedness), AND
+      • any `shuffle` clause in the search→destination window OR immediately after the destination (the
+        'search, shuffle, then put on top' idiom AND the fetchland's 'put onto battlefield, then shuffle').
+        The atomic effect performs the shuffle itself, so the shuffle isn't emitted as a separate row that,
+        being unordered, could scramble a just-placed card."""
+    from effect_handlers import library as _lib
+    consumed: set = set()
+    for i, (_seq, verb, _amt, tgt, _extra, _cond) in enumerate(effs):
+        if verb != "search" or i in consumed:
+            continue
+        pred = _lib.search_predicate(tgt)                     # 'any'/'any_land'/'subtype:…' or None
+        if pred is None:
+            continue                                          # a type we can't confirm -> bare-search path
+        # scan forward to the destination clause for the searched card, folding any intervening `shuffle`
+        # and SKIPPING any `reveal` of the searched card (revealing is public information — no zone change —
+        # so 'search …, reveal it, put it into your hand' resolves the same as 'search …, put it in hand').
+        dest, j, shuffled, fold_idx, k = None, None, False, [], i + 1
+        while k < len(effs):
+            (_s2, v2, _a2, t2, x2, _c2) = effs[k]
+            if v2 == "shuffle":
+                shuffled = True; fold_idx.append(k); k += 1; continue
+            if v2 == "reveal" and str(t2) in _SEARCHED_CARD_OBJ:
+                fold_idx.append(k); k += 1; continue          # a no-op reveal of the searched card -> skip it
+            if str(t2) in _SEARCHED_CARD_OBJ:
+                if v2 == "return_to_battlefield":
+                    dest = "battlefield_tapped" if "tapped" in str(x2) else "battlefield"
+                else:
+                    dest = _SEARCH_DEST.get(v2)
+                j = k
+            break
+        if dest is None:
+            continue                                          # no recognized placement -> bare-search path
+        # also absorb a `shuffle` that immediately FOLLOWS the destination (fetchland: search, put onto
+        # battlefield, then shuffle) — equivalent to shuffling before the placement (the card is out of the
+        # library either way), so the 'shuffle_' atomic variant resolves it faithfully.
+        if j + 1 < len(effs) and effs[j + 1][1] == "shuffle":
+            shuffled = True; fold_idx.append(j + 1)
+        eff_dest = ("shuffle_" + dest) if shuffled else dest  # search_to_shuffle_<dest> vs search_to_<dest>
+        eff, n, target = _lib.search_to_effect(eff_dest, pred)
+        emit(eff, n, target)
+        consumed.update({i, j}); consumed.update(fold_idx)
+    return consumed
 
 
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
@@ -562,7 +628,22 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # bridge no longer emits or suppresses it. event is still gated above to drive the trigger_* payloads.
             _ = emitted
         elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
-            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+            effs = list(ab.get("effects", []))
+            # §701.18 SEARCH-PLACEMENT (tutors/fetch): spell_effect carries NO clause order, so a search and
+            # its following destination clause can't resolve as two ordered rows. Fold each `search` together
+            # with the destination clause that immediately follows it ('search …, put it into your hand/onto
+            # the battlefield/on top') into ONE atomic search_to_<dest> effect; mark the consumed destination
+            # clause to skip. A search whose predicate or destination we can't confirm is left to the normal
+            # paths (the bare-search handler still SELECTS faithfully; an unhandled destination just abstains).
+            search_skip = _fold_search_placements(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
+                if _idx in search_skip:                       # consumed by a folded search_to_<dest> above
+                    continue
+                if verb == "search":
+                    # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
+                    # emit a bare search_select that would pull a card out of the library with nowhere to put
+                    # it (spell_effect is unordered, so a separate placement can't be relied on to follow).
+                    dropped.append(("effect", "search")); continue
                 if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     continue                                  # spell_effect is now DERIVED IN DATALOG from the card
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
@@ -639,7 +720,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             a = f"{tid}_{aid}"
             taps = "T" if paid[1] else "-"
             emitted = False
-            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+            act_effs = list(ab.get("effects", []))
+            # §701.18 SEARCH-PLACEMENT on an ACTIVATED ability (fetchlands: '{T},…,Sac ~: search for a basic
+            # land, put it onto the battlefield, then shuffle'): fold search + placement (+ shuffle) into ONE
+            # atomic search_to_<dest> activated_ability row, so the whole fetch resolves through the driver's
+            # single _ability_effect slot (which holds one effect per ability id). Consumed clauses are skipped.
+            def _emit_act(e, n, t, _a=a, _tid=tid, _p=paid[0], _taps=taps):
+                add("activated_ability", (_a, _tid, _p, _taps, e, n, t))
+            act_skip = _fold_search_placements(act_effs, _emit_act)
+            if act_skip:
+                emitted = True
+            for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
+                if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
+                    continue
+                if verb == "search":                          # an UNFOLDED search -> abstain (see the spell path)
+                    dropped.append(("effect", "search")); continue
                 # §115/§120/§122 single-target creature verbs on an activated ability ('{T}: tap target
                 # creature', '{2}: target creature gets +1/+1', 'deal 1 to any target' pingers). Packed into
                 # the activated_ability row with a creature-eff sentinel; the driver picks the target on
