@@ -252,12 +252,14 @@ def _advance_one(state: dict) -> None:
         return
     if out["advance_to"]:
         state["current_step"] = out["advance_to"]
+        driver._empty_mana_pool(state)                          # §500.4 mana empties at end of each step/phase
     else:                                                       # past cleanup -> next player's turn (§500.6)
         players = sorted(p for (p,) in state["is_player"])
         nxt = driver._next_active_player(state, ap, players)     # next player — or an extra turn (§500.7)
         state["_turn"] = state.get("_turn", 0) + 1               # a turn counter (for lookahead horizons)
         state["active_player"] = {(nxt,)}
         state["current_step"] = {("untap",)}
+        driver._empty_mana_pool(state)                          # §500.4 — pool empties across the turn boundary too
         state["attacks"], state["blocks"] = set(), set()
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                # §608/§702.40 storm count resets each turn

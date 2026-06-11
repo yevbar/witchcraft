@@ -903,19 +903,49 @@ def _mana_demand(state: dict, ap: str) -> list[str]:
     return [c for c in sorted(want, key=lambda c: -want[c]) for _ in range(want[c])]
 
 
+# --- §106.4 FLOATING MANA — mana actually IN the pool right now (produced and not yet spent: a ritual's
+# output, or a source's excess over a cost). It PERSISTS across spells within a step and empties at the
+# end of each step/phase (§500.4). Distinct from the tappable POTENTIAL of untapped sources — affordability
+# (mana_pool) is floating + potential, but a spell SPENDS floating first, and Forge's live pool syncs into
+# it (so the tree search reasons over the real floating mana). Stored as floating_mana(player, color, n). ---
+def _floating(state: dict, p: str) -> dict:
+    return {c: n for (pp, c, n) in state.get("floating_mana", set()) if pp == p and n > 0}
+
+
+def _set_floating(state: dict, p: str, by_color: dict) -> None:
+    state["floating_mana"] = {(pp, c, n) for (pp, c, n) in state.get("floating_mana", set()) if pp != p} \
+        | {(p, c, int(n)) for c, n in by_color.items() if int(n) > 0}
+
+
+def _add_floating(state: dict, p: str, by_color: dict) -> None:
+    fl = _floating(state, p)
+    for c, n in by_color.items():
+        fl[c] = fl.get(c, 0) + int(n)
+    _set_floating(state, p, fl)
+
+
+def _empty_mana_pool(state: dict) -> None:
+    """§500.4 — at the end of each step and phase, every player's mana pool empties. Called on every step
+    transition so floating mana never leaks across steps."""
+    state["floating_mana"] = set()
+
+
 def _resolve_pool(state: dict, ap: str):
     """Turn ap's untapped sources into a CONCRETE {color: count} §106 pool the engine can check pips
     against, assigning each wildcard mana to a color the hand demands (then a default spread) so 'any
     color' sources actually pay colored costs. Subtracts each source's activation cost (Signets pay {1})
-    from generic mana first — a source that can't net positive isn't counted. Returns (by_color, total)
-    or None when ap controls NO driver-managed mana source at all (a pre-seeded demo pool is left
-    untouched). A player whose sources are all TAPPED returns ({}, 0) — an empty pool, not None — so a
-    fully-spent board correctly reads as zero mana rather than a stale pre-tap count."""
+    from generic mana first — a source that can't net positive isn't counted. §106.4 FLOATING mana already
+    in the pool is added on top. Returns (by_color, total) or None when ap controls NO source AND has no
+    floating mana (a pre-seeded demo pool is left untouched). A player whose sources are all TAPPED returns
+    its floating mana (or ({}, 0)) — a fully-spent board reads as its real remaining mana, not a stale count."""
+    floating = _floating(state, ap)
     if not _controls_any_source(state, ap):
+        if floating:                                          # no tappable source, but mana is floating
+            return dict(floating), sum(floating.values())
         return None                                           # pure demo state: leave a pre-seeded pool alone
     units_rows = list(_source_units(state, ap))               # only the UNTAPPED ones
     if not units_rows:
-        return {}, 0                                          # all sources tapped -> empty pool, count 0
+        return dict(floating), sum(floating.values())         # all sources tapped -> just the floating mana
     fixed: dict[str, int] = {}
     wilds: list[frozenset] = []
     bundles: list[tuple[frozenset, int]] = []                 # ('add N of ONE color' — Black Lotus)
@@ -967,6 +997,8 @@ def _resolve_pool(state: dict, ap: str):
         if donor is None:
             break
         by_color[donor] -= 1
+    for c, n in floating.items():                             # §106.4 floating mana sits on top of source potential
+        by_color[c] = by_color.get(c, 0) + n
     by_color = {c: n for c, n in by_color.items() if n > 0}
     return by_color, sum(by_color.values())
 
@@ -1007,6 +1039,53 @@ def _slots_bundles(units):
     return slots, bundles, total
 
 
+def _production(rows, demand_pips: dict) -> dict:
+    """The {color: count} a set of (sid, units, cg, taps) source rows produces, aiming wildcards/bundles at
+    `demand_pips` first (then a default WUBRG spread). Used to compute the EXCESS that floats after a payment
+    (production minus the cost the sources covered) — same aiming as _resolve_pool, for a specific cost."""
+    fixed: dict = {}
+    wilds: list = []
+    bundles: list = []
+    cost_generic = 0
+    for _sid, units, cg, _ts in rows:
+        cost_generic += cg
+        for u in units:
+            if isinstance(u, tuple) and u and u[0] == "one":
+                bundles.append((u[1], u[2]))
+            elif isinstance(u, frozenset):
+                wilds.append(u)
+            else:
+                fixed[u] = fixed.get(u, 0) + 1
+    by_color = dict(fixed)
+    remaining = dict(demand_pips)
+    priority = sorted(demand_pips, key=lambda c: (-demand_pips[c], c))
+    spread = ["green", "white", "blue", "black", "red"]
+
+    def aim(colset, n):
+        for _ in range(n):
+            pick = next((c for c in priority if remaining.get(c, 0) > 0 and c in colset), None) \
+                or next((c for c in spread if c in colset), None) or next(iter(sorted(colset)))
+            if remaining.get(pick, 0) > 0:
+                remaining[pick] -= 1
+            by_color[pick] = by_color.get(pick, 0) + 1
+
+    for w in wilds:
+        aim(w, 1)
+    for colset, n in bundles:
+        pick = next((c for c in priority if remaining.get(c, 0) > 0 and c in colset), None) \
+            or next((c for c in spread if c in colset), None) or next(iter(sorted(colset)))
+        for _ in range(n):
+            if remaining.get(pick, 0) > 0:
+                remaining[pick] -= 1
+        by_color[pick] = by_color.get(pick, 0) + n
+    for _ in range(cost_generic):
+        donor = "colorless" if by_color.get("colorless", 0) else next((c for c in by_color if by_color[c]), None)
+        if donor is None:
+            break
+        by_color[donor] -= 1
+    return {c: n for c, n in by_color.items() if n > 0}
+
+
 def mana_plan(state: dict, ap: str, pips: dict, generic: int):
     """§106 — WHICH untapped sources `ap` should tap (and, for any-color/bundle sources, what COLOR each
     should produce) to pay a cost of `pips` (a {color: count} of colored pips) + `generic`. Mirrors
@@ -1017,14 +1096,30 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
     Returns a list of {"id": source, "express": color_to_force_or_'', "sacrifice": bool} in tap order, or
     None if the model can't cover the cost from untapped sources. `express` is set only for a flexible
     source (any-color / same-color bundle) — a fixed source produces its own color."""
-    rows = list(_source_units(state, ap))
-    if not rows:
-        return None
+    # §106.4 floating mana already in the pool pays first (Forge's payManaCostFromPool spends the pool before
+    # tapping), so the SOURCE plan only needs to cover the remainder.
     need = dict(pips)
     ng = int(generic)
+    floating = _floating(state, ap)
+    for col in list(need):
+        take = min(need[col], floating.get(col, 0))
+        if take:
+            need[col] -= take; floating[col] -= take
+    for col in ["colorless"] + sorted(c for c in floating if c != "colorless"):
+        if ng <= 0:
+            break
+        take = min(ng, floating.get(col, 0))
+        if take:
+            ng -= take; floating[col] -= take
 
     def _done():
         return not any(v > 0 for v in need.values()) and ng <= 0
+
+    if _done():
+        return []                                             # floating covers it all — no sources to tap
+    rows = list(_source_units(state, ap))
+    if not rows:
+        return None
 
     def keyf(row):                                            # concrete sources first; flexible held for pips
         _sid, units, _cg, _ts = row
@@ -1088,6 +1183,22 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     if not pips and generic == 0 and (spell, generic) not in state.get("mana_generic", set()):
         generic = next((int(c) for (s, c) in state.get("mana_cost", set()) if s == spell), 0)  # legacy fallback
 
+    # §106.4 spend FLOATING mana FIRST (it's already in the pool): colored pips from matching floating, then
+    # generic from leftover floating (colorless preferred, to keep colored mana for colored pips). Only the
+    # REMAINDER taps sources. This is what lets a ritual's mana carry across spells.
+    floating = _floating(state, ap)
+    for col in list(pips):
+        take = min(pips[col], floating.get(col, 0))
+        if take:
+            pips[col] -= take; floating[col] -= take
+    for col in ["colorless"] + sorted(c for c in floating if c != "colorless"):
+        if generic <= 0:
+            break
+        take = min(generic, floating.get(col, 0))
+        if take:
+            generic -= take; floating[col] -= take
+    _set_floating(state, ap, floating)
+
     rows = list(_source_units(state, ap))                     # (id, units, cost_generic, taps_self)
     if not rows:                                              # pre-seeded flat mana (demos): decrement count only
         cost = generic + sum(pips.values())
@@ -1095,6 +1206,8 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
         return
     used: set[str] = set()
+    used_rows: list = []
+    rem_pips, rem_generic = dict(pips), generic           # cost the SOURCES must cover (after floating) — for excess
     need_pips = dict(pips)
     need_generic = generic
     # tap sources to cover the cost. A source contributes ALL its mana when tapped; we apply that mana to
@@ -1146,13 +1259,28 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         if helps(units, cg):
             apply(units, cg)
             used.add(sid)
+            used_rows.append((sid, units, cg, _ts))
     sacrifices = state.get("source_sacrifice", set())
     for sid in used:
         if (sid,) in sacrifices:                              # §605 one-shot fast mana: sacrificed, not tapped
             _sacrifice_source(state, sid)
         else:
             state.setdefault("tapped", set()).add((sid,))
-    _refresh_mana_pool(state, ap)                             # pool/count from sources still untapped
+    # §106.4 a tapped source yields ALL its mana at once; mana beyond the cost FLOATS (Sol Ring -> {C}{C} for
+    # a {C} cost leaves {C} floating; Black Lotus -> 3 blue for {U}{U} leaves 1 blue). Production minus the
+    # cost the sources covered is the excess.
+    if used_rows:
+        prod = _production(used_rows, rem_pips)
+        for col, need in rem_pips.items():
+            prod[col] = prod.get(col, 0) - need
+        g = rem_generic
+        for col in ["colorless"] + sorted(c for c in prod if c != "colorless"):
+            if g <= 0:
+                break
+            take = min(g, max(0, prod.get(col, 0)))
+            prod[col] = prod.get(col, 0) - take; g -= take
+        _add_floating(state, ap, {c: n for c, n in prod.items() if n > 0})
+    _refresh_mana_pool(state, ap)                             # pool/count from sources still untapped + floating
 
 
 # --- §405 THE STACK: push -> priority window -> resolve top -----------------------------------------
@@ -1909,9 +2037,11 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if not out["advance_to"]:                            # past cleanup -> turn ends
                 break
             state["current_step"] = out["advance_to"]            # advance to the engine's next step
+            _empty_mana_pool(state)                              # §500.4 mana empties at end of each step/phase
         nxt_p = _next_active_player(state, ap, players)          # pass the turn (§500.6) — or take an extra one
         state["active_player"] = {(nxt_p,)}
         state["current_step"] = {("untap",)}
+        _empty_mana_pool(state)                                  # §500.4 — pool empties across the turn boundary too
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn

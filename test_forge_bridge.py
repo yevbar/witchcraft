@@ -273,7 +273,15 @@ def _mana_payment_delegated() -> None:
     st, _ = fb.reconstruct({"seat": "w", "players": ["w"], "life": {"w": 20}, "active": "w",
                             "zones": {"battlefield": bf, "hand": []}}, "w")
     check("mana_plan returns None when the board can't cover the cost (Forge pays)",
-          driver.mana_plan(st, "w", {"green": 4}, 0) is None)  # Lotus makes only 3 of one color; Mox is black
+          driver.mana_plan(st, "w", {"green": 4}, 0) is None)
+
+    # §106.4 FLOATING mana syncs from Forge's pool: the obs 'floating' -> state['floating_mana'], so the
+    # lookahead spends already-produced mana, and a pay plan covers only the remainder.
+    fst, _ = fb.reconstruct({"seat": "w", "players": ["w", "o"], "life": {"w": 20, "o": 20}, "active": "w",
+                             "zones": {"battlefield": bf, "hand": []}, "floating": {"w": {"black": 2}}}, "w")
+    check("floating mana syncs from the Forge obs", driver._floating(fst, "w") == {"black": 2})
+    check("a pay plan uses synced floating first (an empty plan covers {B} from the float)",
+          driver.mana_plan(fst, "w", {"black": 1}, 0) == [])  # Lotus makes only 3 of one color; Mox is black
 
 
 def run() -> None:

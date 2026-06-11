@@ -23,9 +23,11 @@ def _active(s):
 
 
 def _key(s):
-    # fast transposition key: the engine fact-set + whose decision + combat state. Equal here == the engine
-    # and mover can't tell the states apart, so don't re-search.
-    return (driver._facts_key(s), _active(s), env._step(s), frozenset(s.get("attacks", set())))
+    # fast transposition key: the engine fact-set + whose decision + combat state + §106.4 FLOATING mana
+    # (driver-side state the engine fact-set doesn't include, but which changes what's castable — so two
+    # states with different floating mana must NOT transpose). Equal here == indistinguishable, don't re-search.
+    return (driver._facts_key(s), _active(s), env._step(s), frozenset(s.get("attacks", set())),
+            frozenset(s.get("floating_mana", set())))
 
 
 def _opp_action(s):

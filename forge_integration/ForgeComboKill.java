@@ -147,6 +147,23 @@ public class ForgeComboKill {
                 b.append(i > 0 ? "," : "").append('"').append(esc(ps.get(i).getName())).append("\":")
                  .append(ps.get(i).getCardsIn(ZoneType.Library).size());
             b.append("},");
+            // §106.4 each player's FLOATING mana (live pool, by color) — so the lookahead spends mana already
+            // produced (a ritual's output) before tapping sources, staying in sync with Forge's actual pool.
+            String[] cnames = {"white", "blue", "black", "red", "green", "colorless"};
+            byte[] cbytes = {forge.card.MagicColor.WHITE, forge.card.MagicColor.BLUE, forge.card.MagicColor.BLACK,
+                             forge.card.MagicColor.RED, forge.card.MagicColor.GREEN, forge.card.MagicColor.COLORLESS};
+            b.append("\"floating\":{");
+            for (int i = 0; i < ps.size(); i++) {
+                forge.game.mana.ManaPool mp = ps.get(i).getManaPool();
+                b.append(i > 0 ? "," : "").append('"').append(esc(ps.get(i).getName())).append("\":{");
+                boolean f2 = true;
+                for (int k = 0; k < cnames.length; k++) {
+                    int amt = mp.getAmountOfColor(cbytes[k]);
+                    if (amt > 0) { b.append(f2 ? "" : ",").append('"').append(cnames[k]).append("\":").append(amt); f2 = false; }
+                }
+                b.append("}");
+            }
+            b.append("},");
             // zones: all battlefield permanents + OUR hand (opponent hand is hidden / irrelevant)
             b.append("\"zones\":{\"battlefield\":[");
             int n = 0;

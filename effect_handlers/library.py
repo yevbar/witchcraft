@@ -454,15 +454,10 @@ def _encode_add_mana(verb, amt, tgt, extra):
 
 @applier("add_mana")
 def _apply_add_mana(D, state, a, n, tgt, src, ctrl):
-    """Add n mana of the fixed color `tgt` to the controller's §106 mana pool (and bump the flat
-    mana_available count the cast loop reads for affordability), so a ritual actually ramps the caster."""
+    """§106.1 a ritual adds n mana of the fixed color `tgt` to the controller's FLOATING pool — it persists
+    across spells this step (until §500.4 empties it), so the next cast spends it. _refresh_mana_pool then
+    folds floating into mana_pool (+ the flat mana_available count) for the engine's affordability check."""
     color = str(tgt)
-    pool = state.setdefault("mana_pool", set())
-    cur = next((k for (p, c, k) in pool if p == ctrl and c == color), 0)
-    pool.discard((ctrl, color, cur))
-    pool.add((ctrl, color, cur + n))
-    avail = state.setdefault("mana_available", set())
-    tot = next((m for (p, m) in avail if p == ctrl), 0)
-    avail.discard((ctrl, tot))
-    avail.add((ctrl, tot + n))
-    print(f"    trigger {a}: {ctrl} adds {n} {color} mana -> pool {cur + n} {color}")
+    D._add_floating(state, ctrl, {color: n})
+    D._refresh_mana_pool(state, ctrl)                          # surface the floating mana into mana_pool/_available
+    print(f"    trigger {a}: {ctrl} adds {n} {color} mana -> floating {D._floating(state, ctrl).get(color, 0)} {color}")

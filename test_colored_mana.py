@@ -197,6 +197,28 @@ def main():
     _, _, pool, _ = board(["Llanowar Elves"], "Mind Stone")
     check("Llanowar Elves taps for green (not abstracted to colorless)", pool == {"green": 1})
 
+    # --- §106.4 FLOATING mana: it persists across spells and empties at end of step (§500.4) ---
+    fl = {"is_player": {("alice",), ("bob",)}, "on_battlefield": set(), "printed_control": set(),
+          "tapped": set(), "mana_pip": {("s1", "black", 1), ("s2", "black", 1)}, "mana_generic": set(),
+          "mana_cost": set(), "floating_mana": set(), "mana_pool": set(), "mana_available": set()}
+    driver._add_floating(fl, "alice", {"black": 3})            # a ritual floats {B}{B}{B}
+    driver._refresh_mana_pool(fl, "alice")
+    check("floating mana surfaces into mana_pool", ("alice", "black", 3) in fl["mana_pool"])
+    driver._spend_mana(fl, "alice", "s1")                      # cast a {B} spell from floating
+    check("a {B} spell spends floating first (2 black left)", driver._floating(fl, "alice") == {"black": 2})
+    driver._spend_mana(fl, "alice", "s2")                      # another {B}, still from the float
+    check("floating carries across spells (1 black left)", driver._floating(fl, "alice") == {"black": 1})
+    driver._empty_mana_pool(fl)
+    check("§500.4 floating empties at end of step", driver._floating(fl, "alice") == {})
+
+    # source EXCESS floats: Black Lotus -> 3 of one color; a {U}{U} cost leaves 1 blue floating.
+    lot = {"is_player": {("alice",), ("bob",)}, "on_battlefield": {("lot",)}, "printed_control": {("alice", "lot")},
+           "printed_type": {("lot", "artifact")}, "tapped": set(), "source_wildcard": {("lot", "any_one_color", 3)},
+           "source_cost": {("lot", 0, True)}, "source_sacrifice": {("lot",)},
+           "mana_pip": {("ora", "blue", 2)}, "mana_generic": set(), "mana_cost": set(), "floating_mana": set()}
+    driver._spend_mana(lot, "alice", "ora")
+    check("Black Lotus excess over {U}{U} floats (1 blue)", driver._floating(lot, "alice") == {"blue": 1})
+
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return FAIL == 0
 

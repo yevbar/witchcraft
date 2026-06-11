@@ -162,6 +162,10 @@ def reconstruct(obs: dict, seat: str):
     # model's §702.40 storm count matches Forge mid-turn — without it a re-search would think storm=0 after
     # Forge already cast several spells this turn (the desync the lookahead-driven policy must avoid).
     state["_cast_count"] = int(obs.get("castThisTurn", 0) or 0)
+    # §106.4 carry Forge's FLOATING mana (the live mana pool) so the lookahead spends mana already produced
+    # (a ritual's output) before tapping sources — combos that hinge on precise floating mana stay in sync.
+    state["floating_mana"] = {(p, c, int(n)) for p, pool in (obs.get("floating") or {}).items()
+                              for c, n in (pool or {}).items() if int(n) > 0}
     return state, unmodeled
 
 
