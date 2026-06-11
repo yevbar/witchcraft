@@ -140,6 +140,33 @@ def _apply_surveil(D, state, a, n, tgt, src, ctrl):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# dig_to_hand (§701) — 'look at the top N of your library, put M of them into your hand, the rest on the
+# bottom / in your graveyard' (Stock Up, A Little Chat, the Behold-style card-advantage spells). The bridge
+# folds the look + put clauses into ONE effect: n = N (looked at), target = '<M>_<bottom|graveyard>'.
+# Opaque ids give us nothing to rank the top N, so the faithful, always-legal choice is the canonical-first
+# M (a legal pick — the card never says WHICH M, so any M is correct); the rest go to the named zone. Never
+# loses a card.
+# ─────────────────────────────────────────────────────────────────────────────
+@applier("dig_to_hand")
+def _apply_dig_to_hand(D, state, a, n, tgt, src, ctrl):
+    m_s, _, dest = str(tgt).partition("_")
+    m = int(m_s) if m_s.isdigit() else 0
+    order = _order(state, ctrl)
+    top = sorted(order[:n])                                  # the looked-at top n, canonical order
+    del order[:n]                                            # pull them out of the library
+    m = min(m, len(top))
+    inlib, inhand = state.setdefault("in_library", set()), state.setdefault("in_hand", set())
+    for c in top[:m]:                                        # the canonical-first m -> hand
+        inlib.discard((ctrl, c)); inhand.add((ctrl, c))
+    for c in top[m:]:                                        # the rest -> bottom of library / graveyard
+        if dest == "graveyard":
+            inlib.discard((ctrl, c)); state.setdefault("graveyard", set()).add((c,))
+        else:
+            order.append(c)                                 # bottom (stays in in_library)
+    print(f"    trigger {a}: {ctrl} looks at top {n}, puts {m} into hand, {len(top) - m} on the {dest}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # search (§701.18) — select the sought card and pull it OUT of the library into state['_searched'][ctrl];
 # the following DESTINATION clause (return_to_hand / return_to_battlefield / put_on_top) places it. We
 # resolve two predicate shapes from the SURFACED printed identity (printed_type/printed_subtype the bridge

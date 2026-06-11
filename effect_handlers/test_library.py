@@ -128,6 +128,21 @@ def _apply_checks() -> None:
     check("surveil bins nothing (graveyard empty)", st["graveyard"] == set())
     check("surveil loses no card", len(st["in_library"]) == 4)
 
+    # dig_to_hand (Stock Up): look top 5, put 2 (canonical-first) into hand, the rest on the BOTTOM.
+    st = _state(["a", "b", "c", "d", "e", "f", "g"])
+    _fire(st, "dig_to_hand", 5, tgt="2_bottom")
+    check("dig: the canonical-first 2 of the top 5 go to hand", {c for (p, c) in st["in_hand"]} == {"a", "b"})
+    check("dig: the looked-at rest goes to the bottom (after f, g)", st["_lib_order"]["alice"] == ["f", "g", "c", "d", "e"])
+    check("dig: loses no card (7 = 2 hand + 5 library)", len(st["in_hand"]) + len(st["in_library"]) == 7)
+    # rest -> graveyard variant (A-Demon's Due style).
+    st = _state(["a", "b", "c", "d"])
+    _fire(st, "dig_to_hand", 4, tgt="2_graveyard")
+    check("dig (graveyard): 2 to hand, the rest binned", {c for (p, c) in st["in_hand"]} == {"a", "b"} and {c for (c,) in st["graveyard"]} == {"c", "d"})
+    # fewer cards than looked at -> capped, no crash.
+    st = _state(["a", "b"])
+    _fire(st, "dig_to_hand", 5, tgt="2_bottom")
+    check("dig: a short library is capped (no crash, no card lost)", len(st["in_hand"]) == 2 and len(st["in_library"]) == 0)
+
     # GENERIC tutor (Demonic Tutor): search SELECTS the canonical-first card, place puts it in hand.
     st = _state(["m", "k", "n"])
     _fire(st, "search_select", 0, tgt="any")

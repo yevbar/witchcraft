@@ -485,6 +485,48 @@ def _fold_name_exile(effs: list, emit) -> set:
     return consumed
 
 
+_NUMWORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+
+
+def _lead_count(extra) -> int | None:
+    """The leading number word of an extra like 'two_of_them_into_your_hand_and_the_rest' -> 2, else None."""
+    return _NUMWORD.get(str(extra).split("_", 1)[0])
+
+
+def _fold_dig(effs: list, emit) -> set:
+    """§701 'look at the top N of your library, put M of them into your hand, the rest on the bottom / in
+    your graveyard' (Stock Up, A Little Chat, Behold-style card advantage). Fold the look + the put clauses
+    into ONE dig_to_hand effect: amount = N (looked at), target = '<M>_<bottom|graveyard>'. Faithful: with
+    opaque library ids the M kept are the canonical-first of the top N (a legal deterministic choice). Folds
+    only the clean OWN-library shape (a numeric look N + a single numeric M to hand); a variable count
+    ('that_amount'), a conditional 'two if … else one' (multiple to-hand clauses), or a non-library look
+    abstains."""
+    look_i = next((i for i, (_s, v, *_r) in enumerate(effs) if v == "look"), None)
+    if look_i is None:
+        return set()
+    _s, _v, look_amt, look_tgt, _x, _c = effs[look_i]
+    n = _int(look_amt)
+    if n is None or "top_of_library" not in str(look_tgt):
+        return set()
+    m, rest_dest, consumed, to_hand_clauses = None, "bottom", {look_i}, 0
+    for i, (_s2, v, _a, t, extra, _c2) in enumerate(effs):
+        if i == look_i:
+            continue
+        ex = str(extra)
+        if v == "put_in_hand" and ("of_them" in ex or "of_those" in ex):     # 'put M of them into your hand'
+            m = _lead_count(ex); to_hand_clauses += 1; consumed.add(i)
+        elif v == "put_on_bottom" and "into_your_hand" in ex:                 # 'put M … into hand and the rest'
+            m = _lead_count(ex); to_hand_clauses += 1; rest_dest = "bottom"; consumed.add(i)
+        elif v == "put_on_bottom" and ("the_rest" in ex or str(t) == "library"):
+            rest_dest = "bottom"; consumed.add(i)
+        elif v == "put_in_graveyard" and ("the_rest" in ex or "the_other" in ex):
+            rest_dest = "graveyard"; consumed.add(i)
+    if m is None or m <= 0 or m > n or to_hand_clauses != 1:                  # need exactly one clean to-hand count
+        return set()
+    emit("dig_to_hand", n, f"{m}_{rest_dest}")
+    return consumed
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -727,8 +769,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701.18 'choose a card name' + reveal-until self-mill (Demonic Consultation / Spoils of the
             # Vault): fold the whole sequence into one name_exile_lib spell_effect (unordered relations).
             name_skip = _fold_name_exile(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 'look at top N, put M into hand, rest on bottom/graveyard' (Stock Up, card advantage) ->
+            # one atomic dig_to_hand effect (the look + put clauses resolve together; spell_effect is unordered).
+            dig_skip = _fold_dig(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip:  # consumed by a folded search_to_<dest>/name_exile
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip:  # consumed by a folded effect
                     continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
@@ -822,6 +867,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701.18 'choose a card name' + reveal-until self-mill on an ACTIVATED ability (Divining Witch:
             # '{B}, {T}, Sacrifice ~, Pay 1 life: …') — fold into one name_exile_lib activated_ability row.
             act_skip |= _fold_name_exile(act_effs, _emit_act)
+            act_skip |= _fold_dig(act_effs, _emit_act)         # §701 'look N, put M into hand, rest to bottom/yard'
             if act_skip:
                 emitted = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
