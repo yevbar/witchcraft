@@ -148,6 +148,17 @@ def _animation_pt(amt) -> str | None:
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
+def _is_still_land_rider(verb, amt, extra) -> bool:
+    """§613 — the 'It's still a land' (/'still an artifact', …) affirmation that rides alongside a man-land's
+    'becomes a P/T creature' clause as a SEPARATE 'becomes - it still_a_land' row (Restless Reef, the manland
+    cycle: 96 of these corpus-wide). It is a pure NO-OP for us: our animate only ADDS the creature type via
+    §613 layer 4, never removing the land type, so the permanent already stays a land. Skip it without
+    dropping. Guarded to the affirmation form only (amt '-', no 'creature' in extra) so a real type-change
+    ('becomes self chosen_type' / 'becomes it island') still abstains."""
+    return (str(verb) == "becomes" and str(amt) == "-"
+            and "creature" not in str(extra) and str(extra).startswith("still_"))
+
+
 def _parse_pt(amt: str) -> tuple[int, int] | None:
     m = _PT.match(str(amt))
     return (int(m.group(1)), int(m.group(2))) if m else None
@@ -662,6 +673,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             a = f"{tid}_{aid}"
             emitted = False
             for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
+                    continue
                 # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
                 # exile / tap / untap / return_to_hand): payload + a board scope the engine resolves to
                 # concrete creatures, NOT a player-target amount. Single 'target creature' abstains
@@ -775,6 +788,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
                 if _idx in search_skip or _idx in name_skip or _idx in dig_skip:  # consumed by a folded effect
                     continue
+                if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
+                    continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
                     # emit a bare search_select that would pull a card out of the library with nowhere to put
@@ -872,6 +887,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 emitted = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
+                    continue
+                if _is_still_land_rider(verb, amt, extra):    # §613 'It's still a land' no-op (man-land rider)
                     continue
                 if verb == "search":                          # an UNFOLDED search -> abstain (see the spell path)
                     dropped.append(("effect", "search")); continue

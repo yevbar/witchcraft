@@ -81,6 +81,14 @@ def _encode_checks() -> None:
     check("double on each creature that had a counter put on it abstains (subset)",
           _enc("double", "-", "the_number_of_1_1_counters_on_each_creature_that_had_a_1_1_counter_put_on_it") is None)
 
+    # earthbend: a concrete positive count resolves; a variable 'earthbend X' abstains.
+    check("earthbend 1 -> earthbend land_you_control",
+          _enc("earthbend", "1", "you") == ("earthbend", 1, "land_you_control"))
+    check("earthbend 2 -> earthbend land_you_control",
+          _enc("earthbend", "2", "you") == ("earthbend", 2, "land_you_control"))
+    check("earthbend X abstains (variable count)", _enc("earthbend", "x", "you") is None)
+    check("earthbend 0 abstains (non-positive)", _enc("earthbend", "0", "you") is None)
+
 
 # ── apply ─────────────────────────────────────────────────────────────────────
 def _base():
@@ -176,6 +184,31 @@ def _apply_checks() -> None:
     check("double_counters scope doubles a 3->6", ("a", "p1p1", 6) in st["counter"])
     check("double_counters scope doubles b 1->2", ("b", "p1p1", 2) in st["counter"])
     check("double_counters scope skips an opponent's creature", ("foe", "p1p1", 5) in st["counter"])
+
+    # earthbend: animate a land the controller controls to a 0/0 + N +1/+1 counters (a surviving N/N
+    # creature with haste, still a land). Verified through the REAL engine derivation, not just state.
+    st = _base()
+    st["on_battlefield"] = {("forest",), ("island",)}
+    st["printed_type"] = {("forest", "land"), ("island", "land")}
+    st["printed_control"] = {("alice", "forest"), ("alice", "island")}
+    _fire(st, "earthbend", 2, "land_you_control", src="src", ctrl="alice")
+    out = driver.run(st, ["power", "eff_toughness", "creature", "dies", "has_keyword"])
+    pick = next(c for (c,) in out["creature"])               # the animated land (canonical-first = forest)
+    check("earthbend animates a land into a creature", pick == "forest")
+    check("earthbend land is N/N (power = N counters)", ("forest", "2") in out["power"])
+    check("earthbend land has toughness N (survives the 0/0)", ("forest", "2") in out["eff_toughness"])
+    check("earthbend land does not die (counters keep it alive)", ("forest",) not in out["dies"])
+    check("earthbend land gains haste", ("forest", "haste") in out["has_keyword"])
+    # we only ADD the creature type (§613 layer 4) — the land type is never removed, so it stays a land.
+    check("earthbend land keeps its source land row", ("forest", "land") in st["printed_type"])
+    check("earthbend puts N +1/+1 counters", ("forest", "p1p1", 2) in st["counter"])
+    # a second earthbend prefers a DIFFERENT (not-yet-animated) land.
+    _fire(st, "earthbend", 1, "land_you_control", src="src", ctrl="alice")
+    check("earthbend prefers an un-animated land second", ("island", "p1p1", 1) in st["counter"])
+    # no land to animate -> clean no-op.
+    st2 = _base()
+    _fire(st2, "earthbend", 1, "land_you_control", src="src", ctrl="alice")
+    check("earthbend with no land is a no-op", st2["counter"] == set())
 
     # extra_turn: bumps the controller's pending-extra-turn marker; the driver loop consumes it.
     st = _base()

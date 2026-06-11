@@ -161,3 +161,48 @@ def _apply_double_counters(D, state, a, n, tgt, src, ctrl):
         if cur.get(o, 0) > 0:
             D._bump_counter(state, o, "p1p1", cur[o]); doubled += 1
     print(f"    {a}: {ctrl} doubles +1/+1 counters on {tgt} ({doubled} creature(s) with counters)")
+
+
+# ── earthbend (§701 keyword action) ───────────────────────────────────────────────────────────────────
+# 'Earthbend N' (Badgermole Cub, Ba Sing Se, Earthbender Ascension): 'Target land you control becomes a 0/0
+# creature with haste that's still a land. Put N +1/+1 counters on it.' We animate a land the controller
+# controls PERMANENTLY (not until EOT — earthbend is a lasting change): §613 layer-4 add the creature type,
+# layer-7b set base 0/0, grant haste, and §122 put N +1/+1 counters (which carry the P/T to N/N and keep the
+# 0/0 alive). The land is a deterministic own-board pick (any land you control is a legal, beneficial target,
+# like untap_own / proliferate) — a faithful single legal choice the search doesn't branch on. The 'when it
+# dies or is exiled, return it tapped' delayed trigger is NOT modeled (a conservative omission: a dead land
+# simply stays dead — we never fabricate a return); the resolvable animate+counter core is faithful.
+@encoder("earthbend")
+def _encode_earthbend(verb, amt, tgt, extra):
+    s = str(amt)
+    if not s.isdigit() or int(s) <= 0:                      # only a concrete positive count (Earthbend 1/2/…)
+        return None                                          # a variable 'earthbend X' abstains
+    return ("earthbend", int(s), "land_you_control")
+
+
+def _own_lands(state: dict, ctrl: str) -> list:
+    """The controller's lands on the battlefield, canonical order (from the surfaced printed identity)."""
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    own = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
+    ptype = state.get("printed_type", set())
+    return sorted(c for c in (own & bf) if (c, "land") in ptype)
+
+
+@applier("earthbend")
+def _apply_earthbend(D, state, a, n, tgt, src, ctrl):
+    """§701 earthbend N — animate a land the controller controls to a 0/0 creature with haste (PERMANENTLY,
+    no until_eot marker) and put N +1/+1 counters on it. Prefer a land that isn't already an earthbend
+    creature (spread the value); else the canonical-first own land. A no-op if the controller has no land."""
+    lands = _own_lands(state, ctrl)
+    if not lands:
+        return
+    animated = {c for (_e, c, _t) in state.get("eff_add_type", set())}
+    pick = next((c for c in lands if c not in animated), lands[0])
+    eid = f"earthbend__{pick}"                               # STABLE id (per land) -> idempotent re-derivation
+    # §613 permanent characteristic-setting layers (no until_eot -> the change lasts, unlike a man-land).
+    state.setdefault("eff_set_power", set()).add((eid, pick, 0, 1))
+    state.setdefault("eff_set_toughness", set()).add((eid, pick, 0, 1))
+    state.setdefault("eff_add_type", set()).add((eid, pick, "creature"))
+    state.setdefault("eff_grant_keyword", set()).add((eid, pick, "haste"))
+    D._bump_counter(state, pick, "p1p1", n)                  # §122 N +1/+1 counters -> the 0/0 becomes N/N
+    print(f"    {a}: {ctrl} earthbends {pick} (0/0 creature-land with haste, +{n} +1/+1 counters)")
