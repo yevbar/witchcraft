@@ -1224,11 +1224,14 @@ def _emit_translate_triggered_target(p) -> None:
     p.facts(['counter_kind("+1/+1", "p1p1")', 'counter_kind("p1p1", "p1p1")',
              'counter_kind("-1/-1", "m1m1")', 'counter_kind("m1m1", "m1m1")'])
     p.comment("DERIVE trigger_target for a single-target put_counter: verb 'counter', payload 'p1p1:N'/'m1m1:N'")
-    p.comment("(kind via counter_kind, N a positive int — was _counter_payload), class via target_class.")
+    p.comment("(kind via counter_kind, N a positive int — was _counter_payload), class via target_class. Match")
+    p.comment("a positive integer with the regex DIRECTLY (no to_number): souffle's to_number aborts the binary")
+    p.comment("on a non-numeric Amount even behind a match filter (a put_counter X clause — Draining Whelk,")
+    p.comment("Paradox Zone, …) — exactly the guard spell_put_counter already uses below.")
     p.rule("trigger_target(IA, \"counter\", Payload, Cls)",
            ["trig_ability(IA, S, C, A)",
             'card_effect(C, A, _, "put_counter", Amount, Tgt, Extra, "-")',
-            "counter_kind(Extra, Knd)", 'match("[0-9]+", Amount)', "to_number(Amount) > 0",
+            "counter_kind(Extra, Knd)", 'match("[1-9][0-9]*", Amount)',
             "target_class(Tgt, Cls)", 'Payload = cat(Knd, cat(":", Amount))'])
     p.comment("reanimate_target = a clean 'creature card from a graveyard' slug the driver can reanimate (was")
     p.comment("bridge._REANIMATE_TARGETS). Combined with a graveyard/hand source zone in `extra` (_reanimates).")

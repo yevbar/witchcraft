@@ -762,8 +762,11 @@ trigger_damage(IA, N, Kind) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "
 .decl counter_kind(extra: symbol, kind: symbol)
 counter_kind("+1/+1", "p1p1"). counter_kind("p1p1", "p1p1"). counter_kind("-1/-1", "m1m1"). counter_kind("m1m1", "m1m1").
 // DERIVE trigger_target for a single-target put_counter: verb 'counter', payload 'p1p1:N'/'m1m1:N'
-// (kind via counter_kind, N a positive int — was _counter_payload), class via target_class.
-trigger_target(IA, "counter", Payload, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "put_counter", Amount, Tgt, Extra, "-"), counter_kind(Extra, Knd), match("[0-9]+", Amount), to_number(Amount) > 0, target_class(Tgt, Cls), Payload = cat(Knd, cat(":", Amount)).
+// (kind via counter_kind, N a positive int — was _counter_payload), class via target_class. Match
+// a positive integer with the regex DIRECTLY (no to_number): souffle's to_number aborts the binary
+// on a non-numeric Amount even behind a match filter (a put_counter X clause — Draining Whelk,
+// Paradox Zone, …) — exactly the guard spell_put_counter already uses below.
+trigger_target(IA, "counter", Payload, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "put_counter", Amount, Tgt, Extra, "-"), counter_kind(Extra, Knd), match("[1-9][0-9]*", Amount), target_class(Tgt, Cls), Payload = cat(Knd, cat(":", Amount)).
 // reanimate_target = a clean 'creature card from a graveyard' slug the driver can reanimate (was
 // bridge._REANIMATE_TARGETS). Combined with a graveyard/hand source zone in `extra` (_reanimates).
 .decl reanimate_target(tgt: symbol)
