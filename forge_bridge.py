@@ -195,7 +195,17 @@ class EnginePolicy:
         land_opts = [o for o in spells if str(o["id"]) in lands_in_hand]      # play a land (develop mana)
         cast_opts = [o for o in spells if str(o["id"]) in can]               # cast an affordable spell
         endorsed = land_opts + cast_opts
-        choice = land_opts[0] if land_opts else (cast_opts[0] if cast_opts else default)  # land > cast > pass
+        # §702.40 storm-aware ordering: a storm spell copies once per spell cast BEFORE it this turn, so cast
+        # every OTHER spell first (build the count) and hold the storm payoff until nothing else is castable.
+        # Reads the keyword off the reconstructed card identity (card_keyword via instance_of). A purely
+        # generic heuristic — the engine still decides WHICH spells to cast; this only orders the payoff last.
+        def _is_storm(o):
+            return "storm" in driver._spell_keywords(state, str(o["id"]))
+        non_storm = [o for o in cast_opts if not _is_storm(o)]
+        storm_opts = [o for o in cast_opts if _is_storm(o)]
+        choice = (land_opts[0] if land_opts else                             # land > non-storm spell > storm
+                  non_storm[0] if non_storm else
+                  storm_opts[0] if storm_opts else default)
         return choice, modeled, len(endorsed), len(spells), 1
 
     def _pick_target(self, driver, state, seat, options, default):
