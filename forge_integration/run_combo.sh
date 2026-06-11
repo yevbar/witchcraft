@@ -13,7 +13,8 @@
 # (no damage — a pure library-out win Forge computes itself). Swap COMBO[] back to Lotus Petal x9 +
 # Tendrils of Agony for the storm kill (finalLife 40/0); the same lookahead drives either.
 #
-# Requires (override via env): JDK (with javac), FORGE (a built Forge tree). Same prerequisites as run.sh.
+# Requires (override via env): JDK (a JDK 17 with javac), FORGE (a built Forge tree). Same prerequisites as
+# run.sh — see forge_integration/README.md for full setup (JDK 17 + how to build the Forge fat jar).
 set -euo pipefail
 
 JDK="${JDK:-/home/zucc/opt/jdk-17.0.13+11}"

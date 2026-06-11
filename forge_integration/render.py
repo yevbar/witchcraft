@@ -1,4 +1,5 @@
-"""render.py — turn the REAL Forge board snapshots (ForgeVsBot -Ddump JSONL) into a tabletop-style mp4.
+"""render.py — turn the REAL Forge board snapshots (ForgeVsBot / ForgeComboKill -Ddump JSONL) into a
+tabletop-style mp4.
 
     python3 forge_integration/render.py /tmp/game.jsonl /tmp/game.mp4 [fps]
 

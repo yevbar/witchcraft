@@ -1,9 +1,16 @@
-"""test_forge_bridge.py — the Forge player adapter (forge_bridge.py).
+"""test_forge_bridge.py — UNIT tests for the Forge player adapter (forge_bridge.py), against a MOCK Forge.
 
-Forge is a separate Java engine we can't run here, so we test against a MOCK Forge: a scripted sequence of
-PlayerController-style decision requests. Verifies (a) every decision KIND yields a legal, well-formed
-reply through the policy seam, (b) the pure handle() and the real SOCKET transport agree, (c) a full
-scripted game runs to a result. No JVM, no network beyond loopback.
+This is the fast, hermetic half of the Forge work: it drives forge_bridge with a scripted sequence of
+PlayerController-style decision requests (a MOCK Forge) so it needs NO JVM and NO Forge build — just
+loopback for the socket check. It is NOT running Forge. The REAL integration — an actual headless Forge
+JVM with witchcraft driving a seat — lives in forge_integration/ (ForgeVsBot.java / ForgeComboKill.java,
+run via forge_integration/run.sh, see forge_integration/README.md for setup). Both exercise the same
+forge_bridge adapter; this mock just lets us test the protocol + policy logic quickly.
+
+Verifies (a) every decision KIND yields a legal, well-formed reply through the policy seam, (b) the pure
+handle() and the real SOCKET transport agree, (c) a full scripted game runs to a result, (d) the
+engine-backed policy (storm / Thassa's-Oracle lookahead, mana-payment delegation, library + floating-mana
+sync) makes the right calls on reconstructed observations.
 
 Run: python3 test_forge_bridge.py
 """

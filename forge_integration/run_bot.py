@@ -2,9 +2,10 @@
 
     python3 forge_integration/run_bot.py [port]
 
-Listens for ONE Forge connection (the ForgeVsBot Java connector), drives every decision through the
-engine-backed EnginePolicy, and prints the coverage() report (modeled/endorsed fractions, unmodeled cards)
-when the game's socket closes."""
+Listens for ONE connection from the Forge Java connector (ForgeVsBot / ForgeComboKill), drives every
+decision through the engine-backed EnginePolicy, and prints the coverage() report (modeled/endorsed
+fractions, unmodeled cards) when the game's socket closes. The run scripts (run.sh / run_combo.sh) start
+this alongside the JVM; see forge_integration/README.md for the full setup (JDK 17 + a built Forge tree)."""
 import sys
 import os
 

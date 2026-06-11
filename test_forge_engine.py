@@ -1,10 +1,16 @@
-"""test_forge_engine.py — the ENGINE-BACKED Forge policy (forge_bridge.EnginePolicy + reconstruct).
+"""test_forge_engine.py — UNIT tests for the ENGINE-BACKED Forge policy (forge_bridge.EnginePolicy +
+reconstruct), against a HAND-BUILT (synthetic) observation — no JVM, no Forge run.
 
 Forge owns the state; OUR datalog engine provides and plays the move. These checks demonstrate the
-completeness signal: from a Forge observation (real cards by oracle name), our engine RECONSTRUCTS the
-board, independently MODELS the offered options, ENDORSES the legal ones (can_cast / valid target /
-may_attack / not illegal_block), and plays a valid move — while recording coverage + the cards it can't
-model. Needs datalog/cards.dl. Run: python3 test_forge_engine.py
+completeness signal: from an observation (_board() below — a fabricated Forge-shaped snapshot using real
+oracle card NAMES, NOT a live Forge game), our engine RECONSTRUCTS the board, independently MODELS the
+offered options, ENDORSES the legal ones (can_cast / valid target / may_attack / not illegal_block), and
+plays a valid move — while recording coverage + the cards it can't model.
+
+For the REAL round-trip (an actual Forge JVM feeding witchcraft real observations and executing its plays),
+see forge_integration/ (ForgeVsBot.java / ForgeComboKill.java + forge_integration/README.md for setup).
+
+Needs datalog/cards.dl. Run: python3 test_forge_engine.py
 """
 
 from __future__ import annotations

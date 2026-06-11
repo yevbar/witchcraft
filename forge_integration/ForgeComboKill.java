@@ -1,5 +1,10 @@
-// ForgeVsBot.java — a REAL game: our Python engine (witchcraft) plays a seat vs Forge's AI, Forge owning
-// the state. PURE ENGINE: every STRATEGIC decision Forge asks our seat to make — which spell/land to play
+// ForgeComboKill.java — a REAL game proving witchcraft can PILOT a turn-1 combo with Forge as the source of
+// truth: the seat opens a STACKED hand (a storm / Thassa's-Oracle line, see COMBO[] + the startGameHook),
+// and OUR lookahead drives it all — spells (win_search), the 'choose a card name', targeting, and even mana
+// payment (payManaCost -> enginePay over driver.mana_plan). Like ForgeVsBot below, but combo-piloting; the
+// search rediscovers the line (nothing combo-specific), and Forge counts storm / exiles the library /
+// computes the win and reports it. Forge owns the state. PURE ENGINE: every STRATEGIC decision Forge asks
+// our seat to make — which spell/land to play
 // (chooseSpellAbilityToPlay), which creatures attack (declareAttackers), which block (declareBlockers),
 // keep/mulligan (mulliganKeepHand) — is forwarded to the Python bot (forge_bridge.serve + EnginePolicy)
 // over a socket; NONE of Forge's AI strategy is consulted (no super.* fallback — on any failure we take a
@@ -7,9 +12,10 @@
 // owns (which lands to tap to pay a cost, combat damage assignment order) — those aren't AI strategy.
 // The bot reports a completeness number: of the options Forge offers, how many our engine models+endorses.
 //
-// Compile: javac -cp $FATJAR -d out forge_integration/ForgeVsBot.java
+// REAL headless Forge match (not a mock — those are the pure-Python test_forge_*.py). Setup: README.md.
+// Compile: javac -cp $FATJAR -d out forge_integration/ForgeComboKill.java
 // Run:     (python: python3 -c 'import forge_bridge,...; serve(EnginePolicy())' on $PORT)
-//          java -Djava.awt.headless=true -DbotHost=127.0.0.1 -DbotPort=$PORT -cp $FATJAR:out ForgeVsBot
+//          java -Djava.awt.headless=true -DbotHost=127.0.0.1 -DbotPort=$PORT -cp $FATJAR:out ForgeComboKill
 
 import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;

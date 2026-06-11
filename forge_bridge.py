@@ -12,7 +12,14 @@ Forge's `PlayerController` decision calls and our policy, not a second engine.
 
 TRANSPORT is line-delimited JSON, over a TCP socket (`serve`/`connect`) or stdio pipe (`run_stdio`). The
 decision LOGIC is `ForgePlayer.handle(msg) -> reply`, a pure function of (message, policy, last observation)
-— so it's fully testable in-process against a mock Forge (see test_forge_bridge.py) with no socket/JVM.
+— so it's fully testable in-process against a MOCK Forge (see test_forge_bridge.py / test_forge_engine.py)
+with no socket/JVM.
+
+WHERE THE REAL FORGE LIVES. This module is just the adapter. The actual Forge JVM connector — a headless
+Forge match with witchcraft driving a seat through the socket above — is in `forge_integration/`
+(ForgeVsBot.java, ForgeComboKill.java; run via forge_integration/run.sh, and see
+forge_integration/README.md for prerequisites + setup). So: the mock tests check this protocol/policy
+fast; forge_integration/ runs it for real against Forge's authoritative rules.
 
 PROTOCOL (Forge connector -> us):
   {"type":"hello","you":<seatId>,"players":[...],"variant":...}      -> we reply {"type":"ready","name":...}

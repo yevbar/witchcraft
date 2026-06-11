@@ -6,8 +6,9 @@
 # decision (targets, blocks, mulligan, mana payment) falls back to Forge's own AI. The bot prints a
 # completeness coverage report (modeled/endorsed fractions, unmodeled cards) when the game ends.
 #
-# Requires (paths are this machine's; override via env):
-#   JDK         a JDK with javac          (default /home/zucc/opt/jdk-17.0.13+11)
+# Requires (paths are this machine's; override via env) — see forge_integration/README.md for full setup
+# (JDK 17 + how to build the Forge fat jar):
+#   JDK         a JDK 17 with javac       (default /home/zucc/opt/jdk-17.0.13+11)
 #   FORGE       a built Forge tree        (default /home/zucc/Development/witchcraft/forge)
 set -euo pipefail
 
