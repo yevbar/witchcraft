@@ -121,6 +121,51 @@ def available() -> bool:
     return build()[0] is not None
 
 
+# arbitrary-program binaries (engine_rules.dl + extra .output lines), cached by content hash.
+_PROGRAMS: dict = {}
+
+
+def _build_program(rules: str) -> tuple:
+    """Compile an ARBITRARY rules program to a native binary (cached by hash); (path, edb) or (None, None)."""
+    edb = _edb(rules)
+    src = _wrapper(rules, edb)
+    h = hashlib.sha1(src.encode()).hexdigest()[:12]
+    if h not in _PROGRAMS:
+        binp = _CACHE_DIR / f"mtg_prog_{h}"
+        if not binp.exists():
+            with tempfile.TemporaryDirectory() as d:
+                dl = Path(d) / "p.dl"
+                dl.write_text(src)
+                if not _compile(dl, binp):
+                    _PROGRAMS[h] = (None, None)
+                    return _PROGRAMS[h]
+        _PROGRAMS[h] = (binp, edb)
+    return _PROGRAMS[h]
+
+
+def evaluate_program(rules: str, fkey: frozenset) -> dict | None:
+    """Evaluate a fact set against an arbitrary rules program (e.g. engine_rules.dl + a `.output
+    trigger_effect` the committed engine doesn't surface) through the COMPILED native binary — so tests
+    can read internal relations without the souffle INTERPRETER, whose compiled-mode is broken on some
+    installs. Returns {rel: set(tuples)} for every output, or None if no binary can be built (caller
+    falls back). Propagates subprocess.CalledProcessError if the binary aborts on this fact set (a few
+    cards trip an unrelated §122 to_number) so the caller can skip that input."""
+    binp, edb = _build_program(rules)
+    if binp is None:
+        return None
+    facts = {rel: rows for rel, rows in fkey}
+    with tempfile.TemporaryDirectory() as d:
+        fd, od = Path(d) / "f", Path(d) / "o"
+        fd.mkdir()
+        od.mkdir()
+        for rel in edb:
+            (fd / f"{rel}.facts").write_text(
+                "".join("\t".join(map(str, row)) + "\n" for row in facts.get(rel, ())))
+        subprocess.run([str(binp), "-F", str(fd), "-D", str(od)], check=True, capture_output=True)
+        return {f.stem: {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}
+                for f in od.glob("*.csv")}
+
+
 def _workdir(edb: list[str]) -> tuple:
     """A per-process working dir with every EDB <rel>.facts pre-staged empty (souffle errors on a
     missing input file). Reused across calls so each evaluate writes only the non-empty relations
