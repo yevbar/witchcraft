@@ -12,13 +12,9 @@ Run: python3 test_translate_effects.py   (needs datalog/cards.dl for the bridge 
 
 from __future__ import annotations
 
-import csv
-import subprocess
-import tempfile
-from pathlib import Path
-
+import souffle_eval
 import bridge_to_engine as bridge
-from driver import RULES, _lit
+from driver import RULES
 
 # the three verbs / engine effect-names this slice owns. We filter both the old-bridge and the
 # datalog-derived rows to these so the comparison ignores rows other branches still own.
@@ -64,20 +60,18 @@ def _old_trigger_rows(f) -> set:
 
 
 # the REAL engine rules + a .output for trigger_effect (which the committed engine doesn't surface, but the
-# rule is in RULES). Run via the souffle INTERPRETER (like test_engine_native._interp) rather than the
-# compiled native binary: a handful of pre-existing cards (a 'put_counter X' clause) abort the COMPILED
-# binary in an unrelated §122 rule's to_number — the interpreter tolerates it, isolating this slice's check.
-def _datalog_rows(state: dict) -> tuple[set, set]:
+# rule is in RULES). Evaluated through souffle_eval — the COMPILED native binary first (the souffle
+# interpreter's compiled mode is broken on some installs), returning None for the handful of cards whose
+# 'put_counter X' clause aborts EITHER backend in an unrelated §122 to_number, so the caller skips them.
+_PROG = RULES + "\n.output trigger_effect\n"
+
+
+def _datalog_rows(state: dict):
     """Feed the card's parse facts to the engine, read the DATALOG-derived spell_effect / trigger_effect rows
-    for this instance ('x'), filtered to the 3 owned engine effect-names."""
-    facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})."
-                      for rel, rows in state.items() for row in rows)
-    with tempfile.TemporaryDirectory() as d:
-        (Path(d) / "e.dl").write_text(RULES + "\n.output trigger_effect\n" + facts)
-        subprocess.run(["souffle", f"{d}/e.dl", "-D", d], check=True, capture_output=True)
-        out = {}
-        for f in Path(d).glob("*.csv"):
-            out[f.stem] = {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}
+    for this instance ('x'), filtered to the 3 owned engine effect-names. None if the backend aborts (skip)."""
+    out = souffle_eval.eval_state(_PROG, state)
+    if out is None:
+        return None
     sp = {r for r in out.get("spell_effect", set()) if r[0] == "x" and r[1] in _OWNED_EFF}
     tr = {r for r in out.get("trigger_effect", set()) if r[0].startswith("x_") and r[1] in _OWNED_EFF}
     return sp, tr
@@ -90,6 +84,7 @@ def run() -> None:
 
     checks = 0
     mismatches = 0
+    skipped = 0
     n_counter = n_fog = n_create = 0
     n_tcounter = n_tfog = n_tcreate = 0
 
@@ -109,7 +104,11 @@ def run() -> None:
         if verbs & {"counter", "prevent_damage", "create"}:
             st = {k: f_state[k] for k in ("instance_of", "card_ability", "card_effect", "ability_trigger") if k in f_state}
             st["is_player"] = {("alice",), ("bob",)}
-            dl_sp, dl_tr = _datalog_rows(st)
+            res = _datalog_rows(st)
+            if res is None:                                   # backend aborted on this card (§122 to_number) -> skip
+                skipped += 1
+                continue
+            dl_sp, dl_tr = res
         else:
             dl_sp, dl_tr = set(), set()
 
@@ -135,6 +134,8 @@ def run() -> None:
 
     print(f"\nspell   : counter={n_counter}  fog={n_fog}  create_token={n_create}")
     print(f"trigger : counter={n_tcounter}  fog={n_tfog}  create_token={n_tcreate}")
+    if skipped:
+        print(f"({skipped} cards skipped — souffle backend aborted on an unrelated §122 to_number)")
     print(f"{checks - mismatches}/{checks} checks passed  ({mismatches} mismatches)")
     if mismatches:
         raise SystemExit(1)

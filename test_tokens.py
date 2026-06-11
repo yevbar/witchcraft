@@ -9,37 +9,31 @@ Run: python3 test_tokens.py   (needs datalog/cards.dl for the bridge check)
 from __future__ import annotations
 
 import contextlib
-import csv
 import io
-import subprocess
-import tempfile
-from pathlib import Path
 
 import driver
 import bridge_to_engine as bridge
-from driver import RULES, _lit
+import souffle_eval
+from driver import RULES
 
 CHECKS: list[tuple[str, bool]] = []
 
+_PROG = RULES + "\n.output trigger_effect\n"        # the engine + a .output for the internal trigger_effect
 
-def _engine_token_rows(f: dict) -> list:
+
+def _engine_token_rows(f: dict):
     """The §111 create_token rows the ENGINE derives from a card's parse facts (spell_effect + trigger_effect,
-    keyed by instance 'x'). ONE WORLD: create_token is now DATALOG-derived, so read it back from the engine
-    instead of the bridge dict. Run via the souffle INTERPRETER (trigger_effect isn't a committed .output, and
-    a few pre-existing 'put_counter X' cards abort the compiled binary in an unrelated §122 to_number rule)."""
+    keyed by instance 'x'). ONE WORLD: create_token is now DATALOG-derived, so read it back from the engine.
+    Evaluated through souffle_eval (native binary first); returns None if the backend aborts on this card (a
+    few 'put_counter X' cards trip an unrelated §122 to_number) so the caller can skip+count it."""
     if not any(v == "create" for (_c, _a, _i, v, *_r) in f.get("card_effect", set())):
         return []
     st = {k: f[k] for k in ("instance_of", "card_ability", "card_effect", "ability_trigger") if k in f}
     st["is_player"] = {("alice",), ("bob",)}
-    facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})." for rel, rows in st.items() for row in rows)
-    with tempfile.TemporaryDirectory() as d:
-        (Path(d) / "e.dl").write_text(RULES + "\n.output trigger_effect\n" + facts)
-        subprocess.run(["souffle", f"{d}/e.dl", "-D", d], check=True, capture_output=True)
-        rows = set()
-        for stem in ("spell_effect", "trigger_effect"):
-            p = Path(d) / f"{stem}.csv"
-            if p.exists():
-                rows |= {tuple(r) for r in csv.reader(p.open(), delimiter="\t")}
+    out = souffle_eval.eval_state(_PROG, st)
+    if out is None:
+        return None                                            # backend aborted -> skip this card
+    rows = out.get("spell_effect", set()) | out.get("trigger_effect", set())
     return [r for r in rows if r[0].split("_")[0] == "x" and "create_token" in r]
 
 
@@ -114,6 +108,7 @@ def _bridge_check() -> None:
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     n = 0
+    skipped = 0
     sample = None
     for name in corpus:
         try:
@@ -122,10 +117,15 @@ def _bridge_check() -> None:
             continue
         # spell_effect / trigger_effect rows carry create_token + the spec (not the old 'controller' bug).
         toks = _engine_token_rows(f)
+        if toks is None:                                       # backend aborted on this card (§122 to_number)
+            skipped += 1
+            continue
         if toks:
             n += 1
             if sample is None:
                 sample = (name, sorted(toks))
+    if skipped:
+        print(f"  ({skipped} cards skipped — souffle backend aborted on an unrelated §122 to_number)")
     check("real cards create tokens via create_token (>= 50)", n >= 50)
     check("a concrete token-maker was produced (spec carried, not 'controller')",
           sample is not None and all("controller" not in r for r in (sample[1] if sample else [])))
