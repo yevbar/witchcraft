@@ -781,9 +781,12 @@ def _source_units(state: dict, ap: str):
 
     lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
                    and (ap, c) in ctrl and (c,) not in tapped)
-    for c in lands:                                           # a land taps for one color (basics monocolor)
+    for c in lands:                                           # §106 a land taps for one mana of a color it makes
         cols = sorted(col for (s, col) in produces if s == c)
-        yield (c, [cols[0] if cols else "colorless"], 0, True)
+        # a DUAL/any-color land (Underground Sea, City of Brass) is FLEXIBLE: a frozenset wildcard the pool
+        # aims at the hand's demand (§106.6 the player picks the color). A basic makes its single color.
+        unit = frozenset(cols) if len(cols) > 1 else (cols[0] if cols else "colorless")
+        yield (c, [unit], 0, True)
 
     # non-land sources controlled by ap and untapped. §302.6 summoning sickness only blocks a CREATURE's
     # {T} mana ability (a dork that entered this turn) — a mana ROCK (artifact) taps the turn it enters.
@@ -800,12 +803,22 @@ def _source_units(state: dict, ap: str):
                     units += [col] * int(amt)
             for (t, kind, amt) in s_wild:
                 if t == c:
-                    units += [_wildcard_set(kind)] * int(amt)
+                    if kind in _SAME_COLOR_KINDS and int(amt) > 1:
+                        # §106 'add N mana of any ONE color' (Black Lotus): a bundle — all N share one
+                        # chosen color, NOT N independent wildcards (which would fabricate impossible
+                        # multi-color mana). A ('one', colorset, n) unit the pool resolves to one color.
+                        units.append(("one", _wildcard_set(kind), int(amt)))
+                    else:
+                        units += [_wildcard_set(kind)] * int(amt)   # independent wildcard mana (any color)
             cg = next((int(g) for (t, g, _ts) in s_cost if t == c), 0)
             ts = next((bool(ts) for (t, _g, ts) in s_cost if t == c), True)
             yield (c, units, cg, ts)
         else:                                                # legacy un-lexed dork: one colorless mana (§605)
             yield (c, ["colorless"], 0, True)
+
+
+# §106 mana descriptors where N mana must all be ONE chosen color (a bundle), not N independent wildcards.
+_SAME_COLOR_KINDS = {"any_one_color", "chosen_color"}
 
 
 def _wildcard_set(kind: str) -> frozenset:
@@ -824,7 +837,10 @@ def _untapped_sources(state: dict, ap: str) -> list[tuple[str, str | None]]:
     out: list[tuple[str, str | None]] = []
     for sid, units, _cg, _ts in _source_units(state, ap):
         for u in units:
-            out.append((sid, next(iter(sorted(u))) if isinstance(u, frozenset) else u))
+            if isinstance(u, tuple) and u and u[0] == "one":   # an 'N of one color' bundle -> n of a rep color
+                out += [(sid, next(iter(sorted(u[1]))))] * u[2]
+            else:
+                out.append((sid, next(iter(sorted(u))) if isinstance(u, frozenset) else u))
     return out
 
 
@@ -897,23 +913,49 @@ def _resolve_pool(state: dict, ap: str):
         return {}, 0                                          # all sources tapped -> empty pool, count 0
     fixed: dict[str, int] = {}
     wilds: list[frozenset] = []
+    bundles: list[tuple[frozenset, int]] = []                 # ('add N of ONE color' — Black Lotus)
     cost_generic = 0
     for _sid, units, cg, _ts in units_rows:
         cost_generic += cg
         for u in units:
-            if isinstance(u, frozenset):
+            if isinstance(u, tuple) and u and u[0] == "one":
+                bundles.append((u[1], u[2]))
+            elif isinstance(u, frozenset):
                 wilds.append(u)
             else:
                 fixed[u] = fixed.get(u, 0) + 1
     by_color = dict(fixed)
-    # assign wildcards: first to a hand-demanded color the wildcard can make, then to a default WUBRG
-    # spread (green..white) so the pool is colorful even with no demand signal.
-    demand = _mana_demand(state, ap)
+    # assign wildcards to the hand's demanded colors, filling the MOST-demanded color FULLY before the next
+    # (a fixed priority by original want, so 2 Lotus Petals make {U}{U} for a {U}{U} spell rather than one
+    # blue + one of some incidental other-color demand). CONSUMING remaining need as it's filled spreads
+    # leftover wildcards across distinct pips; once all demand is met, a default WUBRG spread keeps the pool
+    # colorful. Deterministic: the priority order is by (-want, color), independent of set iteration order.
+    want: dict[str, int] = {}
+    for col in _mana_demand(state, ap):                       # a flat demand list -> a consumable multiset
+        want[col] = want.get(col, 0) + 1
+    priority = sorted(want, key=lambda c: (-want[c], c))      # high-demand colors first, fully, then the rest
+    remaining = dict(want)
     spread = ["green", "white", "blue", "black", "red"]
-    for w in wilds:
-        pick = next((c for c in demand if c in w), None) or next((c for c in spread if c in w), None) \
-            or next(iter(sorted(w)))
-        by_color[pick] = by_color.get(pick, 0) + 1
+
+    def aim(colset, n):                                       # assign n mana of `colset` to demanded colors
+        nonlocal by_color
+        for _ in range(n):
+            pick = next((c for c in priority if remaining.get(c, 0) > 0 and c in colset), None) \
+                or next((c for c in spread if c in colset), None) or next(iter(sorted(colset)))
+            if remaining.get(pick, 0) > 0:
+                remaining[pick] -= 1
+            by_color[pick] = by_color.get(pick, 0) + 1
+
+    for w in wilds:                                           # independent wildcards (any color) — one at a time
+        aim(w, 1)
+    # §106 same-color bundles: all N mana go to ONE color — the most-demanded color the bundle can make.
+    for colset, n in bundles:
+        pick = next((c for c in priority if remaining.get(c, 0) > 0 and c in colset), None) \
+            or next((c for c in spread if c in colset), None) or next(iter(sorted(colset)))
+        for _ in range(n):
+            if remaining.get(pick, 0) > 0:
+                remaining[pick] -= 1
+        by_color[pick] = by_color.get(pick, 0) + n
     # pay each source's activation cost from generic (colorless first, then any color) — net the pool.
     for _ in range(cost_generic):
         donor = "colorless" if by_color.get("colorless", 0) else next((c for c in by_color if by_color[c]), None)
@@ -937,6 +979,15 @@ def _refresh_mana_pool(state: dict, ap: str) -> None:
     state["mana_pool"] = {(p, c, n) for (p, c, n) in state.get("mana_pool", set()) if p != ap} \
         | {(ap, col, n) for col, n in by_color.items()}
     state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, total)}
+
+
+def _sacrifice_source(state: dict, sid: str) -> None:
+    """§118.3/§605 — a one-shot fast-mana source (Lotus Petal, Black Lotus) pays by being SACRIFICED, not
+    tapped: move it off the battlefield to its owner's graveyard. (These cards carry no 'when sacrificed'
+    trigger, so we skip the §603.10a look-back firing _sacrifice does — avoiding re-entrancy mid-payment.)"""
+    state.get("on_battlefield", set()).discard((sid,))
+    state.setdefault("graveyard", set()).add((sid,))
+    state.get("tapped", set()).discard((sid,))
 
 
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
@@ -966,46 +1017,69 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     # tap sources to cover the cost. A source contributes ALL its mana when tapped; we apply that mana to
     # an unmet colored pip first (matching the source's color, prefer a concrete-color source over a
     # wildcard for that pip), then to generic. Greedy but faithful: tap only sources that help.
+    def _slots_bundles(units):
+        # split a source's mana into single 1-mana slots (color or wildcard set) and same-color bundles
+        # ('one', colset, n) where all n must be ONE color; plus the total mana count.
+        slots, bundles, total = [], [], 0
+        for u in units:
+            if isinstance(u, tuple) and u and u[0] == "one":
+                bundles.append((u[1], u[2])); total += u[2]
+            else:
+                slots.append(u if isinstance(u, frozenset) else {u}); total += 1
+        return slots, bundles, total
+
     def apply(units, cg):
         nonlocal need_generic
-        avail = sum(1 for u in units) - cg                    # net mana after the source's activation cost
-        # pay colored pips this source can make
-        for u in list(units):
+        slots, bundles, total = _slots_bundles(units)
+        avail = total - cg                                    # net mana after the source's activation cost
+        for colset in slots:                                  # each single slot pays one matching pip
             if avail <= 0:
                 break
-            colset = u if isinstance(u, frozenset) else {u}
             hit = next((c for c in need_pips if need_pips[c] > 0 and c in colset), None)
             if hit:
                 need_pips[hit] -= 1; avail -= 1
+        for colset, n in bundles:                             # a bundle pays up to n pips of ONE chosen color
+            if avail <= 0:
+                break
+            color = max((c for c in need_pips if need_pips[c] > 0 and c in colset),
+                        key=lambda c: need_pips[c], default=None)
+            give = min(n, avail)
+            if color is not None:
+                paid = min(need_pips[color], give)
+                need_pips[color] -= paid; avail -= paid       # leftover of the bundle falls through to generic
         # leftover mana pays generic
         take = min(avail, need_generic)
         need_generic -= max(0, take)
 
     def helps(units, cg):
-        avail = sum(1 for u in units) - cg
+        slots, bundles, total = _slots_bundles(units)
+        avail = total - cg
         if avail <= 0:
             return False
         if need_generic > 0:
             return True
-        for u in units:
-            colset = u if isinstance(u, frozenset) else {u}
+        for colset in slots + [b[0] for b in bundles]:
             if any(need_pips.get(c, 0) > 0 for c in colset):
                 return True
         return False
 
-    # order: concrete single-color sources first (preserve wildcards for pips), then wildcard sources.
+    # order: concrete single-color sources first (preserve flexible wildcards/bundles for pips), then flex.
     def keyf(row):
         _sid, units, _cg, _ts = row
-        wildcount = sum(1 for u in units if isinstance(u, frozenset))
-        return (wildcount, sum(1 for u in units))
+        flexcount = sum(1 for u in units if isinstance(u, (frozenset, tuple)))
+        return (flexcount, sum(u[2] if isinstance(u, tuple) and u and u[0] == "one" else 1 for u in units))
     for sid, units, cg, _ts in sorted(rows, key=keyf):
         if not (need_pips and any(v > 0 for v in need_pips.values())) and need_generic <= 0:
             break
         if helps(units, cg):
             apply(units, cg)
             used.add(sid)
+    sacrifices = state.get("source_sacrifice", set())
     for sid in used:
-        state.setdefault("tapped", set()).add((sid,))
+        if (sid,) in sacrifices:                              # §605 one-shot fast mana: sacrificed, not tapped
+            _sacrifice_source(state, sid)
+        else:
+            state.setdefault("tapped", set()).add((sid,))
     _refresh_mana_pool(state, ap)                             # pool/count from sources still untapped
 
 

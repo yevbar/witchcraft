@@ -985,8 +985,10 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
     if "Land" in (c.get("types") or []):
         for col in _land_colors(c):
             state.setdefault("land_produces", set()).add((tid, col))
-    for cost_generic, taps_self, fixed, wild in _mana_source_outputs(c):
+    for cost_generic, taps_self, sac_self, fixed, wild in _mana_source_outputs(c):
         state.setdefault("source_cost", set()).add((tid, cost_generic, taps_self))
+        if sac_self:                                          # §605 one-shot fast mana (Lotus Petal, Black Lotus)
+            state.setdefault("source_sacrifice", set()).add((tid,))
         for col, amt in fixed.items():
             state.setdefault("source_produces", set()).add((tid, col, amt))
         for kind, amt in wild.items():
@@ -1022,7 +1024,7 @@ def _mana_source_outputs(c: dict):
         prod = _mana_production(what)
         if not prod:
             continue                                          # variable/conditional production -> abstain
-        cost_generic, taps_self, ok = _parse_ability_cost(cost)
+        cost_generic, taps_self, sac_self, ok = _parse_ability_cost(cost)
         if not ok:
             continue                                          # non-mana / {X} cost -> abstain (driver can't pay)
         # Lands are already modeled by land_produces (one color per land); only emit source rows for
@@ -1044,27 +1046,34 @@ def _mana_source_outputs(c: dict):
                 break
         if abstain or (not fixed and not wild):
             continue
-        yield cost_generic, taps_self, fixed, wild
+        yield cost_generic, taps_self, sac_self, fixed, wild
+
+
+_SAC_SELF = re.compile(r"^sacrifice (this |~|it$)", re.I)
 
 
 def _parse_ability_cost(cost: str):
-    """Decompose a mana ability's activation cost (the part before ':') into (generic, taps_self, ok).
-    A cost is payable by the loop iff it is only {N} generic symbols and/or {T} (tap this). Anything
-    else — a colored pip, {X}, Sacrifice, Tap another, a loyalty/discard cost — sets ok=False (abstain)."""
-    taps_self = False
+    """Decompose a mana ability's activation cost (the part before ':') into (generic, taps_self, sac_self,
+    ok). A cost is payable by the loop iff each component is {N} generic, {T} (tap this), or 'Sacrifice this
+    <permanent>' (the one-shot fast-mana idiom: Lotus Petal, Black Lotus). Anything else — a colored pip,
+    {X}, Tap another, a loyalty/discard/'Pay N life' cost — sets ok=False (abstain)."""
+    taps_self = sac_self = False
     generic = 0
     parts = [p.strip() for p in cost.split(",") if p.strip()]
     for part in parts:
         if part == "{T}":
             taps_self = True
             continue
+        if _SAC_SELF.match(part):                             # 'Sacrifice this artifact' / 'Sacrifice ~'
+            sac_self = True
+            continue
         syms = _MV_SYM.findall(part)
         # a clean generic component like {1} or {3}: just digits, nothing else around the symbol(s)
         if syms and _MV_SYM.sub("", part).strip() == "" and all(s.isdigit() for s in syms):
             generic += sum(int(s) for s in syms)
             continue
-        return 0, False, False                                # any other cost component -> not loop-payable
-    return generic, taps_self, True
+        return 0, False, False, False                         # any other cost component -> not loop-payable
+    return generic, taps_self, sac_self, True
 
 
 def make_state(boards: dict, life: int = 20) -> dict:

@@ -46,6 +46,17 @@ def _active(state: dict) -> str:
     return next(iter(state["active_player"]))[0]
 
 
+def _source_ids(state: dict, ap: str) -> set:
+    """The ids of ap's mana-source permanents currently on the battlefield (lands, lexed rocks/dorks, and
+    flagged mana_source) — used to detect a NEW source entering after a cast so the pool can re-stock."""
+    bf, ctrl = state.get("on_battlefield", set()), state.get("printed_control", set())
+    ptype = state.get("printed_type", set())
+    precise = {t for (t, _c, _a) in state.get("source_produces", set())} \
+        | {t for (t, _k, _a) in state.get("source_wildcard", set())}
+    return {c for (c,) in bf if (ap, c) in ctrl
+            and ((c, "land") in ptype or (c,) in state.get("mana_source", set()) or c in precise)}
+
+
 def _step(state: dict) -> str:
     return next(iter(state["current_step"]))[0]
 
@@ -296,8 +307,15 @@ def step(state: dict, action: tuple) -> dict:
         if kind == "cast":
             _, ap, spell, choices = action
             s["_forced"] = dict(choices)
+            srcs_before = _source_ids(s, ap)
             driver._cast_spell(s, ap, spell, players)
             s["_forced"] = {}
+            # §106 if the spell that resolved was a mana SOURCE (a Mox/Petal/rock entering the battlefield),
+            # the §601.2g pool refresh inside _cast_spell ran BEFORE it entered, so it isn't yet spendable.
+            # Re-stock the pool from the board so the new source can pay the NEXT cast this same turn. Only
+            # when a source actually entered — never after a ritual, so floating mana (Dark Ritual) survives.
+            if _source_ids(s, ap) - srcs_before:
+                driver._refresh_mana_pool(s, ap)
         elif kind == "cast_commander":                          # §903.6 — cast commander from the command zone
             _, ap, cmd = action
             driver._develop_mana(s, ap)                         # §305 land drop + mana (mirrors _cast_phase entry)

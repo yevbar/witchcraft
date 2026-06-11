@@ -149,18 +149,21 @@ def main():
         c = {cc["name"]: cc for cc in card_corpus.load_cards()}.get(name, {})
         return list(B._mana_source_outputs(c))
 
+    # the tuple shape is (cost_generic, taps_self, sac_self, fixed, wild) — sac_self marks one-shot fast mana.
     check("Sol Ring lexes to 2 colorless ({C}{C})",
-          outs("Sol Ring") == [(0, True, {"colorless": 2}, {})])
+          outs("Sol Ring") == [(0, True, False, {"colorless": 2}, {})])
     check("Mana Crypt lexes to 2 colorless (non-first oracle line)",
-          outs("Mana Crypt") == [(0, True, {"colorless": 2}, {})])
+          outs("Mana Crypt") == [(0, True, False, {"colorless": 2}, {})])
     check("Grim Monolith lexes to 3 colorless ({C}{C}{C})",
-          outs("Grim Monolith") == [(0, True, {"colorless": 3}, {})])
-    check("Llanowar Elves lexes to 1 green", outs("Llanowar Elves") == [(0, True, {"green": 1}, {})])
+          outs("Grim Monolith") == [(0, True, False, {"colorless": 3}, {})])
+    check("Llanowar Elves lexes to 1 green", outs("Llanowar Elves") == [(0, True, False, {"green": 1}, {})])
     check("Birds of Paradise lexes to any-color wildcard",
-          outs("Birds of Paradise") == [(0, True, {}, {"any_color": 1})])
+          outs("Birds of Paradise") == [(0, True, False, {}, {"any_color": 1})])
     check("Dimir Signet lexes to blue+black costing {1}",
-          outs("Dimir Signet") == [(1, True, {"blue": 1, "black": 1}, {})])
-    check("Jeweled Lotus ABSTAINS (Sacrifice cost the loop can't pay)", outs("Jeweled Lotus") == [])
+          outs("Dimir Signet") == [(1, True, False, {"blue": 1, "black": 1}, {})])
+    # Jeweled Lotus now lexes (sac-cost fast mana): {T}, Sacrifice -> 3 mana of any ONE color, sac_self=True.
+    check("Jeweled Lotus lexes to a sac-self any-one-color burst",
+          outs("Jeweled Lotus") == [(0, True, True, {}, {"any_one_color": 3})])
 
     # a state helper that puts the named permanents on alice's battlefield with a spell in hand.
     def board(perms, spell):
