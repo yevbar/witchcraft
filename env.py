@@ -94,11 +94,14 @@ def to_move(state: dict) -> str:
 # ---- legal actions ------------------------------------------------------------------------------------
 
 def _target_options(state: dict, cls: str) -> list[str]:
-    """Legal creatures of a single-target class (any / you_control / opponent), as the driver's _pick_target
-    would constrain — but ALL of them, for the agent to choose among (not the greedy strongest)."""
+    """Legal targets of a single-target class (creatures: any / you_control / opponent; non-creature
+    permanents: perm_<filter>), as the driver's _pick_target would constrain — but ALL of them, for the
+    agent to choose among (not the greedy strongest)."""
     out = driver.run(state, ["controls", "creature"])
     controls = {(p, c) for (p, c) in out["controls"]}
     creatures = {c for (c,) in out["creature"]}
+    if cls.startswith("perm_"):                               # §115 non-creature permanent target
+        return driver._perm_candidates(state, cls, creatures)
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     ap = _active(state)
     mine = {c for (p, c) in controls if p == ap}

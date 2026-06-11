@@ -191,7 +191,24 @@ _TARGET_CLASS = {
     # §115 'target creature or planeswalker' (Bitter Triumph): the engine models only the creature
     # alternative; picking a creature is a LEGAL target (faithful — the PW option is simply not exercised).
     "target_creature_or_planeswalker": "any",
+    # §115 NON-CREATURE PERMANENT targets for the zone-move verbs (destroy / bounce / tap — Abrade's
+    # destroy-artifact, Prismari Charm / Boomerang Basics' bounce-nonland-permanent, Naturalize). The class
+    # encodes a TYPE FILTER (perm_<filter>) the driver decodes to enumerate matching permanents; a harmful
+    # verb prefers an opponent's permanent (§601.2c). Only zone moves ride these — a P/T pump / counter on a
+    # non-creature permanent is inert, so those clauses simply don't occur. Restricted forms (named, 'with mana
+    # value N or less') are absent here -> they still abstain.
+    "target_artifact": "perm_artifact", "target_enchantment": "perm_enchantment",
+    "target_artifact_or_enchantment": "perm_artifact_enchantment",
+    "target_nonland_permanent": "perm_nonland", "target_permanent": "perm_any",
+    "another_target_permanent": "perm_any", "target_noncreature_permanent": "perm_noncreature",
+    "target_creature_or_enchantment": "perm_creature_enchantment",
+    "target_creature_or_planeswalker_or_enchantment": "perm_cep",
+    "target_creature_enchantment_or_planeswalker": "perm_cep",
 }
+
+# The perm_<filter> class is opaque to the bridge — it flows straight through target_class into the datalog
+# spell_target/trigger_target rules and is decoded by the DRIVER (driver._PERM_FILTER, the authoritative
+# class -> type-filter map) when it enumerates candidate permanents on resolution.
 
 
 def _target_class(tgt: str) -> str | None:

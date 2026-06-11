@@ -590,18 +590,57 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
             print(f"    {kind} {a}: untaps target {tgt}")
 
 
+# perm_<filter> class -> the printed types a candidate permanent must match (ANY of), or a special token.
+# Mirrors bridge_to_engine._PERM_FILTER (the datalog passes the class string straight through to the driver).
+_PERM_FILTER = {
+    "perm_artifact": ("artifact",), "perm_enchantment": ("enchantment",),
+    "perm_artifact_enchantment": ("artifact", "enchantment"),
+    "perm_creature_enchantment": ("creature", "enchantment"),
+    "perm_cep": ("creature", "enchantment", "planeswalker"),
+    "perm_noncreature": ("noncreature",), "perm_nonland": ("nonland",), "perm_any": ("any",),
+}
+
+
+def _perm_candidates(state: dict, cls: str, creatures: set) -> list[str]:
+    """§115 the on-battlefield permanents matching a perm_<filter> target class. Type is read from the
+    surfaced printed_type, with the engine's DERIVED `creature` folded in so an animated land / token counts
+    as a creature. 'nonland' = any permanent without a printed land type; 'noncreature' = not a creature;
+    'any' = every permanent."""
+    on_bf = sorted(c for (c,) in state.get("on_battlefield", set()))
+    ptype = state.get("printed_type", set())
+    want = _PERM_FILTER.get(cls, ())
+
+    def matches(c: str) -> bool:
+        types = {t for (o, t) in ptype if o == c}
+        if c in creatures:
+            types.add("creature")
+        if want == ("any",):
+            return True
+        if want == ("nonland",):
+            return "land" not in types
+        if want == ("noncreature",):
+            return "creature" not in types
+        return any(t in types for t in want)
+
+    return [c for c in on_bf if matches(c)]
+
+
 def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
                  controls: set, powers: dict, creatures: set) -> str | None:
     """§601.2c choose a legal target for a single-target effect. `cls` constrains the legal set
-    (any / you_control / opponent); within it, a harmful verb (removal/tap/bounce, or a P/T shrink)
-    picks the strongest enemy creature and a beneficial one the strongest own creature."""
+    (any / you_control / opponent for creatures; perm_<filter> for non-creature permanents); within it,
+    a harmful verb (removal/tap/bounce, or a P/T shrink) picks the strongest enemy and a beneficial one
+    the strongest own permanent."""
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
-    cands = [c for c in creatures if c in on_bf]
-    if cls == "you_control":
-        cands = [c for c in cands if c in mine]
-    elif cls == "opponent":
-        cands = [c for c in cands if c not in mine]
+    if cls.startswith("perm_"):                              # §115 non-creature permanent target (Abrade, bounce)
+        cands = _perm_candidates(state, cls, creatures)
+    else:
+        cands = [c for c in creatures if c in on_bf]
+        if cls == "you_control":
+            cands = [c for c in cands if c in mine]
+        elif cls == "opponent":
+            cands = [c for c in cands if c not in mine]
     if not cands:
         return None
     harmful = verb in _HARMFUL_TARGET

@@ -432,12 +432,63 @@ def _bridge_checks() -> None:
           bridge._target_class("target_creature_with_power_3_or_greater") is None)
 
 
+def _perm_target_checks() -> None:
+    """§115 non-creature permanent targets (Abrade-style destroy-artifact, bounce-nonland-permanent):
+    the slug maps to a perm_<filter> class; the driver enumerates permanents by type (opponent-preferred
+    for a harmful verb) and the zone-move resolves on the chosen permanent."""
+    import sim, card_corpus
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    # the new slugs map to perm_<filter> classes; a non-creature permanent is now a legal target.
+    check("target_artifact -> perm_artifact", bridge._target_class("target_artifact") == "perm_artifact")
+    check("target_nonland_permanent -> perm_nonland",
+          bridge._target_class("target_nonland_permanent") == "perm_nonland")
+    check("target_creature_enchantment_or_planeswalker -> perm_cep",
+          bridge._target_class("target_creature_enchantment_or_planeswalker") == "perm_cep")
+
+    # _perm_candidates decodes the type filter against printed_type + the derived creature set.
+    st = {
+        "on_battlefield": {("mox",), ("ench",), ("land",), ("bear",)},
+        "printed_type": {("mox", "artifact"), ("ench", "enchantment"),
+                         ("land", "land"), ("bear", "creature")},
+    }
+    creatures = {"bear"}
+    check("perm_artifact enumerates only artifacts",
+          driver._perm_candidates(st, "perm_artifact", creatures) == ["mox"])
+    check("perm_nonland excludes lands",
+          driver._perm_candidates(st, "perm_nonland", creatures) == ["bear", "ench", "mox"])
+    check("perm_cep = creature/enchantment/planeswalker (no artifact, no land)",
+          driver._perm_candidates(st, "perm_cep", creatures) == ["bear", "ench"])
+    check("perm_any enumerates every permanent",
+          driver._perm_candidates(st, "perm_any", creatures) == ["bear", "ench", "land", "mox"])
+
+    # end-to-end: 'destroy target artifact' prefers an OPPONENT's artifact over the caster's own.
+    st2 = {
+        "is_player": {("alice",), ("bob",)},
+        "on_battlefield": {("mymox",), ("bobmox",)},
+        "printed_type": {("mymox", "artifact"), ("bobmox", "artifact")},
+        "printed_control": {("alice", "mymox"), ("bob", "bobmox")},
+        "tapped": set(), "graveyard": set(), "in_hand": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._resolve_one_target(st2, "abrade", "spell", "alice", "destroy", "-", "perm_artifact")
+    check("destroy target artifact hits the opponent's artifact", ("bobmox",) in st2["graveyard"])
+    check("destroy target artifact spares the caster's own", ("mymox",) not in st2["graveyard"])
+
+    # the meta cards that motivated this resolve with NO dropped clauses.
+    for nm in ("Boomerang Basics", "Get Lost"):
+        f, dropped = bridge.card_facts(nm, "alice", "x", db, corpus)
+        check(f"{nm} is CLEAN (perm-target removal resolves)", dropped == [])
+
+
 def run() -> None:
     _driver_checks()
     _trigger_damage_checks()
     _counter_checks()
     _spell_checks()
     _bridge_checks()
+    _perm_target_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
