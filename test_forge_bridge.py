@@ -246,6 +246,36 @@ def _search_driven_oracle() -> None:
     check("oracle: _pick_name serves that name to Forge's chooseCardName", pol._pick_name(driver, st2, "w", [], "")[0] == "Standard Procedure")
 
 
+def _mana_payment_delegated() -> None:
+    """§106 mana payment is delegated to witchcraft: a 'pay' decision returns WHICH sources to tap and what
+    COLOR each makes, so Forge can execute the exact payment a combo depends on. The classic trap: with
+    Black Lotus (3 of ONE color) + Mox Jet, pay {B} from the Mox — NOT by cracking the Lotus needed for a
+    later {U}{U}. driver.mana_plan must make that call (and the policy's 'pay' decision relay it)."""
+    import driver
+    import effect_handlers
+    effect_handlers.load()
+
+    p = fb.ForgePlayer(policy=fb.EnginePolicy())
+    p.handle({"type": "hello", "you": "w", "players": ["w", "o"]})
+    bf = [{"id": "LOT", "name": "Black Lotus", "controller": "w"}, {"id": "JET", "name": "Mox Jet", "controller": "w"}]
+    p.handle({"type": "observe", "state": {"life": {"w": 20, "o": 20}, "active": "w", "step": "precombat_main",
+              "castThisTurn": 0, "zones": {"battlefield": bf, "hand": []}, "libCounts": {"w": 56, "o": 53}}})
+
+    payB = p.handle(_decide("pay", {"pips": {"black": 1}, "generic": 0}))["value"]
+    check("pay {B}: engine taps the Mox, not the Black Lotus",
+          isinstance(payB, list) and len(payB) == 1 and payB[0]["id"] == "JET")
+    payUU = p.handle(_decide("pay", {"pips": {"blue": 2}, "generic": 0}))["value"]
+    check("pay {U}{U}: engine uses Black Lotus and forces blue",
+          isinstance(payUU, list) and len(payUU) == 1 and payUU[0]["id"] == "LOT" and payUU[0]["express"] == "blue")
+    check("pay {U}{U}: the Lotus is paid by sacrifice", payUU and payUU[0]["sacrifice"] is True)
+
+    # driver.mana_plan directly: a cost the board can't cover -> None (so Forge pays it).
+    st, _ = fb.reconstruct({"seat": "w", "players": ["w"], "life": {"w": 20}, "active": "w",
+                            "zones": {"battlefield": bf, "hand": []}}, "w")
+    check("mana_plan returns None when the board can't cover the cost (Forge pays)",
+          driver.mana_plan(st, "w", {"green": 4}, 0) is None)  # Lotus makes only 3 of one color; Mox is black
+
+
 def run() -> None:
     _kinds()
     _random_legal()
@@ -253,6 +283,7 @@ def run() -> None:
     _full_game_socket()
     _search_driven_storm()
     _search_driven_oracle()
+    _mana_payment_delegated()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

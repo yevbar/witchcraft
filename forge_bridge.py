@@ -60,7 +60,7 @@ import socket
 _KIND_KEY = {
     "mulligan": "mulligan", "action": "action", "target": "target", "mode": "mode",
     "number": "number", "confirm": "confirm", "choose": "choose", "discard": "discard",
-    "attackers": "attackers", "blockers": "blocks", "name": "name",
+    "attackers": "attackers", "blockers": "blocks", "name": "name", "pay": "pay",
 }
 
 
@@ -197,6 +197,19 @@ class EnginePolicy:
         nm = self._pending_name
         self._pending_name = None
         return (nm, 1, 1, 1, 1) if nm else (None, 0, 0, 1, 0)
+
+    def _pick_pay(self, driver, state, seat, options, default):
+        """§106 — OUR mana model decides the EXACT payment: which untapped sources to tap and what color each
+        produces, so Forge executes the precise mana (the sources/colors a combo can hinge on — e.g. pay {B}
+        from a Mox, not by sacrificing a Black Lotus needed later for {U}{U}). Returns the plan, or None to
+        let Forge pay it (a cost our model can't cover from the reconstructed board)."""
+        cost = options if isinstance(options, dict) else {}
+        pips = {str(k): int(v) for k, v in (cost.get("pips") or {}).items()}
+        generic = int(cost.get("generic") or 0)
+        plan = driver.mana_plan(state, seat, pips, generic)
+        if not plan:
+            return None, 0, 0, 1, 0
+        return plan, len(plan), len(plan), 1, 1
 
     def __call__(self, obs, key, options, default):
         seat = obs.get("seat")
@@ -362,6 +375,12 @@ class ForgePlayer:
             return int(self._choose(key, rng, lo if default is None else int(default)))
         if kind == "name":                                   # §701.18 'choose a card name' (Demonic Consultation)
             return self._choose(key, [], default if default is not None else "")  # free-form: the policy names it
+        if kind == "pay":                                    # §106 mana payment — the policy returns a SOURCE plan
+            # the cost rides in `opts` ({pips, generic}); pass it straight to the policy (no option-set
+            # validation — the value is a free-form plan, not a pick from a list). [] -> Forge pays itself.
+            plan = self.policy(self.obs, key, opts or {}, default if default is not None else [])
+            self.history.append((key, plan))
+            return plan if plan is not None else []
         if kind == "discard":
             cards = list((opts or {}).get("cards", []))
             n = int((opts or {}).get("n", 0))

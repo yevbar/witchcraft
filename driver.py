@@ -995,6 +995,84 @@ def _sacrifice_source(state: dict, sid: str) -> None:
     state.get("tapped", set()).discard((sid,))
 
 
+def _slots_bundles(units):
+    """Split a source's mana `units` into single 1-mana slots (a color string or a wildcard frozenset) and
+    same-color bundles ('one', colorset, n) where all n must be ONE color; plus the total mana count."""
+    slots, bundles, total = [], [], 0
+    for u in units:
+        if isinstance(u, tuple) and u and u[0] == "one":
+            bundles.append((u[1], u[2])); total += u[2]
+        else:
+            slots.append(u if isinstance(u, frozenset) else {u}); total += 1
+    return slots, bundles, total
+
+
+def mana_plan(state: dict, ap: str, pips: dict, generic: int):
+    """§106 — WHICH untapped sources `ap` should tap (and, for any-color/bundle sources, what COLOR each
+    should produce) to pay a cost of `pips` (a {color: count} of colored pips) + `generic`. Mirrors
+    _spend_mana's greedy source selection but RETURNS the plan instead of mutating, so an external engine
+    (Forge) can execute the EXACT payment witchcraft intends — the precise sources/colors a combo can
+    depend on (e.g. pay {B} from Mox Jet, NOT by sacrificing a Black Lotus needed later for {U}{U}).
+
+    Returns a list of {"id": source, "express": color_to_force_or_'', "sacrifice": bool} in tap order, or
+    None if the model can't cover the cost from untapped sources. `express` is set only for a flexible
+    source (any-color / same-color bundle) — a fixed source produces its own color."""
+    rows = list(_source_units(state, ap))
+    if not rows:
+        return None
+    need = dict(pips)
+    ng = int(generic)
+
+    def _done():
+        return not any(v > 0 for v in need.values()) and ng <= 0
+
+    def keyf(row):                                            # concrete sources first; flexible held for pips
+        _sid, units, _cg, _ts = row
+        flexcount = sum(1 for u in units if isinstance(u, (frozenset, tuple)))
+        return (flexcount, sum(u[2] if isinstance(u, tuple) and u and u[0] == "one" else 1 for u in units))
+
+    sacrifices = state.get("source_sacrifice", set())
+    plan: list = []
+    for sid, units, cg, _ts in sorted(rows, key=keyf):
+        if _done():
+            break
+        slots, bundles, total = _slots_bundles(units)
+        avail = total - cg
+        if avail <= 0:
+            continue
+        express, contributed = None, False
+        for colset in slots:                                 # single slots: pay a matching pip, else generic
+            if avail <= 0:
+                break
+            hit = next((c for c in need if need[c] > 0 and c in colset), None)
+            if hit is not None:
+                need[hit] -= 1; avail -= 1; contributed = True
+                if len(colset) > 1 and express is None:      # a wildcard slot -> express the chosen color
+                    express = hit
+            elif ng > 0:
+                ng -= 1; avail -= 1; contributed = True
+                if len(colset) > 1 and express is None:      # wildcard paying generic -> any allowed color
+                    express = next(iter(sorted(colset)))
+        for colset, n in bundles:                            # a same-color bundle: all n -> ONE color
+            if avail <= 0:
+                break
+            color = max((c for c in need if need[c] > 0 and c in colset), key=lambda c: need[c], default=None)
+            if color is None and ng > 0:
+                color = next(iter(sorted(colset)))
+            if color is None:
+                continue
+            give = min(n, avail)
+            paid = min(need.get(color, 0), give)
+            need[color] = need.get(color, 0) - paid
+            ng -= max(0, give - paid)
+            avail -= give; contributed = True
+            if express is None:
+                express = color
+        if contributed:
+            plan.append({"id": sid, "express": express or "", "sacrifice": (sid,) in sacrifices})
+    return plan if _done() else None
+
+
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
     """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources for their REAL mana. Each tapped
     source yields ALL its mana at once (§106.4: Sol Ring -> 2 colorless, a Signet -> its 2 colors after
@@ -1022,17 +1100,6 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     # tap sources to cover the cost. A source contributes ALL its mana when tapped; we apply that mana to
     # an unmet colored pip first (matching the source's color, prefer a concrete-color source over a
     # wildcard for that pip), then to generic. Greedy but faithful: tap only sources that help.
-    def _slots_bundles(units):
-        # split a source's mana into single 1-mana slots (color or wildcard set) and same-color bundles
-        # ('one', colset, n) where all n must be ONE color; plus the total mana count.
-        slots, bundles, total = [], [], 0
-        for u in units:
-            if isinstance(u, tuple) and u and u[0] == "one":
-                bundles.append((u[1], u[2])); total += u[2]
-            else:
-                slots.append(u if isinstance(u, frozenset) else {u}); total += 1
-        return slots, bundles, total
-
     def apply(units, cg):
         nonlocal need_generic
         slots, bundles, total = _slots_bundles(units)

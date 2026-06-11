@@ -34,6 +34,8 @@ import forge.game.card.CardCollectionView;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
 import forge.game.cost.CostPartMana;
+import forge.game.cost.CostPayment;
+import forge.ai.AiCostDecision;
 import forge.game.mana.ManaConversionMatrix;
 import forge.game.mana.ManaCostBeingPaid;
 import forge.game.mana.Mana;
@@ -163,8 +165,12 @@ public class ForgeComboKill {
                 List<SpellAbility> base = ComputerUtilAbility.getSpellAbilities(avail, getPlayer());
                 for (SpellAbility sa : ComputerUtilAbility.getOriginalAndAltCostAbilities(base, getPlayer())) {
                     try {
-                        if (sa.canPlay() && !sa.isManaAbility()
-                                && ComputerUtilCost.canPayCost(sa, getPlayer(), false)) out.add(sa);
+                        // Offer anything legal to play (timing/zone). We DON'T gate on Forge's
+                        // ComputerUtilCost.canPayCost — that AI affordability check is conservative for
+                        // any-color sacrifice sources (it won't see Black Lotus pay {U}{U}), and mana payment
+                        // is now OUR engine's job (enginePay). Our lookahead only picks a spell it can afford
+                        // in its own mana model, and enginePay then pays the exact way it intends.
+                        if (sa.canPlay() && !sa.isManaAbility()) out.add(sa);
                     } catch (Throwable t) { /* skip */ }
                 }
             } catch (Throwable t) { /* fall through to empty */ }
@@ -303,57 +309,69 @@ public class ForgeComboKill {
         static final java.util.Map<String, Integer> FORGE_AI = new java.util.TreeMap<>();
         private static void tally(String m) { FORGE_AI.merge(m, 1, Integer::sum); }
 
-        // OUR mana payment: decide which untapped lands to tap (greedy color-match) and pay from the pool —
-        // no Forge-AI chooser. Falls back to super (mechanical) only for costs we don't handle (hybrid/X/snow)
-        // or if our plan can't cover it, so the game never breaks; that fallback is tallied.
+        // OUR mana payment is DELEGATED to the witchcraft engine: ask it WHICH sources to tap/sacrifice and
+        // what COLOR each should make (driver.mana_plan), then execute that exact plan in Forge — the precise
+        // sources/colors a combo can hinge on (pay {B} from a Mox, not by sacrificing a Black Lotus needed
+        // for a later {U}{U}). Falls back to super only for costs the engine can't cover or won't model
+        // (hybrid/X/snow), so the game never breaks; that fallback is tallied.
         @Override public boolean payManaCost(ManaCost toPay, CostPartMana cp, SpellAbility sa, String prompt, ManaConversionMatrix mx, boolean effect) {
-            try { if (manualPay(toPay, sa)) return true; } catch (Throwable t) { /* fall through */ }
+            try { if (enginePay(toPay, sa)) return true; } catch (Throwable t) { /* fall through */ }
             tally("payManaCost (fallback)");
             return super.payManaCost(toPay, cp, sa, prompt, mx, effect);
         }
 
-        private boolean producesColor(Card c, char col) {
-            for (SpellAbility ma : c.getManaAbilities()) {
-                String prod = ma.getManaPart().mana(ma);
-                if (prod != null && prod.indexOf(col) >= 0) return true;
-            }
-            return false;
+        private static String colorName(char c) {
+            switch (c) { case 'W': return "white"; case 'U': return "blue"; case 'B': return "black";
+                         case 'R': return "red"; case 'G': return "green"; default: return ""; }
+        }
+        private static String colorLetter(String c) {
+            switch (c) { case "white": return "W"; case "blue": return "U"; case "black": return "B";
+                         case "red": return "R"; case "green": return "G"; default: return ""; }
         }
 
-        private boolean manualPay(ManaCost toPay, SpellAbility sa) {
-            String cs = toPay.toString();                       // e.g. "{2}{R}"
+        // ask the engine for a payment plan and execute it. Each plan step = a source id + an optional color
+        // to express (for any-color/bundle sources). We activate each chosen mana ability through Forge's own
+        // cost-payment + resolution (so tap AND sacrifice costs are paid correctly — Lotus Petal, Black Lotus),
+        // then pay the spell's cost from the pool that produced.
+        private boolean enginePay(ManaCost toPay, SpellAbility sa) {
+            String cs = toPay.toString();
             if (java.util.regex.Pattern.compile("\\{(?!\\d+\\}|[WUBRG]\\})[^}]*\\}").matcher(cs).find())
                 return false;                                   // a non-basic symbol (hybrid/X/snow/…) -> let super pay
-            java.util.Map<Character, Integer> need = new java.util.HashMap<>();
+            java.util.Map<Character, Integer> pips = new java.util.HashMap<>();
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{([WUBRG])\\}").matcher(cs);
-            while (m.find()) need.merge(m.group(1).charAt(0), 1, Integer::sum);
-            int generic = toPay.getGenericCost();
+            while (m.find()) pips.merge(m.group(1).charAt(0), 1, Integer::sum);
+            StringBuilder pj = new StringBuilder("{"); boolean first = true;
+            for (java.util.Map.Entry<Character, Integer> e : pips.entrySet()) {
+                pj.append(first ? "" : ",").append('"').append(colorName(e.getKey())).append("\":").append(e.getValue()); first = false;
+            }
+            pj.append("}");
+            String costJson = "{\"pips\":" + pj + ",\"generic\":" + toPay.getGenericCost() + "}";
+            String reply = decide("pay", costJson, "[]");
+            if (reply == null) return false;
+
+            // parse the plan: a sequence of (id, express) — keep order, Forge taps in that order.
+            java.util.List<String[]> plan = new java.util.ArrayList<>();
+            java.util.regex.Matcher pm = java.util.regex.Pattern.compile(
+                    "\"id\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"express\"\\s*:\\s*\"([^\"]*)\"").matcher(reply);
+            while (pm.find()) plan.add(new String[]{pm.group(1), pm.group(2)});
+            if (plan.isEmpty()) return false;                   // engine declined -> let super pay
+
             Player me = getPlayer();
-            java.util.List<Card> untapped = new java.util.ArrayList<>();
-            for (Card c : me.getCardsIn(ZoneType.Battlefield))
-                if (!c.isTapped() && !c.getManaAbilities().isEmpty()) untapped.add(c);
-            java.util.List<Card> plan = new java.util.ArrayList<>();
-            java.util.Set<Card> used = new java.util.HashSet<>();
-            for (java.util.Map.Entry<Character, Integer> e : need.entrySet()) {   // cover colored pips
-                int cnt = e.getValue();
-                for (Card c : untapped) {
-                    if (cnt == 0) break;
-                    if (!used.contains(c) && producesColor(c, e.getKey())) { plan.add(c); used.add(c); cnt--; }
-                }
-                if (cnt > 0) return false;                      // can't make this color from our lands
-            }
-            for (Card c : untapped) {                           // cover generic with anything left
-                if (generic == 0) break;
-                if (!used.contains(c)) { plan.add(c); used.add(c); generic--; }
-            }
-            if (generic > 0) return false;                      // not enough lands
             ManaCostBeingPaid cost = new ManaCostBeingPaid(toPay);
-            for (Card land : plan) {                            // tap each chosen land, produce its mana into our pool
-                SpellAbility ma = land.getManaAbilities().iterator().next();
-                ma.getManaPart().produceMana(ma);
-                land.tap(false, ma, me);
+            for (String[] step : plan) {
+                Card src = null;
+                for (Card c : me.getCardsIn(ZoneType.Battlefield))
+                    if (String.valueOf(c.getId()).equals(step[0])) { src = c; break; }
+                if (src == null || src.getManaAbilities().isEmpty()) return false;
+                SpellAbility ma = src.getManaAbilities().iterator().next();
+                String express = colorLetter(step[1]);
+                if (!express.isEmpty()) ma.getManaPart().setExpressChoice(express);   // force the engine's color
+                CostPayment pay = new CostPayment(ma.getPayCosts(), ma);              // pays {T} AND Sacrifice
+                if (!pay.payComputerCosts(new AiCostDecision(me, ma, false, true))) return false;
+                me.getGame().getStack().addAndUnfreeze(ma);                           // resolve -> mana into pool
             }
             me.getManaPool().payManaCostFromPool(cost, sa, false, new java.util.ArrayList<Mana>());
+            System.out.println("[bot] engine paid " + cs + " via " + plan.size() + " source(s) of its choosing");
             return cost.isPaid();
         }
 
@@ -511,7 +529,7 @@ public class ForgeComboKill {
     // the whole thing (sequence + the 'name a card' choice) — nothing combo-specific in the bot. (3 Petals,
     // not Black Lotus + Mox Jet: each Petal is independent any-color mana, so Forge can't mis-pay one color.)
     static final String[] COMBO = {
-        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Demonic Consultation", "Thassa's Oracle",
+        "Black Lotus", "Mox Jet", "Demonic Consultation", "Thassa's Oracle",
     };
 
     static Deck comboDeck(String name) {
