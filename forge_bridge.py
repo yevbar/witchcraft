@@ -60,7 +60,7 @@ import socket
 _KIND_KEY = {
     "mulligan": "mulligan", "action": "action", "target": "target", "mode": "mode",
     "number": "number", "confirm": "confirm", "choose": "choose", "discard": "discard",
-    "attackers": "attackers", "blockers": "blocks",
+    "attackers": "attackers", "blockers": "blocks", "name": "name",
 }
 
 
@@ -144,6 +144,19 @@ def reconstruct(obs: dict, seat: str):
                 state["tapped"].add((cid,))
             for kind, k in (card.get("counters") or {}).items():
                 driver._bump_counter(state, cid, kind, int(k))
+    # §103 LIBRARIES — the lookahead simulates from this state, so a faithful library matters for any
+    # library-dependent line (Thassa's Oracle wins on an EMPTY library; without the opponent's library the
+    # search would fabricate a deck-out win). The obs sends a per-player library COUNT ('libCounts'); we
+    # synthesize that many lightweight placeholder cards per player (id + instance_of only — enough for the
+    # §701.18 exile + the §104 library-count win condition). Not the real contents (the opponent's are
+    # hidden, and the combo names a card NOT in the deck regardless), just a faithful count.
+    for p, cnt in (obs.get("libCounts") or {}).items():
+        have = sum(1 for (pp, _c) in state["in_library"] if pp == p)
+        for i in range(max(0, int(cnt) - have)):
+            cid = f"_lib_{p}_{i}"
+            state["in_library"].add((p, cid))
+            state.setdefault("instance_of", set()).add((cid, "_libcard"))
+            state.setdefault("printed_control", set()).add((p, cid))
     bridge._materialize_printed(state)
     # §608 carry Forge's per-turn spell-cast count (game.getStack().getSpellsCastThisTurn().size()) so our
     # model's §702.40 storm count matches Forge mid-turn — without it a re-search would think storm=0 after
@@ -163,6 +176,27 @@ class EnginePolicy:
         self.fallback = fallback
         self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
                       "unmodeled_cards": set(), "by_kind": {}}
+        self._pending_name = None      # the card name the lookahead planned for the next 'choose a card name'
+        self._slug2name = None         # lazy slug -> oracle-name map (the search names a card by slug)
+
+    def _slug_to_name(self, slug):
+        """Map the env's card-name SLUG (what the lookahead picks, e.g. 'standard_procedure') back to the
+        oracle name Forge expects ('Standard Procedure'). The sentinel 'name a card not in your deck' rides
+        this path like any other named card — nothing combo-specific."""
+        if slug is None:
+            return None
+        if self._slug2name is None:
+            import card_corpus
+            import ground
+            self._slug2name = {ground.slug(c["name"]): c["name"] for c in card_corpus.load_cards()}
+        return self._slug2name.get(str(slug))
+
+    def _pick_name(self, driver, state, seat, options, default):
+        """Serve the card name the lookahead planned at cast time (stored in _pick_action). The SEARCH chose
+        it — here we only relay it to Forge's 'choose a card name' prompt."""
+        nm = self._pending_name
+        self._pending_name = None
+        return (nm, 1, 1, 1, 1) if nm else (None, 0, 0, 1, 0)
 
     def __call__(self, obs, key, options, default):
         seat = obs.get("seat")
@@ -204,8 +238,13 @@ class EnginePolicy:
         path, _n = win_search.find_win(s, me=seat, max_turns=1, node_budget=20000)
         choice = None
         if path and path[0][0] == "cast":                    # play the winning line's first cast
-            sid = str(path[0][2])
+            a0 = path[0]
+            sid = str(a0[2])
             choice = next((o for o in spells if str(o["id"]) == sid), None)
+            # remember any sub-choice the lookahead made for THIS cast (a 'choose a card name' Forge will ask
+            # for during resolution) so _pick_name can relay it — the search decided it, not a heuristic.
+            sub = a0[3] if len(a0) > 3 and isinstance(a0[3], dict) else {}
+            self._pending_name = self._slug_to_name(sub.get("name")) if sub.get("name") else None
         # endorsed = 1 when the search found+mapped a winning first move; else defer to the greedy fallback.
         return choice, modeled, (1 if choice is not None else 0), len(spells), (1 if choice is not None else 0)
 
@@ -321,6 +360,8 @@ class ForgePlayer:
             lo, hi = int(opts.get("min", 0)), int(opts.get("max", 0))
             rng = list(range(lo, hi + 1)) or [lo]
             return int(self._choose(key, rng, lo if default is None else int(default)))
+        if kind == "name":                                   # §701.18 'choose a card name' (Demonic Consultation)
+            return self._choose(key, [], default if default is not None else "")  # free-form: the policy names it
         if kind == "discard":
             cards = list((opts or {}).get("cards", []))
             n = int((opts or {}).get("n", 0))

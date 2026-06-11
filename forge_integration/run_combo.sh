@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# run_combo.sh — VALIDATE a witchcraft-piloted turn-1 STORM kill with FORGE as the source of truth.
+# run_combo.sh — VALIDATE a witchcraft-piloted, LOOKAHEAD-DRIVEN turn-1 combo with FORGE as source of truth.
 #
-# The witchcraft seat opens a STACKED hand (Lotus Petal x9 + Tendrils of Agony — see ForgeComboKill.java's
-# startGameHook), and OUR datalog engine (forge_bridge.EnginePolicy) drives every play decision over a
-# socket: cast all 9 Petals (building storm count), then Tendrils targeting the opponent. FORGE owns the
-# rules — it counts the storm, makes the 9 copies, and reports the outcome. A correct result is
-#   RESULT winner=Witchcraft-Engine ... finalLife[Witchcraft-Engine=40, Forge-AI=0]
-# i.e. 10 Tendrils resolutions x 2 = exactly 20 drained (and 20 gained) — proof Forge and witchcraft agree
-# on the storm count to the point.
+# The witchcraft seat opens a STACKED hand (the combo — see ForgeComboKill.java's COMBO[] + startGameHook),
+# and OUR datalog engine (forge_bridge.EnginePolicy) drives every play decision over a socket by running
+# its OWN win_search lookahead on the reconstructed Forge state each turn and playing the winning line's
+# next move — NOTHING combo-specific. FORGE owns the rules and reports the outcome.
+#
+# COMBO[] currently = the Thassa's-Oracle line (Lotus Petal x3 + Demonic Consultation + Thassa's Oracle):
+# the search casts the Petals, names a card NOT in the deck (emptying the library via Consultation), then
+# casts Thassa's Oracle to win on the empty library. Correct result:
+#   RESULT winner=Witchcraft-Engine ... finalLife[Witchcraft-Engine=20, Forge-AI=20]
+# (no damage — a pure library-out win Forge computes itself). Swap COMBO[] back to Lotus Petal x9 +
+# Tendrils of Agony for the storm kill (finalLife 40/0); the same lookahead drives either.
 #
 # Requires (override via env): JDK (with javac), FORGE (a built Forge tree). Same prerequisites as run.sh.
 set -euo pipefail

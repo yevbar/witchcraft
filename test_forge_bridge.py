@@ -206,12 +206,53 @@ def _search_driven_storm() -> None:
     check("search-driven: dropping the cast-count would desync the model (0 != 5)", bad.get("_cast_count") == 0)
 
 
+def _search_driven_oracle() -> None:
+    """The lookahead drives the Thassa's-Oracle combo too — sequence AND the 'choose a card name' decision —
+    with NO combo-specific code. Needs a FAITHFUL starting state: the obs carries both LIBRARY COUNTS
+    (libCounts), so reconstruct synthesizes them; without the witch library the win is meaningless, and
+    without the opponent's the search would fabricate a deck-out. The search names the absent card to empty
+    the library, and the policy relays that name to Forge's chooseCardName prompt."""
+    import driver
+    import effect_handlers
+    effect_handlers.load()
+
+    hand = [{"id": "P0", "name": "Lotus Petal", "controller": "w"}, {"id": "P1", "name": "Lotus Petal", "controller": "w"},
+            {"id": "P2", "name": "Lotus Petal", "controller": "w"}, {"id": "CON", "name": "Demonic Consultation", "controller": "w"},
+            {"id": "ORA", "name": "Thassa's Oracle", "controller": "w"}]
+    obs = {"seat": "w", "players": ["w", "o"], "life": {"w": 20, "o": 20}, "active": "w", "step": "precombat_main",
+           "castThisTurn": 0, "zones": {"battlefield": [], "hand": hand}, "libCounts": {"w": 55, "o": 53}}
+    state, _ = fb.reconstruct(obs, "w")
+    check("oracle: reconstruct synthesizes both libraries from libCounts",
+          sum(1 for (p, _c) in state["in_library"] if p == "w") == 55 and sum(1 for (p, _c) in state["in_library"] if p == "o") == 53)
+
+    import win_search
+    driver.clear_cache()
+    path, _n = win_search.find_win(dict(state, active_player={("w",)}), me="w", max_turns=1, node_budget=60000)
+    check("oracle: the lookahead finds a turn-1 win from the faithful state", path is not None)
+    con = next((a for a in (path or []) if a[0] == "cast" and a[2] == "CON"), None)
+    check("oracle: the search CHOSE to name a card not in the deck (the sentinel)",
+          con is not None and con[3].get("name") == "standard_procedure")
+    check("oracle: the line also casts Thassa's Oracle to win",
+          any(a[0] == "cast" and a[2] == "ORA" for a in (path or [])))
+
+    # the policy relays the search's planned name to a 'choose a card name' prompt as the oracle NAME.
+    pol = fb.EnginePolicy()
+    bf = [{"id": f"P{i}", "name": "Lotus Petal", "controller": "w"} for i in range(3)]
+    h2 = [{"id": "CON", "name": "Demonic Consultation", "controller": "w"}, {"id": "ORA", "name": "Thassa's Oracle", "controller": "w"}]
+    st2, _ = fb.reconstruct({**obs, "castThisTurn": 3, "zones": {"battlefield": bf, "hand": h2}}, "w")
+    pol._pick_action(driver, st2, "w", [{"id": "CON", "ci": 0, "kind": "spell"}, {"id": "ORA", "ci": 1, "kind": "spell"}], {"kind": "pass"})
+    check("oracle: after planning Consultation, the policy holds the oracle name to relay",
+          pol._pending_name == "Standard Procedure")
+    check("oracle: _pick_name serves that name to Forge's chooseCardName", pol._pick_name(driver, st2, "w", [], "")[0] == "Standard Procedure")
+
+
 def run() -> None:
     _kinds()
     _random_legal()
     _full_game_inprocess()
     _full_game_socket()
     _search_driven_storm()
+    _search_driven_oracle()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

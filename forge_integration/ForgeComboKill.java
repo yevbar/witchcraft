@@ -137,6 +137,14 @@ public class ForgeComboKill {
             // §608/§702.40 spells cast THIS TURN (by anyone) — the storm count basis. The engine's lookahead
             // reads this back as _cast_count so its model's storm count stays in sync with Forge mid-turn.
             b.append("\"castThisTurn\":").append(g.getStack().getSpellsCastThisTurn().size()).append(",");
+            // §103 each player's LIBRARY SIZE — the lookahead simulates from this state, so it needs the
+            // library counts: our own for the §104 'win on empty library' check, the opponent's so it doesn't
+            // fabricate a deck-out win. Just counts (contents stay hidden); the engine synthesizes placeholders.
+            b.append("\"libCounts\":{");
+            for (int i = 0; i < ps.size(); i++)
+                b.append(i > 0 ? "," : "").append('"').append(esc(ps.get(i).getName())).append("\":")
+                 .append(ps.get(i).getCardsIn(ZoneType.Library).size());
+            b.append("},");
             // zones: all battlefield permanents + OUR hand (opponent hand is hidden / irrelevant)
             b.append("\"zones\":{\"battlefield\":[");
             int n = 0;
@@ -373,6 +381,22 @@ public class ForgeComboKill {
             }
         }
 
+        // §701.18 'choose a card name' (Demonic Consultation) — forward to the engine, which names the card
+        // its LOOKAHEAD planned at cast time (the search picked it; we only relay). Empty reply -> Forge AI.
+        private String engineCardName() {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"value\"\\s*:\\s*\"([^\"]*)\"")
+                    .matcher(valuePart(decide("name", "[]", "\"\"")));
+            return m.find() ? m.group(1) : "";
+        }
+        @Override public String chooseCardName(SpellAbility sa, java.util.function.Predicate<forge.card.ICardFace> cpp, String valid, String message) {
+            String n = engineCardName();
+            if (n != null && !n.isEmpty()) { System.out.println("[bot] engine names: " + n); return n; }
+            tally("chooseCardName"); return super.chooseCardName(sa, cpp, valid, message); }
+        @Override public String chooseCardName(SpellAbility sa, java.util.List<forge.card.ICardFace> faces, String message) {
+            String n = engineCardName();
+            if (n != null && !n.isEmpty()) { System.out.println("[bot] engine names: " + n); return n; }
+            tally("chooseCardName"); return super.chooseCardName(sa, faces, message); }
+
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
             tally("orderBlockers"); return super.orderBlockers(a, b); }
         @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
@@ -481,17 +505,19 @@ public class ForgeComboKill {
         return c;
     }
 
-    // The witchcraft combo deck: the §702.40 STORM line (Lotus Petal x9 -> Tendrils of Agony) plus filler
-    // Swamps so it's a legal 60. The stacker (below) guarantees the combo lands in the opening hand.
+    // The witchcraft combo deck: the cEDH Thassa's-Oracle line — Lotus Petal x3 for mana, Demonic
+    // Consultation (name a card NOT in the deck -> exile the whole library), Thassa's Oracle (empty library
+    // -> win). 5 cards, fits a real opening hand; the rest is filler the combo exiles. The lookahead drives
+    // the whole thing (sequence + the 'name a card' choice) — nothing combo-specific in the bot. (3 Petals,
+    // not Black Lotus + Mox Jet: each Petal is independent any-color mana, so Forge can't mis-pay one color.)
     static final String[] COMBO = {
-        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal",
-        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal", "Tendrils of Agony",
+        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Demonic Consultation", "Thassa's Oracle",
     };
 
     static Deck comboDeck(String name) {
         Deck d = new Deck(name);
         for (String c : COMBO) d.getMain().add(card(c));
-        d.getMain().add(card("Swamp"), 60 - COMBO.length);
+        d.getMain().add(card("Island"), 60 - COMBO.length);
         return d;
     }
 
@@ -552,7 +578,7 @@ public class ForgeComboKill {
             }
         };
 
-        System.out.println("Starting: Witchcraft-Engine pilots a stacked turn-1 STORM kill; Forge is the referee ...");
+        System.out.println("Starting: Witchcraft-Engine pilots a stacked turn-1 combo (lookahead-driven); Forge is the referee ...");
         long t0 = System.currentTimeMillis();
         match.startGame(game, stacker);                        // <- pass the stacker as the startGameHook
         String w = (game.getOutcome() != null && game.getOutcome().getWinningLobbyPlayer() != null)
