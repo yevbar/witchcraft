@@ -21,6 +21,7 @@ import re
 import card_corpus
 import ground
 import sim
+from card_effects import _mana_production
 
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
 _EVENT = {
@@ -910,7 +911,13 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
     """Emit the colored-mana characteristics (§202/§106) for a card instance: each spell's colored cost
     as mana_pip(spell, color, n) + mana_generic(spell, n), and each LAND's produced colors as
     land_produces(land, color). These let the driver build a colored pool and pay pips from the right
-    colors. `mana_cost` (the colorless CMC) is still emitted alongside for the cache key / fallbacks."""
+    colors. `mana_cost` (the colorless CMC) is still emitted alongside for the cache key / fallbacks.
+
+    PRECISE MANA: in addition to the land-only land_produces, emit source_produces / source_wildcard /
+    source_cost for EVERY permanent that taps for mana (rocks, dorks, any-color sources) — read
+    deterministically from oracle text. The driver builds the real colored §106 pool from these. A
+    source whose output can't be determined faithfully abstains (no source_produces row) and falls back
+    to the legacy colorless-1 mana_source behavior."""
     generic, pips = _parse_cost(c.get("manaCost"))
     state.setdefault("mana_generic", set()).add((tid, generic))
     for col, k in pips.items():
@@ -918,6 +925,86 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
     if "Land" in (c.get("types") or []):
         for col in _land_colors(c):
             state.setdefault("land_produces", set()).add((tid, col))
+    for cost_generic, taps_self, fixed, wild in _mana_source_outputs(c):
+        state.setdefault("source_cost", set()).add((tid, cost_generic, taps_self))
+        for col, amt in fixed.items():
+            state.setdefault("source_produces", set()).add((tid, col, amt))
+        for kind, amt in wild.items():
+            state.setdefault("source_wildcard", set()).add((tid, kind, amt))
+
+
+# A produced mana descriptor (from card_effects._mana_production) that is a CONCRETE color the pool can
+# hold directly. 'colorless' is included; the five WUBRG colors come straight through.
+_FIXED_COLORS = {"white", "blue", "black", "red", "green", "colorless"}
+# Descriptors that mean "any of several colors" — the pool holds them as a wildcard the driver spends
+# against any colored pip. We FAITHFULLY model these as flexible mana (faithful for paying costs; the
+# §903.4 commander-identity / 'chosen color' restriction is a superset the pool can always satisfy here).
+_WILDCARD_KINDS = {"any_color", "any_one_color", "chosen_color", "commander_color_identity"}
+# A '{cost}: Add …' / '{cost}, {T}: Add …' mana ability line. Cost is the part before the ':'.
+_MANA_LINE = re.compile(r"^\s*(?P<cost>[^:\"\n]+?):\s*Add (?P<what>[^.\n]+?)\.", re.M)
+
+
+def _mana_source_outputs(c: dict):
+    """Lex a permanent's oracle text into its activated mana abilities (§605.1a), faithfully or abstain.
+    Yields (cost_generic, taps_self, fixed:{color:amount}, wild:{kind:amount}) for each '{cost}: Add …'
+    line whose production grounds to concrete colors / known wildcards. Abstains (skips the line) on a
+    granted/quoted ability, a non-mana cost (Sacrifice/Tap-other), a {X} cost, or a production
+    card_effects._mana_production can't resolve (conditional / 'for each' / filter-land)."""
+    text = c.get("text")
+    if not text:
+        return
+    types = c.get("types") or []
+    is_land = "Land" in types
+    for m in _MANA_LINE.finditer(text):
+        cost, what = m.group("cost").strip(), m.group("what").strip()
+        if '"' in (text[max(0, m.start() - 1):m.start()] or ""):
+            continue                                          # inside a granted/quoted ability
+        prod = _mana_production(what)
+        if not prod:
+            continue                                          # variable/conditional production -> abstain
+        cost_generic, taps_self, ok = _parse_ability_cost(cost)
+        if not ok:
+            continue                                          # non-mana / {X} cost -> abstain (driver can't pay)
+        # Lands are already modeled by land_produces (one color per land); only emit source rows for
+        # NON-LAND mana sources (rocks/dorks) so we don't double-count a land's mana.
+        if is_land:
+            continue
+        fixed: dict[str, int] = {}
+        wild: dict[str, int] = {}
+        abstain = False
+        for d in prod:
+            if d in _FIXED_COLORS:
+                fixed[d] = fixed.get(d, 0) + 1
+            elif d in _WILDCARD_KINDS:
+                wild[d] = wild.get(d, 0) + 1
+            elif "_or_" in d and all(p in _FIXED_COLORS for p in d.split("_or_")):
+                wild[d] = wild.get(d, 0) + 1                  # 'green_or_white' (Noble Hierarch): a restricted choice
+            else:
+                abstain = True                                # 'any_combination' / 'that_land_type' / land_could_produce
+                break
+        if abstain or (not fixed and not wild):
+            continue
+        yield cost_generic, taps_self, fixed, wild
+
+
+def _parse_ability_cost(cost: str):
+    """Decompose a mana ability's activation cost (the part before ':') into (generic, taps_self, ok).
+    A cost is payable by the loop iff it is only {N} generic symbols and/or {T} (tap this). Anything
+    else — a colored pip, {X}, Sacrifice, Tap another, a loyalty/discard cost — sets ok=False (abstain)."""
+    taps_self = False
+    generic = 0
+    parts = [p.strip() for p in cost.split(",") if p.strip()]
+    for part in parts:
+        if part == "{T}":
+            taps_self = True
+            continue
+        syms = _MV_SYM.findall(part)
+        # a clean generic component like {1} or {3}: just digits, nothing else around the symbol(s)
+        if syms and _MV_SYM.sub("", part).strip() == "" and all(s.isdigit() for s in syms):
+            generic += sum(int(s) for s in syms)
+            continue
+        return 0, False, False                                # any other cost component -> not loop-payable
+    return generic, taps_self, True
 
 
 def make_state(boards: dict, life: int = 20) -> dict:

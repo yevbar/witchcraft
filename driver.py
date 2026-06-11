@@ -706,26 +706,80 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     return None
 
 
-# §106.1a — the five colors plus colorless; a mana-creature (dork) abstains to colorless mana.
+# §106.1a — the five WUBRG colors plus colorless. WILDCARD = a source produces "any color" (Birds,
+# Chromatic Lantern); a frozenset = a restricted choice (Noble Hierarch -> {G/W/U}). Colorless mana
+# can't pay a colored pip, so a wildcard's spendable colors are the five WUBRG.
 _COLORS = ("white", "blue", "black", "red", "green", "colorless")
+_WUBRG = ("white", "blue", "black", "red", "green")
+ANY = frozenset(_WUBRG)                                        # produced "any color" — spends as any WUBRG pip
+
+
+def _source_units(state: dict, ap: str):
+    """Every untapped mana SOURCE the active player controls, with the REAL mana it taps for (§106/§605).
+    Yields (source_id, units, cost_generic, taps_self) where `units` is the list of mana the source
+    produces — each a concrete color string ('green'/'colorless') OR a frozenset of allowed WUBRG colors
+    (a wildcard: ANY for 'any color', a smaller set for 'X or Y'). `cost_generic` is generic mana that
+    must be paid to activate it (Signets: {1}); `taps_self` whether activating taps the source.
+
+    LANDS use land_produces (one color per land, basics monocolor). NON-LAND sources use the precise
+    source_produces / source_wildcard rows the bridge lexed from oracle text (Sol Ring -> [colorless,
+    colorless]; Dimir Signet -> [blue,black] costing {1}). A source with NO precise row but flagged
+    mana_source (parse said 'has a mana ability' but output abstained) falls back to one colorless mana,
+    preserving the legacy behavior for un-lexed dorks."""
+    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
+    sick = state.get("_sick", set())
+    produces = state.get("land_produces", set())
+    s_fixed = state.get("source_produces", set())             # (tid, color, amount)
+    s_wild = state.get("source_wildcard", set())              # (tid, kind, amount)
+    s_cost = state.get("source_cost", set())                  # (tid, generic, taps_self)
+    precise = {t for (t, _c, _a) in s_fixed} | {t for (t, _k, _a) in s_wild}
+
+    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
+                   and (ap, c) in ctrl and (c,) not in tapped)
+    for c in lands:                                           # a land taps for one color (basics monocolor)
+        cols = sorted(col for (s, col) in produces if s == c)
+        yield (c, [cols[0] if cols else "colorless"], 0, True)
+
+    # non-land sources controlled by ap and untapped. §302.6 summoning sickness only blocks a CREATURE's
+    # {T} mana ability (a dork that entered this turn) — a mana ROCK (artifact) taps the turn it enters.
+    is_creature = state.get("printed_type", set())
+    rest = sorted(c for (c,) in bf if (ap, c) in ctrl and (c,) not in tapped
+                  and (c, "land") not in state.get("printed_type", set())
+                  and not ((c, "creature") in is_creature and (c,) in sick)
+                  and (c in precise or (c,) in state.get("mana_source", set())))
+    for c in rest:
+        if c in precise:
+            units: list = []
+            for (t, col, amt) in s_fixed:
+                if t == c:
+                    units += [col] * int(amt)
+            for (t, kind, amt) in s_wild:
+                if t == c:
+                    units += [_wildcard_set(kind)] * int(amt)
+            cg = next((int(g) for (t, g, _ts) in s_cost if t == c), 0)
+            ts = next((bool(ts) for (t, _g, ts) in s_cost if t == c), True)
+            yield (c, units, cg, ts)
+        else:                                                # legacy un-lexed dork: one colorless mana (§605)
+            yield (c, ["colorless"], 0, True)
+
+
+def _wildcard_set(kind: str) -> frozenset:
+    """The set of WUBRG colors a wildcard mana descriptor can pay (§106). 'any color' & relatives -> all
+    five; a 'green_or_white' choice -> just those. A colorless-only descriptor isn't a wildcard."""
+    if "_or_" in kind:
+        parts = [p for p in kind.split("_or_") if p in _WUBRG]
+        return frozenset(parts) if parts else ANY
+    return ANY                                                # any_color / any_one_color / chosen / commander identity
 
 
 def _untapped_sources(state: dict, ap: str) -> list[tuple[str, str | None]]:
-    """The active player's untapped mana sources as (source_id, color_or_None): each untapped land it
-    controls paired with each color it produces (land_produces, from the bridge), then each non-sick
-    mana creature as colorless (§605). A land with no produced color still taps as a colorless source."""
-    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
-    produces = state.get("land_produces", set())
+    """LEGACY (id, color) view of the active player's untapped sources, kept for callers that only need
+    a flat per-source color. A multi-mana source appears once per mana it makes; a wildcard collapses to
+    a representative WUBRG color (or 'colorless'). Precise payment goes through _source_units instead."""
     out: list[tuple[str, str | None]] = []
-    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
-                   and (ap, c) in ctrl and (c,) not in tapped)
-    for c in lands:
-        cols = sorted(col for (s, col) in produces if s == c)
-        out.append((c, cols[0] if cols else "colorless"))     # one color per land (basics are monocolor)
-    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
-                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
-    for c in dorks:
-        out.append((c, "colorless"))                          # §605 mana dork -> colorless (kept simple)
+    for sid, units, _cg, _ts in _source_units(state, ap):
+        for u in units:
+            out.append((sid, next(iter(sorted(u))) if isinstance(u, frozenset) else u))
     return out
 
 
@@ -754,29 +808,99 @@ def _develop_mana(state: dict, ap: str) -> None:
     _refresh_mana_pool(state, ap)
 
 
+def _controls_any_source(state: dict, ap: str) -> bool:
+    """True if ap controls ANY driver-managed mana source on the battlefield — a land, a flagged
+    mana_source, or a precise (lexed) rock/dork — TAPPED OR NOT. Distinguishes a real board (whose pool
+    is rebuilt from sources, reading 0 when all are tapped) from a pure pre-seeded demo state (whose
+    hand-set mana_pool/mana_available must be left untouched)."""
+    bf, ctrl = state.get("on_battlefield", set()), state.get("printed_control", set())
+    ptype = state.get("printed_type", set())
+    precise = {t for (t, _c, _a) in state.get("source_produces", set())} \
+        | {t for (t, _k, _a) in state.get("source_wildcard", set())}
+    for (c,) in bf:
+        if (ap, c) not in ctrl:
+            continue
+        if (c, "land") in ptype or (c,) in state.get("mana_source", set()) or c in precise:
+            return True
+    return False
+
+
+def _mana_demand(state: dict, ap: str) -> list[str]:
+    """The colored pips ap's HAND wants to pay, as a flat color list (a {U}{B} spell -> ['blue','black']),
+    used to aim wildcard mana (§106.6 a player chooses the color when a source could make several). A
+    color appearing in more castable pips is wanted more, so wildcards fill real demand first."""
+    want: dict[str, int] = {}
+    hand = {s for (p, s) in state.get("in_hand", set()) if p == ap}
+    for (s, col, n) in state.get("mana_pip", set()):
+        if s in hand and col in _WUBRG:
+            want[col] = want.get(col, 0) + int(n)
+    return [c for c in sorted(want, key=lambda c: -want[c]) for _ in range(want[c])]
+
+
+def _resolve_pool(state: dict, ap: str):
+    """Turn ap's untapped sources into a CONCRETE {color: count} §106 pool the engine can check pips
+    against, assigning each wildcard mana to a color the hand demands (then a default spread) so 'any
+    color' sources actually pay colored costs. Subtracts each source's activation cost (Signets pay {1})
+    from generic mana first — a source that can't net positive isn't counted. Returns (by_color, total)
+    or None when ap controls NO driver-managed mana source at all (a pre-seeded demo pool is left
+    untouched). A player whose sources are all TAPPED returns ({}, 0) — an empty pool, not None — so a
+    fully-spent board correctly reads as zero mana rather than a stale pre-tap count."""
+    if not _controls_any_source(state, ap):
+        return None                                           # pure demo state: leave a pre-seeded pool alone
+    units_rows = list(_source_units(state, ap))               # only the UNTAPPED ones
+    if not units_rows:
+        return {}, 0                                          # all sources tapped -> empty pool, count 0
+    fixed: dict[str, int] = {}
+    wilds: list[frozenset] = []
+    cost_generic = 0
+    for _sid, units, cg, _ts in units_rows:
+        cost_generic += cg
+        for u in units:
+            if isinstance(u, frozenset):
+                wilds.append(u)
+            else:
+                fixed[u] = fixed.get(u, 0) + 1
+    by_color = dict(fixed)
+    # assign wildcards: first to a hand-demanded color the wildcard can make, then to a default WUBRG
+    # spread (green..white) so the pool is colorful even with no demand signal.
+    demand = _mana_demand(state, ap)
+    spread = ["green", "white", "blue", "black", "red"]
+    for w in wilds:
+        pick = next((c for c in demand if c in w), None) or next((c for c in spread if c in w), None) \
+            or next(iter(sorted(w)))
+        by_color[pick] = by_color.get(pick, 0) + 1
+    # pay each source's activation cost from generic (colorless first, then any color) — net the pool.
+    for _ in range(cost_generic):
+        donor = "colorless" if by_color.get("colorless", 0) else next((c for c in by_color if by_color[c]), None)
+        if donor is None:
+            break
+        by_color[donor] -= 1
+    by_color = {c: n for c, n in by_color.items() if n > 0}
+    return by_color, sum(by_color.values())
+
+
 def _refresh_mana_pool(state: dict, ap: str) -> None:
-    """Stock ap's COLORED mana pool (§106) from the untapped sources it controls — each contributes one
-    mana of its produced color (land_produces) — plus the flat mana_available count for the legacy
-    fallback / cache continuity. The land-PLAY half lives in _develop_mana; this is the pool refresh
-    alone, so a reconstructed board (e.g. the Forge bridge) can stock mana without a land drop."""
-    sources = _untapped_sources(state, ap)
-    if not sources:
-        return  # no driver-managed lands/dorks: leave any pre-seeded mana_pool/mana_available as-is (demos)
-    by_color: dict[str, int] = {}
-    for _src, col in sources:
-        by_color[col] = by_color.get(col, 0) + 1
+    """Stock ap's CONCRETE colored mana pool (§106) from every untapped mana SOURCE it controls — real
+    colors and amounts (Sol Ring -> 2 colorless, Llanowar Elves -> 1 green, a Signet -> its colors net of
+    its {1} cost, a wildcard source aimed at a demanded color) — plus the flat mana_available count for
+    the legacy fallback / cache continuity. The land-PLAY half lives in _develop_mana; this is the pool
+    refresh alone, so a reconstructed board (e.g. the Forge bridge) can stock mana without a land drop."""
+    resolved = _resolve_pool(state, ap)
+    if resolved is None:
+        return  # no driver-managed sources: leave any pre-seeded mana_pool/mana_available as-is (demos)
+    by_color, total = resolved
     state["mana_pool"] = {(p, c, n) for (p, c, n) in state.get("mana_pool", set()) if p != ap} \
         | {(ap, col, n) for col, n in by_color.items()}
-    total = sum(by_color.values())
     state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, total)}
 
 
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
-    """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources: first one right-color source per
-    colored pip (mana_pip), then any remaining untapped source per generic (mana_generic). Tapping (not
-    just decrementing) makes mana deplete faithfully — a tapped source can't pay again this turn or
-    attack, and untaps next turn. The colored pool / flat count are refreshed from what's left untapped
-    so the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
+    """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources for their REAL mana. Each tapped
+    source yields ALL its mana at once (§106.4: Sol Ring -> 2 colorless, a Signet -> its 2 colors after
+    its {1}); we tap sources until every colored pip (from the right color, incl. wildcards) and the
+    generic are covered. Tapping (not decrementing) deletes mana faithfully — a tapped source can't pay
+    again this turn or attack, and untaps next turn. The pool is refreshed from what's left untapped so
+    the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
     pips: dict[str, int] = {}
     for (s, col, n) in state.get("mana_pip", set()):
         if s == spell:
@@ -785,41 +909,59 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     if not pips and generic == 0 and (spell, generic) not in state.get("mana_generic", set()):
         generic = next((int(c) for (s, c) in state.get("mana_cost", set()) if s == spell), 0)  # legacy fallback
 
-    sources = _untapped_sources(state, ap)                    # (id, color) pairs, lands first then dorks
-    if not sources:                                           # pre-seeded flat mana (demos): decrement count only
+    rows = list(_source_units(state, ap))                     # (id, units, cost_generic, taps_self)
+    if not rows:                                              # pre-seeded flat mana (demos): decrement count only
         cost = generic + sum(pips.values())
         cur = next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
         state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, max(0, cur - cost))}
         return
     used: set[str] = set()
-    # 1) pay each colored pip from an untapped source of that exact color.
-    for col, need in pips.items():
-        paid = 0
-        for sid, scol in sources:
-            if paid >= need:
+    need_pips = dict(pips)
+    need_generic = generic
+    # tap sources to cover the cost. A source contributes ALL its mana when tapped; we apply that mana to
+    # an unmet colored pip first (matching the source's color, prefer a concrete-color source over a
+    # wildcard for that pip), then to generic. Greedy but faithful: tap only sources that help.
+    def apply(units, cg):
+        nonlocal need_generic
+        avail = sum(1 for u in units) - cg                    # net mana after the source's activation cost
+        # pay colored pips this source can make
+        for u in list(units):
+            if avail <= 0:
                 break
-            if sid in used or scol != col:
-                continue
-            used.add(sid); paid += 1
-    # 2) pay generic from any remaining untapped source (color-agnostic, §202.1).
-    paid = 0
-    for sid, _scol in sources:
-        if paid >= generic:
+            colset = u if isinstance(u, frozenset) else {u}
+            hit = next((c for c in need_pips if need_pips[c] > 0 and c in colset), None)
+            if hit:
+                need_pips[hit] -= 1; avail -= 1
+        # leftover mana pays generic
+        take = min(avail, need_generic)
+        need_generic -= max(0, take)
+
+    def helps(units, cg):
+        avail = sum(1 for u in units) - cg
+        if avail <= 0:
+            return False
+        if need_generic > 0:
+            return True
+        for u in units:
+            colset = u if isinstance(u, frozenset) else {u}
+            if any(need_pips.get(c, 0) > 0 for c in colset):
+                return True
+        return False
+
+    # order: concrete single-color sources first (preserve wildcards for pips), then wildcard sources.
+    def keyf(row):
+        _sid, units, _cg, _ts = row
+        wildcount = sum(1 for u in units if isinstance(u, frozenset))
+        return (wildcount, sum(1 for u in units))
+    for sid, units, cg, _ts in sorted(rows, key=keyf):
+        if not (need_pips and any(v > 0 for v in need_pips.values())) and need_generic <= 0:
             break
-        if sid in used:
-            continue
-        used.add(sid); paid += 1
+        if helps(units, cg):
+            apply(units, cg)
+            used.add(sid)
     for sid in used:
         state.setdefault("tapped", set()).add((sid,))
-    # refresh the pool/count from sources still untapped after this payment.
-    by_color: dict[str, int] = {}
-    for sid, col in sources:
-        if sid not in used:
-            by_color[col] = by_color.get(col, 0) + 1
-    state["mana_pool"] = {(p, c, n) for (p, c, n) in state.get("mana_pool", set()) if p != ap} \
-        | {(ap, col, n) for col, n in by_color.items()}
-    cur = sum(by_color.values())
-    state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, cur)}
+    _refresh_mana_pool(state, ap)                             # pool/count from sources still untapped
 
 
 # --- §405 THE STACK: push -> priority window -> resolve top -----------------------------------------
@@ -1431,16 +1573,23 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
 
 
 def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
-    """Pay an activated ability's mana cost by tapping that many untapped lands/mana-creatures — the same
-    payment shape as _spend_mana, reused so abilities deplete mana faithfully (the mana model owns it)."""
-    bf, ctrl, tapped = state.get("on_battlefield", set()), state.get("printed_control", set()), state.get("tapped", set())
-    lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set()) and (ap, c) in ctrl and (c,) not in tapped)
-    dorks = sorted(c for (c,) in bf if (c,) in state.get("mana_source", set()) and (ap, c) in ctrl
-                   and (c,) not in tapped and (c,) not in state.get("_sick", set()))
-    for c in (lands + dorks)[:cost]:
-        state.setdefault("tapped", set()).add((c,))
-    cur = next((m for (q, m) in state.get("mana_available", set()) if q == ap), 0)
-    state["mana_available"] = {(q, m) for (q, m) in state.get("mana_available", set()) if q != ap} | {(ap, max(0, cur - cost))}
+    """Pay an activated ability's GENERIC mana cost by tapping untapped sources for their real mana —
+    each source contributes its full net output (§106.4), so a Sol Ring pays a {2} cost with one tap.
+    Same payment shape as _spend_mana (the mana model owns it); abilities deplete mana faithfully."""
+    if not _controls_any_source(state, ap):                   # pre-seeded flat mana (demo): decrement the count
+        cur = next((m for (q, m) in state.get("mana_available", set()) if q == ap), 0)
+        state["mana_available"] = {(q, m) for (q, m) in state.get("mana_available", set()) if q != ap} | {(ap, max(0, cur - cost))}
+        return
+    paid = 0
+    for sid, units, cg, _ts in _source_units(state, ap):
+        if paid >= cost:
+            break
+        net = sum(1 for _u in units) - cg
+        if net <= 0:
+            continue
+        state.setdefault("tapped", set()).add((sid,))
+        paid += net
+    _refresh_mana_pool(state, ap)                             # recompute pool/count from sources still untapped (0 if all tapped)
 
 
 def _end_of_turn(state: dict) -> None:

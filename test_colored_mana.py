@@ -142,6 +142,58 @@ def main():
         driver._spend_mana = orig
     check("overspend invariant: no spell paid with mana it lacks (6 games)", not violations)
 
+    # --- (f) PRECISE MANA ABILITIES: rocks/dorks produce their REAL colored mana (§605/§106) ---
+    # The bridge lexes each non-land mana source's oracle text into source_produces/source_wildcard.
+    def outs(name):
+        import card_corpus
+        c = {cc["name"]: cc for cc in card_corpus.load_cards()}.get(name, {})
+        return list(B._mana_source_outputs(c))
+
+    check("Sol Ring lexes to 2 colorless ({C}{C})",
+          outs("Sol Ring") == [(0, True, {"colorless": 2}, {})])
+    check("Mana Crypt lexes to 2 colorless (non-first oracle line)",
+          outs("Mana Crypt") == [(0, True, {"colorless": 2}, {})])
+    check("Grim Monolith lexes to 3 colorless ({C}{C}{C})",
+          outs("Grim Monolith") == [(0, True, {"colorless": 3}, {})])
+    check("Llanowar Elves lexes to 1 green", outs("Llanowar Elves") == [(0, True, {"green": 1}, {})])
+    check("Birds of Paradise lexes to any-color wildcard",
+          outs("Birds of Paradise") == [(0, True, {}, {"any_color": 1})])
+    check("Dimir Signet lexes to blue+black costing {1}",
+          outs("Dimir Signet") == [(1, True, {"blue": 1, "black": 1}, {})])
+    check("Jeweled Lotus ABSTAINS (Sacrifice cost the loop can't pay)", outs("Jeweled Lotus") == [])
+
+    # a state helper that puts the named permanents on alice's battlefield with a spell in hand.
+    def board(perms, spell):
+        st = B.make_state({"alice": {"battlefield": perms, "hand": [spell], "library": 0}}, life=20)
+        st["current_step"] = {("precombat_main",)}
+        st["has_priority"] = {("alice",)}
+        st["active_player"] = {("alice",)}
+        driver._refresh_mana_pool(st, "alice")
+        sp = next(s for (p, s) in st["in_hand"] if p == "alice")
+        pool = {c: n for (p, c, n) in st["mana_pool"] if p == "alice"}
+        cast = sp in {s for (p, s) in driver.run(st, ["can_cast"])["can_cast"] if p == "alice"}
+        return st, sp, pool, cast
+
+    # Sol Ring -> {C}{C}: a single source pays a {2} cost (the old colorless-1 model gave only 1).
+    _, _, pool, cast = board(["Sol Ring"], "Mind Stone")          # Mind Stone is {2}
+    check("Sol Ring pool is 2 colorless", pool == {"colorless": 2})
+    check("Sol Ring alone pays a {2} cost (Mind Stone castable)", cast)
+
+    # 2 Signets + 4 Islands -> W/U/B pool: a {2}{W}{U}{B} spell the OLD colorless-1 model couldn't pay.
+    _, _, pool, cast = board(["Azorius Signet", "Dimir Signet", "Island", "Island", "Island", "Island"],
+                             "Sen Triplets")
+    check("2 Signets give white & black pips (multi-color pool)",
+          pool.get("white", 0) >= 1 and pool.get("black", 0) >= 1)
+    check("multi-color Sen Triplets {2}{W}{U}{B} castable off 2 Signets + Islands", cast)
+
+    # faithfully GATED: the same spell off six Islands (no white/black source) is NOT castable.
+    _, _, _, cast = board(["Island"] * 6, "Sen Triplets")
+    check("Sen Triplets NOT castable off blue-only mana (no W/B source)", not cast)
+
+    # a mana DORK produces its real color: Llanowar Elves -> {G} pays a green pip.
+    _, _, pool, _ = board(["Llanowar Elves"], "Mind Stone")
+    check("Llanowar Elves taps for green (not abstracted to colorless)", pool == {"green": 1})
+
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return FAIL == 0
 
