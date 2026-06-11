@@ -551,9 +551,19 @@ public class ForgeComboKill {
     // -> win). 5 cards, fits a real opening hand; the rest is filler the combo exiles. The lookahead drives
     // the whole thing (sequence + the 'name a card' choice) — nothing combo-specific in the bot. (3 Petals,
     // not Black Lotus + Mox Jet: each Petal is independent any-color mana, so Forge can't mis-pay one color.)
-    static final String[] COMBO = {
+    // Two turn-1 win-con regressions the lookahead must rediscover (select via -Dcombo=oracle|storm):
+    //   oracle: Black Lotus + Mox Jet + Demonic Consultation (name an absent card -> exile library) +
+    //           Thassa's Oracle -> win on the empty library (finalLife 20/20, a pure library-out).
+    //   storm:  Lotus Petal x9 (sac for mana) + Tendrils of Agony -> storm count kills (finalLife 40/0).
+    static final String[] COMBO_ORACLE = {
         "Black Lotus", "Mox Jet", "Demonic Consultation", "Thassa's Oracle",
     };
+    static final String[] COMBO_STORM = {
+        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal",
+        "Lotus Petal", "Lotus Petal", "Lotus Petal", "Lotus Petal", "Tendrils of Agony",
+    };
+    static final String[] COMBO =
+        "storm".equalsIgnoreCase(System.getProperty("combo", "oracle")) ? COMBO_STORM : COMBO_ORACLE;
 
     static Deck comboDeck(String name) {
         Deck d = new Deck(name);

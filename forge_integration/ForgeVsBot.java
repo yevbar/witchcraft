@@ -444,7 +444,8 @@ public class ForgeVsBot {
         return c;
     }
 
-    static Deck gruul(String name) {
+    // "vanilla": a plain Gruul beatdown — basic lands + french-vanilla creatures. The baseline opponent/deck.
+    static Deck vanilla(String name) {
         Deck d = new Deck(name);
         d.getMain().add(card("Forest"), 30);
         d.getMain().add(card("Mountain"), 14);
@@ -455,11 +456,43 @@ public class ForgeVsBot {
         return d;
     }
 
+    // "izzet": the real Standard Izzet Prowess list witchcraft models 100% CLEAN (18/18 distinct).
+    static Deck izzet(String name) {
+        Deck d = new Deck(name);
+        d.getMain().add(card("Riverpyre Verge"), 4);
+        d.getMain().add(card("Stormcarved Coast"), 2);
+        d.getMain().add(card("Island"), 7);
+        d.getMain().add(card("Steam Vents"), 4);
+        d.getMain().add(card("Spirebluff Canal"), 4);
+        d.getMain().add(card("Roaring Furnace"), 1);
+        d.getMain().add(card("Slickshot Show-Off"), 4);
+        d.getMain().add(card("Eddymurk Crab"), 4);
+        d.getMain().add(card("Stormchaser's Talent"), 4);
+        d.getMain().add(card("Boomerang Basics"), 4);
+        d.getMain().add(card("Sleight of Hand"), 4);
+        d.getMain().add(card("Flow State"), 4);
+        d.getMain().add(card("Stock Up"), 1);
+        d.getMain().add(card("Opt"), 4);
+        d.getMain().add(card("Spell Pierce"), 2);
+        d.getMain().add(card("Burst Lightning"), 4);
+        d.getMain().add(card("Prismari Charm"), 1);
+        d.getMain().add(card("Get Out"), 2);
+        return d;   // 60 cards
+    }
+
+    static Deck deckFor(String which, String name) {
+        return "izzet".equalsIgnoreCase(which) ? izzet(name) : vanilla(name);
+    }
+
     public static void main(String[] args) {
         initForge();
+        // args/props: -DwitchDeck=izzet|vanilla (the witchcraft seat) -DoppDeck=izzet|vanilla (Forge-AI seat).
+        String witchDeck = System.getProperty("witchDeck", args.length > 0 ? args[0] : "vanilla");
+        String oppDeck = System.getProperty("oppDeck", args.length > 1 ? args[1] : "vanilla");
         List<RegisteredPlayer> players = Lists.newArrayList();
-        players.add(new RegisteredPlayer(gruul("witch")).setPlayer(new RemotePlayer("Witchcraft-Engine")));
-        players.add(new RegisteredPlayer(gruul("forge")).setPlayer(new LobbyPlayerAi("Forge-AI", null)));
+        players.add(new RegisteredPlayer(deckFor(witchDeck, "witch")).setPlayer(new RemotePlayer("Witchcraft-Engine")));
+        players.add(new RegisteredPlayer(deckFor(oppDeck, "forge")).setPlayer(new LobbyPlayerAi("Forge-AI", null)));
+        System.out.println("Decks: Witchcraft-Engine=" + witchDeck + " vs Forge-AI=" + oppDeck);
         GameRules rules = new GameRules(GameType.Constructed);
         rules.setGamesPerMatch(1);
         Match match = new Match(rules, players, "witchcraft-vs-forge");

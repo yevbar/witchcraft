@@ -1,0 +1,44 @@
+compiled ForgeComboKill + ForgeVsBot
+
+=== WIN-CON: Thassa's Oracle (library-out) (witchcraft pilots; Forge confirms) ===
+  winner=Witchcraft-Engine turns=1 wall=13396ms modeled=0.739 endorsed=0.304  -> PASS
+
+=== WIN-CON: Tendrils storm (storm count) (witchcraft pilots; Forge confirms) ===
+  winner=TIMEOUT/ERR turns=? wall=?ms modeled=None endorsed=None  -> SLOW
+
+=== MATCHUP: witchcraft[izzet] vs forge-ai[izzet]  (best of 3) ===
+  game 1: winner=Forge-AI turns=29 wall=20926ms modeled=1.0 endorsed=0.0 engine_decided=0
+  game 2: winner=Forge-AI turns=18 wall=9809ms modeled=1.0 endorsed=0.0 engine_decided=0
+  -> series: Witchcraft-Engine 0 - 2 Forge-AI  (Forge-AI)
+
+=== MATCHUP: witchcraft[izzet] vs forge-ai[vanilla]  (best of 3) ===
+  game 1: winner=Forge-AI turns=12 wall=8680ms modeled=1.0 endorsed=0.0 engine_decided=0
+  game 2: winner=Forge-AI turns=12 wall=8319ms modeled=1.0 endorsed=0.0 engine_decided=0
+  -> series: Witchcraft-Engine 0 - 2 Forge-AI  (Forge-AI)
+
+=== MATCHUP: witchcraft[vanilla] vs forge-ai[izzet]  (best of 3) ===
+  game 1: winner=Forge-AI turns=13 wall=9064ms modeled=1.0 endorsed=0.0 engine_decided=0
+  game 2: winner=Forge-AI turns=25 wall=17417ms modeled=1.0 endorsed=0.0 engine_decided=0
+  -> series: Witchcraft-Engine 0 - 2 Forge-AI  (Forge-AI)
+
+=== MATCHUP: witchcraft[vanilla] vs forge-ai[vanilla]  (best of 3) ===
+  game 1: winner=Forge-AI turns=16 wall=10253ms modeled=1.0 endorsed=0.0 engine_decided=0
+  game 2: winner=Forge-AI turns=13 wall=7801ms modeled=1.0 endorsed=0.0 engine_decided=0
+  -> series: Witchcraft-Engine 0 - 2 Forge-AI  (Forge-AI)
+
+========================================================================
+TOURNAMENT SUMMARY  (Forge = referee; witchcraft drives its seat)
+========================================================================
+
+WIN-CON REGRESSIONS (witchcraft must win as the piloting seat):
+  PASS  winner=Witchcraft-Engine         modeled=0.739 endorsed=0.304
+  SLOW  winner=TIMEOUT/ERR               modeled=None endorsed=None
+
+DECK MATCHUPS (best of 3; modeled = options witchcraft understood, endorsed = plays its search drove):
+  witchcraft forge-ai   series         modeled~  endorsed~
+  izzet      izzet      0-2 (Forge-AI) 1.0       0.0      
+  izzet      vanilla    0-2 (Forge-AI) 1.0       0.0      
+  vanilla    izzet      0-2 (Forge-AI) 1.0       0.0      
+  vanilla    vanilla    0-2 (Forge-AI) 1.0       0.0      
+
+wall: 244s
