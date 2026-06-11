@@ -1753,6 +1753,13 @@ def _resolve_top(state: dict) -> None:
             _equip(state, src, actrl)
         elif eff == "reanimate":                             # §701 activated reanimator / from-hand cheat
             _reanimate_one(state, top, actrl, tgt)
+        elif eff == "level_up":                              # §717 raise a Class's level, fire its 'becomes level N'
+            lvl = state.setdefault("_class_level", {})
+            lvl[src] = int(amt)
+            print(f"    {src} becomes level {amt}")
+            for (cid, n2, e2, a2, t2) in sorted(state.get("class_level_effect", set())):
+                if cid == src and int(n2) == int(amt):       # the level-N ability's effect resolves now
+                    _apply_effects(state, {(f"{src}_lvl{amt}", e2, int(a2), t2, src, actrl)})
         else:
             _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
@@ -2000,6 +2007,9 @@ def _activatable(state: dict, p: str) -> list:
             cards = ([c for (pp, c) in state.get("in_hand", set()) if pp == p] if zone == "hand"
                      else [c for (c,) in state.get("graveyard", set())])
             if not any((c, "creature") in ptype for c in cards):
+                continue
+        if eff == "level_up":                                # §717 a Class advances ONE level at a time (N from N-1)
+            if state.get("_class_level", {}).get(src, 1) != int(amt) - 1:
                 continue
         out.append(row)
     return sorted(out)

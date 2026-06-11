@@ -314,11 +314,63 @@ def _take_searched(state: dict, ctrl: str) -> str | None:
 _SEARCHED_OBJ = {"it", "that_card", "that_land", "the_card", ""}
 
 
+# §701 a 'return a card from your graveyard to your hand' (Regrowth, Call to Mind, the Class/level payoffs)
+# target slug -> the card-TYPE filter the applier matches against each graveyard card's identity, or None to
+# abstain. Only filters we can confirm from the surfaced card_type are mapped; a named / restricted card
+# ('a card named …', 'with mana value 3 or less') abstains rather than guess.
+_REGROWTH_FILTER = {
+    "target_card": "any", "a_card": "any", "target_card_from_your_graveyard": "any",
+    "target_instant_or_sorcery_card": "instant_or_sorcery",
+    "an_instant_or_sorcery_card": "instant_or_sorcery",
+    "target_creature_card": "creature", "a_creature_card": "creature",
+    "target_land_card": "land", "target_artifact_card": "artifact",
+    "target_enchantment_card": "enchantment", "target_permanent_card": "permanent",
+}
+
+
+def _regrowth_filter(tgt) -> str | None:
+    return _REGROWTH_FILTER.get(str(tgt))
+
+
 @encoder("return_to_hand")
 def _encode_search_to_hand(verb, amt, tgt, extra):
+    if str(extra) == "from_graveyard":                       # §701 Regrowth — return a graveyard card to hand
+        filt = _regrowth_filter(tgt)
+        return ("regrowth", 0, filt) if filt is not None else None
     if str(tgt) not in _SEARCHED_OBJ:
         return None
     return ("place_searched", 0, "hand")
+
+
+@applier("regrowth")
+def _apply_regrowth(D, state, a, n, tgt, src, ctrl):
+    """§701 return a card from a graveyard to the controller's hand, matching the type filter `tgt`
+    ('any' / 'instant_or_sorcery' / 'creature' / …). Picks the canonical-first matching card (a faithful,
+    always-legal choice — the card never says WHICH). Card types come from each graveyard object's identity
+    (instance_of -> card_type). NOTE the graveyard is owner-agnostic in this model, so 'your graveyard'
+    resolves over all graveyard cards; in the turn-bounded lookahead the active player's own cards dominate."""
+    gy = sorted(c for (c,) in state.get("graveyard", set()))
+    inst = {o: c for (o, c) in state.get("instance_of", set())}
+    types_by_card: dict = {}
+    for (card, t) in state.get("card_type", set()):
+        types_by_card.setdefault(card, set()).add(t)
+
+    def matches(g: str) -> bool:
+        ts = types_by_card.get(inst.get(g, g), set())
+        if tgt == "any":
+            return True
+        if tgt == "instant_or_sorcery":
+            return "instant" in ts or "sorcery" in ts
+        if tgt == "permanent":
+            return bool(ts & {"creature", "artifact", "enchantment", "land", "planeswalker"})
+        return tgt in ts
+
+    pick = next((g for g in gy if matches(g)), None)
+    if pick is None:
+        return
+    state["graveyard"].discard((pick,))
+    state.setdefault("in_hand", set()).add((ctrl, pick))
+    print(f"    {a}: {ctrl} returns {pick} from graveyard to hand")
 
 
 @encoder("put_on_top")

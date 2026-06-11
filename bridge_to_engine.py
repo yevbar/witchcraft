@@ -713,6 +713,19 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             continue
         kind = ab.get("kind")
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
+            trig = str(ab.get("trigger"))
+            if trig.startswith("becomes_level_") and trig.rsplit("_", 1)[1].isdigit():
+                # §717 a Class's 'when this becomes level N' ability — fired by the driver's level-up
+                # resolution (not the engine event system). Emit each effect as a class_level_effect row the
+                # driver runs when the Class reaches level N; an unresolvable effect still abstains.
+                lvl = int(trig.rsplit("_", 1)[1])
+                for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+                    r = _resolved_effect(verb, amt, tgt, extra)
+                    if r is None:
+                        dropped.append(("effect", verb))
+                        continue
+                    add("class_level_effect", (tid, lvl, r[0], r[1], r[2]))
+                continue
             event = _EVENT.get(ab.get("trigger"))
             if event is None:
                 dropped.append(("event", ab.get("trigger")))
@@ -1047,6 +1060,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("static_grant", (tid, kw, scope))
                 if fkind is not None:                         # a subtype/type/color lord -> narrow the anthem
                     add("static_filter", (tid, fkind, fval))
+
+    for cost, level in f.get("class_levels", []):            # §717 a Class's '{cost}: Level N' level-up steps
+        # each level-up is a sorcery-speed activated ability (level_up, amount=N) the driver gates to advance
+        # one level at a time (only from N-1); on resolution it raises the level and fires the class_level_
+        # effect rows for N. A non-mana cost abstains (no Class is printed with one, but stay faithful).
+        paid = _activated_cost(cost)
+        if paid is None or not str(level).isdigit():
+            dropped.append(("class_level", cost))
+            continue
+        add("activated_ability", (f"{tid}_lvl{level}", tid, paid[0], "-", "level_up", int(level), "-"))
 
     if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
         for mode in f.get("modes", []):

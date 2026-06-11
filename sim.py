@@ -46,6 +46,8 @@ def load_db():
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
         elif rel == "ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
+        elif rel == "class_level":                           # §717 a Class's '{cost}: Level N' level-up step
+            db.setdefault(a[0], {}).setdefault("class_levels", []).append((a[1], a[2]))  # (cost, level)
         elif rel == "card_effect":
             extra = a[6] if len(a) > 6 else "-"
             cond = a[7] if len(a) > 7 else "-"
