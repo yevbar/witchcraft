@@ -590,27 +590,36 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
             print(f"    {kind} {a}: untaps target {tgt}")
 
 
-# perm_<filter> class -> the printed types a candidate permanent must match (ANY of), or a special token.
-# Mirrors bridge_to_engine._PERM_FILTER (the datalog passes the class string straight through to the driver).
+# perm[_own]_<token> class -> the printed types a candidate permanent must match (ANY of), or a special
+# token ('nonland' / 'noncreature' / 'any'). The class string is opaque to the bridge and flows through
+# the datalog target_class straight to here. An 'own_' segment restricts the candidates to the controller's
+# permanents ('you own/you control' targets, e.g. Get Out's protective self-bounce).
 _PERM_FILTER = {
-    "perm_artifact": ("artifact",), "perm_enchantment": ("enchantment",),
-    "perm_artifact_enchantment": ("artifact", "enchantment"),
-    "perm_creature_enchantment": ("creature", "enchantment"),
-    "perm_cep": ("creature", "enchantment", "planeswalker"),
-    "perm_noncreature": ("noncreature",), "perm_nonland": ("nonland",), "perm_any": ("any",),
+    "artifact": ("artifact",), "enchantment": ("enchantment",),
+    "artifact_enchantment": ("artifact", "enchantment"),
+    "creature_enchantment": ("creature", "enchantment"),
+    "cep": ("creature", "enchantment", "planeswalker"),
+    "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 
 
-def _perm_candidates(state: dict, cls: str, creatures: set) -> list[str]:
-    """§115 the on-battlefield permanents matching a perm_<filter> target class. Type is read from the
+def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = None) -> list[str]:
+    """§115 the on-battlefield permanents matching a perm[_own]_<token> target class. Type is read from the
     surfaced printed_type, with the engine's DERIVED `creature` folded in so an animated land / token counts
     as a creature. 'nonland' = any permanent without a printed land type; 'noncreature' = not a creature;
-    'any' = every permanent."""
+    'any' = every permanent. A leading 'own_' restricts to the controller's permanents (printed_control)."""
+    body = cls[len("perm_"):] if cls.startswith("perm_") else cls
+    own = body.startswith("own_")
+    if own:
+        body = body[len("own_"):]
+    want = _PERM_FILTER.get(body, ())
     on_bf = sorted(c for (c,) in state.get("on_battlefield", set()))
     ptype = state.get("printed_type", set())
-    want = _PERM_FILTER.get(cls, ())
+    mine = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
 
     def matches(c: str) -> bool:
+        if own and c not in mine:
+            return False
         types = {t for (o, t) in ptype if o == c}
         if c in creatures:
             types.add("creature")
@@ -634,7 +643,7 @@ def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
     if cls.startswith("perm_"):                              # §115 non-creature permanent target (Abrade, bounce)
-        cands = _perm_candidates(state, cls, creatures)
+        cands = _perm_candidates(state, cls, creatures, ctrl)
     else:
         cands = [c for c in creatures if c in on_bf]
         if cls == "you_control":
@@ -1467,6 +1476,11 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
                 _to_graveyard(state, victim)
             else:
                 print(f"      {spell} has no spell to counter")
+        elif eff == "ctarget":                               # §601.2c a CHOSEN mode's single-target zone move
+            verb, payload, cls = str(tgt).split("|")          # (Prismari Charm bounce, Get Out self-bounce)
+            _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
+        elif eff == "cdamage":                               # §120 a chosen mode's direct damage to a target
+            _apply_damage(state, spell, int(amt), str(tgt), ctrl)
         else:                                                # shared effect resolver (§603 -> §608 vocabulary)
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
     _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)

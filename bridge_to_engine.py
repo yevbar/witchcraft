@@ -204,6 +204,10 @@ _TARGET_CLASS = {
     "target_creature_or_enchantment": "perm_creature_enchantment",
     "target_creature_or_planeswalker_or_enchantment": "perm_cep",
     "target_creature_enchantment_or_planeswalker": "perm_cep",
+    # 'one or two target creatures and/or enchantments YOU OWN' (Get Out's protective bounce): choosing
+    # exactly ONE own creature/enchantment is a legal subset of 'one or two', so we resolve it as a single
+    # OWN-restricted target (perm_own_*) — a beneficial self-bounce the driver aims at the controller's board.
+    "one_or_two_target_creatures_and_or_enchantments_you_own": "perm_own_creature_enchantment",
 }
 
 # The perm_<filter> class is opaque to the bridge — it flows straight through target_class into the datalog
@@ -232,6 +236,9 @@ _DAMAGE_TARGET = {
     "target_player": "face", "target_opponent": "face", "each_opponent": "face",
     "that_player": "face", "target_player_or_planeswalker": "face",
     "you": "self", "yourself": "self",
+    # 'deal N damage to each of one or two targets' (Prismari Charm mode 2): one chosen target is a legal
+    # subset of 'one or two' -> any target (the driver kills a finishable threat or goes face).
+    "each_of_one_or_two_targets": "any_target",
     # board sweepers (Pyroclasm, Anger of the Gods, Pestilence): the driver applies the lethality check to
     # every creature, and to every player for the '...and each player' variants. The flying-filtered forms
     # (Earthquake hits only non-flyers, Hurricane only flyers) restrict the creature set by the keyword.
@@ -1023,6 +1030,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             mab = f.get("abilities", {}).get(mode, {})
             mode_effs = []
             for _seq, verb, amt, tgt, extra, _cond in mab.get("effects", []):
+                # §601.2c a mode's SINGLE-TARGET zone-move (Prismari Charm 'return target nonland permanent',
+                # Get Out 'return one/two creatures you own') or direct DAMAGE rides the same target machinery
+                # as a non-modal spell, but mode-gated: pack a ctarget/cdamage sentinel the driver resolves
+                # only for the CHOSEN mode (spell_effect_mode carries no spell_target row of its own).
+                if verb in _CREATURE_VERBS and _scope(tgt) is None:
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                    if ev is not None:
+                        mode_effs.append((tid, mode, "ctarget", 0, f"{ev}|{payload}|{cls}"))
+                        continue
+                if verb == "deal_damage" and _int(amt) is not None and _damage_target(tgt) is not None:
+                    mode_effs.append((tid, mode, "cdamage", _int(amt), _damage_target(tgt)))
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

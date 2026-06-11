@@ -49,8 +49,66 @@ def main():
     active2 = {m for (s, m) in driver.run(st2, ["active_mode"])["active_mode"] if s == "chrm"}
     check("a non-offered mode choice is not active (§700.2 — must be an offered mode)", active2 == set())
 
+    _modal_target_checks()
+    _modal_damage_checks()
+
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return FAIL == 0
+
+
+def _modal_target_checks():
+    """§601.2c a CHOSEN mode's single-target zone move resolves through the target machinery (Prismari
+    Charm's bounce-nonland-permanent; Get Out's OWN-restricted protective bounce)."""
+    import contextlib
+    import io
+    # Prismari Charm mode3: bounce a nonland permanent -> aims at the opponent's, never a land.
+    st = {
+        "is_player": {("a",), ("b",)}, "on_stack": set(), "_stack_info": {},
+        "on_battlefield": {("charm",), ("bmox",), ("bland",)},
+        "printed_type": {("bmox", "artifact"), ("bland", "land")},
+        "printed_control": {("a", "charm"), ("b", "bmox"), ("b", "bland")},
+        "spell_mode": {("charm", "m3")}, "chose_mode": {("charm", "m3")},
+        "spell_effect_mode": {("charm", "m3", "ctarget", 0, "return_to_hand|-|perm_nonland")},
+        "tapped": set(), "graveyard": set(), "in_hand": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "charm", "a")
+    check("modal bounce returns the opponent's nonland permanent", ("b", "bmox") in st["in_hand"])
+    check("modal bounce can't hit a land (perm_nonland excludes it)", ("bland",) in st["on_battlefield"])
+
+    # Get Out mode2: bounce ONE creature/enchantment YOU OWN -> the controller's own, not the opponent's.
+    st2 = {
+        "is_player": {("a",), ("b",)}, "on_stack": set(), "_stack_info": {},
+        "on_battlefield": {("go",), ("mine",), ("theirs",)},
+        "printed_type": {("mine", "creature"), ("theirs", "creature")},
+        "printed_control": {("a", "go"), ("a", "mine"), ("b", "theirs")},
+        "spell_mode": {("go", "m2")}, "chose_mode": {("go", "m2")},
+        "spell_effect_mode": {("go", "m2", "ctarget", 0, "return_to_hand|-|perm_own_creature_enchantment")},
+        "tapped": set(), "graveyard": set(), "in_hand": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st2, "go", "a")
+    check("modal 'you own' bounce returns the controller's own permanent", ("a", "mine") in st2["in_hand"])
+    check("modal 'you own' bounce never touches the opponent's", ("theirs",) in st2["on_battlefield"])
+
+
+def _modal_damage_checks():
+    """§120 a chosen mode's direct damage resolves through the damage machinery (Prismari Charm's
+    'deals 1 to each of one or two targets' -> one chosen target, not the caster)."""
+    import contextlib
+    import io
+    st = {
+        "is_player": {("a",), ("b",)}, "life": {("a", 20), ("b", 20)},
+        "on_stack": set(), "_stack_info": {}, "on_battlefield": {("charm",)},
+        "printed_type": set(), "printed_control": {("a", "charm")},
+        "spell_mode": {("charm", "m2")}, "chose_mode": {("charm", "m2")},
+        "spell_effect_mode": {("charm", "m2", "cdamage", 1, "any_target")},
+        "tapped": set(), "graveyard": set(), "in_hand": set(),
+    }
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(st, "charm", "a")
+    life_a = next(v for (p, v) in st["life"] if p == "a")
+    check("modal damage does NOT hit the caster (no self-damage bug)", life_a == 20)
 
 
 if __name__ == "__main__":

@@ -101,7 +101,7 @@ def _target_options(state: dict, cls: str) -> list[str]:
     controls = {(p, c) for (p, c) in out["controls"]}
     creatures = {c for (c,) in out["creature"]}
     if cls.startswith("perm_"):                               # §115 non-creature permanent target
-        return driver._perm_candidates(state, cls, creatures)
+        return driver._perm_candidates(state, cls, creatures, _active(state))
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     ap = _active(state)
     mine = {c for (p, c) in controls if p == ap}
@@ -124,17 +124,31 @@ def _name_choices(state: dict, spell: str) -> list:
     return _lib.name_candidates(state, _active(state))
 
 
+def _mode_target_class(state: dict, spell: str, mode) -> str | None:
+    """The single-target class a cast of (spell, mode) needs. For a MODAL spell it's the chosen mode's
+    ctarget sentinel (spell_effect_mode); for a non-modal spell (mode is None) it's the spell-wide
+    spell_target. None when the mode/spell has no single target to choose."""
+    if mode is not None:
+        for (s, m, eff, _amt, tgt) in state.get("spell_effect_mode", set()):
+            if s == spell and m == mode and eff == "ctarget":
+                return str(tgt).split("|")[-1]                # 'verb|payload|cls' -> cls
+        return None
+    return next((cls for (s, _v, _p, cls) in state.get("spell_target", set()) if s == spell), None)
+
+
 def _cast_choices(state: dict, spell: str) -> list[dict]:
     """The sub-choice dicts a cast of `spell` needs: one per (mode × single target × named card) combination
-    the engine surfaced (spell_mode / spell_target / name_exile_lib). A spell with none yields one empty dict."""
+    the engine surfaced (spell_mode / spell_target / spell_effect_mode ctarget / name_exile_lib). A spell
+    with none yields one empty dict. The target set is PER-MODE: a mode requiring a target with none legal is
+    skipped (not the whole spell), and modes that need no target carry none."""
     modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell) or [None]
-    tcls = next((cls for (s, _v, _p, cls) in state.get("spell_target", set()) if s == spell), None)
-    targets = _target_options(state, tcls) if tcls else [None]
     names = _name_choices(state, spell)
-    if not targets:                                  # a target is required but none is legal -> uncastable
-        return []
     choices = []
     for m in modes:
+        tcls = _mode_target_class(state, spell, m)
+        targets = _target_options(state, tcls) if tcls else [None]
+        if not targets:                              # this mode needs a target but none is legal -> skip it
+            continue
         for t in targets:
             for nm in names:
                 c = {}
