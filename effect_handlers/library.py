@@ -147,10 +147,37 @@ def _apply_surveil(D, state, a, n, tgt, src, ctrl):
 # M (a legal pick — the card never says WHICH M, so any M is correct); the rest go to the named zone. Never
 # loses a card.
 # ─────────────────────────────────────────────────────────────────────────────
+def _gy_card_types(state: dict) -> set:
+    """The set of card TYPES present among the cards in any graveyard, read from each graveyard object's
+    card identity (instance_of -> card_type). Used to evaluate a dig's '… in your graveyard' upgrade
+    condition faithfully (it abstains at fold time if the type data isn't readable)."""
+    inst_of = {o: c for (o, c) in state.get("instance_of", set())}
+    types_by_card: dict = {}
+    for (card, t) in state.get("card_type", set()):
+        types_by_card.setdefault(card, set()).add(t)
+    out: set = set()
+    for (g,) in state.get("graveyard", set()):
+        out |= types_by_card.get(inst_of.get(g, g), set())
+    return out
+
+
+def _dig_condition_met(state: dict, tag: str) -> bool:
+    """True iff the named dig-upgrade condition holds for the controller's current state (§701)."""
+    if tag == "instant_and_sorcery_in_gy":                   # Flow State: an instant AND a sorcery in the yard
+        types = _gy_card_types(state)
+        return "instant" in types and "sorcery" in types
+    return False                                             # unknown tag -> no upgrade (fold only emits known tags)
+
+
 @applier("dig_to_hand")
 def _apply_dig_to_hand(D, state, a, n, tgt, src, ctrl):
-    m_s, _, dest = str(tgt).partition("_")
+    base, _, cond = str(tgt).partition("|")                  # '<M>_<dest>' optionally '|<cond_tag>|<M2>'
+    m_s, _, dest = base.partition("_")
     m = int(m_s) if m_s.isdigit() else 0
+    if cond:                                                 # conditional 'instead put M2 if <cond>' (Flow State)
+        cond_tag, _, m2_s = cond.partition("|")
+        if m2_s.isdigit() and _dig_condition_met(state, cond_tag):
+            m = int(m2_s)
     order = _order(state, ctrl)
     top = sorted(order[:n])                                  # the looked-at top n, canonical order
     del order[:n]                                            # pull them out of the library

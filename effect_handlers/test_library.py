@@ -143,6 +143,26 @@ def _apply_checks() -> None:
     _fire(st, "dig_to_hand", 5, tgt="2_bottom")
     check("dig: a short library is capped (no crash, no card lost)", len(st["in_hand"]) == 2 and len(st["in_library"]) == 0)
 
+    # CONDITIONAL dig (Flow State): look 3, put 1 into hand — but 2 instead if an instant AND a sorcery are
+    # in the graveyard. Base case (empty yard) keeps the base count.
+    st = _state(["a", "b", "c", "d"])
+    _fire(st, "dig_to_hand", 3, tgt="1_bottom|instant_and_sorcery_in_gy|2")
+    check("conditional dig base: no instant+sorcery -> 1 to hand", {c for (p, c) in st["in_hand"]} == {"a"})
+    # upgrade case: an instant and a sorcery in the graveyard -> 2 to hand.
+    st = _state(["a", "b", "c", "d"])
+    st["graveyard"] = {("opt_i",), ("ttw_s",)}
+    st["instance_of"] = {("opt_i", "opt"), ("ttw_s", "think_twice")}
+    st["card_type"] = {("opt", "instant"), ("think_twice", "sorcery")}
+    _fire(st, "dig_to_hand", 3, tgt="1_bottom|instant_and_sorcery_in_gy|2")
+    check("conditional dig upgrade: instant+sorcery in yard -> 2 to hand", {c for (p, c) in st["in_hand"]} == {"a", "b"})
+    # only one of the two types present -> no upgrade.
+    st = _state(["a", "b", "c", "d"])
+    st["graveyard"] = {("opt_i",)}
+    st["instance_of"] = {("opt_i", "opt")}
+    st["card_type"] = {("opt", "instant")}
+    _fire(st, "dig_to_hand", 3, tgt="1_bottom|instant_and_sorcery_in_gy|2")
+    check("conditional dig: only an instant (no sorcery) -> still 1 to hand", {c for (p, c) in st["in_hand"]} == {"a"})
+
     # GENERIC tutor (Demonic Tutor): search SELECTS the canonical-first card, place puts it in hand.
     st = _state(["m", "k", "n"])
     _fire(st, "search_select", 0, tgt="any")

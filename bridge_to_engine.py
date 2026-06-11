@@ -528,14 +528,24 @@ def _lead_count(extra) -> int | None:
     return _NUMWORD.get(str(extra).split("_", 1)[0])
 
 
+# §701 a dig's conditional 'instead put M2' upgrade -> a tag the dig_to_hand applier evaluates at resolution.
+# Only conditions whose state the driver can read faithfully are mapped; an unmapped condition abstains the
+# whole fold (the dig is left to drop rather than guess the count).
+_DIG_COND = {
+    "there_is_an_instant_card_and_a_sorcery_card_in_your_graveyard": "instant_and_sorcery_in_gy",
+}
+
+
 def _fold_dig(effs: list, emit) -> set:
     """§701 'look at the top N of your library, put M of them into your hand, the rest on the bottom / in
     your graveyard' (Stock Up, A Little Chat, Behold-style card advantage). Fold the look + the put clauses
     into ONE dig_to_hand effect: amount = N (looked at), target = '<M>_<bottom|graveyard>'. Faithful: with
-    opaque library ids the M kept are the canonical-first of the top N (a legal deterministic choice). Folds
-    only the clean OWN-library shape (a numeric look N + a single numeric M to hand); a variable count
-    ('that_amount'), a conditional 'two if … else one' (multiple to-hand clauses), or a non-library look
-    abstains."""
+    opaque library ids the M kept are the canonical-first of the top N (a legal deterministic choice).
+
+    Also folds the CONDITIONAL 'put one … instead put two if <cond>' shape (Flow State): an unconditional
+    base count M plus ONE conditional upgrade M2 gated on a condition the driver can read (see _DIG_COND) ->
+    target '<M>_<dest>|<cond_tag>|<M2>'. A variable count, a SECOND unconditional to-hand, or an unmapped
+    upgrade condition abstains."""
     look_i = next((i for i, (_s, v, *_r) in enumerate(effs) if v == "look"), None)
     if look_i is None:
         return set()
@@ -543,22 +553,35 @@ def _fold_dig(effs: list, emit) -> set:
     n = _int(look_amt)
     if n is None or "top_of_library" not in str(look_tgt):
         return set()
-    m, rest_dest, consumed, to_hand_clauses = None, "bottom", {look_i}, 0
-    for i, (_s2, v, _a, t, extra, _c2) in enumerate(effs):
+    m, m2, cond_tag, rest_dest, consumed = None, None, None, "bottom", {look_i}
+    for i, (_s2, v, _a, t, extra, cnd) in enumerate(effs):
         if i == look_i:
             continue
         ex = str(extra)
-        if v == "put_in_hand" and ("of_them" in ex or "of_those" in ex):     # 'put M of them into your hand'
-            m = _lead_count(ex); to_hand_clauses += 1; consumed.add(i)
-        elif v == "put_on_bottom" and "into_your_hand" in ex:                 # 'put M … into hand and the rest'
-            m = _lead_count(ex); to_hand_clauses += 1; rest_dest = "bottom"; consumed.add(i)
+        is_to_hand = (v == "put_in_hand" and ("of_them" in ex or "of_those" in ex)) \
+            or (v == "put_on_bottom" and "into_your_hand" in ex)             # 'put M … into hand and the rest'
+        if is_to_hand:
+            cnt = _lead_count(ex)
+            if str(cnd) == "-":                                              # the unconditional base count
+                if m is not None:
+                    return set()                                            # two unconditional to-hands -> abstain
+                m = cnt
+            else:                                                           # the conditional 'instead put M2'
+                tag = _DIG_COND.get(str(cnd))
+                if tag is None:
+                    return set()                                            # unreadable upgrade condition -> abstain
+                m2, cond_tag = cnt, tag
+            if v == "put_on_bottom":
+                rest_dest = "bottom"
+            consumed.add(i)
         elif v == "put_on_bottom" and ("the_rest" in ex or str(t) == "library"):
             rest_dest = "bottom"; consumed.add(i)
         elif v == "put_in_graveyard" and ("the_rest" in ex or "the_other" in ex):
             rest_dest = "graveyard"; consumed.add(i)
-    if m is None or m <= 0 or m > n or to_hand_clauses != 1:                  # need exactly one clean to-hand count
+    if m is None or m <= 0 or m > n or (m2 is not None and m2 > n):
         return set()
-    emit("dig_to_hand", n, f"{m}_{rest_dest}")
+    target = f"{m}_{rest_dest}" if m2 is None else f"{m}_{rest_dest}|{cond_tag}|{m2}"
+    emit("dig_to_hand", n, target)
     return consumed
 
 
