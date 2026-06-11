@@ -61,6 +61,26 @@ def _encode_checks() -> None:
     check("extra_turn target player -> controller", _enc("extra_turn", "1", "target_player") == ("extra_turn", 1, "controller"))
     check("extra_turn each opponent abstains", _enc("extra_turn", "1", "each_opponent") is None)
 
+    # double +1/+1 counters: only the two unambiguous shapes resolve (self / each-you-control); every
+    # target / back-reference / each-kind form abstains (don't double the wrong creature or counters).
+    check("double on (self) -> double_counters self",
+          _enc("double", "-", "the_number_of_1_1_counters_on") == ("double_counters", 0, "self"))
+    check("double on each creature you control -> scope",
+          _enc("double", "-", "the_number_of_1_1_counters_on_each_creature_you_control")
+          == ("double_counters", 0, "creatures_you_control"))
+    check("double on it abstains (back-reference)",
+          _enc("double", "-", "the_number_of_1_1_counters_on_it") is None)
+    check("double on that creature abstains (back-reference)",
+          _enc("double", "-", "the_number_of_1_1_counters_on_that_creature") is None)
+    check("double on target creature abstains (needs a pick)",
+          _enc("double", "-", "the_number_of_1_1_counters_on_target_creature") is None)
+    check("double on enchanted creature abstains (aura back-reference)",
+          _enc("double", "-", "the_number_of_1_1_counters_on_enchanted_creature") is None)
+    check("double each kind of counter abstains (not +1/+1-only)",
+          _enc("double", "-", "the_number_of_each_kind_of_counter_on_target_permanent") is None)
+    check("double on each creature that had a counter put on it abstains (subset)",
+          _enc("double", "-", "the_number_of_1_1_counters_on_each_creature_that_had_a_1_1_counter_put_on_it") is None)
+
 
 # ── apply ─────────────────────────────────────────────────────────────────────
 def _base():
@@ -130,6 +150,32 @@ def _apply_checks() -> None:
     st = _base()
     _fire(st, "proliferate", 0, "-", src="src")
     check("proliferate with no counters is a no-op", st["counter"] == set())
+
+    # double_counters self: doubles the SOURCE's +1/+1 count (4 -> 8), leaves other kinds/creatures alone.
+    st = _base()
+    st["counter"] = {("hydra", "p1p1", 4), ("hydra", "m1m1", 1), ("other", "p1p1", 2)}
+    _fire(st, "double_counters", 0, "self", src="hydra")
+    check("double_counters self doubles the source p1p1 4->8", ("hydra", "p1p1", 8) in st["counter"])
+    check("double_counters self leaves m1m1 untouched", ("hydra", "m1m1", 1) in st["counter"])
+    check("double_counters self leaves another creature untouched", ("other", "p1p1", 2) in st["counter"])
+    # a creature with no +1/+1 counters is a clean no-op (0 doubled is still 0).
+    st = _base()
+    st["counter"] = {("hydra", "m1m1", 2)}
+    _fire(st, "double_counters", 0, "self", src="hydra")
+    check("double_counters self with no p1p1 is a no-op", ("hydra", "p1p1", 0) not in st["counter"]
+          and ("hydra", "m1m1", 2) in st["counter"])
+
+    # double_counters scope: doubles p1p1 on every creature the controller controls; snapshot-first so
+    # doubling one can't feed another, opponents' creatures are skipped.
+    st = _base()
+    st["on_battlefield"] = {("a",), ("b",), ("foe",)}
+    st["printed_control"] = {("alice", "a"), ("alice", "b"), ("bob", "foe")}
+    st["printed_type"] = {("a", "creature"), ("b", "creature"), ("foe", "creature")}
+    st["counter"] = {("a", "p1p1", 3), ("b", "p1p1", 1), ("foe", "p1p1", 5)}
+    _fire(st, "double_counters", 0, "creatures_you_control", src="a")
+    check("double_counters scope doubles a 3->6", ("a", "p1p1", 6) in st["counter"])
+    check("double_counters scope doubles b 1->2", ("b", "p1p1", 2) in st["counter"])
+    check("double_counters scope skips an opponent's creature", ("foe", "p1p1", 5) in st["counter"])
 
     # extra_turn: bumps the controller's pending-extra-turn marker; the driver loop consumes it.
     st = _base()

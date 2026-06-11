@@ -121,3 +121,43 @@ def _apply_proliferate(D, state, a, n, tgt, src, ctrl):
         D._bump_counter(state, o, k, 1)
     if present:
         print(f"    {a}: {ctrl} proliferates ({len(present)} counter kind(s) advanced)")
+
+
+# ── double the number of +1/+1 counters (§122) ───────────────────────────────────────────────────────
+# 'Double the number of +1/+1 counters on ~' (Mossborn Hydra / Primordial Hydra / Solarion) and 'on each
+# creature you control' (Kalonian Hydra). Add to each in-scope creature a copy of its CURRENT +1/+1 count
+# so the total doubles — fully deterministic. We own ONLY the two unambiguous +1/+1-specific shapes whose
+# scope needs no driver context:
+#   • '…1_1_counters_on'                      -> the SOURCE permanent itself.
+#   • '…1_1_counters_on_each_creature_you_control' -> every creature the controller controls.
+# Everything else ABSTAINS (faithful): a TARGET ('on target creature') needs a chosen pick; a back-reference
+# ('on it' / 'on that creature' / 'on those creatures' / 'on enchanted creature') points at an object only
+# the resolving context knows; and 'double each KIND of counter' isn't +1/+1-only. Guessing any of these
+# would touch the wrong creature or the wrong counters.
+_DOUBLE_SELF = "the_number_of_1_1_counters_on"
+_DOUBLE_SCOPE = "the_number_of_1_1_counters_on_each_creature_you_control"
+
+
+@encoder("double")
+def _encode_double(verb, amt, tgt, extra):
+    t = str(tgt)
+    if t == _DOUBLE_SCOPE:
+        return ("double_counters", 0, "creatures_you_control")
+    if t == _DOUBLE_SELF:
+        return ("double_counters", 0, "self")
+    return None                                             # target / back-reference / each-kind -> abstain
+
+
+@applier("double_counters")
+def _apply_double_counters(D, state, a, n, tgt, src, ctrl):
+    """§122 — add to each in-scope creature a copy of its current +1/+1 count (the count doubles). Scope
+    'self' = the source; 'creatures_you_control' = every creature the controller controls. Snapshot the
+    counts first so doubling one creature can't feed another (m1m1 counters aren't touched — the clause is
+    +1/+1-specific)."""
+    objs = [src] if tgt == "self" else D._creatures_of(state, ctrl)
+    cur = {o: c for (o, k, c) in state.get("counter", set()) if k == "p1p1"}
+    doubled = 0
+    for o in objs:
+        if cur.get(o, 0) > 0:
+            D._bump_counter(state, o, "p1p1", cur[o]); doubled += 1
+    print(f"    {a}: {ctrl} doubles +1/+1 counters on {tgt} ({doubled} creature(s) with counters)")
