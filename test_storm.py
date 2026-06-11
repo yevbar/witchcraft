@@ -135,11 +135,40 @@ def _counter_resets_each_turn():
     check("counter: passing the turn resets _cast_count to 0", s.get("_cast_count") == 0)
 
 
+def _storm_kill_is_searchable():
+    # END-TO-END through the env/search: a turn-1 storm kill (20 life) is DISCOVERABLE by win_search.
+    # 9 Lotus Petals (each a spell -> +1 storm count, sacrificed for mana) then Tendrils of Agony: storm 9
+    # -> 10 drains of 2 = 20. The search must develop mana from the board (no pre-seeded pool).
+    import env
+    import win_search
+    deck = ["Lotus Petal"] * 9 + ["Tendrils of Agony"] + ["Swamp"] * 30
+    st = B.make_deck_state({"alice": deck, "bob": ["Mountain"] * 30}, seed=1, hand=0, life=20)
+
+    def fids(slug):
+        return [t for (t, n) in sorted(st["instance_of"]) if n == slug and ("alice", t) in st["in_library"]]
+
+    petals = fids("lotus_petal")[:9]
+    tend = fids("tendrils_of_agony")[0]
+    for t in petals + [tend]:
+        st["in_library"].discard(("alice", t)); st["in_hand"].add(("alice", t))
+        if t in st["_lib_order"]["alice"]:
+            st["_lib_order"]["alice"].remove(t)
+    st["active_player"] = {("alice",)}; st["current_step"] = {("untap",)}
+    st.pop("mana_pool", None); st.pop("mana_available", None)
+    driver.clear_cache()
+    path, _nodes = win_search.find_win(st, me="alice", max_turns=1, node_budget=200000)
+    casts = [a for a in (path or []) if a[0] == "cast"]
+    check("storm kill: win_search finds a turn-1 storm kill (20 life)", path is not None)
+    check("storm kill: the line builds storm with 9 Lotus Petals + casts Tendrils",
+          sum(1 for a in casts if a[2] in petals) == 9 and any(a[2] == tend for a in casts))
+
+
 def run():
     _copy_infra()
     _storm_payoffs()
     _cast_counter_increments()
     _counter_resets_each_turn()
+    _storm_kill_is_searchable()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
