@@ -1125,12 +1125,85 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
     """§601.2i — 'whenever you cast a spell' triggers fire as the spell goes on the stack. Open the cast
     window (cast_spell) so the engine fires the matching cast-triggers, then apply only the NEW pending
     the cast produced (diff vs. the pre-cast pending) so unrelated triggers aren't double-applied. The
-    cast window stays set across _apply_effects so cast-triggered creature effects fire too."""
+    cast window stays set across _apply_effects so cast-triggered creature effects fire too.
+
+    The engine already derives the cast-trigger family from cast_spell (you_cast / you_cast_noncreature /
+    you_cast_instant_or_sorcery / opponent_cast / any_cast — see build_engine.py), so a card whose trigger
+    is one of those fires here automatically (this is what carries PROWESS-style 'whenever you cast …'
+    abilities once a card supplies the trigger)."""
     before = run(state, ["pending"])["pending"]
     state["cast_spell"] = {(caster, spell)}
     new = run(state, ["pending"])["pending"] - before
     _apply_effects(state, new)
     state["cast_spell"] = set()
+
+
+# --- §608 CAST COUNTER + §707.10 SPELL COPYING ------------------------------------------------------
+# Two pieces of infrastructure shared by the spell-count / spell-copy mechanics (storm, gravestorm, the
+# 'copy target spell' family, replicate). The cast counter is per-turn shim state the engine doesn't need
+# (storm's copy is a shim action, not a datalog derivation); the copier reuses the engine's instance_of
+# re-derivation so a copy's effects/targets fall out for free.
+def _note_cast(state: dict) -> int:
+    """Record that a spell was just cast THIS TURN (§608), returning how many were cast BEFORE it (the
+    storm count). Reset to 0 at each turn boundary (play_game / env). Counts spells by ANY player —
+    §702.40a 'each spell cast before it this turn' is not controller-restricted."""
+    prior = state.get("_cast_count", 0)
+    state["_cast_count"] = prior + 1
+    return prior
+
+
+def _spell_keywords(state: dict, spell: str) -> set:
+    """The keywords on a spell OBJECT, read from its card identity (card_keyword via instance_of). Used for
+    STACK keywords (storm, cascade, replicate) that the engine doesn't surface as printed_keyword — that
+    relation is gated to the static creature-keyword roster (engine_keyword), not stack abilities."""
+    slug = next((s for (o, s) in state.get("instance_of", set()) if o == spell), None)
+    if slug is None:
+        return set()
+    return {kw for (c, kw) in state.get("card_keyword", set()) if c == slug}
+
+
+def _copy_spell(state: dict, spell: str, controller: str, n: int = 1) -> list:
+    """§707.10 — put `n` copies of `spell` onto the stack under `controller`'s control. A copy has the same
+    characteristics, so we give it a fresh id pointing at the SAME card (instance_of) plus the spell's type
+    and a controller; the engine then RE-DERIVES the copy's spell_effect / spell_damage / spell_target from
+    instance_of (translate.dl) — no per-effect plumbing, and a targeted copy picks NEW targets on
+    resolution (the driver chooses per spell-object). The copy is flagged in `_is_copy` so it ceases to
+    exist instead of going to a graveyard (§707.10a, §608.2m). Returns the new copy ids."""
+    slug = next((s for (o, s) in state.get("instance_of", set()) if o == spell), None)
+    types = {t for (s, t) in state.get("spell_type", set()) if s == spell}
+    made = []
+    for _ in range(n):
+        state["_copy_seq"] = state.get("_copy_seq", 0) + 1
+        cp = f"{spell}__copy{state['_copy_seq']}"
+        if slug is not None:
+            state.setdefault("instance_of", set()).add((cp, slug))
+        for t in types:
+            state.setdefault("spell_type", set()).add((cp, t))
+        state.setdefault("printed_control", set()).add((controller, cp))
+        state.setdefault("_is_copy", set()).add((cp,))
+        _stack_push(state, cp, controller)
+        made.append(cp)
+    return made
+
+
+def _discard_copy(state: dict, cp: str) -> None:
+    """§707.10a — a resolved (or countered) spell COPY ceases to exist: drop the derivation handles we gave
+    it so it leaves no trace in the engine facts (and the stack/graveyard never holds a phantom id)."""
+    state["instance_of"] = {(o, s) for (o, s) in state.get("instance_of", set()) if o != cp}
+    state["spell_type"] = {(o, t) for (o, t) in state.get("spell_type", set()) if o != cp}
+    state["printed_control"] = {(p, o) for (p, o) in state.get("printed_control", set()) if o != cp}
+    state.get("_is_copy", set()).discard((cp,))
+
+
+def _storm(state: dict, spell: str, controller: str, prior: int) -> None:
+    """§702.40 STORM — 'When you cast this spell, copy it for each spell cast before it this turn.' `prior`
+    is that count (from _note_cast). Faithful to the copy mechanic; the storm trigger itself is modeled as
+    resolving immediately (the copies are created as the spell is cast), which the greedy engine never
+    races. The copies don't re-trigger storm (they aren't cast) and aren't counted."""
+    if prior <= 0 or "storm" not in _spell_keywords(state, spell):
+        return
+    _copy_spell(state, spell, controller, prior)
+    print(f"      storm: {spell} is copied {prior} time(s) (spells cast before it this turn: {prior})")
 
 
 def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
@@ -1431,6 +1504,10 @@ def _resolve_top(state: dict) -> None:
             _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
     if (top,) in out["fizzles"]:
+        if (top,) in state.get("_is_copy", set()):           # §707.10a a fizzled COPY just ceases to exist
+            print(f"    {top} (copy) fizzles (no legal target) -> ceases to exist")
+            _discard_copy(state, top)
+            return
         print(f"    {top} fizzles (no legal target) -> graveyard")
         _to_graveyard(state, top)
         return
@@ -1458,7 +1535,10 @@ def _resolve_top(state: dict) -> None:
         return
     print(f"    {top} resolves")                             # an instant/sorcery: run effects, then graveyard
     _run_spell_effects(state, top, ctrl)
-    _to_graveyard(state, top)
+    if (top,) in state.get("_is_copy", set()):               # §707.10a a resolved COPY ceases to exist (no graveyard)
+        _discard_copy(state, top)
+    else:
+        _to_graveyard(state, top)
 
 
 def _cast_instant_response(state: dict, p: str) -> bool:
@@ -1475,8 +1555,10 @@ def _cast_instant_response(state: dict, p: str) -> bool:
     state["in_hand"].discard((p, spell))
     _stack_push(state, spell, p)
     _choose_mode(state, spell)                               # §601.2b — modal instant chooses its mode
+    prior = _note_cast(state)                                # §608 a response-cast counts toward storm too
     _fire_cast_triggers(state, p, spell)                     # §601.2i — cast triggers
     print(f"    {p} responds: casts {spell} (onto the stack)")
+    _storm(state, spell, p, prior)                           # §702.40 storm on a response-cast instant
     return True
 
 
@@ -1526,8 +1608,10 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     state["in_hand"].discard((ap, spell))
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
+    prior = _note_cast(state)                                # §608 count this spell; `prior` = storm count
     _fire_cast_triggers(state, ap, spell)                    # §601.2i — 'whenever you cast a spell' triggers
     print(f"    {ap} casts {spell}")
+    _storm(state, spell, ap, prior)                          # §702.40 storm — copy it once per earlier spell
     _resolve_stack(state, ap, players)                       # response window + top-down resolution
 
 
@@ -1758,6 +1842,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
+        state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
