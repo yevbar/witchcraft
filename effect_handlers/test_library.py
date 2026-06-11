@@ -191,6 +191,54 @@ def _apply_checks() -> None:
     _fire(st, "add_mana", 1, tgt="black")                  # a second ritual accumulates
     check("a second ritual accumulates colored mana", ("alice", "black", 4) in st["mana_pool"])
 
+    _name_exile_checks()
+
+
+def _name_exile_checks() -> None:
+    # Demonic Consultation (name_exile_lib, n=6): a library of 10 cards. instance_of maps opaque ids -> names.
+    def _consult_state(ids_names, n_top=6, forced=None):
+        order = [i for (i, _nm) in ids_names]
+        st = {
+            "is_player": {("alice",), ("bob",)},
+            "_lib_order": {"alice": list(order)},
+            "in_library": {("alice", i) for i in order},
+            "instance_of": {(i, nm) for (i, nm) in ids_names},
+            "in_hand": set(), "exile": set(), "life": {("alice", 40), ("bob", 40)},
+        }
+        if forced is not None:
+            st["_forced"] = {"name": forced}
+        return st
+
+    ids = [(f"c{i}", "filler") for i in range(9)] + [("gem", "black_lotus")]   # the named card is last (index 9)
+    st = _consult_state(ids, forced="black_lotus")
+    _fire(st, "name_exile_lib", 6, tgt="controller")
+    check("consult: the named card (in deck) goes to hand", ("alice", "gem") in st["in_hand"])
+    check("consult: the library is emptied chasing the named card", st["in_library"] == set())
+    check("consult: top 6 + the 3 before the named card are exiled (9 total)", len(st["exile"]) == 9)
+
+    # THE COMBO: name a card NOT in the library -> the reveal-until never finds it -> exile the WHOLE library.
+    ids = [(f"c{i}", "filler") for i in range(10)]
+    st = _consult_state(ids, forced="standard_procedure")        # the absent sentinel
+    _fire(st, "name_exile_lib", 6, tgt="controller")
+    check("combo: naming an absent card empties the entire library", st["in_library"] == set())
+    check("combo: nothing goes to hand (the name was never found)", st["in_hand"] == set())
+    check("combo: all 10 cards are exiled", len(st["exile"]) == 10)
+
+    # name_candidates surfaces every distinct library name + the absent sentinel.
+    cands = lib.name_candidates(st, "alice")                      # library is now empty -> just the sentinel
+    check("candidates always include the absent sentinel", lib._ABSENT_NAME in cands)
+    st2 = _consult_state([("a", "sol_ring"), ("b", "sol_ring"), ("c", "mox_jet")])
+    cands2 = lib.name_candidates(st2, "alice")
+    check("candidates are the DISTINCT library names + sentinel",
+          cands2 == ["mox_jet", "sol_ring", lib._ABSENT_NAME])
+
+    # Spoils of the Vault (loselife flag): lose 1 life per card exiled by the reveal-until.
+    ids = [(f"c{i}", "filler") for i in range(10)]
+    st = _consult_state(ids, n_top=0, forced="standard_procedure")
+    _fire(st, "name_exile_lib", 0, tgt="controller_loselife")
+    check("spoils: the whole library is exiled (n_top=0, name absent)", len(st["exile"]) == 10)
+    check("spoils: lose 1 life per exiled card (40 - 10)", ("alice", 30) in st["life"])
+
 
 def run() -> None:
     _encode_checks()

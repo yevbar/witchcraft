@@ -351,6 +351,85 @@ for _dest in ("hand", "top", "bottom", "battlefield", "battlefield_tapped"):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# name_exile_lib (§701.18 "choose a card name" + §701.x "reveal until …") — the DEMONIC CONSULTATION /
+# DIVINING WITCH / SPOILS-family self-mill: choose a card name, exile the top N of YOUR OWN library, then
+# reveal from the top until you reveal a card with the chosen name — put THAT card into your hand and exile
+# every other card revealed. The bridge folds the whole multi-clause sequence (choose + exile-top-N +
+# reveal-until + return-to-hand + exile-rest) into this ONE atomic controller-scoped effect (spell_effect
+# carries no clause order, so the sequence must resolve together), with N (the initial top-exile count,
+# 6 for Consultation/Divining Witch, 0 for Spoils) packed in the amount column.
+#
+# THE COMBO this models (the reason "name a card" must be a real, enumerable decision): name a card that is
+# NOT in your library and the reveal-until never finds it, so the ENTIRE library is exiled — emptying it.
+# With an empty library a Thassa's-Oracle / Laboratory-Maniac / Jace wincon wins. So the decision matters:
+# naming a card IN the library is a tutor (dig to the named card); naming an ABSENT card empties the library.
+# Both must be reachable by a search, so name_candidates() surfaces every distinct library name PLUS a
+# guaranteed-absent SENTINEL (the Un-card "Standard Procedure", never in a real deck) as the "not in deck"
+# option. The greedy default is the SENTINEL only when the controller has a way to profit from an empty
+# library is unknowable here, so the safe faithful default is the canonical-first library name (a tutor),
+# falling back to the sentinel when the library is empty.
+# ─────────────────────────────────────────────────────────────────────────────
+# the Un-card guaranteed absent from any constructed/Commander deck — the "name a card not in your deck"
+# choice that empties the library (the Consultation + Thassa's Oracle combo line).
+_ABSENT_NAME = "standard_procedure"
+
+
+def _id2name(state: dict) -> dict:
+    """tid -> card slug, from instance_of — so an opaque library id can be matched against a chosen NAME."""
+    return {o: s for (o, s) in state.get("instance_of", set())}
+
+
+def name_candidates(state: dict, ctrl: str) -> list:
+    """The legal "choose a card name" options for `ctrl`: every DISTINCT card name in their library plus the
+    guaranteed-absent sentinel (the 'name a card not in your deck' choice). Shared by the applier and by
+    env._cast_choices so the search enumerates exactly the names the resolution can act on."""
+    id2name = _id2name(state)
+    present = sorted({id2name.get(c, c) for (pp, c) in state.get("in_library", set()) if pp == ctrl})
+    return present + ([_ABSENT_NAME] if _ABSENT_NAME not in present else [])
+
+
+@applier("name_exile_lib")
+def _apply_name_exile_lib(D, state, a, n, tgt, src, ctrl):
+    """Resolve the Demonic-Consultation sequence on the CONTROLLER's own library: choose a name (the absent
+    sentinel = 'a card not in my deck'), exile the top n, then reveal from the top until the chosen name is
+    revealed — that card to hand, every other revealed card exiled. If the name is absent the whole library
+    is exiled (the combo: empties the library for a Thassa's-Oracle-style win)."""
+    id2name = _id2name(state)
+    order = _order(state, ctrl)                                # the controller's ordered library (top = index 0)
+    cands = name_candidates(state, ctrl)
+    # faithful default: name the card on top (a tutor that pulls it to hand) if the library is non-empty,
+    # else the absent sentinel. A search overrides this via the _choose seam to find the combo line.
+    default = id2name.get(order[0], order[0]) if order else _ABSENT_NAME
+    chosen = D._choose(state, "name", cands, default)
+    inlib = state.setdefault("in_library", set())
+    exile = state.setdefault("exile", set())
+    inhand = state.setdefault("in_hand", set())
+
+    def _bin(card):                                            # move a library card to exile
+        inlib.discard((ctrl, card)); exile.add((card,))
+
+    topn = order[:int(n)]                                      # §701.x exile the top n outright
+    del order[:int(n)]
+    for c in topn:
+        _bin(c)
+    found = None
+    binned = 0
+    while order:                                              # reveal from the top until the chosen name
+        c = order.pop(0)
+        if id2name.get(c, c) == chosen:
+            found = c
+            inlib.discard((ctrl, c)); inhand.add((ctrl, c))   # put THAT card into hand
+            break
+        _bin(c); binned += 1                                  # every other revealed card is exiled
+    where = f"-> {found} to hand" if found is not None else "(name absent: library emptied)"
+    print(f"    trigger {a}: {ctrl} names {chosen}; exiles {len(topn)} + {binned} revealed {where}")
+    # Spoils of the Vault: lose 1 life per card exiled this way (the reveal-until exiles, not the top-N).
+    # Faithful downside — emptying the library this way costs ~a library's worth of life (usually lethal).
+    if "loselife" in str(tgt) and binned:
+        print(f"    trigger {a}: {ctrl} loses {binned} life -> {D._adjust_life(state, ctrl, -binned)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # add_mana (§106) — a RITUAL adds mana to the controller's pool (Dark Ritual 'Add {B}{B}{B}', Cabal
 # Ritual, the colored Moxen/Sol-Ring style sources). The amount is in `amt`, the COLOR in `extra`. We
 # resolve only the faithful, choice-free case: a FIXED integer amount of a SINGLE concrete color, added to

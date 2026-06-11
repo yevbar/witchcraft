@@ -169,6 +169,22 @@ def apply_win(D, state, a, n, tgt, src, ctrl):
     _assert_win(D, state, ctrl)
 
 
+@applier("win_lib_empty")
+def apply_win_lib_empty(D, state, a, n, tgt, src, ctrl):
+    """Thassa's Oracle / Jace, Wielder of Mysteries / Laboratory Maniac shape — 'you win the game' GATED on
+    'X is greater than or equal to the number of cards in your library' (X = devotion / a count ≥ 0). We
+    resolve only the FAITHFUL-CONSERVATIVE slice: the controller wins iff their library is EMPTY, where the
+    inequality holds (0 ≤ X) regardless of X. A non-empty library would need the exact X (devotion) we don't
+    compute — so we ABSTAIN there (never a wrong win), missing only the rare 'devotion ≥ small library' win.
+    This is exactly the Demonic-Consultation / Tainted-Pact combo: empty the library, then win on resolution."""
+    lib = sum(1 for (p, _c) in state.get("in_library", set()) if p == ctrl)
+    if lib == 0:
+        print(f"    trigger {a}: {ctrl}'s library is empty -> {ctrl} wins the game (§104.2a)")
+        _assert_win(D, state, ctrl)
+    else:
+        print(f"    trigger {a}: {ctrl}'s library has {lib} card(s) -> win condition not met (abstain)")
+
+
 # ----- set_life -------------------------------------------------------------------------------------
 @encoder("set_life")
 def encode_set_life(verb, amt, tgt, extra):

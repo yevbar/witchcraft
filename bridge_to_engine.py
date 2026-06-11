@@ -438,6 +438,53 @@ def _fold_search_placements(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_name_exile(effs: list, emit) -> set:
+    """§701.18 'choose a card name' + 'reveal from the top of YOUR library until …' — fold the whole
+    Demonic-Consultation / Divining-Witch / Spoils-of-the-Vault self-mill sequence into ONE atomic
+    name_exile_lib effect (the on-resolution relations carry no clause order). The signature, all scoped to
+    the CONTROLLER's OWN library:
+        choose <…card_name>                                  (name the card)
+        [exile N top_of_library]                             (optional initial top-exile — 6 / 0)
+        reveal … cards_from_the_top_of_your_library_until … (the chosen/that) name
+        return_to_hand that_card
+        exile all_other_cards_revealed
+    emit(eff, amount=N, target='controller') once; returns the consumed clause indices. The amount carries
+    N (the initial top-exile count). Anything that targets ANOTHER player's library (the Cranial-Extraction
+    hate family) or reveals a FIXED top-N (Tamiyo) doesn't match -> left to the normal paths (abstains)."""
+    idx = {verb: i for i, (_s, verb, *_r) in enumerate(effs)}
+    if "choose" not in idx or "reveal" not in idx:
+        return set()
+    # the choose names a card; the reveal is 'from the top of YOUR library until … name' (own-library only).
+    _, _v, _a, ctgt, _x, _c = effs[idx["choose"]]
+    if "card_name" not in str(ctgt):
+        return set()
+    _, _v, _a, rtgt, rextra, _c = effs[idx["reveal"]]
+    rx = str(rextra)
+    if not ("from_the_top_of_your_library" in rx and "until" in rx and "name" in rx and str(rtgt) == "you"):
+        return set()
+    # require the place-the-named-card + exile-the-rest payoff (else it's a different 'name a card' card).
+    has_return = any(v == "return_to_hand" and str(t) == "that_card" for (_s, v, _a2, t, _x2, _c2) in effs)
+    has_exile_rest = any(v == "exile" and "all_other" in str(t) for (_s, v, _a2, t, _x2, _c2) in effs)
+    if not (has_return and has_exile_rest):
+        return set()
+    consumed = {idx["choose"], idx["reveal"]}
+    n = 0
+    lifeloss = False
+    for i, (_s, v, amt, t, _x2, _c2) in enumerate(effs):
+        if v == "exile" and str(t) == "top_of_library":       # the optional initial top-exile (count -> N)
+            n = _int(amt) or 0; consumed.add(i)
+        elif v == "return_to_hand" and str(t) == "that_card":
+            consumed.add(i)
+        elif v == "exile" and "all_other" in str(t):
+            consumed.add(i)
+        elif v == "lose_life" and "exiled" in str(amt):       # Spoils of the Vault: lose 1 life per card exiled
+            lifeloss = True; consumed.add(i)
+    # the target column carries the per-exiled-card life-loss flag (Spoils) so the handler stays faithful —
+    # the combo with an emptied library costs ~a library's worth of life, which usually kills the caster.
+    emit("name_exile_lib", n, "controller_loselife" if lifeloss else "controller")
+    return consumed
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -652,6 +699,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if _datalog_owns(verb, amt, tgt, extra):      # ONE WORLD: counter / fog / create_token are now
                     emitted = True                            # DERIVED IN DATALOG (translate.dl) — skip the python
                     continue                                  # emission (the non-owned cases fall through below)
+                if verb == "win_game" and "cards_in_your_library" in str(_cond):
+                    # Thassa's Oracle / Jace WoM — 'you win the game' GATED on 'X ≥ cards in your library'.
+                    # Emit a CONDITIONAL win the driver only fires when the library is empty (faithful slice;
+                    # never an unconditional win — see effect_handlers.players.apply_win_lib_empty).
+                    add("trigger_effect", (a, "win_lib_empty", 0, "controller"))
+                    emitted = True
+                    continue
                 r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
@@ -670,8 +724,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # clause to skip. A search whose predicate or destination we can't confirm is left to the normal
             # paths (the bare-search handler still SELECTS faithfully; an unhandled destination just abstains).
             search_skip = _fold_search_placements(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701.18 'choose a card name' + reveal-until self-mill (Demonic Consultation / Spoils of the
+            # Vault): fold the whole sequence into one name_exile_lib spell_effect (unordered relations).
+            name_skip = _fold_name_exile(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip:                       # consumed by a folded search_to_<dest> above
+                if _idx in search_skip or _idx in name_skip:  # consumed by a folded search_to_<dest>/name_exile
                     continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
@@ -762,6 +819,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             def _emit_act(e, n, t, _a=a, _tid=tid, _p=paid[0], _taps=taps):
                 add("activated_ability", (_a, _tid, _p, _taps, e, n, t))
             act_skip = _fold_search_placements(act_effs, _emit_act)
+            # §701.18 'choose a card name' + reveal-until self-mill on an ACTIVATED ability (Divining Witch:
+            # '{B}, {T}, Sacrifice ~, Pay 1 life: …') — fold into one name_exile_lib activated_ability row.
+            act_skip |= _fold_name_exile(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):

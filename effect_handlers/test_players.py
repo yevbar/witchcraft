@@ -142,22 +142,29 @@ def apply_checks() -> None:
     _fire(s, "get_energy", 3, "controller", "alice")
     check("get_energy accumulates -> alice has 5 {E}", (("alice", 5)) in s["energy"])
 
-    # lose_game: controller's life drops to the loss threshold (driver then ends the game).
+    # lose_game: §104.3a — assert eff_lose_game(controller); the engine derives loses_game (no life hack).
     s = _board()
     _fire(s, "lose_game", 0, "controller", "alice")
-    check("lose_game drops controller to loss threshold",
-          _life(s, "alice") == driver.LIFE_LOSS_THRESHOLD)
+    check("lose_game asserts eff_lose_game(controller)", ("alice",) in s.get("eff_lose_game", set()))
 
-    # win_game: each opponent dropped to the loss threshold.
+    # win_game: §104.2a — assert eff_win_game(controller); the engine derives wins_game (others then lose).
     s = _board()
     _fire(s, "win_game", 0, "controller", "alice")
-    check("win_game: opponent bob dropped to loss threshold, alice unharmed",
-          _life(s, "bob") == driver.LIFE_LOSS_THRESHOLD and _life(s, "alice") == 20)
+    check("win_game asserts eff_win_game(controller)", ("alice",) in s.get("eff_win_game", set()))
 
     # set_life: a player's life total becomes n.
     s = _board()
     _fire(s, "set_life", 7, "controller", "alice")
     check("set_life sets controller life to 7", _life(s, "alice") == 7)
+
+    # win_lib_empty (Thassa's Oracle): the controller wins ONLY when their library is empty (faithful gate).
+    s = _board(); s["in_library"] = set()
+    _fire(s, "win_lib_empty", 0, "controller", "alice")
+    check("win_lib_empty wins on an empty library", ("alice",) in s.get("eff_win_game", set()))
+    s = _board(); s["in_library"] = {("alice", "card1"), ("alice", "card2")}
+    _fire(s, "win_lib_empty", 0, "controller", "alice")
+    check("win_lib_empty abstains with a non-empty library (no false win)",
+          ("alice",) not in s.get("eff_win_game", set()))
 
 
 def end_to_end_lose() -> None:

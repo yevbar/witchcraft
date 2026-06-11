@@ -99,23 +99,38 @@ def _target_options(state: dict, cls: str) -> list[str]:
     return cands
 
 
+def _name_choices(state: dict, spell: str) -> list:
+    """The "choose a card name" options for a spell carrying a name_exile_lib effect (Demonic Consultation /
+    Spoils of the Vault): every distinct library name plus the guaranteed-absent sentinel — so a search can
+    explore naming an ABSENT card (empties the library: the Thassa's-Oracle combo line). [None] for a spell
+    with no such effect, so the cartesian product below leaves non-naming spells untouched."""
+    if not any(s == spell and e == "name_exile_lib" for (s, e, _n, _t) in state.get("spell_effect", set())):
+        return [None]
+    from effect_handlers import library as _lib
+    return _lib.name_candidates(state, _active(state))
+
+
 def _cast_choices(state: dict, spell: str) -> list[dict]:
-    """The sub-choice dicts a cast of `spell` needs: one per (mode × single target) combination the engine
-    surfaced (spell_mode / spell_target). A spell with neither yields a single empty choice dict."""
+    """The sub-choice dicts a cast of `spell` needs: one per (mode × single target × named card) combination
+    the engine surfaced (spell_mode / spell_target / name_exile_lib). A spell with none yields one empty dict."""
     modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell) or [None]
     tcls = next((cls for (s, _v, _p, cls) in state.get("spell_target", set()) if s == spell), None)
     targets = _target_options(state, tcls) if tcls else [None]
+    names = _name_choices(state, spell)
     if not targets:                                  # a target is required but none is legal -> uncastable
         return []
     choices = []
     for m in modes:
         for t in targets:
-            c = {}
-            if m is not None:
-                c["mode"] = m
-            if t is not None:
-                c["target"] = t
-            choices.append(c)
+            for nm in names:
+                c = {}
+                if m is not None:
+                    c["mode"] = m
+                if t is not None:
+                    c["target"] = t
+                if nm is not None:
+                    c["name"] = nm
+                choices.append(c)
     return choices
 
 
