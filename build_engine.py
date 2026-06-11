@@ -207,6 +207,7 @@ INPUTS = [
     ("phased_out", [("o", "symbol")]),                            # §603.10b a permanent phased out
     ("countered", [("o", "symbol")]),                             # §603.10e a spell was countered
     ("cast_spell", [("p", "symbol"), ("s", "symbol")]),           # §601 a player just put a spell on the stack
+    ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -741,6 +742,9 @@ def _rules(p: Program) -> None:
     p.comment("abilities fire and produce a pending effect the driver applies (the trigger->effect loop).")
     p.decl("ev_etb", [("o", "symbol")])
     p.rule("ev_etb(O)", ["enters_battlefield(O)"])
+    # §305 a PLAYED land enters the battlefield without using the stack (no resolves), so the driver asserts
+    # just_entered(O) for the land it played this step; the same ETB event fires (landfall).
+    p.rule("ev_etb(O)", ["just_entered(O)"])
     p.decl("ev_dies", [("c", "symbol")])
     p.rule("ev_dies(C)", ["dies(C)"])
     p.decl("ev_leaves", [("c", "symbol")])               # §603.6d 'leaves the battlefield' — a superset of dies
@@ -806,6 +810,10 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    # §601 OPPONENT-cast triggers (Rhystic Study, Smothering Tithe): a player OTHER than the source's
+    # controller casts a spell; the noncreature variant guards on the spell's type.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_cast")', "cast_spell(P, _)", "controls(Q, S)", "P != Q"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_cast_noncreature")', "cast_spell(P, Sp)", "controls(Q, S)", "P != Q", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "dealt_damage_self")', "ev_dealt_damage(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_self")', "ev_leaves(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_other")', "ev_leaves(O)", "O != S"])
@@ -815,6 +823,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_creature")', "ev_combat_dmg_creature(S, _)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
+    # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_end_step")', "ev_end_step(_)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "beginning_of_combat")', "ev_beginning_of_combat(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_self")', "ev_sacrifice(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "sacrificed_other")', "ev_sacrifice(O)", "O != S"])

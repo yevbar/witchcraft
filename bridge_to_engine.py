@@ -49,6 +49,14 @@ _EVENT = {
     "you_cast_a_noncreature_spell": "you_cast_noncreature",
     "you_cast_an_instant_or_sorcery_spell": "you_cast_instant_or_sorcery",
     "a_player_casts_a_spell": "any_cast",
+    # §601 opponent-cast triggers (Rhystic Study, Smothering Tithe): an opponent of the source's controller
+    # casts a spell -> opponent_cast; the noncreature variant adds the spell-type guard.
+    "an_opponent_casts_a_spell": "opponent_cast",
+    "an_opponent_casts_a_noncreature_spell": "opponent_cast_noncreature",
+    # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
+    "the_beginning_of_the_end_step": "any_end_step",
+    # §603 landfall alt phrasing ('a_land_you_control_enters' is in the typed-ETB block below).
+    "a_land_enters_under_your_control": "your_land_etb",
     "leaves_the_battlefield": "leaves_self",                 # §603.6d (death/sacrifice leaves modelled)
     "another_permanent_leaves_the_battlefield": "leaves_other",
     # §603 sacrifice-watching (aristocrats). 'a player sacrifices a permanent' is unrestricted -> any
@@ -168,6 +176,9 @@ _TARGET_CLASS = {
     "up_to_one_target_creature": "any", "target_creature_you_control": "you_control",
     "another_target_creature_you_control": "you_control", "target_creature_you_don_t_control": "opponent",
     "target_creature_an_opponent_controls": "opponent",
+    # §115 'target creature or planeswalker' (Bitter Triumph): the engine models only the creature
+    # alternative; picking a creature is a LEGAL target (faithful — the PW option is simply not exercised).
+    "target_creature_or_planeswalker": "any",
 }
 
 
@@ -186,6 +197,8 @@ _DAMAGE_TARGET = {
     "target_creature_you_don_t_control": "creature_opponent",
     "target_attacking_creature": "creature_opponent", "target_blocking_creature": "creature_opponent",
     "target_attacking_or_blocking_creature": "creature_opponent",
+    # 'target creature or planeswalker' damage — the driver damages a creature (legal subset; PW inert).
+    "target_creature_or_planeswalker": "creature_any",
     "any_target": "any_target",
     "target_player": "face", "target_opponent": "face", "each_opponent": "face",
     "that_player": "face", "target_player_or_planeswalker": "face",

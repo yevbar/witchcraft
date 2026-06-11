@@ -740,6 +740,12 @@ def _develop_mana(state: dict, ap: str) -> None:
             state.setdefault("printed_control", set()).add((ap, land))
             played.add((ap,))
             print(f"    {ap} plays land {land}")
+            # §603 LANDFALL — a played land enters the battlefield without using the stack, so signal
+            # just_entered(land) so the engine fires 'whenever a land you control enters' triggers, apply
+            # their effects, then clear the one-step signal (it must not persist past this land drop).
+            state.setdefault("just_entered", set()).add((land,))
+            _apply_effects(state, run(state, ["pending"])["pending"])
+            state["just_entered"].discard((land,))
     _refresh_mana_pool(state, ap)
 
 
