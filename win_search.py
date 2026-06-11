@@ -45,35 +45,34 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
     (path, nodes): path is MY action list to a win (opponent auto-passes between), or None."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
+    start_turn = s0.get("_turn", 0)                            # env increments _turn each turn-pass
     seen: set = set()
     nodes = [0]
 
-    def dfs(s, turns):
+    def dfs(s):
         nodes[0] += 1
         if nodes[0] > node_budget:
             return None
         if env.is_terminal(s):
             return [] if env.winner(s) == me else None
-        if turns > max_turns:
-            return None
+        if s.get("_turn", 0) - start_turn > max_turns:        # past the turn horizon (a passive opponent's
+            return None                                        # whole turn can pass inside one env.step)
         k = _key(s)
         if k in seen:
             return None
         seen.add(k)
         if env.to_move(s) == me:
             for a in env.legal_actions(s):
-                s2 = env.step(s, a)
-                sub = dfs(s2, turns + (1 if _active(s2) != _active(s) else 0))
+                sub = dfs(env.step(s, a))
                 if sub is not None:
                     return [a] + sub
             return None
         a = _opp_action(s)
         if a is None:
             return None
-        s2 = env.step(s, a)
-        return dfs(s2, turns + (1 if _active(s2) != _active(s) else 0))
+        return dfs(env.step(s, a))
 
-    return dfs(s0, 0), nodes[0]
+    return dfs(s0), nodes[0]
 
 
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None):

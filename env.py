@@ -229,6 +229,7 @@ def _advance_one(state: dict) -> None:
     else:                                                       # past cleanup -> next player's turn (§500.6)
         players = sorted(p for (p,) in state["is_player"])
         nxt = driver._next_active_player(state, ap, players)     # next player — or an extra turn (§500.7)
+        state["_turn"] = state.get("_turn", 0) + 1               # a turn counter (for lookahead horizons)
         state["active_player"] = {(nxt,)}
         state["current_step"] = {("untap",)}
         state["attacks"], state["blocks"] = set(), set()
