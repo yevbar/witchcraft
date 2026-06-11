@@ -927,7 +927,16 @@ def _triggered(unit, ctx):
     if not m:
         return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
-    trig = ground.slug(m.group("trig"))
+    # §603 SELF-REFERENCE — 'When <this card's short name> enters/dies/attacks' refers to the source
+    # itself (the oracle uses the legend's short name where rules text would use ~). Normalize the short
+    # name to ~ in the TRIGGER subject so it slugs to the self event ('enters'), not a name-keyed phrase
+    # ('katara_enters'). Collision-guarded by _short_name (won't fire for a name that is a rules word).
+    trig_raw = m.group("trig")
+    short = _short_name(ctx.get("card") or {})
+    if short and re.search(r"\b" + re.escape(short) + r"\b", trig_raw):
+        trig_raw = re.sub(r"\b" + re.escape(short) + r"(?:'s)?\b",
+                          lambda mm: "~'s" if mm.group(0).endswith("'s") else "~", trig_raw)
+    trig = ground.slug(trig_raw)
     head = [f'card_ability("{cid}", "{aid}", "triggered")', f'ability_trigger("{cid}", "{aid}", "{trig}")']
     mh = _MODAL_HEAD.match(m.group("body"))
     if mh:

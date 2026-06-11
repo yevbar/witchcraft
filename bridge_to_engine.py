@@ -61,6 +61,26 @@ _EVENT = {
     "you_sacrifice_another_permanent": "your_sacrifice",
     "is_dealt_damage": "dealt_damage_self",                  # §603 (combat damage to the creature modelled)
     "deals_damage_to_a_player": "combat_damage_to_player",   # under-covers noncombat damage; combat is the path
+    # §603 TYPED 'a/another <type> you control enters' — controller-scoped, restricted to that card type or
+    # subtype (the engine joins has_type/subtype + shared controller, mirroring your_creature_etb).
+    "a_land_you_control_enters": "your_land_etb",
+    "another_land_you_control_enters": "your_land_etb",
+    "an_artifact_you_control_enters": "your_artifact_etb",
+    "another_artifact_you_control_enters": "your_artifact_etb",
+    "an_enchantment_you_control_enters": "your_enchantment_etb",
+    "another_enchantment_you_control_enters": "your_enchantment_etb",
+    "a_dragon_you_control_enters": "your_dragon_etb",
+    "another_dragon_you_control_enters": "your_dragon_etb",
+    # §603 'whenever you attack' — one or more creatures you control attack; the engine fires once per
+    # attacking creature you control (an over-fire vs the once-per-combat reading, so kept conservative:
+    # only the controller-scoped attacks join, NOT a board-wide 'a creature attacks').
+    "you_attack": "you_attack",
+    "the_beginning_of_your_first_main_phase": "first_main_phase",
+    "the_beginning_of_your_precombat_main_phase": "first_main_phase",
+    # §603 composite self-triggers ('enters or attacks', 'enters or dies') — two firing conditions, both
+    # self-scoped, derived as the union in the engine (one event key, two fires rules).
+    "enters_or_attacks": "self_enters_or_attacks",
+    "enters_or_dies": "self_enters_or_dies",
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card

@@ -762,6 +762,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_end_step(P)", ['current_step("end")', "active_player(P)"])
     p.decl("ev_beginning_of_combat", [("p", "symbol")])      # §507/§603 'at the beginning of combat on your turn'
     p.rule("ev_beginning_of_combat(P)", ['current_step("beginning_of_combat")', "active_player(P)"])
+    p.decl("ev_first_main", [("p", "symbol")])               # §505/§603 'at the beginning of your first/precombat main phase'
+    p.rule("ev_first_main(P)", ['current_step("precombat_main")', "active_player(P)"])
     p.comment("§603.10 look-back events (sacrifice / phase out / counter / a player losing).")
     p.decl("ev_sacrifice", [("o", "symbol")])
     p.rule("ev_sacrifice(O)", ["sacrificed(O)"])
@@ -782,6 +784,20 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_etb")', "ev_etb(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "other_creature_dies")', "ev_dies(O)", "O != S", "creature(O)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_dies")', "ev_dies(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
+    # §603 TYPED 'a/another <type> you control enters' — controller-scoped, restricted by card type/subtype.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_land_etb")', "ev_etb(O)", "O != S", 'has_type(O, "land")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_artifact_etb")', "ev_etb(O)", "O != S", 'has_type(O, "artifact")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_enchantment_etb")', "ev_etb(O)", "O != S", 'has_type(O, "enchantment")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_dragon_etb")', "ev_etb(O)", "O != S", 'subtype(O, "dragon")', "controls(P, O)", "controls(P, S)"])
+    # §603 'whenever you attack' — a creature you control attacks (controller-scoped; over-fires per attacker).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_attack")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)"])
+    # §505/§603 'at the beginning of your first (precombat) main phase'.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "first_main_phase")', "ev_first_main(P)", "controls(P, S)"])
+    # §603 composite self-triggers — the union of two self-scoped firing conditions under one event key.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_etb(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_attacks(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_dies")', "ev_etb(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_dies")', "ev_dies(S)"])
     # §601.2 cast triggers — 'whenever you cast a [creature/noncreature/instant or sorcery] spell'. The
     # driver sets cast_spell(caster, spell) for the cast window; the trigger fires for the caster's sources.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast")', "cast_spell(P, _)", "controls(P, S)"])
