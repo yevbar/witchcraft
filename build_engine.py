@@ -1030,6 +1030,18 @@ def _emit_translate(p) -> None:
     p.rule("has_trigger(IA, S, Event)",
            ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
             "ability_trigger(C, A, Phrase)", "event_map(Phrase, Event)"])
+    p.comment("KEYWORD-DERIVED TRIGGER — PROWESS (§702.108): a creature with the prowess keyword has a built-in")
+    p.comment("'whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn' ability. Derive")
+    p.comment("it straight from card_keyword (stack/creature keywords like prowess aren't surfaced as")
+    p.comment("printed_keyword, which is gated to the static creature roster): a synthetic ability id")
+    p.comment("cat('kw:prowess@', S), a you_cast_noncreature trigger on S, and a self +1/+1 pump. fires() already")
+    p.comment("requires controls(P,S) + !creature spell (so S is on the battlefield under the caster's control);")
+    p.comment("the +1/+1 rides the pending_pt -> eff_mod_power+until_eot path (wears off at cleanup, §611.2). The")
+    p.comment("driver salts the cast-triggered pump's id per cast so several casts STACK (+1/+1 each).")
+    p.rule('has_trigger(cat("kw:prowess@", S), S, "you_cast_noncreature")',
+           ["instance_of(S, C)", 'card_keyword(C, "prowess")'])
+    p.rule('trigger_effect_pt(cat("kw:prowess@", S), 1, 1, "self")',
+           ["instance_of(S, C)", 'card_keyword(C, "prowess")'])
     p.comment("DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.")
     p.rule("trigger_effect(IA, Eff, N, Scope)",
            ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',

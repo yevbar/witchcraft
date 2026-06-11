@@ -437,8 +437,13 @@ def _apply_creature_effects(state: dict) -> None:
                       "pending_exile", "pending_tap", "pending_untap", "pending_return",
                       "pending_target", "controls", "power", "creature", "cant_be_destroyed"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}   # §702.12b — the engine derives this
+    # §603 a pump fired during a CAST window (cast_spell set) is a per-cast trigger (PROWESS, 'whenever you
+    # cast …'): salt its effect id with the spell so SEVERAL casts STACK (+1/+1 each) instead of collapsing
+    # to one under the deterministic per-(ability,creature) id. Outside a cast window the id stays stable
+    # (idempotent re-derivation across steps — set semantics, no double-buffing).
+    _cast_salt = "__" + next((s for (_p, s) in state.get("cast_spell", set())), "") if state.get("cast_spell") else ""
     for (a, dp, dt, c, _ctrl) in sorted(out["pending_pt"]):
-        eid = f"{a}__pt__{c}"
+        eid = f"{a}__pt__{c}{_cast_salt}"
         before = (eid, c, int(dp)) in state.get("eff_mod_power", set())
         state.setdefault("eff_mod_power", set()).add((eid, c, int(dp)))
         state.setdefault("eff_mod_toughness", set()).add((eid, c, int(dt)))

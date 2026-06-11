@@ -645,6 +645,16 @@ inst_ability(cat(S, cat("_", A)), S, A, C) :- instance_of(S, C), card_ability(C,
 // (was bridge: add('has_trigger', (f'{tid}_{aid}', tid, _EVENT[trigger]))). The instance ability id
 // cat(S,'_',A) == f'{tid}_{aid}', the source is the instance S, the event is event_map(Phrase).
 has_trigger(IA, S, Event) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, Event).
+// KEYWORD-DERIVED TRIGGER — PROWESS (§702.108): a creature with the prowess keyword has a built-in
+// 'whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn' ability. Derive
+// it straight from card_keyword (stack/creature keywords like prowess aren't surfaced as
+// printed_keyword, which is gated to the static creature roster): a synthetic ability id
+// cat('kw:prowess@', S), a you_cast_noncreature trigger on S, and a self +1/+1 pump. fires() already
+// requires controls(P,S) + !creature spell (so S is on the battlefield under the caster's control);
+// the +1/+1 rides the pending_pt -> eff_mod_power+until_eot path (wears off at cleanup, §611.2). The
+// driver salts the cast-triggered pump's id per cast so several casts STACK (+1/+1 each).
+has_trigger(cat("kw:prowess@", S), S, "you_cast_noncreature") :- instance_of(S, C), card_keyword(C, "prowess").
+trigger_effect_pt(cat("kw:prowess@", S), 1, 1, "self") :- instance_of(S, C), card_keyword(C, "prowess").
 // DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.
 trigger_effect(IA, Eff, N, Scope) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, _), card_effect(C, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), match("[0-9]+", Amount), N = to_number(Amount), player_scope(Target, Scope).
 // ONE WORLD: the CONSTANT-form verbs counter / prevent_damage(fog) / create for a TRIGGERED
