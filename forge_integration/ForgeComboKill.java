@@ -134,6 +134,9 @@ public class ForgeComboKill {
             String phase = String.valueOf(g.getPhaseHandler().getPhase());
             String step = phase.contains("MAIN2") ? "postcombat_main" : "precombat_main";
             b.append("\"active\":\"").append(esc(active)).append("\",\"step\":\"").append(step).append("\",");
+            // §608/§702.40 spells cast THIS TURN (by anyone) — the storm count basis. The engine's lookahead
+            // reads this back as _cast_count so its model's storm count stays in sync with Forge mid-turn.
+            b.append("\"castThisTurn\":").append(g.getStack().getSpellsCastThisTurn().size()).append(",");
             // zones: all battlefield permanents + OUR hand (opponent hand is hidden / irrelevant)
             b.append("\"zones\":{\"battlefield\":[");
             int n = 0;

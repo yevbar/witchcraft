@@ -168,11 +168,50 @@ def _full_game_socket() -> None:
     check("socket: server thread cleanly finished the game", not th.is_alive())
 
 
+def _search_driven_storm() -> None:
+    """The EnginePolicy drives the play decision with win_search (no mechanic-specific logic) and stays in
+    sync with Forge via the reconstructed _cast_count. Simulate Forge's observation at three points of a
+    turn-1 storm line (Lotus Petal x9 -> Tendrils of Agony) and check the search keeps casting Petals to
+    build the count, then fires the payoff once it's lethal — re-planned each decision from the snapshot."""
+    import driver
+    import effect_handlers
+    effect_handlers.load()
+
+    def obs_at(petals_cast):
+        bf = [{"id": f"P{i}", "name": "Lotus Petal", "controller": "witch"} for i in range(petals_cast)]
+        hand = [{"id": f"P{i}", "name": "Lotus Petal", "controller": "witch"} for i in range(petals_cast, 9)]
+        hand += [{"id": "TEND", "name": "Tendrils of Agony", "controller": "witch"}]
+        return {"seat": "witch", "players": ["witch", "opp"], "life": {"witch": 20, "opp": 20},
+                "active": "witch", "step": "precombat_main", "castThisTurn": petals_cast,
+                "zones": {"battlefield": bf, "hand": hand}}
+
+    pol = fb.EnginePolicy()
+
+    def pick(petals_cast):
+        obs = obs_at(petals_cast)
+        state, _ = fb.reconstruct(obs, "witch")
+        assert state.get("_cast_count") == petals_cast      # _cast_count must mirror Forge's spell count
+        opts = [{"id": c["id"], "ci": i, "kind": "spell"} for i, c in enumerate(obs["zones"]["hand"])]
+        choice, _m, _e, _o, used = pol._pick_action(driver, state, "witch", opts, {"kind": "pass"})
+        return (str(choice["id"]) if choice else None), used
+
+    early, ue = pick(0)
+    check("search-driven: at 0 cast, the lookahead plays a Lotus Petal (builds storm)",
+          early and early.startswith("P") and ue == 1)
+    mid, _ = pick(5)
+    check("search-driven: at 5 cast (count synced), it keeps building with a Petal", mid and mid.startswith("P"))
+    last, _ = pick(9)
+    check("search-driven: at 9 cast, it fires the payoff (Tendrils now lethal)", last == "TEND")
+    bad = fb.reconstruct({**obs_at(5), "castThisTurn": 0}, "witch")[0]
+    check("search-driven: dropping the cast-count would desync the model (0 != 5)", bad.get("_cast_count") == 0)
+
+
 def run() -> None:
     _kinds()
     _random_legal()
     _full_game_inprocess()
     _full_game_socket()
+    _search_driven_storm()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

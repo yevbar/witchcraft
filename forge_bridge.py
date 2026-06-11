@@ -145,6 +145,10 @@ def reconstruct(obs: dict, seat: str):
             for kind, k in (card.get("counters") or {}).items():
                 driver._bump_counter(state, cid, kind, int(k))
     bridge._materialize_printed(state)
+    # §608 carry Forge's per-turn spell-cast count (game.getStack().getSpellsCastThisTurn().size()) so our
+    # model's §702.40 storm count matches Forge mid-turn — without it a re-search would think storm=0 after
+    # Forge already cast several spells this turn (the desync the lookahead-driven policy must avoid).
+    state["_cast_count"] = int(obs.get("castThisTurn", 0) or 0)
     return state, unmodeled
 
 
@@ -181,32 +185,29 @@ class EnginePolicy:
 
     # each _pick_* returns (choice, modeled, endorsed, offered, used_engine)
     def _pick_action(self, driver, state, seat, options, default):
-        """Develop mana (play a land) then cast a spell OUR engine derives as castable (can_cast); else pass.
-        Completeness check: of the play options Forge offers, how many does our engine recognize (modeled) and
-        deem playable (endorsed = a land drop our engine owns, or a spell can_cast endorses)."""
-        driver._refresh_mana_pool(state, seat)               # stock mana from the reconstructed lands
-        state["has_priority"] = {(seat,)}                    # §117 — can_cast is gated on holding priority
-        can = {s for (p, s) in driver.run(state, ["can_cast"])["can_cast"] if p == seat}
-        ptype = driver.run(state, ["printed_type"])["printed_type"]
-        lands_in_hand = {c for (p, c) in state.get("in_hand", set()) if p == seat and (c, "land") in ptype}
-        objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
+        """Drive the play decision with the engine's OWN lookahead — NO mechanic-specific logic. Each
+        decision: reconstruct Forge's live state, run win_search for a line that wins THIS turn, and play
+        that line's first cast (mapped to the matching Forge option by card id). The search rediscovers the
+        combo (storm, etc.) generically from Forge's state every time, so it stays in lockstep with Forge —
+        the storm count rides in via reconstruct's _cast_count, and we re-plan from Forge's snapshot at every
+        step (never replaying a stale plan). If no same-turn win is reachable, fall back to greedy.
+
+        Completeness: of the spell options Forge offers, how many our engine models (modeled) and how many
+        the search endorses as a winning first move (endorsed)."""
+        import win_search
         spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
+        objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
         modeled = sum(1 for o in spells if str(o["id"]) in objs)
-        land_opts = [o for o in spells if str(o["id"]) in lands_in_hand]      # play a land (develop mana)
-        cast_opts = [o for o in spells if str(o["id"]) in can]               # cast an affordable spell
-        endorsed = land_opts + cast_opts
-        # §702.40 storm-aware ordering: a storm spell copies once per spell cast BEFORE it this turn, so cast
-        # every OTHER spell first (build the count) and hold the storm payoff until nothing else is castable.
-        # Reads the keyword off the reconstructed card identity (card_keyword via instance_of). A purely
-        # generic heuristic — the engine still decides WHICH spells to cast; this only orders the payoff last.
-        def _is_storm(o):
-            return "storm" in driver._spell_keywords(state, str(o["id"]))
-        non_storm = [o for o in cast_opts if not _is_storm(o)]
-        storm_opts = [o for o in cast_opts if _is_storm(o)]
-        choice = (land_opts[0] if land_opts else                             # land > non-storm spell > storm
-                  non_storm[0] if non_storm else
-                  storm_opts[0] if storm_opts else default)
-        return choice, modeled, len(endorsed), len(spells), 1
+        s = dict(state)                                      # the lookahead plays from OUR seat's main phase
+        s["active_player"] = {(seat,)}
+        s.setdefault("current_step", {("precombat_main",)})
+        path, _n = win_search.find_win(s, me=seat, max_turns=1, node_budget=20000)
+        choice = None
+        if path and path[0][0] == "cast":                    # play the winning line's first cast
+            sid = str(path[0][2])
+            choice = next((o for o in spells if str(o["id"]) == sid), None)
+        # endorsed = 1 when the search found+mapped a winning first move; else defer to the greedy fallback.
+        return choice, modeled, (1 if choice is not None else 0), len(spells), (1 if choice is not None else 0)
 
     def _pick_target(self, driver, state, seat, options, default):
         """Target an entity our engine models as a legal creature target."""
