@@ -42,6 +42,45 @@ def _opp_action(s):
     return acts[0] if acts else None
 
 
+def _canon_sub(sub):
+    """A hashable canonical form of a cast/activate sub-choice dict (mode / target / name)."""
+    return frozenset(sub.items()) if isinstance(sub, dict) else sub
+
+
+def _canon_action(state, a):
+    """A MOVE-SYMMETRY key: two actions with the same key are interchangeable, so the search explores only
+    ONE of them. The win is collapsing the N identical copies of a card — casting/activating copy A vs copy B
+    of the same card yields isomorphic states (the only difference is which interchangeable id was used), so
+    they branch the tree N-fold for nothing (7 Lotus Petals -> 7! orderings). We canonicalize the SOURCE copy
+    to its card IDENTITY (instance_of), so copies merge; targets/modes/names stay as-is (targeting different
+    objects, or different modes, is a real difference and is kept). Sound for win_search's reachability
+    question: any winning line through a dropped copy has an isomorphic line through the kept representative.
+    Hand copies of a card carry no per-instance state, so this never merges genuinely different options."""
+    kind = a[0]
+    if kind not in ("cast", "activate"):
+        return a                                              # pass / attack / block / cast_commander: as-is
+    inst = {o: c for (o, c) in state.get("instance_of", set())}
+    if kind == "cast":
+        _, ap, spell, sub = a
+        return ("cast", ap, inst.get(spell, spell), _canon_sub(sub))
+    _, ap, row, sub = a                                       # row = (a_id, src, cost, taps, eff, amt, tgt)
+    src = row[1]                                              # drop the instance-embedded a_id; key by card + ability
+    return ("activate", ap, inst.get(src, src), tuple(row[2:]), _canon_sub(sub))
+
+
+def _dedup_actions(state, actions):
+    """Drop symmetry-equivalent duplicates (identical card copies), keeping the first representative of each
+    canonical class — preserves move order, so the returned line uses a real, playable action."""
+    out, seen = [], set()
+    for a in actions:
+        k = _canon_action(state, a)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(a)
+    return out
+
+
 def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget: int = 4000):
     """Search for a line that wins for `me` within `max_turns` turns (any player's turn counts). Returns
     (path, nodes): path is MY action list to a win (opponent auto-passes between), or None."""
@@ -64,7 +103,7 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
             return None
         seen.add(k)
         if env.to_move(s) == me:
-            for a in env.legal_actions(s):
+            for a in _dedup_actions(s, env.legal_actions(s)):   # §move-symmetry: one of N identical copies
                 sub = dfs(env.step(s, a))
                 if sub is not None:
                     return [a] + sub
