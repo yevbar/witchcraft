@@ -90,6 +90,10 @@ _EVENT = {
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
     "enters_or_attacks": "self_enters_or_attacks",
     "enters_or_dies": "self_enters_or_dies",
+    # §717 (Rooms) 'when you unlock this door' — the door you CAST unlocks as the Room enters the
+    # battlefield, so the unlock trigger fires on ETB. (A door unlocked LATER by paying its cost is a
+    # separate action we don't model; the cast-the-front-half case — the common one — is faithful.)
+    "you_unlock_this_door": "etb_self",
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
@@ -252,6 +256,19 @@ _DAMAGE_TARGET = {
 
 def _damage_target(tgt: str) -> str | None:
     return _DAMAGE_TARGET.get(str(tgt))
+
+
+# §120 'deal damage equal to <a game quantity>' — a variable amount the engine can't compute at translate
+# time (datalog's trigger_damage needs a numeric amount). The quantity slug -> a tag the dyn_damage applier
+# evaluates against live state at resolution. Only quantities the driver can read are mapped; anything else
+# abstains (a wrong amount is worse than none).
+_DAMAGE_QTY = {
+    "equal_to_the_number_of_cards_in_your_hand": "cards_in_hand",
+}
+
+
+def _damage_qty(amt) -> str | None:
+    return _DAMAGE_QTY.get(str(amt))
 
 
 # §611.2 static anthem/lord board scopes the engine resolves continuously while the source is in play.
@@ -775,6 +792,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # mapped target). Variable/restricted amounts or targets still fall through to the
                     # player-scoped path below (each_opponent), unchanged.
                     if _int(amt) is not None and _damage_target(tgt) is not None:
+                        emitted = True
+                        continue
+                    # §120 DYNAMIC damage 'equal to <a game quantity>' (Roaring Furnace: cards in hand) to a
+                    # mapped target -> a python trigger_effect the dyn_damage applier evaluates at resolution
+                    # (datalog can't compute the amount). A readable quantity + mapped target only.
+                    qty, dk = _damage_qty(amt), _damage_target(tgt)
+                    if qty is not None and dk is not None:
+                        add("trigger_effect", (a, "dyn_damage", 0, f"{qty}|{dk}"))
                         emitted = True
                         continue
                 if verb == "put_counter":

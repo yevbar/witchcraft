@@ -202,3 +202,22 @@ def apply_set_life(D, state, a, n, tgt, src, ctrl):
     for p in players:
         D._set_life(state, p, n)
         print(f"    trigger {a}: {p}'s life becomes {n}")
+
+
+# ----- dyn_damage -----------------------------------------------------------------------------------
+def _dyn_quantity(state, tag: str, ctrl: str) -> int:
+    """The live value of a 'deal damage equal to <quantity>' amount for the controller (§120)."""
+    if tag == "cards_in_hand":
+        return sum(1 for (p, _c) in state.get("in_hand", set()) if p == ctrl)
+    return 0                                                  # unknown tag -> 0 (the bridge only emits known tags)
+
+
+@applier("dyn_damage")
+def apply_dyn_damage(D, state, a, n, tgt, src, ctrl):
+    """§120 deal damage EQUAL TO a game quantity (Roaring Furnace: cards in your hand) to a target the
+    driver picks for the damage class. The amount is computed against live state at resolution, then routed
+    through the shared damage resolver (lethality on a creature, life loss on a player)."""
+    qty_tag, _, dk = str(tgt).partition("|")
+    amount = _dyn_quantity(state, qty_tag, ctrl)
+    print(f"    trigger {a}: {ctrl} deals {amount} damage (= {qty_tag.replace('_', ' ')})")
+    D._apply_damage(state, a, amount, dk, ctrl)

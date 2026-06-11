@@ -97,9 +97,57 @@ def _bridge_checks() -> None:
     check("the corpus yields a body of sacrifice-watchers (>= 10)", n >= 10)
 
 
+def _room_dyn_damage_checks() -> None:
+    """§717 a Room's 'when you unlock this door' fires on ETB (the door you cast unlocks as it enters), and
+    its 'deal damage equal to the cards in your hand' resolves through the dyn_damage applier — Roaring
+    Furnace // Steaming Sauna, end to end through the real engine + driver."""
+    import contextlib
+    import io
+    import sim
+    import card_corpus
+    import effect_handlers
+    effect_handlers.load()
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    check("'you_unlock_this_door' maps to the ETB event", bridge._EVENT.get("you_unlock_this_door") == "etb_self")
+
+    f, dropped = bridge.card_facts("Roaring Furnace // Steaming Sauna", "alice", "rf_card", db, corpus)
+    check("Roaring Furnace is CLEAN (unlock + dynamic damage resolve)", dropped == [])
+
+    st = {k: set(v) for k, v in f.items() if isinstance(v, set)}
+    st["is_player"] = {("alice",), ("bob",)}
+    st["life"] = {("alice", 20), ("bob", 20)}
+    st.setdefault("on_battlefield", set()).update({("rf_card",), ("enemy",)})
+    st.setdefault("printed_control", set()).update({("alice", "rf_card"), ("bob", "enemy")})
+    st.setdefault("printed_type", set()).add(("enemy", "creature"))
+    st.setdefault("printed_power", set()).add(("enemy", 2))
+    st.setdefault("printed_toughness", set()).add(("enemy", 2))
+    st["in_hand"] = {("alice", "h1"), ("alice", "h2"), ("alice", "h3")}     # 3 cards -> 3 damage
+    st["just_entered"] = {("rf_card",)}                                     # the Room enters -> unlock fires
+    st.setdefault("graveyard", set())
+    st.setdefault("counter", set())
+
+    fires = {a for (a, _s) in driver.run(st, ["fires"])["fires"]}
+    check("the unlock ability fires when the Room enters", "rf_card_a0" in fires)
+    pend = driver.run(st, ["pending"])["pending"]
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, pend)
+    check("dynamic damage (= 3 cards in hand) destroys the 2/2 enemy", ("enemy",) in st["graveyard"])
+
+    # with an EMPTY hand, the same trigger deals 0 -> the creature survives (faithful zero, not a no-target).
+    st["in_hand"] = set()
+    st["graveyard"] = set()
+    pend = driver.run(st, ["pending"])["pending"]
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, pend)
+    check("an empty hand deals 0 damage (the 2/2 survives)", ("enemy",) not in st["graveyard"])
+
+
 def run() -> None:
     _engine_checks()
     _bridge_checks()
+    _room_dyn_damage_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
