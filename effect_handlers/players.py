@@ -20,11 +20,13 @@ MODEL
   get_energy: amt is a plain int -> the player gains N {E}. Stored in a driver-side state relation
     state['energy'] = {(player, total)}; read back / accumulated in apply. ABSTAIN on variable amounts.
 
-  win_game / lose_game: the driver ends a game when a player's life is at/below the §704.5a loss
-    threshold (driver.LIFE_LOSS_THRESHOLD), surfaced as the loser in _apply_outputs. So lose_game sets the
-    losing player's life to that threshold; win_game (you win) makes EACH OPPONENT lose the same way (a
-    two-player game with no opponents left is a win). These carry no condition — the engine doesn't model
-    effect conditions (the bridge already drops every trigger's condition), so this matches that bar.
+  win_game / lose_game: ASSERT the game result the ENGINE turns into the §704.5 state-based win/loss.
+    'you win the game' (Thassa's Oracle, Approach of the Second Sun, Felidar Sovereign, Test of Endurance)
+    asserts eff_win_game(controller); 'you lose'/'target player loses'/'each opponent loses' asserts
+    eff_lose_game(player). The engine derives wins_game(P)/loses_game(P) from these (§104.2a/§104.3a), and
+    driver._apply_outputs ends the game on that derivation — the effect verb authors no game-ending logic
+    itself, it just states the fact. These carry no condition — the engine doesn't model effect conditions
+    (the bridge already drops every trigger's condition), so this matches that bar.
 
 Faithful-or-abstain: encode -> None for anything we can't resolve correctly. See
 effect_handlers/__init__.py for the @encoder / @applier contract and the driver helpers on D.
@@ -126,14 +128,21 @@ def apply_energy(D, state, a, n, tgt, src, ctrl):
 
 
 # ----- win_game / lose_game -------------------------------------------------------------------------
-def _make_lose(D, state, p):
-    """End the game for player p the way the driver detects a loss (§704.5a): drop their life to the
-    loss threshold so driver._apply_outputs surfaces them as the loser."""
-    D._set_life(state, p, D.LIFE_LOSS_THRESHOLD)
+# The effect verb ASSERTS the result into an engine input relation; the engine DERIVES the §704.5 SBA
+# (wins_game/loses_game) and the driver ends the game on it. No life-total hack — a real game result.
+def _assert_lose(D, state, p):
+    """§104.3a — a resolved effect makes p lose: assert eff_lose_game(p); the engine derives loses_game(p)."""
+    state.setdefault("eff_lose_game", set()).add((p,))
+
+
+def _assert_win(D, state, p):
+    """§104.2a — a resolved effect makes p win: assert eff_win_game(p); the engine derives wins_game(p)."""
+    state.setdefault("eff_win_game", set()).add((p,))
 
 
 @encoder("lose_game")
 def encode_lose(verb, amt, tgt, extra):
+    # 'you lose the game' (controller) / 'target player loses' / 'each opponent loses the game'.
     scope = _player_scope(tgt)
     return ("lose_game", 0, scope) if scope else None
 
@@ -143,7 +152,7 @@ def apply_lose(D, state, a, n, tgt, src, ctrl):
     players = D._others(state, ctrl) if tgt == "each_opponent" else [ctrl]
     for p in players:
         print(f"    trigger {a}: {p} loses the game (§104.3a)")
-        _make_lose(D, state, p)
+        _assert_lose(D, state, p)
 
 
 @encoder("win_game")
@@ -154,10 +163,10 @@ def encode_win(verb, amt, tgt, extra):
 
 @applier("win_game")
 def apply_win(D, state, a, n, tgt, src, ctrl):
-    """§104.2a — the controller wins: every OTHER player loses (in a 2-player game, the lone opponent)."""
-    for p in D._others(state, ctrl):
-        print(f"    trigger {a}: {ctrl} wins -> {p} loses the game (§104.2a)")
-        _make_lose(D, state, p)
+    """§104.2a — the controller wins. Assert eff_win_game(controller); the engine derives wins_game and the
+    driver ends the game with that winner (every other player loses)."""
+    print(f"    trigger {a}: {ctrl} wins the game (§104.2a)")
+    _assert_win(D, state, ctrl)
 
 
 # ----- set_life -------------------------------------------------------------------------------------

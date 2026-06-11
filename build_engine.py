@@ -235,6 +235,14 @@ INPUTS = [
     # §611 duration: a continuous effect that lasts only until end of turn
     ("until_eot", [("e", "symbol")]),
     ("is_keyword", [("kw", "symbol")]),                            # §122.1b which counter kinds are keyword counters
+    # §104 WIN/LOSS — effect-asserted game results + the library state the §104.3c / §614 deckout SBA reads.
+    # The driver feeds these from the win/lose effect handlers and from the library it bookkeeps; the engine
+    # DERIVES the wins_game/loses_game state-based condition over them (§704.5).
+    ("eff_lose_game", [("p", "symbol")]),                          # §104.3a a resolved effect makes p lose
+    ("eff_win_game", [("p", "symbol")]),                           # §104.2a a resolved effect makes p win
+    ("in_library", [("p", "symbol"), ("c", "symbol")]),           # a card in p's library (so the engine sees emptiness)
+    ("would_draw_from_empty", [("p", "symbol")]),                  # §104.3c the moment p would draw from an empty library
+    ("library_win_repl", [("p", "symbol")]),                      # §614 p controls a Lab-Maniac/Thassa/Jace "win instead" replacement
 ]
 
 EXPECT_DECLS = [
@@ -607,9 +615,20 @@ def _rules(p: Program) -> None:
     p.comment("§104 numeric loss thresholds, INTERPRETED from rules.txt by build_ending (not hardcoded).")
     p.decl("loss_threshold", [("condition", "symbol"), ("n", "number")])
     p.facts([f'loss_threshold("{c}", {n})' for _r, c, n in _loss_thresholds()])
+    p.comment("§104 win/loss STATE-BASED CONDITION — derived over the wired state; the driver acts on it.")
+    p.comment("A player's library is empty iff they hold no library cards (§104.3c / §614 deckout reads this).")
+    p.decl("library_empty", [("p", "symbol")])
+    p.rule("library_empty(P)", ["is_player(P)", "!in_library(P, _)"])
     p.decl("loses_game", [("p", "symbol")])
     p.rule("loses_game(P)", ["remaining_life(P, L)", 'loss_threshold("life_zero", T)', "L <= T"], note="§704.5a — threshold interpreted into ending.dl")
     p.rule("loses_game(P)", ["total_poison(P, N)", 'loss_threshold("poison_ten", T)', "N >= T"], note="§704.5c")
+    p.rule("loses_game(P)", ["eff_lose_game(P)"], note="§104.3a — a resolved effect makes the player lose")
+    p.comment("§104.3c deckout — drawing from an empty library is a LOSS, UNLESS a §614 replacement (Laboratory")
+    p.comment("Maniac / Thassa's Oracle / Jace, Wielder of Mysteries) turns it into a WIN for that player instead.")
+    p.rule("loses_game(P)", ["would_draw_from_empty(P)", "!library_win_repl(P)"], note="§104.3c")
+    p.decl("wins_game", [("p", "symbol")])
+    p.rule("wins_game(P)", ["eff_win_game(P)"], note="§104.2a — a resolved effect makes the player win (Thassa's Oracle)")
+    p.rule("wins_game(P)", ["would_draw_from_empty(P)", "library_win_repl(P)"], note="§614 — Lab Maniac: empty-library draw becomes a win")
     p.blank()
     p.comment("§701.8a zone movement — TRANSPILED. A creature put into the graveyard by")
     p.comment("an SBA moves via the destroy action; the driver applies zone_change generically.")
@@ -895,7 +914,7 @@ def _rules(p: Program) -> None:
     p.blank()
     _emit_translate(p)
     p.blank()
-    p.output("power", "dies", "loses_game", "can_cast", "enters_battlefield", "advance_to",
+    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",

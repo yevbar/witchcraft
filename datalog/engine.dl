@@ -93,6 +93,11 @@
 .decl spell_reanimate(spell: symbol, mode: symbol)
 .decl until_eot(e: symbol)
 .decl is_keyword(kw: symbol)
+.decl eff_lose_game(p: symbol)
+.decl eff_win_game(p: symbol)
+.decl in_library(p: symbol, c: symbol)
+.decl would_draw_from_empty(p: symbol)
+.decl library_win_repl(p: symbol)
 
 .decl creature(c: symbol)
 creature(C) :- on_battlefield(C), has_type(C, "creature").
@@ -296,11 +301,26 @@ dies(C) :- creature(C), deals(S, C, N), N >= 1, has_keyword(S, "deathtouch"), !c
 // §104 numeric loss thresholds, INTERPRETED from rules.txt by build_ending (not hardcoded).
 .decl loss_threshold(condition: symbol, n: number)
 loss_threshold("life_zero", 0). loss_threshold("poison_ten", 10). loss_threshold("commander_damage", 21).
+// §104 win/loss STATE-BASED CONDITION — derived over the wired state; the driver acts on it.
+// A player's library is empty iff they hold no library cards (§104.3c / §614 deckout reads this).
+.decl library_empty(p: symbol)
+library_empty(P) :- is_player(P), !in_library(P, _).
 .decl loses_game(p: symbol)
 // §704.5a — threshold interpreted into ending.dl
 loses_game(P) :- remaining_life(P, L), loss_threshold("life_zero", T), L <= T.
 // §704.5c
 loses_game(P) :- total_poison(P, N), loss_threshold("poison_ten", T), N >= T.
+// §104.3a — a resolved effect makes the player lose
+loses_game(P) :- eff_lose_game(P).
+// §104.3c deckout — drawing from an empty library is a LOSS, UNLESS a §614 replacement (Laboratory
+// Maniac / Thassa's Oracle / Jace, Wielder of Mysteries) turns it into a WIN for that player instead.
+// §104.3c
+loses_game(P) :- would_draw_from_empty(P), !library_win_repl(P).
+.decl wins_game(p: symbol)
+// §104.2a — a resolved effect makes the player win (Thassa's Oracle)
+wins_game(P) :- eff_win_game(P).
+// §614 — Lab Maniac: empty-library draw becomes a win
+wins_game(P) :- would_draw_from_empty(P), library_win_repl(P).
 
 // §701.8a zone movement — TRANSPILED. A creature put into the graveyard by
 // an SBA moves via the destroy action; the driver applies zone_change generically.
@@ -852,6 +872,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output power
 .output dies
 .output loses_game
+.output wins_game
 .output can_cast
 .output enters_battlefield
 .output advance_to
@@ -898,7 +919,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)

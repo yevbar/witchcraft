@@ -135,7 +135,7 @@ def _variant_hand_size(variant: str) -> int:
     m = re.search(rf'starting_hand_size\("{re.escape(variant)}", (\d+)\)', text)
     return int(m.group(1)) if m else 7
 
-OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "advance_to", "player_damage", "pending"]
+OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage", "pending"]
 
 
 def _lit(x: object) -> str:
@@ -683,6 +683,15 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         state["tapped"].discard((c,)); print(f"    {ap} untaps {c}")
     for (p,) in sorted(out["to_draw"]):                          # §504.1 draw
         if not _draw(state, p):
+            # §104.3c — drawing from an empty library is a LOSS, UNLESS a §614 "you win when your library
+            # is empty" replacement (Laboratory Maniac / Thassa's Oracle / Jace, Wielder of Mysteries) the
+            # player controls turns it into a WIN. The ENGINE derives which: feed the would-draw-from-empty
+            # moment and read back wins_game / loses_game over the library_win_repl the driver bookkeeps.
+            probe = run({**state, "would_draw_from_empty": state.get("would_draw_from_empty", set()) | {(p,)}},
+                        ["wins_game", "loses_game"])
+            if (p,) in probe["wins_game"]:
+                print(f"  ** {p}'s library is empty — a §614 replacement makes {p} WIN the game **")
+                return _end_with_winner(state, p)
             print(f"  ** {p} draws from an empty library and loses the game (§104.3c) **")
             return p
     for (c, frm, to) in sorted(out["zone_change"]):              # §701.8a zone moves
@@ -698,12 +707,35 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     for (p, n) in sorted(out["player_damage"]):                  # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
     _apply_effects(state, out["pending"])                        # §603 -> §608 triggered effects
+    # §104.2a — an effect-derived WIN ends the game: the winner wins, every other player loses.
+    # The engine derives wins_game from a resolved "you win the game" effect (Thassa's Oracle, Approach
+    # of the Second Sun, Felidar Sovereign, Test of Endurance). Read it AFTER applying pending effects,
+    # since a resolving trigger may have asserted eff_win_game into the state this step.
+    won = run(state, ["wins_game"])["wins_game"]
+    if won:
+        return _end_with_winner(state, sorted(won)[0][0])
+    # §704.5a life threshold / §704.5c poison / §104.3a effect loss — all surfaced as loses_game by the
+    # engine. dead[] re-derives the life threshold directly as a backstop (a triggered effect may have
+    # dropped a life total below the engine's view of `out` captured before _apply_effects ran).
+    lost = run(state, ["loses_game"])["loses_game"]
     dead = sorted(p for (p, v) in state["life"] if v <= LIFE_LOSS_THRESHOLD)
-    if out["loses_game"] or dead:                                # §704.5a / triggered-effect death
-        loser = sorted(out["loses_game"])[0][0] if out["loses_game"] else dead[0]
+    if out["loses_game"] or lost or dead:                        # §704.5a / §104.3a triggered-effect death
+        loser = (sorted(out["loses_game"])[0][0] if out["loses_game"]
+                 else sorted(lost)[0][0] if lost else dead[0])
         print(f"  ** {loser} loses the game **")
         return loser
     return None
+
+
+def _end_with_winner(state: dict, winner: str) -> str:
+    """§104.2a — `winner` wins the game; in this driver's loss-returning contract that means every other
+    player loses. Print the win and return a losing opponent (the lone opponent in a two-player game) so
+    play_game ends; records the winner in state['_winner'] for callers that want it."""
+    state["_winner"] = winner
+    others = _others(state, winner)
+    for p in others:
+        print(f"  ** {winner} WINS the game -> {p} loses (§104.2a) **")
+    return others[0] if others else winner
 
 
 # §106.1a — the five WUBRG colors plus colorless. WILDCARD = a source produces "any color" (Birds,
