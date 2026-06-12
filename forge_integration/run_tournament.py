@@ -126,7 +126,10 @@ def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
     MTG_DECK_AXIS, and toward assembling/invoking its synergy combo via MTG_SYNERGY, when it sees no forced
     win) vs Forge-AI, Forge refereeing. Returns the series + stats."""
     syn = _synergy_of(witch)
-    bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": _axis_of(witch),
+    # PERFECT-INFORMATION MINIMAX (MTG_MINIMAX=1): the develop search maximizes the witch seat's win while
+    # the opponent plays its best line on ITS deck's §104 axis (MTG_OPP_AXIS = the opp deck's axis).
+    bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": _axis_of(witch), "MTG_OPP_AXIS": _axis_of(opp),
+               "MTG_MINIMAX": "1", "MTG_MINIMAX_TURNS": "2",
                "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000", "MTG_START_LIFE": "20",
                "MTG_SYNERGY": ",".join(sorted(syn["slugs"])), "MTG_SYNERGY_SIZE": str(syn["size"])}
     need = best_of // 2 + 1
@@ -162,10 +165,11 @@ def main() -> None:
         pairings = [("izzet", "vanilla"), ("infect", "vanilla")]
     # DECK MATCHUPS: the win_search engine seat (now DEVELOPS toward its deck's win axis when it sees no
     # forced win) vs Forge-AI, Forge refereeing.
+    best_of = 1 if quick else 3                                # BEST OF 3 (first to 2) for the full tournament
     matchups = []
     for pi, (w, o) in enumerate(pairings):
-        print(f"\n=== {w} (witchcraft) vs {o} (forge-ai) ===", flush=True)
-        matchups.append(run_matchup(w, o, 8900 + pi * 12))
+        print(f"\n=== {w} (witchcraft) vs {o} (forge-ai)  [best of {best_of}] ===", flush=True)
+        matchups.append(run_matchup(w, o, 8900 + pi * 12, best_of=best_of))
 
     print("\n" + "=" * 78)
     print("TOURNAMENT SUMMARY  (Forge = referee + opponent; witchcraft drives its seat via win_search)")
@@ -173,12 +177,18 @@ def main() -> None:
     print("\nWIN-CON REGRESSIONS (witchcraft must win as the piloting seat):")
     for c in combos:
         print(f"  {c['status']:5} {('winner=' + c['winner']):32} endorsed={c['endorsed']}")
-    print("\nDECK MATCHUPS — witchcraft (win_search) vs Forge-AI:")
-    print(f"  {'witchcraft':10} {'forge-ai':10} {'winner':14} {'modeled':9} {'endorsed':9}")
+    print("\nDECK MATCHUPS — witchcraft (win_search, adversarial minimax) vs Forge-AI  [best of 3]:")
+    print(f"  {'witchcraft':10} {'forge-ai':10} {'series':10} {'winner':12} {'modeled':9} {'endorsed':9}")
     for m in matchups:
-        g = m["games"][0]
-        seat = "witchcraft" if g["winner"] == "Witchcraft-Engine" else g["winner"]
-        print(f"  {m['witch']:10} {m['opp']:10} {seat:14} {str(g['modeled']):9} {str(g['endorsed']):9}")
+        w_, f_ = m["wins"]["witchcraft"], m["wins"]["Forge-AI"]
+        series = f"{w_}-{f_}"
+        champ = "witchcraft" if w_ > f_ else ("Forge-AI" if f_ > w_ else "split")
+        # average modeled/endorsed across the games actually played
+        mods = [g["modeled"] for g in m["games"] if g["modeled"] is not None]
+        ends = [g["endorsed"] for g in m["games"] if g["endorsed"] is not None]
+        amod = f"{sum(mods) / len(mods):.2f}" if mods else "None"
+        aend = f"{sum(ends) / len(ends):.2f}" if ends else "None"
+        print(f"  {m['witch']:10} {m['opp']:10} {series:10} {champ:12} {amod:9} {aend:9}")
     print(f"\nwall: {round(time.time() - t0)}s")
 
 

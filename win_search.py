@@ -14,6 +14,8 @@ count). Bounded by a turn horizon + node budget, with engine-fact transposition 
 
 from __future__ import annotations
 
+import math
+
 import driver
 import env
 
@@ -232,6 +234,94 @@ def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
     return best[1], best[0]
 
 
+# ── adversarial minimax (perfect information: hands revealed) ─────────────────────────────────────────
+# find_win/find_progress model the opponent as PASSIVE (optimistic reachability / develop). find_minimax
+# instead plays the opponent ADVERSARIALLY: under perfect information it MAXIMIZES my progress toward
+# winning while the opponent MINIMIZES it (pressing its OWN win on its OWN §104 axis). Leaf value is the
+# symmetric differential progress_score(me, my_axis) − progress_score(opp, opp_axis); a real game end is
+# ±_WIN. Alpha-beta pruned, turn-horizon + node-budget bounded; the driver engine cache collapses repeated
+# engine evals across the tree so transposed subtrees re-cost only Python recursion + cheap clones.
+_WIN = 10 ** 6
+
+
+def _move_order_key(a):
+    """Order actions so likely-strong plays come first — better alpha-beta cutoffs, NO extra engine evals.
+    Active plays (cast/activate/real attack) before defensive/empty ones before pass."""
+    kind = a[0]
+    if kind == "cast":
+        return 0
+    if kind == "activate":
+        return 1
+    if kind == "attack":
+        return 2 if a[1] else 5                                # attacking beats declaring no attackers
+    if kind == "block":
+        return 3
+    return 4                                                   # pass last
+
+
+def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero", opp_axis: str = "life_zero",
+                 max_turns: int = 2, node_budget: int = 4000, synergy=None, start_life: int = 20):
+    """Minimax + alpha-beta lookahead under PERFECT INFORMATION. Returns (path, value): path[0] is the move
+    that maximizes my winning while the opponent plays its best line to win itself / deny me. A reached win
+    is +_WIN (sooner preferred), a reached loss −_WIN (later preferred), else the leaf differential. The
+    opponent uses its FULL legal action set (casts/attacks/blocks), not the passive model of find_win."""
+    s0 = env.start(state)
+    me = me or env.to_move(s0)
+    opps = _others_of(s0, me)
+    opp = opps[0] if opps else None
+    start_turn = s0.get("_turn", 0)
+    nodes = [0]
+
+    def leaf(s):
+        mine = progress_score(s, me, my_axis, synergy, start_life)
+        theirs = progress_score(s, opp, opp_axis, None, start_life) if opp else 0.0
+        return mine - theirs
+
+    def ab(s, alpha, beta):
+        nodes[0] += 1
+        if env.is_terminal(s):
+            w = env.winner(s)
+            elapsed = s.get("_turn", 0) - start_turn
+            if w == me:
+                return _WIN - elapsed                          # win SOONER -> higher value
+            if w is not None:
+                return -_WIN + elapsed                          # forced loss: delay it
+            return 0.0                                          # draw
+        if nodes[0] > node_budget or s.get("_turn", 0) - start_turn > max_turns:
+            return leaf(s)
+        acts = _dedup_actions(s, env.legal_actions(s))
+        acts.sort(key=_move_order_key)
+        if not acts:
+            return leaf(s)
+        if env.to_move(s) == me:                                # MAXIMIZE my outcome
+            v = -math.inf
+            for a in acts:
+                v = max(v, ab(env.step(s, a), alpha, beta))
+                alpha = max(alpha, v)
+                if alpha >= beta:
+                    break
+            return v
+        v = math.inf                                            # opponent MINIMIZES my outcome (best for them)
+        for a in acts:
+            v = min(v, ab(env.step(s, a), alpha, beta))
+            beta = min(beta, v)
+            if beta <= alpha:
+                break
+        return v
+
+    if env.is_terminal(s0) or env.to_move(s0) != me:           # nothing for ME to choose here (defensive: a
+        return [], ab(s0, -math.inf, math.inf)                  # live play decision is always mine, but a
+    acts = _dedup_actions(s0, env.legal_actions(s0))            # skipped turn / odd state shouldn't crash)
+    acts.sort(key=_move_order_key)                              # root: maximize over MY moves
+    best_a, best_v, alpha = None, -math.inf, -math.inf
+    for a in acts:
+        v = ab(env.step(s0, a), alpha, math.inf)
+        if v > best_v:
+            best_v, best_a = v, a
+        alpha = max(alpha, best_v)
+    return ([best_a] if best_a is not None else []), best_v
+
+
 def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget: int = 4000):
     """Search for a line that wins for `me` within `max_turns` turns (any player's turn counts). Returns
     (path, nodes): path is MY action list to a win (opponent auto-passes between), or None."""
@@ -269,11 +359,14 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
 
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
                        axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000,
-                       synergy=None, start_life: int = 20):
+                       synergy=None, start_life: int = 20, minimax: bool = False,
+                       opp_axis: str = "life_zero"):
     """A policy (state, key, options, default)->choice. At a play decision:
       1. search for a forced win within `max_turns` — if found, play its first move.
-      2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the first move of the
-         line that makes the MOST PROGRESS toward that axis — 'develop setup to win' instead of passing.
+      2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the develop move:
+         - minimax=True (perfect-information adversarial): the move that MAXIMIZES my progress while the
+           opponent MINIMIZES it (find_minimax, opponent on `opp_axis`).
+         - minimax=False: the move toward the MOST PROGRESS on my axis with the opponent passive (find_progress).
       3. ELSE defer to `fallback` (default: do nothing).
     Memoized per position. Pass axis=None to keep the pure win-or-pass behavior."""
     cache: dict = {}
@@ -284,9 +377,13 @@ def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=Non
         ck = _key(state)
         if ck not in cache:
             path, _ = find_win(state, me=env.to_move(state), max_turns=max_turns, node_budget=node_budget)
-            if not path and axis:                              # no kill in sight -> develop toward the win axis
-                path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget,
-                                        synergy=synergy, start_life=start_life)
+            if not path and axis:                              # no kill in sight -> develop toward the win
+                if minimax:                                    # adversarial: maximize mine, minimize theirs
+                    path, _ = find_minimax(state, env.to_move(state), axis, opp_axis, progress_turns,
+                                           progress_budget, synergy=synergy, start_life=start_life)
+                else:                                          # opponent-passive progress
+                    path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget,
+                                            synergy=synergy, start_life=start_life)
             cache[ck] = path[0] if path else None
         plan = cache[ck]
         if plan is not None and (options is None or plan in options):

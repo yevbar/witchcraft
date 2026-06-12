@@ -187,12 +187,57 @@ def _defensive_opponent():
           win_search.find_win(d, me="alice", max_turns=2, node_budget=3000)[0] is not None)
 
 
+def _minimax_checks():
+    # find_minimax: MAXIMIZE my win while the opponent MINIMIZES it (perfect information, hands revealed).
+    def base(alife=20, blife=20):
+        return {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+                "current_step": {("precombat_main",)}, "life": {("alice", alife), ("bob", blife)},
+                "in_hand": set(),
+                "in_library": {("alice", f"a{i}") for i in range(20)} | {("bob", f"b{i}") for i in range(20)},
+                "_lib_order": {"alice": [f"a{i}" for i in range(20)], "bob": [f"b{i}" for i in range(20)]},
+                "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
+                "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+
+    # a forced lethal is still found — and valued as a WIN.
+    a = base(20, 4)
+    a["on_battlefield"] = {("ogre",)}; a["printed_type"] = {("ogre", "creature")}
+    a["printed_power"] = {("ogre", 5)}; a["printed_toughness"] = {("ogre", 5)}
+    a["printed_control"] = {("alice", "ogre")}
+    pa, va = win_search.find_minimax(a, me="alice", max_turns=2, node_budget=4000)
+    check("minimax: a forced lethal is a WIN value", va > 10 ** 5)
+    check("minimax: the winning line attacks with the lethal creature",
+          pa and pa[0][0] == "attack" and "ogre" in pa[0][1])
+
+    # the opponent BLOCKS to survive -> attacking trades, no fabricated win (realistic, bounded value).
+    b = base(20, 4)
+    b["on_battlefield"] = {("ogre",), ("wall",)}
+    b["printed_type"] = {("ogre", "creature"), ("wall", "creature")}
+    b["printed_power"] = {("ogre", 5), ("wall", 5)}; b["printed_toughness"] = {("ogre", 5), ("wall", 5)}
+    b["printed_control"] = {("alice", "ogre"), ("bob", "wall")}
+    _pb, vb = win_search.find_minimax(b, me="alice", max_turns=2, node_budget=4000)
+    check("minimax: an opponent that can block to survive is NOT a fabricated win", -10 ** 5 < vb < 10 ** 5)
+
+    # ADVERSARIAL DEFENSE: behind on the race (alice 3/3, bob 6/6, both at 6), minimax HOLDS THE 3/3 BACK as
+    # a blocker rather than attack it into the bigger creature and lose it — the opponent's faster clock is
+    # accounted for (find_progress, opponent-passive, would attack for 'progress' and lose the blocker).
+    r = base(6, 6)
+    r["on_battlefield"] = {("a3",), ("b6",)}
+    r["printed_type"] = {("a3", "creature"), ("b6", "creature")}
+    r["printed_power"] = {("a3", 3), ("b6", 6)}; r["printed_toughness"] = {("a3", 3), ("b6", 6)}
+    r["printed_control"] = {("alice", "a3"), ("bob", "b6")}
+    pr, vr = win_search.find_minimax(r, me="alice", max_turns=2, node_budget=4000)
+    check("minimax: behind on the race, it does NOT attack into the bigger blocker (keeps its blocker)",
+          pr == [] or pr[0][0] != "attack" or not pr[0][1])
+    check("minimax: a losing race scores below an even position", vr < 0)
+
+
 def run():
     _combat_lethal()
     _spell_win()
     _no_false_win()
     _progress_checks()
     _defensive_opponent()
+    _minimax_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
