@@ -1,28 +1,28 @@
 compiled ForgeComboKill + ForgeVsBot
 
 === WIN-CON: Thassa's Oracle (library-out) (witchcraft pilots; Forge confirms) ===
-  winner=Witchcraft-Engine turns=2 wall=19860ms modeled=0.829 endorsed=0.2  -> PASS
+  winner=Witchcraft-Engine turns=2 wall=20227ms modeled=0.829 endorsed=0.2  -> PASS
 
 === WIN-CON: Tendrils storm (storm count) (witchcraft pilots; Forge confirms) ===
   winner=TIMEOUT/ERR turns=? wall=?ms modeled=None endorsed=None  -> SLOW
 
 === izzet (witchcraft) vs vanilla (forge-ai) ===
-  izzet-vs-vanilla g1: winner=Forge-AI turns=13 wall=8506ms modeled=1.0 endorsed=0.0
+  izzet-vs-vanilla g1: winner=Forge-AI turns=21 wall=11786ms modeled=None endorsed=None
 
 === vanilla (witchcraft) vs izzet (forge-ai) ===
-  vanilla-vs-izzet g1: winner=Forge-AI turns=22 wall=15843ms modeled=1.0 endorsed=0.0
+  vanilla-vs-izzet g1: winner=Forge-AI turns=22 wall=23195ms modeled=0.871 endorsed=0.613
 
 === izzet (witchcraft) vs infect (forge-ai) ===
-  izzet-vs-infect g1: winner=Forge-AI turns=7 wall=4916ms modeled=1.0 endorsed=0.0
+  izzet-vs-infect g1: winner=Forge-AI turns=10 wall=13802ms modeled=0.969 endorsed=0.169
 
 === infect (witchcraft) vs vanilla (forge-ai) ===
-  infect-vs-vanilla g1: winner=Forge-AI turns=13 wall=54105ms modeled=1.0 endorsed=0.0
+  infect-vs-vanilla g1: winner=Forge-AI turns=13 wall=24042ms modeled=1.0 endorsed=0.123
 
 === infect (witchcraft) vs izzet (forge-ai) ===
-  infect-vs-izzet g1: winner=Forge-AI turns=20 wall=92049ms modeled=1.0 endorsed=0.0
+  infect-vs-izzet g1: winner=Forge-AI turns=27 wall=49812ms modeled=0.974 endorsed=0.247
 
 === vanilla (witchcraft) vs vanilla (forge-ai) ===
-  vanilla-vs-vanilla g1: winner=Forge-AI turns=13 wall=7746ms modeled=1.0 endorsed=0.0
+  vanilla-vs-vanilla g1: winner=Forge-AI turns=16 wall=11669ms modeled=0.8 endorsed=0.867
 
 ==============================================================================
 TOURNAMENT SUMMARY  (Forge = referee + opponent; witchcraft drives its seat via win_search)
@@ -34,11 +34,11 @@ WIN-CON REGRESSIONS (witchcraft must win as the piloting seat):
 
 DECK MATCHUPS — witchcraft (win_search) vs Forge-AI:
   witchcraft forge-ai   winner         modeled   endorsed 
-  izzet      vanilla    Forge-AI       1.0       0.0      
-  vanilla    izzet      Forge-AI       1.0       0.0      
-  izzet      infect     Forge-AI       1.0       0.0      
-  infect     vanilla    Forge-AI       1.0       0.0      
-  infect     izzet      Forge-AI       1.0       0.0      
-  vanilla    vanilla    Forge-AI       1.0       0.0      
+  izzet      vanilla    Forge-AI       None      None     
+  vanilla    izzet      Forge-AI       0.871     0.613    
+  izzet      infect     Forge-AI       0.969     0.169    
+  infect     vanilla    Forge-AI       1.0       0.123    
+  infect     izzet      Forge-AI       0.974     0.247    
+  vanilla    vanilla    Forge-AI       0.8       0.867    
 
-wall: 335s
+wall: 274s
