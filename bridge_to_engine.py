@@ -676,12 +676,24 @@ def _fold_dig(effs: list, emit) -> set:
     return consumed
 
 
+# §608 the anaphora a 'you may play/cast <it>' impulse rider uses for the just-exiled card(s), after peeling
+# a trailing 'without paying its mana cost' / 'this turn' rider (it doesn't change the impulse shape — an
+# impulse card is always castable for its normal cost or for free; either way it's cast from exile).
+_IMPULSE_CARD_OBJ = {"those_cards", "them", "it", "that_card", "the_exiled_cards", "those", "the_cards",
+                     "these_cards", "that_exiled_card", "the_top_card"}
+
+
+def _is_impulse_card_obj(tgt) -> bool:
+    s = re.sub(r"_(?:without_paying|this_turn|until_).*$", "", str(tgt))
+    return s in _IMPULSE_CARD_OBJ
+
+
 def _fold_impulse(effs: list, emit) -> set:
-    """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play them.' (Light Up
-    the Stage, etc.). Fold the '[exile N top_of_library] + [play those_cards/it/them]' pair into ONE
-    impulse_play effect (amount = N): the applier exiles the top N and flags them may_play (castable from
-    exile this turn). A variable count, or a 'play' clause that doesn't reference the just-exiled cards,
-    abstains (leaves both clauses to the normal paths)."""
+    """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play/cast them.'
+    (Light Up the Stage, Mind's Desire, Stella Lee, Opera Love Song …). Fold the '[exile N top_of_library] +
+    [play/cast those_cards/it/them (without paying …)]' pair into ONE impulse_play effect (amount = N): the
+    applier exiles the top N and flags them may_play (castable from exile this turn). A variable count, or a
+    play/cast clause that doesn't reference the just-exiled cards, abstains (leaves both to the normal paths)."""
     ex_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
                  if v == "exile" and str(t) == "top_of_library" and _int(_a) is not None), None)
     if ex_i is None:
@@ -689,8 +701,8 @@ def _fold_impulse(effs: list, emit) -> set:
     n = _int(effs[ex_i][2])
     if n is None or n <= 0:
         return set()
-    play_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
-                   if v == "play" and str(t) in ("those_cards", "them", "it", "that_card", "the_exiled_cards")), None)
+    play_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs)
+                   if v in ("play", "cast") and _is_impulse_card_obj(_t)), None)
     if play_i is None:
         return set()                                            # an exile with no 'play them' clause isn't impulse
     emit("impulse_play", n, "-")
@@ -985,8 +997,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             search_skip = _fold_search_placements(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §702.34 FLASHBACK GRANT on a TRIGGERED ability (Snapcaster Mage's ETB) -> one grant_flashback.
             fb_skip = _fold_flashback(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §608 IMPULSE on a TRIGGERED ability (Stella Lee: 'exile the top card, you may play it') -> one
+            # impulse_play trigger_effect, same as the spell path (the card engine's triggered card advantage).
+            impulse_skip = _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -1386,7 +1401,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         for mode in f.get("modes", []):
             mab = f.get("abilities", {}).get(mode, {})
             mode_effs = []
-            for _seq, verb, amt, tgt, extra, _cond in mab.get("effects", []):
+            m_effs = list(mab.get("effects", []))
+            # §608 IMPULSE in a MODE (Opera Love Song: '• exile the top two cards, you may play those cards') ->
+            # one impulse_play spell_effect_mode row, resolved only for the chosen mode.
+            imp_skip = _fold_impulse(m_effs, lambda e, n, t: mode_effs.append((tid, mode, e, n, t)))
+            for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(m_effs):
+                if _idx in imp_skip:
+                    continue
                 # §601.2c a mode's SINGLE-TARGET zone-move (Prismari Charm 'return target nonland permanent',
                 # Get Out 'return one/two creatures you own') or direct DAMAGE rides the same target machinery
                 # as a non-modal spell, but mode-gated: pack a ctarget/cdamage sentinel the driver resolves

@@ -25,6 +25,35 @@ def _run(state, outs):
         return driver.run(state, outs)
 
 
+def _fold_checks():
+    # the bridge _fold_impulse recognizes 'play/cast <the exiled cards> (without paying …)' across the spell,
+    # triggered, and modal paths — the storm-payoff card engine.
+    import bridge_to_engine as B
+    E = lambda effs: B._fold_impulse(effs, lambda *a: None)
+
+    def fires(exile_tgt, play_verb, play_tgt, n="1"):
+        effs = [(0, "exile", n, exile_tgt, "-", "-"), (1, play_verb, "-", play_tgt, "-", "may")]
+        return bool(E(effs))
+
+    check("impulse folds 'play that card without paying its mana cost' (Mind's Desire)",
+          fires("top_of_library", "play", "that_card_without_paying_its_mana_cost"))
+    check("impulse folds 'cast it' (cast verb, not just play)", fires("top_of_library", "cast", "it"))
+    check("impulse folds 'play those cards' (Opera Love Song)", fires("top_of_library", "play", "those_cards", n="2"))
+    check("impulse folds 'you may play that card' (Stella Lee trigger)", fires("top_of_library", "play", "that_card"))
+    check("impulse does NOT fold an exile with no play/cast rider",
+          not fires("top_of_library", "draw", "you"))
+    check("impulse does NOT fold a play of an UNRELATED object (not the exiled cards)",
+          not fires("top_of_library", "play", "target_land"))
+
+    # end to end: a TRIGGERED impulse_play exiles top N and flags may_play (the Stella Lee path).
+    st = {"is_player": {("me",)}, "in_library": {("me", "z1"), ("me", "z2")}, "_lib_order": {"me": ["z1", "z2"]},
+          "exile": set(), "may_play": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, {("stella", "impulse_play", 1, "-", "stella", "me")})
+    check("a triggered impulse exiles the top card", ("z1",) in st["exile"])
+    check("a triggered impulse flags it may_play", ("me", "z1") in st["may_play"])
+
+
 def run():
     # engine: may_play makes an EXILED card a castable source (playable_source = in_hand ∪ may_play)
     base = {"is_player": {("me",)}, "has_priority": {("me",)}, "active_player": {("me",)},
@@ -52,6 +81,8 @@ def run():
         driver._cast_spell(cs, "me", "bolt", ["me"])
     check("casting an impulse card removes it from exile", ("bolt",) not in cs.get("exile", set()))
     check("casting an impulse card clears its may_play flag", ("me", "bolt") not in cs.get("may_play", set()))
+
+    _fold_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
