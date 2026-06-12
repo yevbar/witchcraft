@@ -626,6 +626,11 @@ def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
         if not spec or spec == "-":                          # the right token (P/T/types/subtypes/colors).
             return None
         return (eff, n, spec)
+    if eff == "add_counter" and _counter_kind(extra) is None:
+        import effect_handlers                                # a NAMED non-P/T counter (burden/loyalty/knowledge)
+        effect_handlers.load()                                # on the SOURCE -> the pluggable counters.py handler
+        h = effect_handlers.ENCODE.get(verb)                 # (P/T counters stay on the datalog/targeting path)
+        return h(verb, amt, tgt, extra) if h else None
     target = _counter_kind(extra) if eff == "add_counter" else _target(tgt)
     if target is None:
         return None
@@ -679,6 +684,51 @@ def _materialize_printed(state: dict) -> None:
         rows = {(o, int(v)) if rel in numeric else (o, v) for (o, v) in eng.get(rel, set())}
         if rows:
             state.setdefault(rel, set()).update(rows)
+
+
+def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, effs) -> bool:
+    """§605 — register an ACTIVATED mana ability whose effects are 'add_mana' clauses (Mox Opal's
+    'Metalcraft — {T}: Add one mana of any color.', Cavern of Souls, Spire of Industry, Gemstone
+    Caverns) as a real mana source instead of dropping the add_mana verb. `effs` are this ability's
+    parse effects; `generic`/`taps` come from its parsed activation cost.
+
+    A NON-LAND source emits the precise §106 colored output (source_produces for a concrete color,
+    source_wildcard for 'any color'/'any one color'/etc.) plus its source_cost — exactly the rows the
+    bridge lexes for rocks/dorks in _mana_source_outputs, so the driver builds the same colored pool.
+    A LAND's colored output is ALREADY modeled by land_produces (its colorIdentity colors, emitted by
+    _register_colored), so we DON'T re-emit source_* (that would double-count); we only flag mana_source.
+
+    Faithful-or-abstain: a 'spend only on …' / 'add only if …' restriction or activation gate (Cavern's
+    chosen-type spend restriction, Mox Opal's metalcraft, Gemstone's luck-counter condition) is an
+    ACTIVATION detail we don't model — but the BASE mana production is faithful (the wildcard pool is a
+    superset that can always pay the restricted demand). A non-color/variable production still abstains.
+    Returns True iff at least one add_mana clause was registered (so the caller marks it handled)."""
+    fixed: dict[str, int] = {}
+    wild: dict[str, int] = {}
+    for (_seq, verb, amt, _tgt, extra, _cond) in effs:
+        if verb != "add_mana":
+            continue
+        n = _int(amt)
+        if n is None or n <= 0:
+            continue                                          # variable 'add_mana X' count -> abstain this clause
+        d = str(extra)
+        if d in _FIXED_COLORS:
+            fixed[d] = fixed.get(d, 0) + n
+        elif d in _WILDCARD_KINDS:
+            wild[d] = wild.get(d, 0) + n
+        elif "_or_" in d and all(p in _FIXED_COLORS for p in d.split("_or_")):
+            wild[d] = wild.get(d, 0) + n                      # a restricted 'green_or_white' choice
+        # else: 'any_combination' / 'that_land_type' / 'for_each_…' -> abstain this clause (no row)
+    if not fixed and not wild:
+        return False
+    add("mana_source", (tid,))                                # §605 flag: this permanent taps for mana
+    if not is_land:                                           # lands already covered by land_produces
+        add("source_cost", (tid, generic, taps))
+        for col, amt in fixed.items():
+            add("source_produces", (tid, col, amt))
+        for kind, amt in wild.items():
+            add("source_wildcard", (tid, kind, amt))
+    return True
 
 
 def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[dict, list]:
@@ -970,8 +1020,22 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             act_skip |= _fold_dig(act_effs, _emit_act)         # §701 'look N, put M into hand, rest to bottom/yard'
             if act_skip:
                 emitted = True
+            # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT
+            # promote into f['mana'] (Mox Opal's 'Metalcraft —' prefix, Cavern/Spire/Gemstone's
+            # any-color line). Register it as a real wildcard/colored mana source instead of dropping the
+            # add_mana verb. Handles the whole ability's add_mana clauses at once (a mana ability's
+            # multiple Add clauses are one source); the loop below skips them once they're registered.
+            mana_registered = False
+            if any(e[1] == "add_mana" for e in act_effs):
+                is_land = "Land" in (c.get("types") or [])
+                if _add_mana_source(add, tid, is_land, paid[0], paid[1], act_effs):
+                    emitted = mana_registered = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
+                    continue
+                if verb == "add_mana":                        # the source's mana clauses
+                    if not mana_registered:                   # registration abstained -> drop as before
+                        dropped.append(("effect", verb))
                     continue
                 if _is_still_land_rider(verb, amt, extra):    # §613 'It's still a land' no-op (man-land rider)
                     continue
