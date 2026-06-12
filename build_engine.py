@@ -220,6 +220,10 @@ INPUTS = [
     # Bolas's Citadel). The driver sets it when the card is exiled with a play-permission and clears it at
     # the turn boundary; it makes the card a legal cast SOURCE alongside the hand (see playable_source).
     ("may_play", [("p", "symbol"), ("s", "symbol")]),
+    # §118.9 ALTERNATIVE COST — 'you may cast this spell without paying its mana cost if you control a
+    # commander' (Fierce Guardianship, Deflecting Swat). The bridge flags the spell; the engine derives
+    # free_cast when the controller actually controls a commander, making it affordable for 0.
+    ("free_if_commander", [("s", "symbol")]),
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
@@ -701,7 +705,12 @@ def _rules(p: Program) -> None:
     p.decl("playable_source", [("p", "symbol"), ("s", "symbol")])
     p.rule("playable_source(P, S)", ["in_hand(P, S)"])
     p.rule("playable_source(P, S)", ["may_play(P, S)"], note="§608 impulse: may play from exile this turn")
+    # §118.9 a spell castable WITHOUT paying its mana cost (an alternative cost of 0): Fierce Guardianship /
+    # Deflecting Swat — free while you control a commander. Trivially affordable; the driver pays no mana.
+    p.decl("free_cast", [("p", "symbol"), ("s", "symbol")])
+    p.rule("free_cast(P, S)", ["free_if_commander(S)", "playable_source(P, S)", "controls(P, C)", "is_commander(C)"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
+    p.rule("can_afford(P, S)", ["free_cast(P, S)"], note="§118.9 an alternative free cost is always affordable")
     p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],
            note="§106/§202 colored payment exists")
     p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"],
@@ -960,7 +969,7 @@ def _rules(p: Program) -> None:
     p.blank()
     _emit_translate(p)
     p.blank()
-    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "enters_battlefield", "advance_to",
+    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "free_cast", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",

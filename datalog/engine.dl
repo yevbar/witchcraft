@@ -81,6 +81,7 @@
 .decl cast_ord(p: symbol, n: number)
 .decl cast_nc_ord(p: symbol, n: number)
 .decl may_play(p: symbol, s: symbol)
+.decl free_if_commander(s: symbol)
 .decl just_entered(o: symbol)
 .decl prevent_all_combat(marker: symbol)
 .decl repl_prevent_damage(e: symbol, src: symbol, tgt: symbol)
@@ -382,7 +383,11 @@ has_colored_cost(S) :- mana_pip(S, _, _).
 playable_source(P, S) :- in_hand(P, S).
 // §608 impulse: may play from exile this turn
 playable_source(P, S) :- may_play(P, S).
+.decl free_cast(p: symbol, s: symbol)
+free_cast(P, S) :- free_if_commander(S), playable_source(P, S), controls(P, C), is_commander(C).
 .decl can_afford(p: symbol, s: symbol)
+// §118.9 an alternative free cost is always affordable
+can_afford(P, S) :- free_cast(P, S).
 // §106/§202 colored payment exists
 can_afford(P, S) :- playable_source(P, S), has_colored_cost(S), colored_total(S, C), pool_total(P, M), M >= C, !pip_shortfall(P, S).
 // legacy flat-mana fallback when no colored cost is supplied
@@ -917,6 +922,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output loses_game
 .output wins_game
 .output can_cast
+.output free_cast
 .output enters_battlefield
 .output advance_to
 .output cant_attack
@@ -964,7 +970,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)

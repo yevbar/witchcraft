@@ -1246,6 +1246,9 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     generic are covered. Tapping (not decrementing) deletes mana faithfully — a tapped source can't pay
     again this turn or attack, and untaps next turn. The pool is refreshed from what's left untapped so
     the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
+    if (ap, spell) in run(state, ["free_cast"])["free_cast"]:    # §118.9 an alternative free cost: pay no mana
+        print(f"    {ap} casts {spell} without paying its mana cost (§118.9)")
+        return
     pips: dict[str, int] = {}
     for (s, col, n) in state.get("mana_pip", set()):
         if s == spell:

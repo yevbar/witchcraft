@@ -1017,6 +1017,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # emit a bare search_select that would pull a card out of the library with nowhere to put
                     # it (spell_effect is unordered, so a separate placement can't be relied on to follow).
                     dropped.append(("effect", "search")); continue
+                if verb == "cast" and str(tgt) in ("self", "it") and "control_a_commander" in str(_cond):
+                    # §118.9 'you may cast this spell without paying its mana cost if you control a commander'
+                    # (Fierce Guardianship, Deflecting Swat) -> the engine derives free_cast from this flag.
+                    add("free_if_commander", (tid,)); continue
                 if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     continue                                  # spell_effect is now DERIVED IN DATALOG from the card
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
