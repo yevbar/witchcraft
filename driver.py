@@ -1903,6 +1903,9 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     so an external policy can cast a CHOSEN spell (with forced mode/target via the _choose seam)."""
     _spend_mana(state, ap, spell)                            # §601.2g — consume the mana so casts are limited
     state["in_hand"].discard((ap, spell))
+    if (ap, spell) in state.get("may_play", set()):          # §608 IMPULSE — a card cast from exile under a
+        state.get("exile", set()).discard((spell,))          # 'may play' permission leaves exile and loses
+        state["may_play"].discard((ap, spell))               # the permission (it's now on the stack)
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
     prior = _note_cast(state)                                # §608 count this spell; `prior` = storm count
@@ -2146,6 +2149,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
+        state["may_play"] = set()                                # §608 impulse 'until end of turn' permission expires
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")

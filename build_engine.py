@@ -216,6 +216,10 @@ INPUTS = [
     # second … spell each turn' triggers EXACTLY (not 'on every cast'), the faithful per-turn counter.
     ("cast_ord", [("p", "symbol"), ("n", "number")]),
     ("cast_nc_ord", [("p", "symbol"), ("n", "number")]),
+    # §608 IMPULSE — a card p 'may play' from exile this turn (Light Up the Stage / Underworld Breach /
+    # Bolas's Citadel). The driver sets it when the card is exiled with a play-permission and clears it at
+    # the turn boundary; it makes the card a legal cast SOURCE alongside the hand (see playable_source).
+    ("may_play", [("p", "symbol"), ("s", "symbol")]),
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
@@ -690,10 +694,17 @@ def _rules(p: Program) -> None:
     p.decl("has_colored_cost", [("s", "symbol")])
     p.rule("has_colored_cost(S)", ["mana_generic(S, _)"])
     p.rule("has_colored_cost(S)", ["mana_pip(S, _, _)"])
+    # §608 a card is castable from its HAND or, under an impulse permission, from EXILE (may_play). All the
+    # casting gates (can_afford / target_ok / can_cast) read playable_source, so the same affordability and
+    # timing checks apply to an impulse-played card. With no impulse in play, playable_source == in_hand, so
+    # behavior (and native equivalence) is unchanged.
+    p.decl("playable_source", [("p", "symbol"), ("s", "symbol")])
+    p.rule("playable_source(P, S)", ["in_hand(P, S)"])
+    p.rule("playable_source(P, S)", ["may_play(P, S)"], note="§608 impulse: may play from exile this turn")
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
-    p.rule("can_afford(P, S)", ["in_hand(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],
            note="§106/§202 colored payment exists")
-    p.rule("can_afford(P, S)", ["in_hand(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"],
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"],
            note="legacy flat-mana fallback when no colored cost is supplied")
     p.decl("illegal_target", [("s", "symbol"), ("t", "symbol")])
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "shroud")'], note="§702.18")
@@ -703,7 +714,7 @@ def _rules(p: Program) -> None:
     p.decl("bad_target", [("s", "symbol")])
     p.rule("bad_target(S)", ["illegal_target(S, _)"])
     p.decl("target_ok", [("s", "symbol")])
-    p.rule("target_ok(S)", ["in_hand(_, S)", "!bad_target(S)"])
+    p.rule("target_ok(S)", ["playable_source(_, S)", "!bad_target(S)"])
     p.comment("§205.4 supertype semantics, INTERPRETED from rules.txt by build_supertypes (supertype_rule).")
     p.decl("supertype_rule", [("supertype", "symbol"), ("subject", "symbol"), ("rule", "symbol")])
     p.facts(_supertype_rule_facts())
@@ -724,8 +735,8 @@ def _rules(p: Program) -> None:
     p.decl("cast_permission", [("type", "symbol"), ("action", "symbol"), ("speed", "symbol")])
     p.facts([f'cast_permission("{t}", "{a}", "{sp}")' for _n, t, a, sp in _casting_perms()])
     p.decl("can_cast", [("p", "symbol"), ("s", "symbol")])
-    p.rule("can_cast(P, S)", ["in_hand(P, S)", "has_priority(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "instant")', "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
-    p.rule("can_cast(P, S)", ["in_hand(P, S)", "has_priority(P)", "active_player(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "sorcery")', "current_step(St)", "main_phase(St)", "!on_stack(_, _)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
+    p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "instant")', "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
+    p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "active_player(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "sorcery")', "current_step(St)", "main_phase(St)", "!on_stack(_, _)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.blank()
     p.comment("§608 — stack resolution; §117 priority; §500 — step advancement (for the driver).")
     p.decl("stack_top", [("o", "symbol")])

@@ -80,6 +80,7 @@
 .decl cast_spell(p: symbol, s: symbol)
 .decl cast_ord(p: symbol, n: number)
 .decl cast_nc_ord(p: symbol, n: number)
+.decl may_play(p: symbol, s: symbol)
 .decl just_entered(o: symbol)
 .decl prevent_all_combat(marker: symbol)
 .decl repl_prevent_damage(e: symbol, src: symbol, tgt: symbol)
@@ -377,11 +378,15 @@ pool_total(P, N) :- is_player(P), N = sum X : { mana_pool(P, _, X) }.
 .decl has_colored_cost(s: symbol)
 has_colored_cost(S) :- mana_generic(S, _).
 has_colored_cost(S) :- mana_pip(S, _, _).
+.decl playable_source(p: symbol, s: symbol)
+playable_source(P, S) :- in_hand(P, S).
+// §608 impulse: may play from exile this turn
+playable_source(P, S) :- may_play(P, S).
 .decl can_afford(p: symbol, s: symbol)
 // §106/§202 colored payment exists
-can_afford(P, S) :- in_hand(P, S), has_colored_cost(S), colored_total(S, C), pool_total(P, M), M >= C, !pip_shortfall(P, S).
+can_afford(P, S) :- playable_source(P, S), has_colored_cost(S), colored_total(S, C), pool_total(P, M), M >= C, !pip_shortfall(P, S).
 // legacy flat-mana fallback when no colored cost is supplied
-can_afford(P, S) :- in_hand(P, S), !has_colored_cost(S), mana_cost(S, C), mana_available(P, M), M >= C.
+can_afford(P, S) :- playable_source(P, S), !has_colored_cost(S), mana_cost(S, C), mana_available(P, M), M >= C.
 .decl illegal_target(s: symbol, t: symbol)
 // §702.18
 illegal_target(S, T) :- targets(S, T), has_keyword(T, "shroud").
@@ -394,7 +399,7 @@ illegal_target(S, T) :- targets(S, T), cant_be_targeted(T).
 .decl bad_target(s: symbol)
 bad_target(S) :- illegal_target(S, _).
 .decl target_ok(s: symbol)
-target_ok(S) :- in_hand(_, S), !bad_target(S).
+target_ok(S) :- playable_source(_, S), !bad_target(S).
 // §205.4 supertype semantics, INTERPRETED from rules.txt by build_supertypes (supertype_rule).
 .decl supertype_rule(supertype: symbol, subject: symbol, rule: symbol)
 supertype_rule("basic", "land", "basic_land"). supertype_rule("legendary", "permanent", "legend_rule"). supertype_rule("legendary", "spell", "legend_cast_restriction"). supertype_rule("world", "permanent", "world_rule"). supertype_rule("snow", "permanent", "snow_permanent"). supertype_rule("ongoing", "scheme", "schemes_sba_exempt").
@@ -416,8 +421,8 @@ cant_cast_legend(P, S) :- in_hand(P, S), legend_cast_restricted(S), !controls_le
 .decl cast_permission(type: symbol, action: symbol, speed: symbol)
 cast_permission("artifact", "cast", "sorcery"). cast_permission("creature", "cast", "sorcery"). cast_permission("enchantment", "cast", "sorcery"). cast_permission("instant", "cast", "instant"). cast_permission("land", "play", "sorcery"). cast_permission("planeswalker", "cast", "sorcery"). cast_permission("sorcery", "cast", "sorcery"). cast_permission("battle", "cast", "sorcery").
 .decl can_cast(p: symbol, s: symbol)
-can_cast(P, S) :- in_hand(P, S), has_priority(P), spell_type(S, T), cast_permission(T, "cast", "instant"), can_afford(P, S), target_ok(S), !cant_cast_legend(P, S).
-can_cast(P, S) :- in_hand(P, S), has_priority(P), active_player(P), spell_type(S, T), cast_permission(T, "cast", "sorcery"), current_step(St), main_phase(St), !on_stack(_, _), can_afford(P, S), target_ok(S), !cant_cast_legend(P, S).
+can_cast(P, S) :- playable_source(P, S), has_priority(P), spell_type(S, T), cast_permission(T, "cast", "instant"), can_afford(P, S), target_ok(S), !cant_cast_legend(P, S).
+can_cast(P, S) :- playable_source(P, S), has_priority(P), active_player(P), spell_type(S, T), cast_permission(T, "cast", "sorcery"), current_step(St), main_phase(St), !on_stack(_, _), can_afford(P, S), target_ok(S), !cant_cast_legend(P, S).
 
 // §608 — stack resolution; §117 priority; §500 — step advancement (for the driver).
 .decl stack_top(o: symbol)
@@ -959,4 +964,4 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl

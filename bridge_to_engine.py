@@ -629,6 +629,27 @@ def _fold_dig(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_impulse(effs: list, emit) -> set:
+    """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play them.' (Light Up
+    the Stage, etc.). Fold the '[exile N top_of_library] + [play those_cards/it/them]' pair into ONE
+    impulse_play effect (amount = N): the applier exiles the top N and flags them may_play (castable from
+    exile this turn). A variable count, or a 'play' clause that doesn't reference the just-exiled cards,
+    abstains (leaves both clauses to the normal paths)."""
+    ex_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                 if v == "exile" and str(t) == "top_of_library" and _int(_a) is not None), None)
+    if ex_i is None:
+        return set()
+    n = _int(effs[ex_i][2])
+    if n is None or n <= 0:
+        return set()
+    play_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                   if v == "play" and str(t) in ("those_cards", "them", "it", "that_card", "the_exiled_cards")), None)
+    if play_i is None:
+        return set()                                            # an exile with no 'play them' clause isn't impulse
+    emit("impulse_play", n, "-")
+    return {ex_i, play_i}
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -960,8 +981,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 'look at top N, put M into hand, rest on bottom/graveyard' (Stock Up, card advantage) ->
             # one atomic dig_to_hand effect (the look + put clauses resolve together; spell_effect is unordered).
             dig_skip = _fold_dig(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §608 IMPULSE: 'exile top N, you may play them this turn' -> one impulse_play effect.
+            impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip:  # consumed by a folded effect
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
