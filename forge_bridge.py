@@ -260,39 +260,57 @@ class EnginePolicy:
         return choice if choice is not None else self.fallback(obs, key, options, default)
 
     # each _pick_* returns (choice, modeled, endorsed, offered, used_engine)
-    def _pick_action(self, driver, state, seat, options, default):
-        """Drive the play decision with the engine's OWN lookahead — NO mechanic-specific logic. Each
-        decision: reconstruct Forge's live state, run win_search for a line that wins THIS turn, and play
-        that line's first cast (mapped to the matching Forge option by card id). The search rediscovers the
-        combo (storm, etc.) generically from Forge's state every time, so it stays in lockstep with Forge —
-        the storm count rides in via reconstruct's _cast_count, and we re-plan from Forge's snapshot at every
-        step (never replaying a stale plan). If no same-turn win is reachable, fall back to greedy.
+    def _cast_from_path(self, path, spells):
+        """Map a lookahead line's first move, when it's a CAST, to the matching offered spell option (by host
+        card id), recording any 'choose a card name' sub-choice for _pick_name. None if the first move isn't a
+        cast or isn't among the offered castable spells (e.g. it needs mana Forge can't pay right now)."""
+        if not (path and path[0][0] == "cast"):
+            return None
+        a0 = path[0]
+        choice = next((o for o in spells if str(o["id"]) == str(a0[2])), None)
+        if choice is not None:
+            sub = a0[3] if len(a0) > 3 and isinstance(a0[3], dict) else {}
+            self._pending_name = self._slug_to_name(sub.get("name")) if sub.get("name") else None
+        return choice
 
-        Completeness: of the spell options Forge offers, how many our engine models (modeled) and how many
-        the search endorses as a winning first move (endorsed)."""
+    def _pick_action(self, driver, state, seat, options, default):
+        """Drive the play decision with the engine's OWN lookahead. Each decision, from OUR seat's reconstructed
+        main phase: (1) if there's a line that WINS this turn, play its first cast; (2) else DEVELOP — play a
+        land if Forge offers one (§305: build the mana base, one per turn, so future casts are affordable);
+        (3) else cast the move that makes the most PROGRESS toward the deck's win axis + synergy combo. The
+        lookahead reasons from Forge's REAL current mana (we mark this turn's land drop used so it doesn't
+        phantom-develop an extra land and pick a cast Forge can't pay for). Falls back to a safe default if it
+        can find nothing — NO Forge-AI strategy."""
         import win_search
         spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
+        lands = [o for o in options if isinstance(o, dict) and o.get("kind") == "land"]
         objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
         modeled = sum(1 for o in spells if str(o["id"]) in objs)
-        s = dict(state)                                      # the lookahead plays from OUR seat's main phase
+        s = dict(state)
         s["active_player"] = {(seat,)}
         s.setdefault("current_step", {("precombat_main",)})
+        s["_land_played"] = set(s.get("_land_played", set())) | {(seat,)}   # reason from CURRENT mana (no phantom land)
+        # 1) a forced win THIS turn — the combo / lethal line.
         path, _n = win_search.find_win(s, me=seat, max_turns=self.max_turns, node_budget=self.node_budget)
-        if not path and self.axis:                            # no kill in sight -> develop toward the win axis
+        choice = self._cast_from_path(path, spells)
+        kind = "win" if choice is not None else None
+        # 2) no kill -> DEVELOP: play a land to grow the mana base (Forge surfaces land plays here; it enforces
+        # one per turn). This is the bootstrap the seat needs — without lands it can never cast its spells.
+        if choice is None and lands:
+            choice, kind = lands[0], "land"
+        # 3) else develop toward the win axis + synergy combo with a castable spell.
+        if choice is None and self.axis:
             path, _ = win_search.find_progress(s, me=seat, axis=self.axis,
                                                max_turns=self.progress_turns, node_budget=self.progress_budget,
                                                synergy=self.synergy, start_life=self.start_life)
-        choice = None
-        if path and path[0][0] == "cast":                    # play the winning/developing line's first cast
-            a0 = path[0]
-            sid = str(a0[2])
-            choice = next((o for o in spells if str(o["id"]) == sid), None)
-            # remember any sub-choice the lookahead made for THIS cast (a 'choose a card name' Forge will ask
-            # for during resolution) so _pick_name can relay it — the search decided it, not a heuristic.
-            sub = a0[3] if len(a0) > 3 and isinstance(a0[3], dict) else {}
-            self._pending_name = self._slug_to_name(sub.get("name")) if sub.get("name") else None
-        # endorsed = 1 when the search found+mapped a winning first move; else defer to the greedy fallback.
-        return choice, modeled, (1 if choice is not None else 0), len(spells), (1 if choice is not None else 0)
+            choice = self._cast_from_path(path, spells)
+            kind = "progress" if choice is not None else kind
+        if os.environ.get("MTG_DEBUG"):
+            import sys as _sys
+            print(f"[dbg] step={sorted(state.get('current_step', set()))} spells={len(spells)} lands={len(lands)} "
+                  f"-> {kind}:{choice['id'] if isinstance(choice, dict) else None}", file=_sys.stderr, flush=True)
+        endorsed = 1 if choice is not None else 0
+        return choice, modeled, endorsed, len(spells), endorsed
 
     def _pick_target(self, driver, state, seat, options, default):
         """Target an entity our engine models as a legal creature target."""

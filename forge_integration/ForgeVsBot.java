@@ -191,10 +191,13 @@ public class ForgeVsBot {
             StringBuilder opts = new StringBuilder("[");
             for (int i = 0; i < cands.size(); i++) {            // each candidate: host-card id (engine match) + ci
                 Card host = cands.get(i).getHostCard();
+                // tag a LAND play distinctly (§305) — playing a land is offered here as a candidate, but our
+                // engine develops mana via lands explicitly, so the bot needs to tell them from spell casts.
+                String knd = (host != null && host.isLand() && !cands.get(i).isManaAbility()) ? "land" : "spell";
                 opts.append(i > 0 ? "," : "")
                     .append("{\"id\":\"").append(host != null ? host.getId() : 0)
                     .append("\",\"ci\":").append(i)
-                    .append(",\"label\":\"").append(esc(cands.get(i).toString())).append("\",\"kind\":\"spell\"}");
+                    .append(",\"label\":\"").append(esc(cands.get(i).toString())).append("\",\"kind\":\"").append(knd).append("\"}");
             }
             opts.append(",{\"id\":\"0\",\"ci\":-1,\"label\":\"pass\",\"kind\":\"pass\"}]");
             int ci = parseCi(decide("action", opts.toString(),
