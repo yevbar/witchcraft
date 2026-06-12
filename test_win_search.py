@@ -169,6 +169,23 @@ def _defensive_opponent():
     check("lethal THROUGH a survival block is still found",
           win_search.find_win(b, me="alice", max_turns=2, node_budget=4000)[0] is not None)
 
+    # REGRESSION (§510.2 combat damage is dealt ONCE): an UNBLOCKED but NON-LETHAL swing must not fabricate
+    # a loss. The driver persists combat damage to life and then re-derives loses_game as a triggered-effect
+    # backstop; if that re-run still saw the attack it would subtract the SAME damage twice (bob at 5 takes
+    # 3 -> 2, then 2-3=-1 -> phantom death). The kill must come from REAL lethal, not double-counting.
+    c = base(); c["life"] = {("alice", 20), ("bob", 5)}
+    c["on_battlefield"] = {("atk",)}; c["printed_type"] = {("atk", "creature")}
+    c["printed_power"] = {("atk", 3)}; c["printed_toughness"] = {("atk", 3)}
+    c["printed_control"] = {("alice", "atk")}
+    check("a non-lethal unblocked swing is NOT a fabricated win (no combat double-count)",
+          win_search.find_win(c, me="alice", max_turns=2, node_budget=3000)[0] is None)
+    d = base(); d["life"] = {("alice", 20), ("bob", 3)}      # same board, bob now actually in range
+    d["on_battlefield"] = {("atk",)}; d["printed_type"] = {("atk", "creature")}
+    d["printed_power"] = {("atk", 3)}; d["printed_toughness"] = {("atk", 3)}
+    d["printed_control"] = {("alice", "atk")}
+    check("the SAME 3-power attacker IS lethal at 3 life (real kill still found)",
+          win_search.find_win(d, me="alice", max_turns=2, node_budget=3000)[0] is not None)
+
 
 def run():
     _combat_lethal()

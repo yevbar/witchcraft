@@ -789,7 +789,13 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     # §704.5a life threshold / §704.5c poison / §104.3a effect loss — all surfaced as loses_game by the
     # engine. dead[] re-derives the life threshold directly as a backstop (a triggered effect may have
     # dropped a life total below the engine's view of `out` captured before _apply_effects ran).
-    lost = run(state, ["loses_game"])["loses_game"]
+    # The probe CLEARS attacks/blocks: this combat's damage was already persisted above (player_damage ->
+    # life, combat_commander_damage -> carried total), so leaving `attacks` set would let the engine's
+    # combat_now()->deals re-derive that same damage and subtract it AGAIN — turning a NON-lethal swing
+    # (opp at 5 taking 3) into a phantom loss (5-3=2, then 2-3=-1). Lethal combat losses are already
+    # captured in out["loses_game"] (computed from base life, before this step's damage was applied); this
+    # re-run exists only to catch NON-combat triggered-effect losses, so suppressing combat here is exact.
+    lost = run({**state, "attacks": set(), "blocks": set()}, ["loses_game"])["loses_game"]
     dead = sorted(p for (p, v) in state["life"] if v <= LIFE_LOSS_THRESHOLD)
     if out["loses_game"] or lost or dead:                        # §704.5a / §104.3a triggered-effect death
         loser = (sorted(out["loses_game"])[0][0] if out["loses_game"]
