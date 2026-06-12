@@ -72,7 +72,7 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
            f'-DbotHost=127.0.0.1 -DbotPort={port} {props} -cp "{FATJAR}:{OUT}" {main_class}')
     r = sh(cmd, env=env)
     try:
-        bot_out, _ = bot.communicate(timeout=15)
+        bot_out, _ = bot.communicate(timeout=45)               # the bot prints COVERAGE after the socket closes
     except subprocess.TimeoutExpired:
         bot.kill(); bot_out = ""
     out = r.stdout + "\n" + r.stderr

@@ -138,6 +138,24 @@ def reconstruct(obs: dict, seat: str):
             state.setdefault(rel, set()).add((ctrl, cid) if player_scoped else (cid,))
             state.setdefault("printed_control", set()).add((ctrl, cid))
             if name not in corpus:                           # a card our interpreter doesn't model -> gap
+                # §111 TOKENS have no oracle/corpus entry, but Forge sends their derived characteristics
+                # (token/creature/land + P/T). Synthesize a minimal object so the seat can actually USE
+                # what it made (e.g. attack with Otter tokens from Stormchaser's Talent) — NOT a gap.
+                if card.get("token"):
+                    slug = f"_tok_{cid}"
+                    state.setdefault("instance_of", set()).add((cid, slug))
+                    if card.get("creature"):
+                        state.setdefault("printed_type", set()).add((cid, "creature"))
+                        state.setdefault("card_type", set()).add((slug, "creature"))
+                        state.setdefault("spell_type", set()).add((cid, "creature"))
+                        state.setdefault("printed_power", set()).add((cid, int(card.get("pow", 0))))
+                        state.setdefault("printed_toughness", set()).add((cid, int(card.get("tou", 0))))
+                    if card.get("land"):
+                        state.setdefault("printed_type", set()).add((cid, "land"))
+                        state.setdefault("card_type", set()).add((slug, "land"))
+                    if card.get("tapped"):
+                        state["tapped"].add((cid,))
+                    continue
                 unmodeled.append((zone, name))
                 continue
             facts, _ = bridge.card_facts(name, ctrl, cid, db, corpus)

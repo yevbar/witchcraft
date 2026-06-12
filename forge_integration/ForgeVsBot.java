@@ -115,9 +115,16 @@ public class ForgeVsBot {
         }
 
         private String cardJson(Card c) {
-            return "{\"id\":\"" + c.getId() + "\",\"name\":\"" + esc(c.getName())
+            StringBuilder b = new StringBuilder("{\"id\":\"" + c.getId() + "\",\"name\":\"" + esc(c.getName())
                     + "\",\"controller\":\"" + esc(c.getController().getName())
-                    + "\",\"tapped\":" + c.isTapped() + "}";
+                    + "\",\"tapped\":" + c.isTapped());
+            // TOKENS have no oracle entry, so the engine can't model them from the name — send their P/T +
+            // type so reconstruct can synthesize a creature the lookahead can attack with (e.g. Otter tokens).
+            if (c.isToken()) {
+                b.append(",\"token\":true,\"creature\":").append(c.isCreature()).append(",\"land\":").append(c.isLand());
+                if (c.isCreature()) b.append(",\"pow\":").append(c.getNetPower()).append(",\"tou\":").append(c.getNetToughness());
+            }
+            return b.append("}").toString();
         }
 
         private String observeJson() {
