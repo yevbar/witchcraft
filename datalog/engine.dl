@@ -57,6 +57,9 @@
 .decl card_keyword(card: symbol, kw: symbol)
 .decl card_subtype(card: symbol, st: symbol)
 .decl card_color(card: symbol, col: symbol)
+.decl card_escape_generic(card: symbol, n: number)
+.decl card_escape_pip(card: symbol, col: symbol, n: number)
+.decl card_escape_exile(card: symbol, n: number)
 .decl trigger_effect_pt(ability: symbol, dp: number, dt: number, scope: symbol)
 .decl trigger_effect_grant(ability: symbol, keyword: symbol, scope: symbol)
 .decl trigger_effect_destroy(ability: symbol, scope: symbol)
@@ -366,23 +369,40 @@ zone_change(O, F, T) :- zone_move_proposed(O, F, T), !blocked_move(O, F, T).
 // every colored pip from THAT color, and the total pool covers the whole cost (generic is
 // paid from any leftover mana). That joint condition — per-color coverage AND total coverage
 // — is exactly when a payment assignment exists. A color with no mana_pip row needs 0 of it.
+.decl playable_source(p: symbol, s: symbol)
+playable_source(P, S) :- in_hand(P, S).
+// §608 impulse/escape: may play from a non-hand zone
+playable_source(P, S) :- may_play(P, S).
+.decl escape_generic(s: symbol, n: number)
+escape_generic(S, N) :- instance_of(S, C), card_escape_generic(C, N).
+.decl escape_pip(s: symbol, col: symbol, n: number)
+escape_pip(S, Col, N) :- instance_of(S, C), card_escape_pip(C, Col, N).
+.decl escape_exile(s: symbol, n: number)
+escape_exile(S, N) :- instance_of(S, C), card_escape_exile(C, N).
+.decl has_escape(s: symbol)
+has_escape(S) :- escape_pip(S, _, _).
+has_escape(S) :- escape_generic(S, _).
+.decl escaping(s: symbol)
+escaping(S) :- may_play(_, S), has_escape(S).
+.decl eff_generic(s: symbol, n: number)
+eff_generic(S, N) :- mana_generic(S, N), !escaping(S).
+eff_generic(S, N) :- escape_generic(S, N), escaping(S).
+.decl eff_pip(s: symbol, col: symbol, n: number)
+eff_pip(S, Col, N) :- mana_pip(S, Col, N), !escaping(S).
+eff_pip(S, Col, N) :- escape_pip(S, Col, N), escaping(S).
 .decl pip_need(s: symbol, col: symbol, n: number)
-pip_need(S, Col, N) :- mana_pip(S, Col, N).
+pip_need(S, Col, N) :- eff_pip(S, Col, N).
 .decl pip_shortfall(p: symbol, s: symbol)
 // some color's pips exceed that color's pool
-pip_shortfall(P, S) :- in_hand(P, S), pip_need(S, Col, N), Have = sum X : { mana_pool(P, Col, X) }, Have < N.
+pip_shortfall(P, S) :- playable_source(P, S), pip_need(S, Col, N), Have = sum X : { mana_pool(P, Col, X) }, Have < N.
 .decl colored_total(s: symbol, n: number)
-// §202.3 total = generic + all pips
-colored_total(S, N) :- mana_generic(S, _), G = sum X : { mana_generic(S, X) }, Pi = sum X : { mana_pip(S, _, X) }, N = G + Pi.
+// §202.3 total = generic + all pips (effective: printed, or escape when escaping)
+colored_total(S, N) :- eff_generic(S, _), G = sum X : { eff_generic(S, X) }, Pi = sum X : { eff_pip(S, _, X) }, N = G + Pi.
 .decl pool_total(p: symbol, n: number)
 pool_total(P, N) :- is_player(P), N = sum X : { mana_pool(P, _, X) }.
 .decl has_colored_cost(s: symbol)
-has_colored_cost(S) :- mana_generic(S, _).
-has_colored_cost(S) :- mana_pip(S, _, _).
-.decl playable_source(p: symbol, s: symbol)
-playable_source(P, S) :- in_hand(P, S).
-// §608 impulse: may play from exile this turn
-playable_source(P, S) :- may_play(P, S).
+has_colored_cost(S) :- eff_generic(S, _).
+has_colored_cost(S) :- eff_pip(S, _, _).
 .decl free_cast(p: symbol, s: symbol)
 free_cast(P, S) :- free_if_commander(S), playable_source(P, S), controls(P, C), is_commander(C).
 .decl can_afford(p: symbol, s: symbol)
@@ -923,6 +943,10 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output wins_game
 .output can_cast
 .output free_cast
+.output has_escape
+.output escape_exile
+.output escape_pip
+.output escape_generic
 .output enters_battlefield
 .output advance_to
 .output cant_attack
@@ -970,7 +994,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)

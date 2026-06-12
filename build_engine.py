@@ -167,6 +167,12 @@ INPUTS = [
     ("card_keyword", [("card", "symbol"), ("kw", "symbol")]),
     ("card_subtype", [("card", "symbol"), ("st", "symbol")]),
     ("card_color", [("card", "symbol"), ("col", "symbol")]),
+    # §702.166 ESCAPE — the alternative cost to cast this card from the graveyard (parsed at build time):
+    # its mana cost as generic + colored pips (the same shape as the printed cost) and the number of OTHER
+    # graveyard cards to exile as an additional cost.
+    ("card_escape_generic", [("card", "symbol"), ("n", "number")]),
+    ("card_escape_pip", [("card", "symbol"), ("col", "symbol"), ("n", "number")]),
+    ("card_escape_exile", [("card", "symbol"), ("n", "number")]),
     # §603 CREATURE-SCOPED triggered effects (P/T pump, keyword grant, destroy). `scope` is one of
     # {self, creatures_you_control, all_creatures}; the engine resolves it to concrete creatures
     # (pending_pt/pending_grant/pending_destroy) the driver applies to the board.
@@ -685,26 +691,48 @@ def _rules(p: Program) -> None:
     p.comment("every colored pip from THAT color, and the total pool covers the whole cost (generic is")
     p.comment("paid from any leftover mana). That joint condition — per-color coverage AND total coverage")
     p.comment("— is exactly when a payment assignment exists. A color with no mana_pip row needs 0 of it.")
+    # §608 a card is castable from its HAND or, under a permission, from a non-hand zone (may_play: impulse
+    # from exile, escape from the graveyard). All the casting gates (can_afford / target_ok / can_cast /
+    # pip_shortfall) read playable_source, so the same checks apply. No may_play => playable_source == in_hand
+    # => behavior (and native equivalence) is unchanged.
+    p.decl("playable_source", [("p", "symbol"), ("s", "symbol")])
+    p.rule("playable_source(P, S)", ["in_hand(P, S)"])
+    p.rule("playable_source(P, S)", ["may_play(P, S)"], note="§608 impulse/escape: may play from a non-hand zone")
+    # §702.166 ESCAPE COST — instance-level, translated from the card-level facts via instance_of.
+    p.decl("escape_generic", [("s", "symbol"), ("n", "number")])
+    p.rule("escape_generic(S, N)", ["instance_of(S, C)", "card_escape_generic(C, N)"])
+    p.decl("escape_pip", [("s", "symbol"), ("col", "symbol"), ("n", "number")])
+    p.rule("escape_pip(S, Col, N)", ["instance_of(S, C)", "card_escape_pip(C, Col, N)"])
+    p.decl("escape_exile", [("s", "symbol"), ("n", "number")])
+    p.rule("escape_exile(S, N)", ["instance_of(S, C)", "card_escape_exile(C, N)"])
+    p.decl("has_escape", [("s", "symbol")])
+    p.rule("has_escape(S)", ["escape_pip(S, _, _)"])
+    p.rule("has_escape(S)", ["escape_generic(S, _)"])
+    # A card cast via escape = may_play (offered from the graveyard) AND it has an escape cost. When escaping
+    # it pays the ESCAPE cost, not the printed one. (No may_play in play => no escaping => printed cost.)
+    p.decl("escaping", [("s", "symbol")])
+    p.rule("escaping(S)", ["may_play(_, S)", "has_escape(S)"])
+    # EFFECTIVE cost: the printed cost normally, the escape cost when escaping. With nothing escaping,
+    # eff_* == mana_*, so the affordability math (and native equivalence) is unchanged.
+    p.decl("eff_generic", [("s", "symbol"), ("n", "number")])
+    p.rule("eff_generic(S, N)", ["mana_generic(S, N)", "!escaping(S)"])
+    p.rule("eff_generic(S, N)", ["escape_generic(S, N)", "escaping(S)"])
+    p.decl("eff_pip", [("s", "symbol"), ("col", "symbol"), ("n", "number")])
+    p.rule("eff_pip(S, Col, N)", ["mana_pip(S, Col, N)", "!escaping(S)"])
+    p.rule("eff_pip(S, Col, N)", ["escape_pip(S, Col, N)", "escaping(S)"])
     p.decl("pip_need", [("s", "symbol"), ("col", "symbol"), ("n", "number")])
-    p.rule("pip_need(S, Col, N)", ["mana_pip(S, Col, N)"])
+    p.rule("pip_need(S, Col, N)", ["eff_pip(S, Col, N)"])
     p.decl("pip_shortfall", [("p", "symbol"), ("s", "symbol")])
-    p.rule("pip_shortfall(P, S)", ["in_hand(P, S)", "pip_need(S, Col, N)", "Have = sum X : { mana_pool(P, Col, X) }", "Have < N"],
+    p.rule("pip_shortfall(P, S)", ["playable_source(P, S)", "pip_need(S, Col, N)", "Have = sum X : { mana_pool(P, Col, X) }", "Have < N"],
            note="some color's pips exceed that color's pool")
     p.decl("colored_total", [("s", "symbol"), ("n", "number")])
-    p.rule("colored_total(S, N)", ["mana_generic(S, _)", "G = sum X : { mana_generic(S, X) }", "Pi = sum X : { mana_pip(S, _, X) }", "N = G + Pi"],
-           note="§202.3 total = generic + all pips")
+    p.rule("colored_total(S, N)", ["eff_generic(S, _)", "G = sum X : { eff_generic(S, X) }", "Pi = sum X : { eff_pip(S, _, X) }", "N = G + Pi"],
+           note="§202.3 total = generic + all pips (effective: printed, or escape when escaping)")
     p.decl("pool_total", [("p", "symbol"), ("n", "number")])
     p.rule("pool_total(P, N)", ["is_player(P)", "N = sum X : { mana_pool(P, _, X) }"])
     p.decl("has_colored_cost", [("s", "symbol")])
-    p.rule("has_colored_cost(S)", ["mana_generic(S, _)"])
-    p.rule("has_colored_cost(S)", ["mana_pip(S, _, _)"])
-    # §608 a card is castable from its HAND or, under an impulse permission, from EXILE (may_play). All the
-    # casting gates (can_afford / target_ok / can_cast) read playable_source, so the same affordability and
-    # timing checks apply to an impulse-played card. With no impulse in play, playable_source == in_hand, so
-    # behavior (and native equivalence) is unchanged.
-    p.decl("playable_source", [("p", "symbol"), ("s", "symbol")])
-    p.rule("playable_source(P, S)", ["in_hand(P, S)"])
-    p.rule("playable_source(P, S)", ["may_play(P, S)"], note="§608 impulse: may play from exile this turn")
+    p.rule("has_colored_cost(S)", ["eff_generic(S, _)"])
+    p.rule("has_colored_cost(S)", ["eff_pip(S, _, _)"])
     # §118.9 a spell castable WITHOUT paying its mana cost (an alternative cost of 0): Fierce Guardianship /
     # Deflecting Swat — free while you control a commander. Trivially affordable; the driver pays no mana.
     p.decl("free_cast", [("p", "symbol"), ("s", "symbol")])
@@ -969,7 +997,8 @@ def _rules(p: Program) -> None:
     p.blank()
     _emit_translate(p)
     p.blank()
-    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "free_cast", "enters_battlefield", "advance_to",
+    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "free_cast", "has_escape", "escape_exile",
+             "escape_pip", "escape_generic", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
              "fizzles", "active_mode", "ends_at_cleanup", "lookback_trigger",

@@ -54,6 +54,12 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("abilities", {}).setdefault(
                 a[1], {"kind": "spell", "effects": []})["effects"].append(
                     (int(a[2]), a[3], a[4], a[5], extra, cond))
+        elif rel == "card_escape_generic":                   # §702.166 escape mana cost (generic portion)
+            db.setdefault(a[0], {}).setdefault("escape", {})["generic"] = int(a[1])
+        elif rel == "card_escape_pip":                       # escape mana cost (a colored pip)
+            db.setdefault(a[0], {}).setdefault("escape", {}).setdefault("pips", {})[a[1]] = int(a[2])
+        elif rel == "card_escape_exile":                     # escape additional cost: exile N other GY cards
+            db.setdefault(a[0], {}).setdefault("escape", {})["exile"] = int(a[1])
         elif rel == "modal":                                 # §700.2 modal spell: choose `count` mode(s)
             db.setdefault(a[0], {})["modal"] = a[1]
         elif rel == "mode_option":                           # one offered mode; its effects live in abilities[mode]

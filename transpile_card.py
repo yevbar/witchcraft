@@ -222,23 +222,45 @@ def _prototype(unit, ctx):
 _ESCAPE = re.compile(r"^Escape\s*[—-]\s*((?:\{[^}]+\})+),\s*Exile (\w+) other cards? from your graveyard\.", re.I)
 _NUM_WORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
              "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_ESCAPE_COLOR = {"w": "white", "u": "blue", "b": "black", "r": "red", "g": "green", "c": "colorless"}
+
+
+def _escape_cost_facts(cost_str, cid):
+    """Parse an escape mana cost '{G}{G}{U}{U}' / '{3}{B}{B}' into STRUCTURED card-level cost facts
+    (card_escape_generic + card_escape_pip per color, the same shape as a printed mana cost). A symbol the
+    cost model can't hold faithfully (X / hybrid / Phyrexian / snow) abstains the whole escape (-> None)."""
+    pips: dict[str, int] = {}
+    generic = 0
+    for sym in re.findall(r"\{([^}]+)\}", cost_str):
+        s = sym.lower()
+        if s.isdigit():
+            generic += int(s)
+        elif s in _ESCAPE_COLOR:
+            pips[_ESCAPE_COLOR[s]] = pips.get(_ESCAPE_COLOR[s], 0) + 1
+        else:
+            return None                                    # X / hybrid / Phyrexian / snow — abstain (faithful)
+    facts = [f'card_escape_generic("{cid}", {generic})']    # always present (even 0), like a printed cost
+    facts += [f'card_escape_pip("{cid}", "{col}", {n})' for col, n in sorted(pips.items())]
+    return facts
 
 
 def _escape(unit, ctx):
     """'Escape—<cost>, Exile N other cards from your graveyard' (§702.166) — the alternative cost to cast this
-    card from the GRAVEYARD. Recorded as the escape keyword + its mana cost + the exile-count parameter, the
-    structured fields the cast machinery reads to make the card castable from the graveyard for that cost."""
+    card from the GRAVEYARD. Emits the escape keyword + its STRUCTURED mana cost (card_escape_generic /
+    card_escape_pip, like a printed cost) + the exile-count (card_escape_exile) — the facts the engine's
+    eff_pip cost-switch and the driver's exile-cost payment read to make the card castable from the graveyard."""
     m = _ESCAPE.match(unit.raw.strip())
     if not m or "escape" not in ground.keyword_abilities():
         return None
     w = m.group(2).lower()
     n = _NUM_WORD.get(w, int(w) if w.isdigit() else None)
-    if n is None:                                          # an unreadable exile count -> abstain
+    cost_facts = _escape_cost_facts(m.group(1), ctx["id"]) if n is not None else None
+    if cost_facts is None:                                 # unreadable exile count / cost -> abstain
         return None
     cid = ctx["id"]
     return CardOut(cid, [f'printed_keyword("{cid}", "escape")',
                          f'keyword_param("{cid}", "escape", "cost_{ground.slug(m.group(1))}")',
-                         f'keyword_param("{cid}", "escape", "exile_{n}")'], "escape")
+                         f'card_escape_exile("{cid}", {n})', *cost_facts], "escape")
 
 
 def _mana_ability(unit, ctx):

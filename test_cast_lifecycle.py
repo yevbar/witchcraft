@@ -73,10 +73,44 @@ def _scenario_c_escape_style_returns_to_graveyard():
     check("C: it is NOT exiled", ("spell",) not in s.get("exile", set()))
 
 
+def _scenario_d_discard_then_escape():
+    # END TO END: DISCARD an escape card to the graveyard, then ESCAPE it — pay its escape mana cost AND exile
+    # N OTHER graveyard cards (the additional cost), and (a sorcery) it returns to the graveyard, re-castable.
+    st = {
+        "is_player": {("me",)}, "active_player": {("me",)}, "has_priority": {("me",)},
+        "current_step": {("precombat_main",)}, "on_stack": set(), "_stack_info": {}, "all_passed": set(),
+        "instance_of": {("e1", "escslug")}, "spell_type": {("e1", "sorcery")},
+        "card_escape_generic": {("escslug", 0)}, "card_escape_pip": {("escslug", "green", 1)},
+        "card_escape_exile": {("escslug", 2)},
+        "in_hand": {("me", "e1")}, "graveyard": {("g1",), ("g2",), ("g3",)}, "exile": set(),
+        "printed_control": {("me", "e1"), ("me", "g1"), ("me", "g2"), ("me", "g3")},
+        "mana_pool": {("me", "green", 1)}, "floating_mana": {("me", "green", 1)},
+        "on_battlefield": set(), "tapped": set(),
+    }
+    # 1) DISCARD e1 to the graveyard (it could equally have died from being cast — either way it's now in the GY)
+    st["in_hand"].discard(("me", "e1")); st["graveyard"].add(("e1",))
+    check("D: the card is in the graveyard after being discarded", ("e1",) in st["graveyard"])
+    # 2) it becomes castable from the graveyard via escape (the exile cost is payable: GY has e1 + 3 others)
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._offer_escape(st, "me")
+    check("D: escape is OFFERED (castable from the graveyard)", ("me", "e1") in st.get("may_play", set()))
+    with contextlib.redirect_stdout(io.StringIO()):
+        castable = driver.run(st, ["can_cast"])["can_cast"]
+    check("D: the engine confirms it can be cast from the graveyard", ("me", "e1") in castable)
+    # 3) ESCAPE it — pay the escape cost (mana + exile N OTHER cards), then it resolves
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._cast_spell(st, "me", "e1", ["me", "me"])
+    exiled = sorted(c for (c,) in st.get("exile", set()))
+    check("D: the escape cost exiled N=2 OTHER graveyard cards", len(exiled) == 2 and "e1" not in exiled)
+    check("D: the escaped sorcery RETURNS to the graveyard (re-castable, not exiled)",
+          ("e1",) in st.get("graveyard", set()) and ("e1",) not in st.get("exile", set()))
+
+
 def run():
     _scenario_a_cast_to_graveyard()
     _scenario_b_flashback_exiled_after_death()
     _scenario_c_escape_style_returns_to_graveyard()
+    _scenario_d_discard_then_escape()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

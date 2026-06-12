@@ -1246,14 +1246,20 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     generic are covered. Tapping (not decrementing) deletes mana faithfully — a tapped source can't pay
     again this turn or attack, and untaps next turn. The pool is refreshed from what's left untapped so
     the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
-    if (ap, spell) in run(state, ["free_cast"])["free_cast"]:    # §118.9 an alternative free cost: pay no mana
+    out = run(state, ["free_cast", "has_escape", "escape_pip", "escape_generic"])
+    if (ap, spell) in out["free_cast"]:                         # §118.9 an alternative free cost: pay no mana
         print(f"    {ap} casts {spell} without paying its mana cost (§118.9)")
         return
+    # §702.166 when cast via ESCAPE (a may_play card with an escape cost), pay the ESCAPE mana cost, not the
+    # printed one — exactly the cost the engine's eff_pip used for affordability.
+    escaping = (ap, spell) in state.get("may_play", set()) and (spell,) in out["has_escape"]
+    pip_rows = out["escape_pip"] if escaping else state.get("mana_pip", set())
+    gen_rows = out["escape_generic"] if escaping else state.get("mana_generic", set())
     pips: dict[str, int] = {}
-    for (s, col, n) in state.get("mana_pip", set()):
+    for (s, col, n) in pip_rows:
         if s == spell:
             pips[col] = pips.get(col, 0) + int(n)
-    generic = sum(int(n) for (s, n) in state.get("mana_generic", set()) if s == spell)
+    generic = sum(int(n) for (s, n) in gen_rows if s == spell)
     if not pips and generic == 0 and (spell, generic) not in state.get("mana_generic", set()):
         generic = next((int(c) for (s, c) in state.get("mana_cost", set()) if s == spell), 0)  # legacy fallback
 
@@ -1783,6 +1789,35 @@ def _leave_cast_zone(state: dict, ap: str, spell: str) -> None:
         state["may_play"].discard((ap, spell))
 
 
+def _offer_escape(state: dict, ap: str) -> None:
+    """§702.166 — make each ESCAPE card in ap's graveyard castable from there (set may_play), when the escape
+    additional cost is PAYABLE: ap's graveyard must hold at least N+1 cards (the escaping card + N others to
+    exile). Re-evaluated before each cast window (escape is a static permission, not a one-shot)."""
+    out = run(state, ["has_escape", "escape_exile"])
+    has = {c for (c,) in out["has_escape"]}
+    if not has:
+        return
+    exile_n = {s: int(n) for (s, n) in out["escape_exile"]}
+    gy = [c for (c,) in state.get("graveyard", set())]
+    ctrl = state.get("printed_control", set())
+    for c in gy:
+        if c in has and (ap, c) in ctrl and len(gy) >= exile_n.get(c, 0) + 1:
+            state.setdefault("may_play", set()).add((ap, c))
+
+
+def _pay_escape_cost(state: dict, ap: str, spell: str) -> None:
+    """§702.166 the escape ADDITIONAL cost — exile N OTHER cards from ap's graveyard. Called right after the
+    escaping spell itself has left the graveyard (via _leave_cast_zone), so the 'others' are what remains."""
+    n = next((int(x) for (s, x) in run(state, ["escape_exile"])["escape_exile"] if s == spell), 0)
+    if n <= 0:
+        return
+    gy = sorted(c for (c,) in state.get("graveyard", set()) if (ap, c) in state.get("printed_control", set()))
+    for c in gy[:n]:
+        state["graveyard"].discard((c,))
+        state.setdefault("exile", set()).add((c,))
+    print(f"    {ap} escapes {spell}: exiles {min(n, len(gy))} other card(s) from the graveyard (§702.166)")
+
+
 def _resolve_top(state: dict) -> None:
     """§608 — resolve the top object of the stack once all players have passed. A spell that resolves
     enters the battlefield (permanent, applying §614 ETB replacements) or runs its effects then hits the
@@ -1909,6 +1944,7 @@ def _cast_phase(state: dict, ap: str) -> None:
             break
     while True:
         state["has_priority"] = {(ap,)}                      # §601 active player has priority in its main phase
+        _offer_escape(state, ap)                              # §702.166 make payable escape GY cards castable
         castable = sorted(s for (p, s) in run(state, ["can_cast"])["can_cast"] if p == ap)
         if not castable:
             break
@@ -1921,8 +1957,12 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     """§601 -> §608 cast ONE spell sorcery-speed onto the real stack and resolve it (mode + cast triggers +
     response window + top-down resolution). The single-spell core of _cast_phase — reused by the env/search
     so an external policy can cast a CHOSEN spell (with forced mode/target via the _choose seam)."""
+    escaping = (ap, spell) in state.get("may_play", set()) \
+        and (spell,) in run(state, ["has_escape"])["has_escape"]    # §702.166 cast via escape (before may_play clears)
     _spend_mana(state, ap, spell)                            # §601.2g — consume the mana so casts are limited
     _leave_cast_zone(state, ap, spell)                       # §601 leave the source zone (hand / exile / graveyard)
+    if escaping:
+        _pay_escape_cost(state, ap, spell)                   # §702.166 additional cost: exile N other GY cards
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
     prior = _note_cast(state)                                # §608 count this spell; `prior` = storm count

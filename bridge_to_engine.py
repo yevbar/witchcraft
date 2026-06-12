@@ -839,6 +839,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_toughness", (facts, int(t)))
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
         add("card_keyword", (facts, kw))
+    esc = f.get("escape")                                    # §702.166 escape cost (parsed at build time): the
+    if esc:                                                  # engine derives the instance escape_* via instance_of
+        add("card_escape_generic", (facts, int(esc.get("generic", 0))))
+        add("card_escape_exile", (facts, int(esc.get("exile", 0))))
+        for col, n in (esc.get("pips") or {}).items():
+            add("card_escape_pip", (facts, col, int(n)))
     if f.get("mana"):                                         # §605 activated mana ability ('{T}: Add …')
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
