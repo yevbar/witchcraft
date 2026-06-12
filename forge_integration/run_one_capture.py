@@ -22,10 +22,11 @@ OUTFILE = f"/tmp/{witch}_vs_{opp}_capture.txt"
 
 T.compile_harnesses()
 syn = T._synergy_of(witch)
-bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": T._axis_of(witch),
+bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": T._axis_of(witch), "MTG_OPP_AXIS": T._axis_of(opp),
+           "MTG_MINIMAX": os.environ.get("MTG_MINIMAX", "1"), "MTG_MINIMAX_TURNS": "2", "MTG_PROGRESS_BUDGET": "2000",
            "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000", "MTG_START_LIFE": "20",
            "MTG_SYNERGY": ",".join(sorted(syn["slugs"])), "MTG_SYNERGY_SIZE": str(syn["size"]),
-           "MTG_DEBUG": "1"}                                    # <- per-decision bot trace
+           "MTG_DEBUG": "1"}                                    # <- per-decision bot trace (matches the tournament)
 
 port = T.free_port(8970)
 bot = subprocess.Popen([sys.executable, f"{HERE}/run_bot.py", str(port)],
