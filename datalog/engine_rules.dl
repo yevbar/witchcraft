@@ -938,6 +938,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output has_keyword
 .output eff_toughness
 .output combat_commander_damage
+.output combat_poison
 .output stack_top
 .output resolves
 .output controls

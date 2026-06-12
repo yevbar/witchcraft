@@ -947,6 +947,7 @@ def _rules(p: Program) -> None:
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
              "combat_commander_damage", # §903.10a — this combat's per-commander damage; the driver folds it into the carried total
+             "combat_poison",           # §704.5c — this combat's infect poison; the driver folds it into the carried total (accrues across turns)
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature",    # derived (from printed_*); the driver reads these, not raw state
              # ONE WORLD — the printed identity, now DERIVED from the card-level card_* facts via instance_of

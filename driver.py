@@ -136,7 +136,7 @@ def _variant_hand_size(variant: str) -> int:
     return int(m.group(1)) if m else 7
 
 OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
-           "combat_commander_damage", "pending"]
+           "combat_commander_damage", "combat_poison", "pending"]
 
 
 def _lit(x: object) -> str:
@@ -778,6 +778,11 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         old = next((b for (pp, cc, b) in cd if pp == p and cc == cmd), 0)
         cd.discard((p, cmd, old)); cd.add((p, cmd, old + int(n)))
         print(f"    {p} has now taken {old + int(n)} combat damage from commander {cmd} (§903.10a)")
+    for (p, n) in sorted(out.get("combat_poison", set())):        # §704.5c accrue infect poison across turns
+        pz = state.setdefault("poison", set())                    # carried per-player poison total (like life takes damage)
+        old = next((b for (pp, b) in pz if pp == p), 0)
+        pz.discard((p, old)); pz.add((p, old + int(n)))
+        print(f"    {p} now has {old + int(n)} poison counters (§704.5c)")
     _apply_effects(state, out["pending"])                        # §603 -> §608 triggered effects
     # §104.2a — an effect-derived WIN ends the game: the winner wins, every other player loses.
     # The engine derives wins_game from a resolved "you win the game" effect (Thassa's Oracle, Approach

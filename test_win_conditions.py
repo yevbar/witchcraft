@@ -165,6 +165,36 @@ def test_life_threshold_still_loses() -> None:
     check("no threshold crossed: the game continues (no loser)", loser is None)
 
 
+def test_infect_poison_accumulates() -> None:
+    """§704.5c — infect combat damage accrues as poison counters ACROSS turns (the driver folds the engine's
+    per-combat combat_poison into the carried `poison` total, the way life takes player_damage). Three 3-power
+    infect swings reach 9 (alive), the fourth crosses 10 and ends the game — not a single ≥10 swing."""
+    def infect_combat(carried):
+        return _two_players(
+            active_player={("alice",)}, current_step={("combat_damage",)},
+            poison=({("bob", carried)} if carried else set()),
+            on_battlefield={("inf",)}, printed_type={("inf", "creature")},
+            printed_power={("inf", 3)}, printed_toughness={("inf", 3)},
+            printed_control={("alice", "inf")}, printed_keyword={("inf", "infect")},
+            attacks={("inf", "bob")}, blocks=set(), counter=set())
+    carried, loser = 0, None
+    for _turn in range(4):
+        D.clear_cache()
+        s = infect_combat(carried)
+        out = D.run(s, D.OUTPUTS)
+        loser, _log = _quiet(lambda: D._apply_outputs(s, out, "alice"))
+        carried = next((b for (p, b) in s.get("poison", set()) if p == "bob"), 0)
+    check("infect poison accrues across turns to 12 (3+3+3+3)", carried == 12)
+    check("the swing crossing 10 poison ends the game (§704.5c)", loser == "bob")
+
+    # a SINGLE non-lethal infect swing must not fabricate a loss (no combat double-count — mirrors §510.2 fix).
+    D.clear_cache()
+    s = infect_combat(0)
+    out = D.run(s, D.OUTPUTS)
+    loser, _log = _quiet(lambda: D._apply_outputs(s, out, "alice"))
+    check("a single 3-poison swing is non-lethal (3 < 10, no loss fabricated)", loser is None)
+
+
 def run() -> None:
     test_engine_derives_win_loss()
     test_thassas_oracle_effect_win()
@@ -172,6 +202,7 @@ def run() -> None:
     test_empty_library_win_replacement()
     test_normal_deckout_still_loses()
     test_life_threshold_still_loses()
+    test_infect_poison_accumulates()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
