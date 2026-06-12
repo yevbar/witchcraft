@@ -58,10 +58,12 @@ def free_port(base: int) -> int:
     return base
 
 
-def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEOUT) -> dict:
-    """Start the witchcraft bot, run one Forge game with `main_class` + `-D` props, return parsed result."""
+def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEOUT, bot_env: dict = None) -> dict:
+    """Start the witchcraft bot, run one Forge game with `main_class` + `-D` props, return parsed result.
+    `bot_env` sets the bot process's environment (MTG_SEARCH_TURNS / MTG_SEARCH_BUDGET -> the search depth)."""
     bot = subprocess.Popen([sys.executable, f"{HERE}/run_bot.py", str(port)],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           env=dict(os.environ, **(bot_env or {})))
     time.sleep(1.2)
     props = " ".join(f"-D{k}={v}" for k, v in jprops.items())
     env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
@@ -98,61 +100,70 @@ def run_combo(name: str, combo: str, port: int, timeout: int = GAME_TIMEOUT) -> 
     return res
 
 
-def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 3) -> dict:
-    print(f"\n=== MATCHUP: witchcraft[{witch}] vs forge-ai[{opp}]  (best of {best_of}) ===", flush=True)
+def run_matchup(witch: str, opp: str, port_base: int, turns: int, budget: int,
+                best_of: int = 1) -> dict:
+    """One deck matchup at a fixed SEARCH DEPTH (turns). The witchcraft seat's lookahead horizon is set via
+    the bot env (MTG_SEARCH_TURNS/BUDGET). Returns the series + per-game stats (modeled/endorsed)."""
+    bot_env = {"MTG_SEARCH_TURNS": str(turns), "MTG_SEARCH_BUDGET": str(budget)}
     need = best_of // 2 + 1
     wins = {"Witchcraft-Engine": 0, "Forge-AI": 0}
     games = []
     for g in range(best_of):
         port = free_port(port_base + g)
-        res = run_game("ForgeVsBot", {"witchDeck": witch, "oppDeck": opp}, port)
+        res = run_game("ForgeVsBot", {"witchDeck": witch, "oppDeck": opp}, port, bot_env=bot_env)
         games.append(res)
-        w = res["winner"]
-        if w in wins:
-            wins[w] += 1
-        print(f"  game {g + 1}: winner={w} turns={res['turns']} wall={res['wall']}ms "
-              f"modeled={res['modeled']} endorsed={res['endorsed']} engine_decided={res.get('engine_decided')}",
-              flush=True)
-        if wins["Witchcraft-Engine"] >= need or wins["Forge-AI"] >= need:
+        if res["winner"] in wins:
+            wins[res["winner"]] += 1
+        print(f"  d{turns} {witch}-vs-{opp} g{g + 1}: winner={res['winner']} turns={res['turns']} "
+              f"wall={res['wall']}ms modeled={res['modeled']} endorsed={res['endorsed']} "
+              f"engine_decided={res.get('engine_decided')}", flush=True)
+        if max(wins.values()) >= need:
             break
     champ = max(wins, key=wins.get) if max(wins.values()) >= need else "split"
-    print(f"  -> series: Witchcraft-Engine {wins['Witchcraft-Engine']} - {wins['Forge-AI']} Forge-AI  "
-          f"({champ})", flush=True)
-    return {"witch": witch, "opp": opp, "wins": wins, "champ": champ, "games": games}
+    return {"witch": witch, "opp": opp, "turns": turns, "wins": wins, "champ": champ, "games": games}
+
+
+# (search depth in turns, node budget). Deeper horizons get a tighter node cap so a single decision stays
+# bounded — depth-5/10 trees are far larger than the shallow depth-1 lethal-finder.
+DEPTHS = [(1, 20000), (5, 2500), (10, 2500)]
 
 
 def main() -> None:
     quick = "--quick" in sys.argv
     compile_harnesses()
     t0 = time.time()
-    # Thassa's Oracle is the proven, fast win-con. The Tendrils storm is capped short: its 9 identical Lotus
-    # Petals get distinct ids that don't transposition-collapse, so the lookahead's first search blows up
-    # (a known search-efficiency edge with symmetric duplicates — NOT a coverage gap). Reported as SLOW if so.
+    # Thassa's Oracle is the proven, fast win-con (a turn-1 kill, so depth 1 suffices). Storm capped short
+    # (its 9 identical Lotus Petals blow up the first search — a symmetric-duplicate edge, not a coverage gap).
     combos = [run_combo("Thassa's Oracle (library-out)", "oracle", free_port(8800)),
               run_combo("Tendrils storm (storm count)", "storm", free_port(8810), timeout=90)]
     pairings = [("izzet", "izzet"), ("izzet", "vanilla"), ("vanilla", "izzet"), ("vanilla", "vanilla")]
+    depths = [(1, 20000)] if quick else DEPTHS
     if quick:
-        pairings = [("vanilla", "vanilla")]
-    matchups = []
-    for i, (w, o) in enumerate(pairings):
-        matchups.append(run_matchup(w, o, 8820 + i * 10, best_of=1 if quick else 3))
+        pairings = [("izzet", "vanilla")]
+    # DEPTH SWEEP: each deck matchup at search depth 1, 5 and 10 — does a deeper lookahead let the seat
+    # endorse (drive) more of its own plays, and win more?
+    sweep = []
+    for di, (turns, budget) in enumerate(depths):
+        print(f"\n=== SEARCH DEPTH max_turns={turns} (node budget {budget}) ===", flush=True)
+        for pi, (w, o) in enumerate(pairings):
+            sweep.append(run_matchup(w, o, 8900 + di * 40 + pi * 8, turns, budget,
+                                     best_of=1 if quick else 1))
 
-    print("\n" + "=" * 72)
-    print("TOURNAMENT SUMMARY  (Forge = referee; witchcraft drives its seat)")
-    print("=" * 72)
+    print("\n" + "=" * 78)
+    print("TOURNAMENT SUMMARY  (Forge = referee; witchcraft drives its seat via win_search)")
+    print("=" * 78)
     print("\nWIN-CON REGRESSIONS (witchcraft must win as the piloting seat):")
     for c in combos:
         print(f"  {c['status']:5} {('winner=' + c['winner']):32} "
               f"modeled={c['modeled']} endorsed={c['endorsed']}")
-    print("\nDECK MATCHUPS (best of 3; modeled = options witchcraft understood, "
-          "endorsed = plays its search drove):")
-    print(f"  {'witchcraft':10} {'forge-ai':10} {'series':14} {'modeled~':9} {'endorsed~':9}")
-    for m in matchups:
-        gs = [g for g in m["games"] if g["modeled"] is not None]
-        mod = round(sum(g["modeled"] for g in gs) / len(gs), 3) if gs else None
-        end = round(sum(g["endorsed"] for g in gs) / len(gs), 3) if gs else None
-        series = f"{m['wins']['Witchcraft-Engine']}-{m['wins']['Forge-AI']} ({m['champ']})"
-        print(f"  {m['witch']:10} {m['opp']:10} {series:14} {str(mod):9} {str(end):9}")
+    print("\nDECK MATCHUPS BY SEARCH DEPTH  (endorsed = fraction of plays the tree search DROVE; "
+          "deeper = sees more wins):")
+    print(f"  {'depth':6} {'witchcraft':10} {'forge-ai':10} {'winner':18} {'modeled':8} {'endorsed':8}")
+    for m in sweep:
+        g = m["games"][0]
+        win = max(m["wins"], key=m["wins"].get) if max(m["wins"].values()) else g["winner"]
+        print(f"  d{m['turns']:<5} {m['witch']:10} {m['opp']:10} {win:18} "
+              f"{str(g['modeled']):8} {str(g['endorsed']):8}")
     print(f"\nwall: {round(time.time() - t0)}s")
 
 

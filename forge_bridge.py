@@ -59,6 +59,7 @@ the same seam — `engine_policy` marks that hook.
 from __future__ import annotations
 
 import json
+import os
 import random
 import socket
 
@@ -183,10 +184,15 @@ class EnginePolicy:
     — the running indication of how completely our engine models a real game. `__call__` matches the
     ForgePlayer policy seam, so it drops in wherever random_policy/greedy_policy go."""
 
-    def __init__(self, fallback=greedy_policy):
+    def __init__(self, fallback=greedy_policy, max_turns=None, node_budget=None):
         self.fallback = fallback
+        # The lookahead horizon (how many turns ahead the search will look for a win) and node cap. Default
+        # to a shallow turn-1 lethal-finder; the tournament overrides via MTG_SEARCH_TURNS / MTG_SEARCH_BUDGET
+        # to compare search depths (deeper = endorses multi-turn kills it can't see at depth 1, but costs more).
+        self.max_turns = max_turns if max_turns is not None else int(os.environ.get("MTG_SEARCH_TURNS", "1"))
+        self.node_budget = node_budget if node_budget is not None else int(os.environ.get("MTG_SEARCH_BUDGET", "20000"))
         self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
-                      "unmodeled_cards": set(), "by_kind": {}}
+                      "unmodeled_cards": set(), "by_kind": {}, "search_turns": self.max_turns}
         self._pending_name = None      # the card name the lookahead planned for the next 'choose a card name'
         self._slug2name = None         # lazy slug -> oracle-name map (the search names a card by slug)
 
@@ -259,7 +265,7 @@ class EnginePolicy:
         s = dict(state)                                      # the lookahead plays from OUR seat's main phase
         s["active_player"] = {(seat,)}
         s.setdefault("current_step", {("precombat_main",)})
-        path, _n = win_search.find_win(s, me=seat, max_turns=1, node_budget=20000)
+        path, _n = win_search.find_win(s, me=seat, max_turns=self.max_turns, node_budget=self.node_budget)
         choice = None
         if path and path[0][0] == "cast":                    # play the winning line's first cast
             a0 = path[0]
