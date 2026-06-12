@@ -219,6 +219,28 @@ def _prototype(unit, ctx):
                          f'keyword_param("{cid}", "prototype", "pt_{m.group(2)}")'], "prototype")
 
 
+_ESCAPE = re.compile(r"^Escape\s*[—-]\s*((?:\{[^}]+\})+),\s*Exile (\w+) other cards? from your graveyard\.", re.I)
+_NUM_WORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def _escape(unit, ctx):
+    """'Escape—<cost>, Exile N other cards from your graveyard' (§702.166) — the alternative cost to cast this
+    card from the GRAVEYARD. Recorded as the escape keyword + its mana cost + the exile-count parameter, the
+    structured fields the cast machinery reads to make the card castable from the graveyard for that cost."""
+    m = _ESCAPE.match(unit.raw.strip())
+    if not m or "escape" not in ground.keyword_abilities():
+        return None
+    w = m.group(2).lower()
+    n = _NUM_WORD.get(w, int(w) if w.isdigit() else None)
+    if n is None:                                          # an unreadable exile count -> abstain
+        return None
+    cid = ctx["id"]
+    return CardOut(cid, [f'printed_keyword("{cid}", "escape")',
+                         f'keyword_param("{cid}", "escape", "cost_{ground.slug(m.group(1))}")',
+                         f'keyword_param("{cid}", "escape", "exile_{n}")'], "escape")
+
+
 def _mana_ability(unit, ctx):
     """An activated mana ability '<cost>: Add <mana>.' (§605.1a — activated, no target, adds mana).
     Cost and produced mana are grounded (symbols via §107.4, colors via §105). Abstains on any
@@ -2224,7 +2246,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _kw_param, _specialize, _ticket_pt,
+_PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
              _teamwork, _sticker, _assemble_contraption, _spellbook,
              _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
