@@ -181,8 +181,8 @@ def _evaluate(fkey: frozenset) -> dict:
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "e.dl").write_text(RULES + "\n" + facts)
         subprocess.run(["souffle", f"{d}/e.dl", "-D", d], check=True, capture_output=True)
-        return {f.stem: {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}
-                for f in Path(d).glob("*.csv")}
+        return {f.stem: {tuple(r) for r in csv.reader(f.open(), delimiter="\t")}    # only non-empty outputs:
+                for f in Path(d).glob("*.csv") if f.stat().st_size > 0}              # absent rel -> empty set in run()
 
 
 def run(state: dict, outputs: list[str]) -> dict:

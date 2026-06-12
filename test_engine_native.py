@@ -61,7 +61,11 @@ def run() -> None:
     checks = []
     for i, state in enumerate(STATES):
         fkey = _facts_key(state)
-        nat, intp = engine_native.evaluate(fkey), _interp(fkey)
+        # compare DERIVED FACTS: a relation that derived no rows carries no information and reads back as the
+        # empty set in driver.run, so normalize both backends by dropping empty-valued relations (native now
+        # omits them to save IO + cache memory; the interpreter helper still lists them).
+        nat = {k: v for k, v in engine_native.evaluate(fkey).items() if v}
+        intp = {k: v for k, v in _interp(fkey).items() if v}
         shared = set(nat) & set(intp)
         ok = nat.keys() == intp.keys() and all(nat[k] == intp[k] for k in shared)
         checks.append((f"state {i}: native relations == interpreter", ok))
