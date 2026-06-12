@@ -16,6 +16,19 @@ import com.google.common.eventbus.Subscribe;
 
 import forge.GuiDesktop;
 import forge.game.event.GameEventTurnPhase;
+import forge.game.event.GameEventTurnBegan;
+import forge.game.event.GameEventLandPlayed;
+import forge.game.event.GameEventSpellAbilityCast;
+import forge.game.event.GameEventAttackersDeclared;
+import forge.game.event.GameEventPlayerDamaged;
+import forge.game.event.GameEventPlayerLivesChanged;
+import forge.game.event.GameEventBlockersDeclared;
+import forge.game.event.GameEventCardChangeZone;
+import forge.game.GameEntityView;
+import forge.game.card.CardView;
+import com.google.common.collect.Multimap;
+import java.util.Map.Entry;
+import java.util.Collection;
 import forge.LobbyPlayer;
 import forge.ai.ComputerUtilAbility;
 import forge.ai.ComputerUtilCost;
@@ -438,6 +451,71 @@ public class ForgeVsBot {
         }
     }
 
+    // A plain-English MOVE LOG built straight from game events (no Forge i18n localizer — which isn't
+    // initialized headless, so Forge's own GameLog comes back empty). Prints "[move] ..." lines for BOTH
+    // seats: turn starts, lands, spells, attacks, combat/other damage, and life changes. Every handler is
+    // defensive — a logging hiccup must never disturb the refereed game.
+    static class MoveLog {
+        @Subscribe public void onTurn(GameEventTurnBegan e) {
+            try { System.out.println("[move] --- Turn " + e.turnNumber() + " : " + e.turnOwner() + " ---"); }
+            catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onLand(GameEventLandPlayed e) {
+            try { System.out.println("[move] " + e.player() + " plays land " + e.land()); }
+            catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onCast(GameEventSpellAbilityCast e) {
+            try {
+                String who = e.si().getActivatingPlayer().getName();
+                String what = e.sa().getHostCard().getName();
+                String verb = e.sa().isSpell() ? "casts" : "activates";
+                String tgt = e.targetDescription() != null ? " -> " + e.targetDescription() : "";
+                System.out.println("[move] " + who + " " + verb + " " + what + tgt);
+            } catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onAttack(GameEventAttackersDeclared e) {
+            try {
+                for (GameEntityView k : e.attackersMap().keySet()) {
+                    java.util.Collection<CardView> atk = e.attackersMap().get(k);
+                    if (atk == null || atk.isEmpty()) continue;
+                    System.out.println("[move] " + e.player() + " attacks " + k + " with " + atk);
+                }
+            } catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onPlayerDmg(GameEventPlayerDamaged e) {
+            try {
+                System.out.println("[move] " + e.source() + " deals " + e.amount()
+                        + (e.combat() ? " combat" : " noncombat") + " damage to " + e.target()
+                        + (e.infect() ? " (as poison)" : ""));
+            } catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onLife(GameEventPlayerLivesChanged e) {
+            try { System.out.println("[move] " + e.player() + " life " + e.oldLives() + " -> " + e.newLives()); }
+            catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onBlock(GameEventBlockersDeclared e) {
+            try {
+                for (Entry<GameEntityView, Multimap<CardView, CardView>> kv : e.blockers().entrySet()) {
+                    for (Entry<CardView, Collection<CardView>> att : kv.getValue().asMap().entrySet()) {
+                        Collection<CardView> bl = att.getValue();
+                        // Forge encodes "didn't block" as the attacker mapping to ITSELF — skip those, log
+                        // only genuine blocks (blocker distinct from the attacker).
+                        if (!bl.isEmpty() && com.google.common.collect.Iterables.get(bl, 0) != att.getKey())
+                            System.out.println("[move] " + bl + " blocks " + att.getKey());
+                    }
+                }
+            } catch (Throwable t) { /* ignore */ }
+        }
+        @Subscribe public void onZone(GameEventCardChangeZone e) {
+            try {
+                String from = e.from() != null ? String.valueOf(e.from().zoneType()) : "null";
+                String to = e.to() != null ? String.valueOf(e.to().zoneType()) : "null";
+                if ("Battlefield".equals(from) && ("Graveyard".equals(to) || "Exile".equals(to)))
+                    System.out.println("[move] " + e.card() + " dies (" + from + " -> " + to + ")");
+            } catch (Throwable t) { /* ignore */ }
+        }
+    }
+
     // ---------- setup ----------
     static void initForge() {
         GuiBase.setInterface(new GuiDesktop() { @Override public String getAssetsDir() { return ASSETS; } });
@@ -535,6 +613,7 @@ public class ForgeVsBot {
             } catch (Exception e) { System.out.println("[dump] failed: " + e); }
         }
 
+        game.subscribeToEvents(new MoveLog());                 // plain-English move record for both seats
         System.out.println("Starting: Witchcraft-Engine (our datalog engine via Python) vs Forge-AI ...");
         long t0 = System.currentTimeMillis();
         match.startGame(game);
@@ -544,5 +623,6 @@ public class ForgeVsBot {
                 + " wall=" + (System.currentTimeMillis() - t0) + "ms");
         System.out.println("FORGE-AI decisions still made for OUR seat (not yet our engine's): "
                 + (RemoteController.FORGE_AI.isEmpty() ? "NONE" : RemoteController.FORGE_AI));
+        // (the full chronological move record is emitted live by the MoveLog subscriber as "[move] ..." lines)
     }
 }
