@@ -48,6 +48,8 @@ reproducible across runs and backends. See effect_handlers/__init__.py for the @
 
 from __future__ import annotations
 
+import re
+
 from effect_handlers import encoder, applier
 
 # target slugs that denote the CONTROLLER acting on their OWN library. Anything else (target_player,
@@ -203,10 +205,57 @@ def _apply_dig_to_hand(D, state, a, n, tgt, src, ctrl):
 #     types 'a Mountain or Plains card' (the fetchlands): a card matches if it's a land WITH one of those
 #     subtypes (or, for 'basic land', any land). The fetched card is removed from the library here; its
 #     final zone is the next clause's business.
-# Every other typed tutor ('a card named …', a creature/artifact/instant card, 'up to two …') ABSTAINS at
-# ENCODE — the surfaced identity can't confirm the match and a wrong fetch is worse than none.
+#   • a §205 card-TYPE predicate — 'an instant or sorcery card' (Mystical Tutor), 'an artifact or
+#     enchantment card' (Enlightened Tutor), 'a creature card', optionally with a 'mana value N or less'
+#     bound ('a creature card with mana value 1 or less' — Ranger-Captain of Eos): a card matches if its
+#     surfaced printed_type is one of the named types AND (when bounded) its surfaced mana value is ≤ N.
+# Every other typed tutor ('a card named …', a creature SUBtype fetch, a power/color restriction, 'up to
+# two …') ABSTAINS at ENCODE — the surfaced identity can't confirm the match and a wrong fetch is worse
+# than none.
 # ─────────────────────────────────────────────────────────────────────────────
 _BASIC_LAND_SUBTYPES = ("plains", "island", "swamp", "mountain", "forest")
+
+# §205 card TYPES we can confirm from the surfaced printed_type, so a TYPED tutor ('an instant or sorcery
+# card', 'an artifact or enchantment card', 'a creature card') matches faithfully. Each maps the search's
+# noun to the printed_type token the engine folds back. (A SUBtype tutor — 'a Goblin card' — is NOT here;
+# subtypes ride printed_subtype and the basic-land path; an arbitrary creature-subtype fetch still abstains.)
+_CARD_TYPES = ("artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle")
+
+
+def _type_predicate(tgt) -> str | None:
+    """A §205 card-TYPE search target -> a 'type:<a>|<b>…' predicate the applier matches against printed_type,
+    optionally with a '&mv<=N' mana-value bound, or None if it isn't a type search we can evaluate. Shapes
+    (after ground.slug):
+      'an_instant_or_sorcery_card'                   -> 'type:instant|sorcery'   (Mystical Tutor)
+      'an_artifact_or_enchantment_card'              -> 'type:artifact|enchantment' (Enlightened Tutor)
+      'a_creature_card'                              -> 'type:creature'
+      'a_creature_card_with_mana_value_1_or_less'    -> 'type:creature&mv<=1'     (Ranger-Captain of Eos)
+    Only a type DISJUNCTION (all tokens are real card types) qualifies; a named/subtyped/otherwise-restricted
+    fetch we can't confirm returns None (abstain)."""
+    t = str(tgt)
+    # peel an optional trailing mana-value bound 'with_mana_value_N_or_less' (the only numeric restriction we
+    # can test from the surfaced mana_cost). Any OTHER 'with …' clause (power/color/keyword) -> abstain.
+    mv_cap: int | None = None
+    m = re.search(r"_with_mana_value_(\d+)_or_less$", t)
+    if m:
+        mv_cap = int(m.group(1))
+        t = t[: m.start()]
+    elif "_with_" in t:
+        return None                                          # an unmodellable restriction (power/color/named)
+    # strip the leading article and the trailing '_card', split a '_or_' disjunction of card types.
+    core = t
+    for art in ("a_", "an_"):
+        if core.startswith(art):
+            core = core[len(art):]
+            break
+    if not core.endswith("_card"):
+        return None                                          # not a 'a <…> card' sought-object shape
+    core = core[: -len("_card")]
+    parts = core.split("_or_")
+    if not parts or not all(p in _CARD_TYPES for p in parts):
+        return None                                          # a token isn't a confirmable card type -> abstain
+    pred = "type:" + "|".join(parts)
+    return pred + (f"&mv<={mv_cap}" if mv_cap is not None else "")
 
 
 def _land_predicate(tgt) -> str | None:
@@ -239,7 +288,10 @@ def search_predicate(tgt) -> str | None:
     order, so the search and its placement must resolve together)."""
     if str(tgt) == "a_card":                                 # generic, single, untyped tutor
         return "any"
-    return _land_predicate(tgt)                              # a basic-land-type fetch, else None -> abstain
+    lp = _land_predicate(tgt)                                # a basic-land-type fetch (fetchlands)
+    if lp is not None:
+        return lp
+    return _type_predicate(tgt)                              # a §205 card-TYPE fetch, else None -> abstain
 
 
 # the atomic search effect for a destination ('hand'/'top'/'bottom'/'battlefield'/'battlefield_tapped') ->
@@ -267,6 +319,21 @@ def _matches(state: dict, card: str, pred: str) -> bool:
         wanted = set(pred[len("subtype:"):].split("|"))
         subs = {st for (c, st) in state.get("printed_subtype", set()) if c == card}
         return (card, "land") in ptype and bool(subs & wanted)
+    if pred.startswith("type:"):
+        # 'type:<a>|<b>…' optionally '&mv<=N' — a §205 card-TYPE disjunction with an optional mana-value
+        # bound. The card's types come from printed_type; its mana value from mana_cost (the engine surfaces
+        # both for every library card). A card matches iff it has ONE of the wanted types AND (if bounded)
+        # its mana value is within the cap.
+        body, _, mv_clause = pred[len("type:"):].partition("&")
+        wanted = set(body.split("|"))
+        types = {t for (c, t) in ptype if c == card}
+        if not (types & wanted):
+            return False
+        if mv_clause.startswith("mv<="):
+            cap = int(mv_clause[len("mv<="):])
+            mv = next((v for (c, v) in state.get("mana_cost", set()) if c == card), None)
+            return mv is not None and mv <= cap                # no surfaced mana value -> can't confirm -> no match
+        return True
     return False
 
 

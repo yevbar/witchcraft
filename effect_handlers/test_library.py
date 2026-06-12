@@ -32,9 +32,10 @@ def _enc(verb, amt, tgt, extra="-"):
     return effect_handlers.ENCODE[verb](verb, amt, tgt, extra)
 
 
-def _state(order, ptypes=None, psubs=None):
+def _state(order, ptypes=None, psubs=None, mcost=None):
     """A minimal driver state with alice's library both ordered and as the in_library set. Optional
-    printed_type / printed_subtype rows let a TYPED search judge which opaque id matches the predicate."""
+    printed_type / printed_subtype / mana_cost rows let a TYPED (or mana-value-bounded) search judge which
+    opaque id matches the predicate."""
     return {
         "is_player": {("alice",), ("bob",)},
         "_lib_order": {"alice": list(order)},
@@ -46,6 +47,7 @@ def _state(order, ptypes=None, psubs=None):
         "printed_control": set(),
         "printed_type": set(ptypes or set()),
         "printed_subtype": set(psubs or set()),
+        "mana_cost": set(mcost or set()),
         "_searched": {},
     }
 
@@ -88,9 +90,21 @@ def _encode_checks() -> None:
     # ABSTAIN: not the controller's own library
     check("scry each_player abstains", _enc("scry", "1", "each_player") is None)
     check("shuffle target_player abstains", _enc("shuffle", "-", "target_player") is None)
-    # ABSTAIN: a typed tutor the surfaced identity can't confirm (named / nonland type / multi)
-    for t in ("a_creature_card", "a_card_named", "up_to_two_basic_land_cards", "an_artifact_card"):
+    # ABSTAIN: a typed tutor the surfaced identity can't confirm (named / multi / non-type restriction)
+    for t in ("a_card_named", "up_to_two_basic_land_cards", "a_card_named_llanowar_elves",
+              "a_goblin_card", "a_creature_card_with_power_3_or_greater"):
         check(f"search {t} abstains (unconfirmable type)", _enc("search", "-", t) is None)
+    # RESOLVE: a §205 card-TYPE tutor IS confirmable from the surfaced printed_type (Mystical / Enlightened /
+    # the creature tutors), optionally bounded by a mana-value cap (Ranger-Captain of Eos).
+    check("search an_instant_or_sorcery_card -> type predicate",
+          _enc("search", "-", "an_instant_or_sorcery_card") == ("search_select", 0, "type:instant|sorcery"))
+    check("search an_artifact_or_enchantment_card -> type predicate",
+          _enc("search", "-", "an_artifact_or_enchantment_card") == ("search_select", 0, "type:artifact|enchantment"))
+    check("search a_creature_card -> type predicate",
+          _enc("search", "-", "a_creature_card") == ("search_select", 0, "type:creature"))
+    check("search a_creature_card_with_mana_value_1_or_less -> bounded type predicate",
+          _enc("search", "-", "a_creature_card_with_mana_value_1_or_less")
+          == ("search_select", 0, "type:creature&mv<=1"))
     # ABSTAIN: a destination clause whose object is a real permanent target, not the searched card
     check("return_to_hand target_creature abstains",
           _enc("return_to_hand", "-", "target_creature") is None)
@@ -189,6 +203,28 @@ def _apply_checks() -> None:
     st = _state(["zzz", "frst"], ptypes={("frst", "land")}, psubs={("frst", "forest")})
     _fire(st, "search_select", 0, tgt="any_land")
     check("any_land fetch finds the land", st["_searched"].get("alice") == "frst")
+
+    # TYPED card fetch (Mystical Tutor 'an instant or sorcery card'): a card matches by printed_type, the
+    # type DISJUNCTION picks either an instant or a sorcery, never a creature.
+    st = _state(["cre", "ins", "sor"],
+                ptypes={("cre", "creature"), ("ins", "instant"), ("sor", "sorcery")})
+    _fire(st, "search_select", 0, tgt="type:instant|sorcery")
+    check("instant-or-sorcery fetch selects a matching spell (canonical-first)",
+          st["_searched"].get("alice") == "ins")
+    check("instant-or-sorcery fetch never picks the creature", st["_searched"].get("alice") != "cre")
+
+    # MANA-VALUE-BOUNDED fetch (Ranger-Captain of Eos 'a creature card with mana value 1 or less'): the
+    # surfaced mana_cost gates the pick — a 3-MV creature is ineligible, the 1-MV creature matches.
+    st = _state(["bigcre", "smallcre"],
+                ptypes={("bigcre", "creature"), ("smallcre", "creature")},
+                mcost={("bigcre", 3), ("smallcre", 1)})
+    _fire(st, "search_select", 0, tgt="type:creature&mv<=1")
+    check("bounded fetch selects the 1-MV creature", st["_searched"].get("alice") == "smallcre")
+    check("bounded fetch rejects the 3-MV creature", ("alice", "bigcre") in st["in_library"])
+    # a creature with NO surfaced mana value can't be confirmed within the bound -> not matched.
+    st = _state(["unknowncre"], ptypes={("unknowncre", "creature")}, mcost=set())
+    check("bounded fetch can't confirm a creature with no surfaced mana value",
+          not lib._matches(st, "unknowncre", "type:creature&mv<=1"))
 
     # fail-to-find (§701.18c): no library card matches the predicate -> nothing selected, no crash.
     st = _state(["c1", "c2"], ptypes={("c1", "instant"), ("c2", "creature")})

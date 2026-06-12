@@ -54,6 +54,16 @@ _EVENT = {
     # casts a spell -> opponent_cast; the noncreature variant adds the spell-type guard.
     "an_opponent_casts_a_spell": "opponent_cast",
     "an_opponent_casts_a_noncreature_spell": "opponent_cast_noncreature",
+    # §601 'first/second … spell each turn' cast triggers (Esper Sentinel, Lotho, Monologue Tax, Mangara).
+    # The engine fires the cast family from the cast window (cast_spell -> opponent_cast / opponent_cast_noncreature
+    # / any_cast), but it has NO per-turn, per-player nth-cast counter to surface to the trigger layer, so the
+    # 'first … each turn' / 'second … each turn' RESTRICTION can't be gated. We map to the unrestricted cast
+    # event of the same scope and shape — a CONSERVATIVE OVER-FIRE (the trigger fires on EVERY qualifying
+    # opponent/any cast, not only the nth one), in the same spirit as the documented 'you_attack' approximation
+    # above. The EFFECTS (draw, lose_life, create Treasure) resolve faithfully; only the frequency is approximate.
+    "an_opponent_casts_their_first_noncreature_spell_each_turn": "opponent_cast_noncreature",
+    "an_opponent_casts_their_second_spell_each_turn": "opponent_cast",
+    "a_player_casts_their_second_spell_each_turn": "any_cast",
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
     "the_beginning_of_the_end_step": "any_end_step",
     # §603 landfall alt phrasing ('a_land_you_control_enters' is in the typed-ETB block below).
@@ -94,6 +104,16 @@ _EVENT = {
     # battlefield, so the unlock trigger fires on ETB. (A door unlocked LATER by paying its cost is a
     # separate action we don't model; the cast-the-front-half case — the common one — is faithful.)
     "you_unlock_this_door": "etb_self",
+    # DELIBERATELY UNMAPPED — abstained per faithful-or-abstain (NOT an oversight):
+    #   * '… draws a card' / '… draws their second card each turn' (Smothering Tithe, Faerie Mastermind,
+    #     Tataru Taru, Consecrated Sphinx): the engine fires NO draw event. driver._draw moves a card from
+    #     library to hand with no trigger window, and there is no ev_draw relation for has_trigger to join.
+    #     Mapping these would fire the wrong moment (or never), so the EVENT stays dropped (the card abstains).
+    #   * 'becomes tapped' (City of Brass + ~51 others): the engine taps permanents (driver taps state['tapped'])
+    #     but opens NO tap window — there is no ev_tap relation. The 'deals 1 damage to you on tap' trigger has
+    #     no game moment to fire on, so it abstains rather than guess.
+    # Adding either would require a new engine event (ev_draw / ev_tap) the driver actually fires — out of
+    # scope for the bridge, which only maps to events the engine already supports.
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
@@ -799,7 +819,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue
             a = f"{tid}_{aid}"
             emitted = False
-            for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
+            effs = list(ab.get("effects", []))
+            # §701.18 SEARCH-PLACEMENT on a TRIGGERED ability (Ranger-Captain of Eos' ETB tutor): fold the
+            # search + its following destination clause ('search …, put it into your hand') into one atomic
+            # search_to_<dest> trigger_effect — same as the spell/activated paths (the relations carry no
+            # clause order, so the search and its placement can't resolve as two separate rows).
+            search_skip = _fold_search_placements(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
+                if _idx in search_skip:                      # consumed by the folded search_to_<dest>
+                    emitted = True
+                    continue
+                if verb in ("search", "reveal"):
+                    # an UNFOLDED search/reveal (no recognized destination to pair with) abstains rather than
+                    # pull a card out with nowhere to put it (mirrors the spell path).
+                    dropped.append(("effect", verb)); continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
                 # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
