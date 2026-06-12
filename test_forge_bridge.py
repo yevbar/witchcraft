@@ -291,6 +291,23 @@ def _mana_payment_delegated() -> None:
           driver.mana_plan(fst, "w", {"black": 1}, 0) == [])  # Lotus makes only 3 of one color; Mox is black
 
 
+def _land_play_coverage_bound() -> None:
+    """COVERAGE METRIC regression: a land play is a real engine decision, but lands aren't in `spells`. If
+    offered counted only spells, a land play would add 1 to endorsed against 0 offered -> cumulative
+    endorsed_frac > 1 (seen as 2.167 in a vanilla mirror). offered/modeled must include lands, so per
+    decision endorsed (0/1) <= offered."""
+    import driver
+    obs = {"seat": "w", "players": ["w", "opp"], "life": {"w": 20, "opp": 20}, "active": "w",
+           "step": "precombat_main", "zones": {"hand": [{"id": "L1", "name": "Forest", "controller": "w"}]}}
+    state, _ = fb.reconstruct(obs, "w")
+    pol = fb.EnginePolicy()
+    opts = [{"id": "L1", "ci": 0, "kind": "land"}]                # only a land offered (no castable spell)
+    choice, modeled, endorsed, offered, _used = pol._pick_action(driver, state, "w", opts, {"kind": "pass"})
+    check("land-only decision: the engine plays the land", choice is not None and choice["id"] == "L1")
+    check("land-only decision: endorsed <= offered (no endorsed_frac > 1)", endorsed <= offered and offered >= 1)
+    check("land-only decision: the land counts as modeled", modeled >= 1)
+
+
 def run() -> None:
     _kinds()
     _random_legal()
@@ -299,6 +316,7 @@ def run() -> None:
     _search_driven_storm()
     _search_driven_oracle()
     _mana_payment_delegated()
+    _land_play_coverage_bound()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

@@ -315,7 +315,11 @@ class EnginePolicy:
         spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
         lands = [o for o in options if isinstance(o, dict) and o.get("kind") == "land"]
         objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}
-        modeled = sum(1 for o in spells if str(o["id"]) in objs)
+        # offered/modeled count ALL play options surfaced here — spells AND lands. Lands must be included:
+        # the engine actively plays them (a land is a modeled, endorsed decision), so omitting them from the
+        # denominator let a land play add 1 to endorsed against 0 offered -> cumulative endorsed_frac > 1.
+        offered = len(spells) + len(lands)
+        modeled = sum(1 for o in spells if str(o["id"]) in objs) + len(lands)
         s = dict(state)
         s["active_player"] = {(seat,)}
         s.setdefault("current_step", {("precombat_main",)})
@@ -340,7 +344,7 @@ class EnginePolicy:
             print(f"[dbg] step={sorted(state.get('current_step', set()))} spells={len(spells)} lands={len(lands)} "
                   f"-> {kind}:{choice['id'] if isinstance(choice, dict) else None}", file=_sys.stderr, flush=True)
         endorsed = 1 if choice is not None else 0
-        return choice, modeled, endorsed, len(spells), endorsed
+        return choice, modeled, endorsed, offered, endorsed
 
     def _pick_target(self, driver, state, seat, options, default):
         """Target an entity our engine models as a legal creature target."""
