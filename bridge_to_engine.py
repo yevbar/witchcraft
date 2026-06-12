@@ -717,6 +717,59 @@ def _fold_flashback(effs: list, emit) -> set:
     return {grant_i, cost_i}
 
 
+# §720 the creature-target class a 'gain control of target creature' clause picks in: the normal creature
+# target classes (any / you_control), plus an 'mvle:<N>' for the common 'target creature with mana value N
+# or less' (Claim the Firstborn) the driver filters by mana value. Anything more specific abstains.
+def _steal_target_class(tgt) -> str | None:
+    s = str(tgt)
+    if s in ("target_creature_or_vehicle", "target_creature_or_planeswalker"):
+        return "any"                                            # a crewed Vehicle/PW that's a creature counts
+    cls = _target_class(s)
+    if cls is not None and "creature" in s:
+        return cls
+    m = re.match(r"^target_creature_with_mana_value_(\d+)_or_less$", s)
+    if m:
+        return f"mvle:{m.group(1)}"
+    return None
+
+
+_ANAPHOR_TGT = ("it", "that_creature", "that_card")
+
+
+def _fold_threaten(effs: list, emit) -> set:
+    """§720 STEAL-AND-SWING (Threaten / Act of Treason / Claim the Firstborn / Kari Zev's Expertise): fold the
+    '[gain control of target creature] (+ [untap it]) (+ [it gains haste])' clause run into ONE gain_control
+    spell_effect the driver resolves by picking a creature, taking control, and (per the folded riders)
+    untapping it + granting haste until end of turn. The concrete creature target may sit on the gain_control
+    clause itself OR (Threaten) on a sibling 'untap target creature' clause it refers back to with 'it'; the
+    anaphoric 'it' / 'that creature' riders bind to that same creature. payload = '<class>|<dur>|<flags>'."""
+    gc_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "gain_control"), None)
+    if gc_i is None:
+        return set()
+    _s, _v, amt, tgt, extra, _c = effs[gc_i]
+    cls = _steal_target_class(tgt)
+    skip = {gc_i}
+    flags = []
+    if cls is None and str(tgt) in _ANAPHOR_TGT:                 # Threaten: the target rides a sibling untap clause
+        for i, (_s2, v2, _a2, t2, _x2, _c2) in enumerate(effs):
+            if v2 == "untap" and _steal_target_class(t2) is not None:
+                cls = _steal_target_class(t2)
+                flags.append("untap"); skip.add(i)
+                break
+    if cls is None:
+        return set()
+    dur = "eot" if "until_end_of_turn" in (str(extra), str(amt)) else "perm"
+    for i, (_s3, v3, _a3, t3, x3, _c3) in enumerate(effs):
+        if i in skip:
+            continue
+        if v3 == "untap" and str(t3) in _ANAPHOR_TGT:
+            flags.append("untap"); skip.add(i)
+        elif v3 == "grant_keyword" and str(x3) == "haste" and str(t3) in _ANAPHOR_TGT:
+            flags.append("haste"); skip.add(i)
+    emit("gain_control", 0, f"{cls}|{dur}|{','.join(dict.fromkeys(flags)) or '-'}")
+    return skip
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -777,8 +830,12 @@ def _activated_cost(cost: str) -> tuple | None:
 
 
 # keywords the engine models as printed_keyword inputs (it derives flying/evasion/etc. from these).
+# first_strike / double_strike are RECOGNIZED keywords (granted/printed faithfully into has_keyword); the
+# combat-damage step doesn't yet split first-strike or double the damage, so granting them is combat-inert —
+# but a §702 'gains double strike' grant now RESOLVES instead of dropping (Twinferno, Berserk-style pumps).
 _ENGINE_KEYWORDS = {"flying", "reach", "defender", "menace", "hexproof", "shroud", "indestructible",
-                    "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste"}
+                    "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste",
+                    "first_strike", "double_strike"}
 
 # ONE WORLD — printed_* relations now DERIVED by the engine from the card-level card_* facts (translate.dl);
 # materialized back into raw state for the driver's direct (non-engine) reads of a card's printed identity.
@@ -1060,8 +1117,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §702.34 FLASHBACK GRANT (cost = mana cost): Past in Flames / Recoup -> one grant_flashback effect.
             fb_skip = _fold_flashback(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §720 STEAL-AND-SWING (Threaten / Claim the Firstborn): gain control (+untap +haste) -> gain_control.
+            steal_skip = _fold_threaten(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
