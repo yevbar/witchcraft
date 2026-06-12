@@ -15,6 +15,7 @@ count). Bounded by a turn horizon + node budget, with engine-fact transposition 
 from __future__ import annotations
 
 import math
+import time
 
 import driver
 import env
@@ -67,6 +68,27 @@ def _opp_action(s):
     if blocks:
         return ("block", _survival_block(s, [a[1] for a in blocks]))
     return acts[0] if acts else None
+
+
+def _opp_self_move(s):
+    """A FAST self-interested opponent reply (no full enumeration) for find_minimax: block ONLY to survive
+    (else keep creatures to race), else swing its WIDEST attack (its own clock — finds combat lethal
+    naturally), else develop its biggest castable spell, else pass. This makes each opponent node ONE
+    env.step instead of stepping+scoring every opponent child (which is O(branching) engine calls and
+    exploded the search on busy boards). It still races, takes lethals, and self-preserves, but never spends
+    a move purely to deny my development."""
+    acts = env.legal_actions(s)
+    blocks = [a for a in acts if a[0] == "block"]
+    if blocks:
+        return ("block", _survival_block(s, [a[1] for a in blocks]))
+    attacks = [a for a in acts if a[0] == "attack"]
+    if attacks:
+        return max(attacks, key=lambda a: len(a[1]))          # widest swing — its own clock / any lethal
+    casts = [a for a in acts if a[0] == "cast"]
+    if casts:
+        mc = {sp: c for (sp, c) in s.get("mana_cost", set())}
+        return max(casts, key=lambda a: mc.get(a[2], 0))      # develop the biggest castable
+    return next((a for a in acts if a[0] == "pass"), acts[0] if acts else None)
 
 
 def _canon_sub(sub):
@@ -144,6 +166,38 @@ def _opp_pressure(s, opp, axis, start_life=20):
         lib = sum(1 for (q, _c) in s.get("in_library", set()) if q == opp)
         return max(0.0, (_LIB_REF - lib) / _LIB_REF)
     return 0.0                                                 # alt_win / unknown -> no pressure metric (dev only)
+
+
+def _board_power(s, p):
+    """Total power of the creatures `p` controls on the battlefield — a proxy for the recurring combat clock
+    the player threatens (what the snapshot win-axis pressure, which only counts damage ALREADY dealt, misses)."""
+    bf = {c for (c,) in s.get("on_battlefield", set())}
+    mine = {c for (q, c) in s.get("printed_control", set()) if q == p}
+    ptype = s.get("printed_type", set())
+    pw = {c: int(n) for (c, n) in s.get("printed_power", set())}
+    return sum(pw.get(c, 0) for c in (mine & bf) if (c, "creature") in ptype)
+
+
+def _hand_count(s, p):
+    return sum(1 for (q, _c) in s.get("in_hand", set()) if q == p)
+
+
+def _minimax_leaf(s, me, opp, my_axis, opp_axis, synergy, start_life):
+    """The SHARPENED positional value (MY perspective) used at the minimax horizon. Beyond the snapshot
+    win-axis differential, it values the DYNAMIC edge that predicts who wins from here:
+      • win pressure: how close I am to winning on MY §104 axis + my synergy combo, MINUS how close the
+        opponent is to winning on ITS axis (the opp's real threat — combat life loss vs a life deck, poison
+        vs infect, etc. — is exactly its axis pressure on me), on the shared %-scale (1 dmg = 5, 1 poison = 10);
+      • BOARD CLOCK: net creature power (mine − opp's) × 2.5 — a body is recurring future damage the pressure
+        term (damage already dealt) doesn't see, so a developed 3/3 is worth ~1.5 'dealt-damage' units, which
+        is what lets the search value building/keeping a board instead of under-rating it;
+      • CARD ADVANTAGE: net cards in hand — more future plays."""
+    mp = _opp_pressure(s, opp, my_axis, start_life) if opp else 0.0      # my pressure toward opp losing
+    op = _opp_pressure(s, me, opp_axis, start_life) if opp else 0.0      # opp's pressure toward me losing
+    base = (mp + synergy_score(s, me, synergy) - op) * 100
+    clock = (_board_power(s, me) - (_board_power(s, opp) if opp else 0)) * 2.5
+    cards = (_hand_count(s, me) - (_hand_count(s, opp) if opp else 0)) * 1.0
+    return base + clock + cards
 
 
 def _development(s, me, axis):
@@ -260,7 +314,8 @@ def _move_order_key(a):
 
 
 def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero", opp_axis: str = "life_zero",
-                 max_turns: int = 2, node_budget: int = 4000, synergy=None, start_life: int = 20):
+                 max_turns: int = 3, node_budget: int = 20000, synergy=None, start_life: int = 20,
+                 time_budget: float = 2.5):
     """Max-n (SELF-INTERESTED opponent) lookahead under PERFECT INFORMATION. Returns (path, value): path[0]
     is the move that maximizes MY winning. I MAXIMIZE my own outcome; the opponent plays for ITS OWN win —
     it takes an immediate win and otherwise maximizes its own §104 progress, but it does NOT spend moves
@@ -270,25 +325,25 @@ def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero",
     on its own merits against an opponent that's busy with its own game.
 
     A reached win is +_WIN (sooner preferred), a loss −_WIN (later preferred), else the leaf differential
-    progress_score(me) − progress_score(opp). The opponent's branch collapses to its single self-best reply,
-    so this is also far cheaper than the full adversarial tree."""
+    progress_score(me) − progress_score(opp). The opponent's branch collapses to its single self-best reply.
+
+    DEPTH is bounded by a WALL-CLOCK budget, not node count: env.step is ~10–80ms (it runs the engine through
+    several phase steps), so a fixed node cap is a poor proxy for latency — a busy board blows past it. Instead
+    `time_budget` bounds the DECISION's wall time; `max_turns` is the horizon ceiling. On a sparse board the
+    search reaches the full horizon in well under budget; on a busy one it stops at the deadline with the best
+    line found so far (move-ordered, best-first). The transposition table collapses move-order permutations so
+    the time buys real depth, not re-search."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     opps = _others_of(s0, me)
     opp = opps[0] if opps else None
     start_turn = s0.get("_turn", 0)
     nodes = [0]
+    memo: dict = {}                                             # (engine-fact key, turn) -> subtree value
+    deadline = time.perf_counter() + time_budget               # hard wall-clock bound on the decision
 
-    def my_leaf(s):                                             # MY value of a horizon state: the race differential
-        mine = progress_score(s, me, my_axis, synergy, start_life)
-        theirs = progress_score(s, opp, opp_axis, None, start_life) if opp else 0.0
-        return mine - theirs
-
-    def opp_obj(s):                                             # the OPPONENT's OWN objective (NOT −my value):
-        if env.is_terminal(s):                                 # take a win / avoid dying, else its own progress
-            w = env.winner(s)
-            return _WIN if w == opp else (-_WIN if w == me else 0.0)
-        return progress_score(s, opp, opp_axis, None, start_life) if opp else 0.0
+    def my_leaf(s):                                             # MY value at the horizon: the SHARPENED eval
+        return _minimax_leaf(s, me, opp, my_axis, opp_axis, synergy, start_life)
 
     def search(s):                                             # MY-perspective value of the position
         nodes[0] += 1
@@ -300,21 +355,39 @@ def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero",
             if w is not None:
                 return -_WIN + elapsed                          # forced loss: delay it
             return 0.0
-        if nodes[0] > node_budget or s.get("_turn", 0) - start_turn > max_turns:
+        if nodes[0] > node_budget or s.get("_turn", 0) - start_turn > max_turns \
+                or time.perf_counter() > deadline:              # WALL-CLOCK bound: stop here, evaluate now
             return my_leaf(s)
+        if env.to_move(s) != me:
+            a = _opp_self_move(s)                                # OPPONENT: one fast self-interested reply
+            return search(env.step(s, a)) if a is not None else my_leaf(s)
+        # MY node: maximize over my moves. TRANSPOSITION TABLE — the opponent is a deterministic policy, so a
+        # state's value depends only on (its engine facts, turn); the same board reached by different move
+        # ORDERS (cast A then B vs B then A) collapses to one computation. This is what makes deeper horizons
+        # affordable: without it the move-order permutations alone blow the tree up faster than the budget.
+        tk = (_key(s), s.get("_turn", 0))
+        if tk in memo:
+            return memo[tk]
         acts = _dedup_actions(s, env.legal_actions(s))
         acts.sort(key=_move_order_key)
         if not acts:
             return my_leaf(s)
-        if env.to_move(s) == me:                                # I MAXIMIZE my own outcome over all my moves
-            return max(search(env.step(s, a)) for a in acts)
-        best_child, best_ov = None, -math.inf                   # OPPONENT: follow its single SELF-best reply —
-        for a in acts:                                          # it optimizes opp_obj (its own win/progress),
-            child = env.step(s, a)                              # not −(my value), so it won't grief my dev
-            ov = opp_obj(child)
-            if ov > best_ov:
-                best_ov, best_child = ov, child
-        return search(best_child) if best_child is not None else my_leaf(s)
+        # Expand children, but STOP once the node budget is hit — this is what actually bounds wall time:
+        # env.step (the ~7ms engine call) runs per child, so an unbounded my-node loop on a busy board steps
+        # thousands of children regardless of `node_budget`. Capping mid-loop bounds total env.steps to ~the
+        # budget. Only memoize a FULLY expanded node (a budget-truncated value is approximate — don't cache
+        # it for reuse elsewhere).
+        v, full = -math.inf, True
+        for a in acts:
+            if nodes[0] > node_budget or time.perf_counter() > deadline:
+                full = False
+                break
+            v = max(v, search(env.step(s, a)))
+        if v == -math.inf:                                      # budget cut before any child expanded
+            return my_leaf(s)
+        if full:
+            memo[tk] = v
+        return v
 
     if env.is_terminal(s0) or env.to_move(s0) != me:           # nothing for ME to choose here (defensive)
         return [], search(s0)
@@ -366,7 +439,7 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
                        axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000,
                        synergy=None, start_life: int = 20, minimax: bool = False,
-                       opp_axis: str = "life_zero"):
+                       opp_axis: str = "life_zero", minimax_time: float = 2.5):
     """A policy (state, key, options, default)->choice. At a play decision:
       1. search for a forced win within `max_turns` — if found, play its first move.
       2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the develop move:
@@ -384,9 +457,10 @@ def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=Non
         if ck not in cache:
             path, _ = find_win(state, me=env.to_move(state), max_turns=max_turns, node_budget=node_budget)
             if not path and axis:                              # no kill in sight -> develop toward the win
-                if minimax:                                    # adversarial: maximize mine, minimize theirs
+                if minimax:                                    # adversarial: maximize mine, self-interested opp
                     path, _ = find_minimax(state, env.to_move(state), axis, opp_axis, progress_turns,
-                                           progress_budget, synergy=synergy, start_life=start_life)
+                                           progress_budget, synergy=synergy, start_life=start_life,
+                                           time_budget=minimax_time)
                 else:                                          # opponent-passive progress
                     path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget,
                                             synergy=synergy, start_life=start_life)

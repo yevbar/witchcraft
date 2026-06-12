@@ -226,7 +226,8 @@ class EnginePolicy:
         # best line to win/deny. Default off -> the opponent-passive find_progress.
         self.minimax = os.environ.get("MTG_MINIMAX") == "1"
         self.opp_axis = os.environ.get("MTG_OPP_AXIS") or "life_zero"
-        self.minimax_turns = int(os.environ.get("MTG_MINIMAX_TURNS", "2"))   # shallower than progress (opp branches)
+        self.minimax_turns = int(os.environ.get("MTG_MINIMAX_TURNS", "3"))   # horizon ceiling (time-bounded below)
+        self.minimax_time = float(os.environ.get("MTG_MINIMAX_TIME", "2.5"))  # wall-clock cap per decision
         self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
                       "unmodeled_cards": set(), "by_kind": {}, "search_turns": self.max_turns}
         self._pending_name = None      # the card name the lookahead planned for the next 'choose a card name'
@@ -346,7 +347,8 @@ class EnginePolicy:
             if self.minimax:
                 path, _ = win_search.find_minimax(s, me=seat, my_axis=self.axis, opp_axis=self.opp_axis,
                                                   max_turns=self.minimax_turns, node_budget=self.progress_budget,
-                                                  synergy=self.synergy, start_life=self.start_life)
+                                                  synergy=self.synergy, start_life=self.start_life,
+                                                  time_budget=self.minimax_time)
                 kind_tag = "minimax"
             else:
                 path, _ = win_search.find_progress(s, me=seat, axis=self.axis,
