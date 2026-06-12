@@ -841,6 +841,22 @@ def _activated_cost(cost: str) -> tuple | None:
     return (mana, taps)
 
 
+# §605 a non-mana ACTIVATION cost on a mana ability that the driver pays SPECIALLY (not as generic+tap):
+# 'Pay N life' (Treasonous Ogre), 'Exile ~ from your hand' (Simian/Elvish Spirit Guide — the source is a card
+# in HAND), 'Discard your hand' (Lion's Eye Diamond, which also Sacrifices — flagged source_sacrifice from the
+# card text). Returns (kind, amount) or None to abstain. The mana itself is registered via _add_mana_source.
+def _alt_mana_cost(cost) -> tuple | None:
+    s = str(cost or "").strip()
+    m = re.match(r"^Pay (\d+) life$", s, re.I)
+    if m:
+        return ("pay_life", int(m.group(1)))
+    if re.match(r"^Exile (~|this card|this creature|this artifact) from your hand$", s, re.I):
+        return ("exile_hand", 0)
+    if re.match(r"^Discard your hand$", s, re.I):
+        return ("discard_hand", 0)
+    return None
+
+
 # keywords the engine models as printed_keyword inputs (it derives flying/evasion/etc. from these).
 # first_strike / double_strike are RECOGNIZED keywords (granted/printed faithfully into has_keyword); the
 # combat-damage step doesn't yet split first-strike or double the damage, so granting them is combat-inert —
@@ -1238,6 +1254,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
             paid = _activated_cost(ab.get("cost"))
             if paid is None:
+                # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
+                # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
+                # Sacrifice: Add 3' (Lion's Eye Diamond). Register it as a real mana source with its SPECIAL
+                # cost (paid by the driver when the source is used), instead of dropping the add_mana clause.
+                alt = _alt_mana_cost(ab.get("cost")) if any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
+                if alt is not None and _add_mana_source(add, tid, False, 0, False, ab.get("effects", [])):
+                    add("source_special_cost", (tid, alt[0], alt[1]))
+                    if "sacrifice" in str(c.get("text", "")).lower():   # LED-style one-shot (Sacrifice ~)
+                        add("source_sacrifice", (tid,))
+                    continue
                 dropped.append(("activated_cost", ab.get("cost")))
                 continue
             a = f"{tid}_{aid}"

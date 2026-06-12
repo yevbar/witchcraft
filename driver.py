@@ -840,6 +840,33 @@ _WUBRG = ("white", "blue", "black", "red", "green")
 ANY = frozenset(_WUBRG)                                        # produced "any color" — spends as any WUBRG pip
 
 
+def _source_unit_list(c: str, s_fixed: set, s_wild: set) -> list:
+    """The mana UNITS a precise (lexed) source `c` taps for — concrete colors and wildcard/bundle descriptors
+    from its source_produces / source_wildcard rows (§106). Shared by the normal and alt-cost source loops."""
+    units: list = []
+    for (t, col, amt) in s_fixed:
+        if t == c:
+            units += [col] * int(amt)
+    for (t, kind, amt) in s_wild:
+        if t == c:
+            if kind in _SAME_COLOR_KINDS and int(amt) > 1:
+                # §106 'add N mana of any ONE color' (Black Lotus / Lion's Eye Diamond): a bundle — all N
+                # share one chosen color, NOT N independent wildcards (which would fabricate impossible
+                # multi-color mana). A ('one', colorset, n) unit the pool resolves to one color.
+                units.append(("one", _wildcard_set(kind), int(amt)))
+            else:
+                units += [_wildcard_set(kind)] * int(amt)     # independent wildcard mana (any color)
+    return units
+
+
+def _source_cost_generic(c: str, s_cost: set) -> int:
+    return next((int(g) for (t, g, _ts) in s_cost if t == c), 0)
+
+
+def _source_taps(c: str, s_cost: set) -> bool:
+    return next((bool(ts) for (t, _g, ts) in s_cost if t == c), True)
+
+
 def _source_units(state: dict, ap: str):
     """Every untapped mana SOURCE the active player controls, with the REAL mana it taps for (§106/§605).
     Yields (source_id, units, cost_generic, taps_self) where `units` is the list of mana the source
@@ -869,33 +896,40 @@ def _source_units(state: dict, ap: str):
         unit = frozenset(cols) if len(cols) > 1 else (cols[0] if cols else "colorless")
         yield (c, [unit], 0, True)
 
+    # §605 ALT-COST mana sources (Treasonous Ogre 'Pay 3 life', Spirit Guides 'Exile ~ from hand', Lion's Eye
+    # Diamond 'Discard hand, Sacrifice') — handled in a dedicated block below (they pay a SPECIAL cost, not a
+    # tap), so exclude their tids from the normal battlefield loop here.
+    special_cost = state.get("source_special_cost", set())
+    special_tids = {t for (t, _k, _a) in special_cost}
+
     # non-land sources controlled by ap and untapped. §302.6 summoning sickness only blocks a CREATURE's
     # {T} mana ability (a dork that entered this turn) — a mana ROCK (artifact) taps the turn it enters.
     is_creature = state.get("printed_type", set())
-    rest = sorted(c for (c,) in bf if (ap, c) in ctrl and (c,) not in tapped
+    rest = sorted(c for (c,) in bf if (ap, c) in ctrl and (c,) not in tapped and c not in special_tids
                   and (c, "land") not in state.get("printed_type", set())
                   and not ((c, "creature") in is_creature and (c,) in sick)
                   and (c in precise or (c,) in state.get("mana_source", set())))
     for c in rest:
         if c in precise:
-            units: list = []
-            for (t, col, amt) in s_fixed:
-                if t == c:
-                    units += [col] * int(amt)
-            for (t, kind, amt) in s_wild:
-                if t == c:
-                    if kind in _SAME_COLOR_KINDS and int(amt) > 1:
-                        # §106 'add N mana of any ONE color' (Black Lotus): a bundle — all N share one
-                        # chosen color, NOT N independent wildcards (which would fabricate impossible
-                        # multi-color mana). A ('one', colorset, n) unit the pool resolves to one color.
-                        units.append(("one", _wildcard_set(kind), int(amt)))
-                    else:
-                        units += [_wildcard_set(kind)] * int(amt)   # independent wildcard mana (any color)
-            cg = next((int(g) for (t, g, _ts) in s_cost if t == c), 0)
-            ts = next((bool(ts) for (t, _g, ts) in s_cost if t == c), True)
-            yield (c, units, cg, ts)
+            yield (c, _source_unit_list(c, s_fixed, s_wild), _source_cost_generic(c, s_cost), _source_taps(c, s_cost))
         else:                                                # legacy un-lexed dork: one colorless mana (§605)
             yield (c, ["colorless"], 0, True)
+
+    # §605 ALT-COST mana sources: a from-hand source (Spirit Guides — 'exile_hand') lives in the active
+    # player's HAND; a battlefield one (Treasonous Ogre 'pay_life', Lion's Eye Diamond 'discard_hand') is an
+    # untapped permanent it controls. We yield the mana they produce with cost_generic=0 / taps_self=False —
+    # the SPECIAL cost (life / discard / exile / sacrifice) is paid by _spend_mana when the source is used.
+    in_hand = state.get("in_hand", set())
+    for (t, kind, _amt) in sorted(special_cost):
+        if t not in precise:
+            continue
+        if kind == "exile_hand":
+            if (ap, t) not in in_hand:
+                continue                                     # the card must be in the active player's hand
+        else:
+            if (t,) not in bf or (ap, t) not in ctrl or (t,) in tapped:
+                continue                                     # a battlefield alt-cost source, untapped & controlled
+        yield (t, _source_unit_list(t, s_fixed, s_wild), 0, False)
 
 
 # §106 mana descriptors where N mana must all be ONE chosen color (a bundle), not N independent wildcards.
@@ -964,6 +998,10 @@ def _controls_any_source(state: dict, ap: str) -> bool:
             continue
         if (c, "land") in ptype or (c,) in state.get("mana_source", set()) or c in precise:
             return True
+    # §605 a from-hand alt-cost mana source (Spirit Guide in hand) is a real source even with no board.
+    hand_exile = {t for (t, k, _a) in state.get("source_special_cost", set()) if k == "exile_hand"}
+    if any(c in hand_exile for (p, c) in state.get("in_hand", set()) if p == ap):
+        return True
     return False
 
 
@@ -1101,6 +1139,30 @@ def _sacrifice_source(state: dict, sid: str) -> None:
     state.get("on_battlefield", set()).discard((sid,))
     state.setdefault("graveyard", set()).add((sid,))
     state.get("tapped", set()).discard((sid,))
+
+
+def _pay_special_source_cost(state: dict, ap: str, sid: str, cost: tuple) -> None:
+    """§605 pay an ALT-COST mana source's special activation cost when it's used for mana:
+      pay_life   — the controller loses N life (Treasonous Ogre);
+      exile_hand — the source card is exiled FROM HAND (Simian / Elvish Spirit Guide);
+      discard_hand — the controller discards the rest of their hand to the graveyard (Lion's Eye Diamond;
+                     its self-sacrifice is handled separately via source_sacrifice).
+    The mana itself is produced by the normal source machinery; this only deducts the cost."""
+    kind, amount = cost
+    if kind == "pay_life":
+        _adjust_life(state, ap, -int(amount))
+        print(f"    {ap} pays {amount} life to activate {sid}")
+    elif kind == "exile_hand":
+        state.get("in_hand", set()).discard((ap, sid))
+        state.setdefault("exile", set()).add((sid,))
+        print(f"    {ap} exiles {sid} from hand for mana")
+    elif kind == "discard_hand":
+        rest = [c for (p, c) in state.get("in_hand", set()) if p == ap and c != sid]
+        for c in rest:
+            state["in_hand"].discard((ap, c))
+            state.setdefault("graveyard", set()).add((c,))
+        if rest:
+            print(f"    {ap} discards their hand ({len(rest)} card(s)) to activate {sid}")
 
 
 def _slots_bundles(units):
@@ -1334,10 +1396,16 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         return False
 
     # order: concrete single-color sources first (preserve flexible wildcards/bundles for pips), then flex.
+    # §605 an ALT-COST source (pay life / discard hand / exile from hand) is sorted LAST — a last resort the
+    # driver taps only when normal lands/rocks can't cover the cost (so it won't gratuitously crack Lion's Eye
+    # Diamond or pay life when a land would do).
+    special_tids = {t for (t, _k, _a) in state.get("source_special_cost", set())}
+
     def keyf(row):
         _sid, units, _cg, _ts = row
         flexcount = sum(1 for u in units if isinstance(u, (frozenset, tuple)))
-        return (flexcount, sum(u[2] if isinstance(u, tuple) and u and u[0] == "one" else 1 for u in units))
+        return (1 if _sid in special_tids else 0, flexcount,
+                sum(u[2] if isinstance(u, tuple) and u and u[0] == "one" else 1 for u in units))
     for sid, units, cg, _ts in sorted(rows, key=keyf):
         if not (need_pips and any(v > 0 for v in need_pips.values())) and need_generic <= 0:
             break
@@ -1346,8 +1414,13 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
             used.add(sid)
             used_rows.append((sid, units, cg, _ts))
     sacrifices = state.get("source_sacrifice", set())
+    special = {t: (k, int(a)) for (t, k, a) in state.get("source_special_cost", set())}
     for sid in used:
-        if (sid,) in sacrifices:                              # §605 one-shot fast mana: sacrificed, not tapped
+        if sid in special:                                    # §605 alt-cost source: pay the SPECIAL cost, no tap
+            _pay_special_source_cost(state, ap, sid, special[sid])
+            if (sid,) in sacrifices:                           # Lion's Eye Diamond also sacrifices itself
+                _sacrifice_source(state, sid)
+        elif (sid,) in sacrifices:                            # §605 one-shot fast mana: sacrificed, not tapped
             _sacrifice_source(state, sid)
         else:
             state.setdefault("tapped", set()).add((sid,))

@@ -56,6 +56,50 @@ def _castable(st, sid):
     return any(s == sid for (p, s) in driver.run(st, ["can_cast"])["can_cast"] if p == "alice")
 
 
+def _life(st, p):
+    return next((l for (q, l) in st.get("life", set()) if q == p), None)
+
+
+def _altmana_checks():
+    # §605 ALT-COST mana sources — non-mana activation costs the bridge registers as real sources whose
+    # special cost the driver pays when the mana is used.
+
+    # Treasonous Ogre ('Pay 3 life: Add {R}') on the battlefield pays for a {R} spell by losing 3 life.
+    st, ids = _state(["Treasonous Ogre"], ["Lightning Bolt"])
+    check("Treasonous Ogre offers a {R} source (its mana is in the pool)",
+          any(c == "red" for (p, c, _n) in st.get("mana_pool", set()) if p == "alice"))
+    check("Lightning Bolt ({R}) is castable off Treasonous Ogre", _castable(st, ids["Lightning Bolt"]))
+    before = _life(st, "alice")
+    driver._cast_spell(st, "alice", ids["Lightning Bolt"], ["alice", "bob"])
+    check("casting via Treasonous Ogre pays 3 life", _life(st, "alice") == before - 3)
+
+    # Simian Spirit Guide ('Exile ~ from your hand: Add {R}') — a FROM-HAND source, exiled when used.
+    st, ids = _state([], ["Simian Spirit Guide", "Lightning Bolt"])
+    check("a from-hand Spirit Guide offers a {R} source",
+          any(c == "red" for (p, c, _n) in st.get("mana_pool", set()) if p == "alice"))
+    check("Lightning Bolt castable off a from-hand Spirit Guide", _castable(st, ids["Lightning Bolt"]))
+    driver._cast_spell(st, "alice", ids["Lightning Bolt"], ["alice", "bob"])
+    check("the Spirit Guide is exiled from hand when its mana is spent",
+          (ids["Simian Spirit Guide"],) in st.get("exile", set())
+          and ("alice", ids["Simian Spirit Guide"]) not in st.get("in_hand", set()))
+
+    # Lion's Eye Diamond ('Discard your hand, Sacrifice: Add 3 of any one color') pays a {U}{U} spell,
+    # discarding the rest of the hand and sacrificing itself.
+    st, ids = _state(["Lion's Eye Diamond"], ["Thassa's Oracle", "Brainstorm"])
+    check("Thassa's Oracle ({U}{U}) castable off Lion's Eye Diamond", _castable(st, ids["Thassa's Oracle"]))
+    led, brainstorm = ids["Lion's Eye Diamond"], ids["Brainstorm"]
+    driver._cast_spell(st, "alice", ids["Thassa's Oracle"], ["alice", "bob"])
+    check("Lion's Eye Diamond is sacrificed when used", (led,) in st.get("graveyard", set()))
+    check("Lion's Eye Diamond discards the rest of the hand",
+          ("alice", brainstorm) not in st.get("in_hand", set()) and (brainstorm,) in st.get("graveyard", set()))
+
+    # last-resort ordering: with a Mountain available, a {R} spell uses the LAND, not Treasonous Ogre's life.
+    st, ids = _state(["Treasonous Ogre", "Mountain"], ["Lightning Bolt"])
+    before = _life(st, "alice")
+    driver._cast_spell(st, "alice", ids["Lightning Bolt"], ["alice", "bob"])
+    check("an alt-cost source is a LAST resort (a land is used before paying life)", _life(st, "alice") == before)
+
+
 def run():
     # lexing: both get a sac-self source row; Black Lotus = any_one_color×3, Lotus Petal = any_color×1.
     bl = list(B._mana_source_outputs(CORPUS["Black Lotus"]))
@@ -94,6 +138,8 @@ def run():
     pool = {c: n for (p, c, n) in st.get("mana_pool", set()) if p == "alice"}
     check("dual + Moxen can make 2 blue (Sea aimed at demand)", pool.get("blue", 0) >= 2)
     check("Thassa's Oracle castable off dual+Moxen", _castable(st, ids["Thassa's Oracle"]))
+
+    _altmana_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
