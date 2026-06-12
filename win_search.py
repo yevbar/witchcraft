@@ -30,15 +30,40 @@ def _key(s):
             frozenset(s.get("floating_mana", set())))
 
 
+def _survival_block(s, opts):
+    """The defender's block choice: take NO blocks unless the unblocked attack is LETHAL; if lethal, the
+    offered block set that survives with the least damage through. A realistic midrange defender — it eats
+    chip damage (so the agent still values attacking for progress) but won't DIE to an unblocked alpha strike
+    (so find_win can't fabricate a 'win' from an attack the opponent would simply block to survive)."""
+    players = {p for (p,) in s.get("is_player", set())}
+    attacks = s.get("attacks", set())
+    defender = next((d for (_a, d) in attacks if d in players), None)
+    if defender is None:
+        return frozenset()
+    deflife = next((int(n) for (q, n) in s.get("life", set()) if q == defender), 20)
+    pw = {c: int(n) for (c, n) in driver.run(s, ["power"])["power"]}
+    attackers = {a for (a, _d) in attacks}
+
+    def dmg(bset):
+        blocked = {a for (_b, a) in bset}
+        return sum(pw.get(a, 0) for a in attackers if a not in blocked)
+
+    if dmg(frozenset()) < deflife:                            # not lethal -> a midrange defender takes it
+        return frozenset()
+    return min(opts, key=dmg)                                 # lethal incoming -> block to survive
+
+
 def _opp_action(s):
-    """The opponent's least-disruptive move (optimistic): pass, else declare no blocks, else first."""
+    """The opponent's least-disruptive move (optimistic reachability — pass priority, take no proactive
+    plays), with ONE dose of realism: at a block decision it blocks to AVOID LETHAL (else takes the damage).
+    Combos are unaffected (no opponent combat); combat 'wins' must now be lethal THROUGH a survival block."""
     acts = env.legal_actions(s)
     for a in acts:
         if a[0] == "pass":
             return a
-    for a in acts:
-        if a[0] == "block" and not a[1]:
-            return a
+    blocks = [a for a in acts if a[0] == "block"]
+    if blocks:
+        return ("block", _survival_block(s, [a[1] for a in blocks]))
     return acts[0] if acts else None
 
 

@@ -146,11 +146,36 @@ def _progress_checks():
     check("policy without an axis falls back (no development)", plain == acts[0])
 
 
+def _defensive_opponent():
+    # the search's opponent now BLOCKS to avoid lethal: a single attacker the defender can block away is NOT
+    # a fabricated win, but lethal THROUGH the survival block still is.
+    def base():
+        return {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+                "current_step": {("precombat_main",)}, "in_hand": set(),
+                "in_library": {("bob", f"b{i}") for i in range(20)}, "_lib_order": {"bob": [f"b{i}" for i in range(20)]},
+                "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
+                "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+    a = base(); a["life"] = {("alice", 20), ("bob", 3)}
+    a["on_battlefield"] = {("big",), ("blk",)}; a["printed_type"] = {("big", "creature"), ("blk", "creature")}
+    a["printed_power"] = {("big", 5), ("blk", 2)}; a["printed_toughness"] = {("big", 5), ("blk", 2)}
+    a["printed_control"] = {("alice", "big"), ("bob", "blk")}
+    check("a single attacker the opponent can block is NOT a fabricated win",
+          win_search.find_win(a, me="alice", max_turns=2, node_budget=3000)[0] is None)
+    b = base(); b["life"] = {("alice", 20), ("bob", 3)}
+    b["on_battlefield"] = {("b1",), ("b2",), ("blk",)}
+    b["printed_type"] = {("b1", "creature"), ("b2", "creature"), ("blk", "creature")}
+    b["printed_power"] = {("b1", 5), ("b2", 5), ("blk", 2)}; b["printed_toughness"] = {("b1", 5), ("b2", 5), ("blk", 2)}
+    b["printed_control"] = {("alice", "b1"), ("alice", "b2"), ("bob", "blk")}
+    check("lethal THROUGH a survival block is still found",
+          win_search.find_win(b, me="alice", max_turns=2, node_budget=4000)[0] is not None)
+
+
 def run():
     _combat_lethal()
     _spell_win()
     _no_false_win()
     _progress_checks()
+    _defensive_opponent()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
