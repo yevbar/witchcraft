@@ -37,7 +37,8 @@ import ground
 AXES = {
     "life_zero":        "reduce a player to 0 life (§104.2a)",
     "poison_ten":       "give a player 10 poison counters (§104.2c)",
-    "commander_damage": "21 combat damage from one commander (§903.10a)",
+    "commander_damage": "21 combat damage from one commander (§903.10a) — Commander games only; "
+                        "the engine declares the threshold but does not yet adjudicate it (a coverage gap)",
     "mill_out":         "make a player draw from an empty library (§104.3a / §104.2c deck-out)",
     "alt_win":          "an effect that says you win / a player loses (§104.2)",
 }
@@ -113,10 +114,11 @@ def _clauses(slug: str):
     return out, f
 
 
-def card_profile(name: str) -> dict:
+def card_profile(name: str, commander: bool = False) -> dict:
     """Classify ONE card from its interpreted mechanics: role (wins/helps/manabase/filler), the §104 axes it
     advances (with a rough magnitude), helper tags, whether it's a finisher, and the clauses the engine can't
-    yet read (the discoverable frontier)."""
+    yet read (the discoverable frontier). `commander` gates the §903.10a commander-damage axis — outside a
+    Commander game a legendary creature is NOT a commander and deals no commander damage."""
     db, corpus = _load()
     c = corpus.get(name, {})
     slug = ground.slug(name)
@@ -175,7 +177,9 @@ def card_profile(name: str) -> dict:
             add_axis("life_zero", mag, f"{power}-power creature" + (" (evasive)" if evasive else ""), src="combat")
             if power >= 5 and evasive:
                 finisher = True
-            if legendary and power >= 4:
+            # §903.10a commander damage applies ONLY in a Commander game (and only to a card that is the
+            # commander). Outside that format it's a no-op — a legendary creature is just a creature.
+            if commander and legendary and power >= 4:
                 add_axis("commander_damage", power + (4 if evasive else 0), "big legendary (commander-damage)")
 
     # grants infect/toxic to YOUR team (converts combat to the poison axis: Triumph of the Hordes).
@@ -237,19 +241,20 @@ def card_profile(name: str) -> dict:
             "in_corpus": name in corpus, "dmg": dmg, "no_effect": no_effect}
 
 
-def evaluate(names, label: str = "deck", quiet: bool = False) -> dict:
-    """Classify a whole decklist (count-agnostic) and report its win topology + mechanic."""
+def evaluate(names, label: str = "deck", quiet: bool = False, commander: bool = False) -> dict:
+    """Classify a whole decklist (count-agnostic) and report its win topology + mechanic. `commander` enables
+    the §903.10a commander-damage axis (only meaningful in a Commander game)."""
     import builtins
     _print = (lambda *a, **k: None) if quiet else builtins.print
     globals()["print"] = _print
     try:
-        return _evaluate(names, label)
+        return _evaluate(names, label, commander)
     finally:
         globals().pop("print", None)
 
 
-def _evaluate(names, label: str) -> dict:
-    profs = [card_profile(n) for n in dict.fromkeys(names)]      # distinct, order-preserving
+def _evaluate(names, label: str, commander: bool = False) -> dict:
+    profs = [card_profile(n, commander) for n in dict.fromkeys(names)]   # distinct, order-preserving
     deck_axis: dict[str, float] = {}
     combat = spell = 0.0
     for p in profs:
@@ -302,6 +307,8 @@ def _evaluate(names, label: str) -> dict:
 
 
 def _named_deck(name: str, cedh: bool):
+    """Return (card names, is_commander). cEDH decks ARE Commander (§903); a constructed deck carries its
+    format, so commander damage only applies when that format is Commander."""
     if cedh:
         import cedh_decklists as M
         decks = getattr(M, "DECKS", None) or {}
@@ -312,11 +319,14 @@ def _named_deck(name: str, cedh: bool):
     if d is None:
         raise SystemExit(f"deck not found: {name}\navailable: {', '.join(list(decks)[:12])} …")
     cards = d["cards"]
-    return list(cards.keys()) if isinstance(cards, dict) else list(cards)
+    names = list(cards.keys()) if isinstance(cards, dict) else list(cards)
+    commander = cedh or str(d.get("format", "")).lower() == "commander"
+    return names, commander
 
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if a != "--cedh"]
     cedh = "--cedh" in sys.argv
     deck = args[0] if args else "Izzet Prowess (STD)"
-    evaluate(_named_deck(deck, cedh), label=deck)
+    names, commander = _named_deck(deck, cedh)
+    evaluate(names, label=deck, commander=commander)

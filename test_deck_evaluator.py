@@ -46,6 +46,15 @@ def run() -> None:
     bear = D.card_profile("Grizzly Bears")
     check("Grizzly Bears -> life_zero via combat", bear["dmg"]["combat"] > 0 and bear["dmg"]["spell"] == 0)
 
+    # §903.10a commander damage is format-gated: a legendary creature is NOT a commander outside a
+    # Commander game, so the axis is a no-op there (the engine doesn't adjudicate it at all yet either).
+    std = D.card_profile("Atraxa, Praetors' Voice", commander=False)
+    cmd = D.card_profile("Atraxa, Praetors' Voice", commander=True)
+    check("legendary in a NON-commander deck -> no commander_damage axis",
+          "commander_damage" not in std["axes"])
+    check("legendary in a Commander deck -> commander_damage axis applies",
+          cmd["axes"].get("commander_damage", 0) > 0)
+
     # helper engine pieces (no win axis of their own).
     check("Sol Ring -> ramp helper", "ramp" in D.card_profile("Sol Ring")["helps"])
     check("Opt -> draw/selection helper", set(D.card_profile("Opt")["helps"]) & {"draw", "selection"})
