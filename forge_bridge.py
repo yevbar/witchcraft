@@ -335,15 +335,32 @@ class EnginePolicy:
         return best, endorsed, endorsed, max(offered, 1), 1
 
     def _pick_blocks(self, driver, state, seat, options, default):
-        """Among Forge's candidate block assignments, pick one our engine deems legal (no illegal_block)."""
-        legal_cand, endorsed = default, 0
+        """Block to AVOID LETHAL, else take the damage — the seat's defense MIRRORS the search's opponent
+        model (a racing/aggro posture: keep creatures attacking, chump only to survive). Among Forge's legal
+        candidate assignments (our engine agrees no illegal_block), pick: no-block if the unblocked swing is
+        survivable, else the legal block that lets the seat live with the least damage through."""
+        offered = max(sum(len(c) for c in options if c), 1)
+        pw = {c: int(n) for (c, n) in driver.run(state, ["power"])["power"]}
+        attackers = {a for (a, d) in state.get("attacks", set()) if d == seat}
+        mylife = next((int(n) for (q, n) in state.get("life", set()) if q == seat), 20)
+
+        def dmg(cand):
+            blocked = {a for (_b, a) in cand}
+            return sum(pw.get(a, 0) for a in attackers if a not in blocked)
+
+        legal = []
         for cand in options:
             probe = driver.clone_state(state)
             probe["blocks"] = {tuple(p) for p in cand}
-            bad = driver.run(probe, ["illegal_block"])["illegal_block"]
-            if not bad and len(cand) >= endorsed:
-                legal_cand, endorsed = cand, len(cand)
-        return legal_cand, endorsed, endorsed, max(sum(len(c) for c in options if c), 1), 1
+            if not driver.run(probe, ["illegal_block"])["illegal_block"]:
+                legal.append(cand)
+        if not legal:
+            return default, 0, 0, offered, 1
+        no_block = next((c for c in legal if not c), None)
+        if no_block is not None and dmg(no_block) < mylife:       # not lethal -> race, keep blockers attacking
+            return no_block, 0, 0, offered, 1
+        best = min(legal, key=dmg)                                # lethal -> survive on the least damage through
+        return best, len(best), len(best), offered, 1
 
     def coverage(self) -> dict:
         """A completeness report: of the options Forge offered at engine-handled decisions, the fraction our
