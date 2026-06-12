@@ -217,18 +217,26 @@ def _minimax_checks():
     _pb, vb = win_search.find_minimax(b, me="alice", max_turns=2, node_budget=4000)
     check("minimax: an opponent that can block to survive is NOT a fabricated win", -10 ** 5 < vb < 10 ** 5)
 
-    # ADVERSARIAL DEFENSE: behind on the race (alice 3/3, bob 6/6, both at 6), minimax HOLDS THE 3/3 BACK as
-    # a blocker rather than attack it into the bigger creature and lose it — the opponent's faster clock is
-    # accounted for (find_progress, opponent-passive, would attack for 'progress' and lose the blocker).
-    r = base(6, 6)
-    r["on_battlefield"] = {("a3",), ("b6",)}
-    r["printed_type"] = {("a3", "creature"), ("b6", "creature")}
-    r["printed_power"] = {("a3", 3), ("b6", 6)}; r["printed_toughness"] = {("a3", 3), ("b6", 6)}
-    r["printed_control"] = {("alice", "a3"), ("bob", "b6")}
-    pr, vr = win_search.find_minimax(r, me="alice", max_turns=2, node_budget=4000)
-    check("minimax: behind on the race, it does NOT attack into the bigger blocker (keeps its blocker)",
-          pr == [] or pr[0][0] != "attack" or not pr[0][1])
-    check("minimax: a losing race scores below an even position", vr < 0)
+    # SELF-INTERESTED OPPONENT (max-n, not zero-sum): the opponent plays for ITS OWN win and does NOT spend
+    # moves purely to deny my development — so a creature I develop scores on its own merits instead of being
+    # 'answered' to flat by a griefing opponent. From the develop state (a 3/3 in hand + mana, benign board)
+    # minimax DEVELOPS rather than holding back. (The old zero-sum minimax would discount the cast because the
+    # opponent was modeled as trading it away.)
+    import test_win_search  # noqa: F401 (self) — reuse the develop fixture below via the module-level helper
+    dev = _develop_state()
+    pdev, _vdev = win_search.find_minimax(dev, me="alice", my_axis="life_zero", opp_axis="life_zero",
+                                          max_turns=2, node_budget=4000)
+    check("minimax: a self-interested opponent does NOT grief development — it develops (casts)",
+          bool(pdev) and pdev[0][0] == "cast")
+
+    # but the opponent STILL races to its OWN win: facing an unanswerable lethal board (bob's 10/10, alice at
+    # 3 with no blocker), the value is a loss — the opponent takes the kill (immediate wins are still pursued).
+    L = base(3, 20)
+    L["on_battlefield"] = {("big",)}; L["printed_type"] = {("big", "creature")}
+    L["printed_power"] = {("big", 10)}; L["printed_toughness"] = {("big", 10)}
+    L["printed_control"] = {("bob", "big")}
+    _pl, vl = win_search.find_minimax(L, me="alice", max_turns=2, node_budget=4000)
+    check("minimax: the opponent still races to its OWN win (unanswerable lethal -> a loss value)", vl < -10 ** 5)
 
 
 def run():

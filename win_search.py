@@ -261,10 +261,17 @@ def _move_order_key(a):
 
 def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero", opp_axis: str = "life_zero",
                  max_turns: int = 2, node_budget: int = 4000, synergy=None, start_life: int = 20):
-    """Minimax + alpha-beta lookahead under PERFECT INFORMATION. Returns (path, value): path[0] is the move
-    that maximizes my winning while the opponent plays its best line to win itself / deny me. A reached win
-    is +_WIN (sooner preferred), a reached loss −_WIN (later preferred), else the leaf differential. The
-    opponent uses its FULL legal action set (casts/attacks/blocks), not the passive model of find_win."""
+    """Max-n (SELF-INTERESTED opponent) lookahead under PERFECT INFORMATION. Returns (path, value): path[0]
+    is the move that maximizes MY winning. I MAXIMIZE my own outcome; the opponent plays for ITS OWN win —
+    it takes an immediate win and otherwise maximizes its own §104 progress, but it does NOT spend moves
+    purely to MINIMIZE me. So it still races, takes lethals, and blocks to AVOID DYING (self-preservation),
+    but it never cuts off my development just to deny it (that was the zero-sum minimax's passivity trap:
+    every creature I developed got 'answered', so the search valued holding back). Now my development scores
+    on its own merits against an opponent that's busy with its own game.
+
+    A reached win is +_WIN (sooner preferred), a loss −_WIN (later preferred), else the leaf differential
+    progress_score(me) − progress_score(opp). The opponent's branch collapses to its single self-best reply,
+    so this is also far cheaper than the full adversarial tree."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     opps = _others_of(s0, me)
@@ -272,12 +279,18 @@ def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero",
     start_turn = s0.get("_turn", 0)
     nodes = [0]
 
-    def leaf(s):
+    def my_leaf(s):                                             # MY value of a horizon state: the race differential
         mine = progress_score(s, me, my_axis, synergy, start_life)
         theirs = progress_score(s, opp, opp_axis, None, start_life) if opp else 0.0
         return mine - theirs
 
-    def ab(s, alpha, beta):
+    def opp_obj(s):                                             # the OPPONENT's OWN objective (NOT −my value):
+        if env.is_terminal(s):                                 # take a win / avoid dying, else its own progress
+            w = env.winner(s)
+            return _WIN if w == opp else (-_WIN if w == me else 0.0)
+        return progress_score(s, opp, opp_axis, None, start_life) if opp else 0.0
+
+    def search(s):                                             # MY-perspective value of the position
         nodes[0] += 1
         if env.is_terminal(s):
             w = env.winner(s)
@@ -286,39 +299,32 @@ def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero",
                 return _WIN - elapsed                          # win SOONER -> higher value
             if w is not None:
                 return -_WIN + elapsed                          # forced loss: delay it
-            return 0.0                                          # draw
+            return 0.0
         if nodes[0] > node_budget or s.get("_turn", 0) - start_turn > max_turns:
-            return leaf(s)
+            return my_leaf(s)
         acts = _dedup_actions(s, env.legal_actions(s))
         acts.sort(key=_move_order_key)
         if not acts:
-            return leaf(s)
-        if env.to_move(s) == me:                                # MAXIMIZE my outcome
-            v = -math.inf
-            for a in acts:
-                v = max(v, ab(env.step(s, a), alpha, beta))
-                alpha = max(alpha, v)
-                if alpha >= beta:
-                    break
-            return v
-        v = math.inf                                            # opponent MINIMIZES my outcome (best for them)
-        for a in acts:
-            v = min(v, ab(env.step(s, a), alpha, beta))
-            beta = min(beta, v)
-            if beta <= alpha:
-                break
-        return v
+            return my_leaf(s)
+        if env.to_move(s) == me:                                # I MAXIMIZE my own outcome over all my moves
+            return max(search(env.step(s, a)) for a in acts)
+        best_child, best_ov = None, -math.inf                   # OPPONENT: follow its single SELF-best reply —
+        for a in acts:                                          # it optimizes opp_obj (its own win/progress),
+            child = env.step(s, a)                              # not −(my value), so it won't grief my dev
+            ov = opp_obj(child)
+            if ov > best_ov:
+                best_ov, best_child = ov, child
+        return search(best_child) if best_child is not None else my_leaf(s)
 
-    if env.is_terminal(s0) or env.to_move(s0) != me:           # nothing for ME to choose here (defensive: a
-        return [], ab(s0, -math.inf, math.inf)                  # live play decision is always mine, but a
-    acts = _dedup_actions(s0, env.legal_actions(s0))            # skipped turn / odd state shouldn't crash)
-    acts.sort(key=_move_order_key)                              # root: maximize over MY moves
-    best_a, best_v, alpha = None, -math.inf, -math.inf
+    if env.is_terminal(s0) or env.to_move(s0) != me:           # nothing for ME to choose here (defensive)
+        return [], search(s0)
+    acts = _dedup_actions(s0, env.legal_actions(s0))            # root: maximize over MY moves
+    acts.sort(key=_move_order_key)
+    best_a, best_v = None, -math.inf
     for a in acts:
-        v = ab(env.step(s0, a), alpha, math.inf)
+        v = search(env.step(s0, a))
         if v > best_v:
             best_v, best_a = v, a
-        alpha = max(alpha, best_v)
     return ([best_a] if best_a is not None else []), best_v
 
 
