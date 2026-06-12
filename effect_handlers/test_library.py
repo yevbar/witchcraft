@@ -262,7 +262,39 @@ def _apply_checks() -> None:
     _fire(st, "add_mana", 1, tgt="black")                  # a second ritual accumulates
     check("a second ritual accumulates colored mana", ("alice", "black", 4) in st["mana_pool"])
 
+    _dyn_mana_checks()
     _name_exile_checks()
+
+
+def _dyn_mana_checks() -> None:
+    # §106 variable ritual: 'add R for each creature you control' (Battle Hymn). alice controls 2 creatures
+    # (c3 is bob's; the artifact doesn't count) -> 2 red.
+    st = _state([], ptypes={("c1", "creature"), ("c2", "creature"), ("c3", "creature"), ("art1", "artifact")})
+    st["on_battlefield"] = {("c1",), ("c2",), ("c3",), ("art1",)}
+    st["printed_control"] = {("alice", "c1"), ("alice", "c2"), ("bob", "c3"), ("alice", "art1")}
+    st["mana_pool"] = set(); st["mana_available"] = set(); st["floating_mana"] = set()
+    _fire(st, "dyn_mana", 1, tgt="type:creature:own|red")
+    check("dyn_mana counts own creatures (2), not opponent's or non-creatures", ("alice", "red", 2) in st["mana_pool"])
+
+    # 'add R for each card in your hand' (Inner Fire): alice has 3 cards (bob's don't count) -> 3 red.
+    st = _state([]); st["mana_pool"] = set(); st["mana_available"] = set(); st["floating_mana"] = set()
+    st["in_hand"] = {("alice", "a"), ("alice", "b"), ("alice", "c"), ("bob", "z")}
+    _fire(st, "dyn_mana", 1, tgt="hand:you|red")
+    check("dyn_mana hand:you counts the caster's hand (3)", ("alice", "red", 3) in st["mana_pool"])
+
+    # a multiplier > 1: 'add 2 mana for each X' -> 2×count.
+    st = _state([], psubs={("g1", "goblin"), ("g2", "goblin")})
+    st["on_battlefield"] = {("g1",), ("g2",)}
+    st["printed_control"] = {("alice", "g1"), ("bob", "g2")}
+    st["mana_pool"] = set(); st["mana_available"] = set(); st["floating_mana"] = set()
+    _fire(st, "dyn_mana", 2, tgt="subtype:goblin:all|red")    # 'on the battlefield' -> both goblins, ×2 = 4
+    check("dyn_mana subtype:all counts every matching permanent ×mult (2×2=4)", ("alice", "red", 4) in st["mana_pool"])
+
+    # a count of zero adds nothing (no empty pool row, no crash).
+    st = _state([]); st["mana_pool"] = set(); st["mana_available"] = set(); st["floating_mana"] = set()
+    st["on_battlefield"] = set(); st["printed_control"] = set()
+    _fire(st, "dyn_mana", 1, tgt="type:creature:own|green")
+    check("dyn_mana with a zero count adds no mana", not any(c == "green" for (_p, c, _n) in st["mana_pool"]))
 
 
 def _name_exile_checks() -> None:

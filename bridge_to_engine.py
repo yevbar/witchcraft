@@ -301,6 +301,50 @@ def _damage_qty(amt) -> str | None:
     return _DAMAGE_QTY.get(str(amt))
 
 
+# §106 'Add N mana of a color FOR EACH <a game quantity>' — a variable-amount ritual the engine can't
+# size at translate time (Mana Geyser, Battle Hymn, Inner Fire). card_effects folds the trailing 'for each
+# <X>' into the amount as '<N>_per_<slug>'. We map the <slug> to a count TAG the dyn_mana applier evaluates
+# against live state at resolution (mirroring _DAMAGE_QTY / dyn_damage), then add N×count mana of the fixed
+# color. Only quantities the driver can actually count map; anything else abstains (a wrong amount of mana is
+# worse than dropping the clause). Two scopes: 'you control' (the caster's permanents) and 'on the
+# battlefield' (every permanent). A named per-slug wins; otherwise a '<type|subtype>_<scope>' shape is read.
+_MANA_PER = {
+    "card_in_your_hand": "hand:you",
+    "card_in_target_opponent_s_hand": "hand:opp",
+}
+_MANA_TYPE_NOUNS = {"creature", "artifact", "enchantment", "land", "planeswalker"}
+_MANA_SCOPES = (("_you_control", "own"), ("_on_the_battlefield", "all"))
+
+
+def _generic_mana_tag(per: str) -> str | None:
+    """A '<noun>_you_control' / '<noun>_on_the_battlefield' count -> a type:/subtype: tag the applier reads.
+    A single-word noun is a card TYPE if it's one we model, else a printed SUBTYPE (Swamp, Elf, Goblin). A
+    multi-word noun ('basic_swamp', 'creature_with_power_4_or_greater') abstains — too specific to count."""
+    for suffix, scope in _MANA_SCOPES:
+        if per.endswith(suffix):
+            noun = per[: -len(suffix)]
+            if noun in _MANA_TYPE_NOUNS:
+                return f"type:{noun}:{scope}"
+            if noun.isalpha():                                # a single-word subtype (no underscores)
+                return f"subtype:{noun}:{scope}"
+    return None
+
+
+def _mana_qty(amt) -> tuple | None:
+    """A variable 'add_mana' amount '<N>_per_<slug>' -> (multiplier, count_tag), or None to abstain."""
+    m = re.match(r"^(\d+)_per_(.+)$", str(amt))
+    if not m:
+        return None
+    mult = int(m.group(1))
+    per = m.group(2)
+    tag = _MANA_PER.get(per) or _generic_mana_tag(per)
+    return (mult, tag) if tag is not None else None
+
+
+_MANA_QTY_COLORS = {"white", "blue", "black", "red", "green", "colorless"}
+_MANA_QTY_SELF = {"you", "controller", "self", "it", "-", ""}
+
+
 # §611.2 static anthem/lord board scopes the engine resolves continuously while the source is in play.
 # Attachment scopes ('enchanted/equipped creature') and opponent-board / token-only scopes still abstain —
 # the engine has no attachment join here — but subtype/type/color lords map via an extra static_filter.
@@ -1091,6 +1135,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if _datalog_owns(verb, amt, tgt, extra):         # ONE WORLD: counter / fog / create_token are now
                     continue                                     # DERIVED IN DATALOG (translate.dl) — skip the
                     # python emission (the non-owned cases fall through to _resolved_effect below, unchanged).
+                if verb == "add_mana":
+                    # §106 a VARIABLE ritual ('add R for each creature you control' — Battle Hymn, Mana Geyser,
+                    # Inner Fire). A fixed amount of a concrete color is handled by the add_mana encoder; here
+                    # we route the 'for each <X>' case to a dyn_mana spell_effect the driver evaluates at
+                    # resolution (the fixed-color / fixed-amount cases still flow through _resolved_effect).
+                    mq = _mana_qty(amt)
+                    color = str(extra)
+                    if mq is not None and color in _MANA_QTY_COLORS and str(tgt) in _MANA_QTY_SELF:
+                        mult, qtag = mq
+                        add("spell_effect", (tid, "dyn_mana", mult, f"{qtag}|{color}"))
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

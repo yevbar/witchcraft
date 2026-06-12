@@ -634,3 +634,45 @@ def _apply_add_mana(D, state, a, n, tgt, src, ctrl):
     D._add_floating(state, ctrl, {color: n})
     D._refresh_mana_pool(state, ctrl)                          # surface the floating mana into mana_pool/_available
     print(f"    trigger {a}: {ctrl} adds {n} {color} mana -> floating {D._floating(state, ctrl).get(color, 0)} {color}")
+
+
+# §106 'add N mana of a color FOR EACH <a game quantity>' — a VARIABLE-amount ritual whose size depends on
+# live board/hand state (Battle Hymn = R per creature you control, Mana Geyser = R per tapped land an
+# opponent controls(*), Inner Fire = R per card in your hand). The bridge couldn't compute the amount at
+# translate time, so it emits dyn_mana with a count TAG; we evaluate the tag now and add mult×count mana of
+# the fixed color to the controller's floating pool (mirroring dyn_damage / _dyn_quantity).
+#   (*) the 'tapped land an opponent controls' count abstains in the bridge — we don't track tappedness of an
+#       opponent's lands faithfully — so only the counts below ever reach this applier.
+def _mana_quantity(D, state, tag: str, ctrl: str) -> int:
+    """The live value of a 'for each <X>' mana count for the controller (§107.3). `tag` is 'type:<t>:<scope>'
+    / 'subtype:<s>:<scope>' (scope: own = the controller's permanents, all = every permanent) or 'hand:you'
+    / 'hand:opp' (the largest opposing hand). An unknown tag counts 0 (the bridge only emits known tags)."""
+    kind, _, rest = tag.partition(":")
+    if kind == "hand":
+        if rest == "you":
+            return sum(1 for (p, _c) in state.get("in_hand", set()) if p == ctrl)
+        if rest == "opp":                                     # 'target opponent' -> the largest opposing hand
+            counts: dict[str, int] = {}
+            for (p, _c) in state.get("in_hand", set()):
+                if p != ctrl:
+                    counts[p] = counts.get(p, 0) + 1
+            return max(counts.values(), default=0)
+        return 0
+    body, _, scope = rest.partition(":")
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
+    rel = state.get("printed_type" if kind == "type" else "printed_subtype", set())
+    return sum(1 for c in bf
+               if (scope == "all" or c in mine) and (c, body) in rel)
+
+
+@applier("dyn_mana")
+def _apply_dyn_mana(D, state, a, n, tgt, src, ctrl):
+    """§106 add mult×count mana of a fixed color, the count evaluated against live state at resolution."""
+    tag, _, color = str(tgt).rpartition("|")
+    count = _mana_quantity(D, state, tag, ctrl)
+    total = n * count
+    if total > 0:
+        D._add_floating(state, ctrl, {color: total})
+        D._refresh_mana_pool(state, ctrl)
+    print(f"    trigger {a}: {ctrl} adds {total} {color} mana (= {n}× {count} {tag.replace(':', ' ')})")
