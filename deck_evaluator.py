@@ -306,6 +306,13 @@ def _evaluate(names, label: str, commander: bool = False) -> dict:
     return {"mechanic": mechanic, "axes": deck_axis, "winners": winners, "helpers": helpers}
 
 
+def deck_axis(names, commander: bool = False) -> str:
+    """The deck's PRIMARY §104 win axis (life_zero / poison_ten / commander_damage / mill_out / alt_win) —
+    the single string win_search.win_seeking_policy(axis=…) needs to develop toward the win condition. A
+    thin wrapper over evaluate(); computed ONCE per deck by the agent."""
+    return evaluate(names, commander=commander, quiet=True)["mechanic"]
+
+
 def _named_deck(name: str, cedh: bool):
     """Return (card names, is_commander). cEDH decks ARE Commander (§903); a constructed deck carries its
     format, so commander damage only applies when that format is Commander."""

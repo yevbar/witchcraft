@@ -81,6 +81,102 @@ def _dedup_actions(state, actions):
     return out
 
 
+# ── progress toward the deck's win condition (used when NO forced win is found) ───────────────────────
+# The deck's intended win is a §104 loss AXIS (deck_evaluator: life_zero / poison_ten / commander_damage /
+# mill_out / alt_win — the exact conditions the engine adjudicates). "Progress" = how close an opponent is to
+# losing on THAT axis, read from the same state the loss rules read, PLUS a small development term (board /
+# mana / cards) so the agent still deploys resources on turns where no pressure is yet possible. Higher is
+# better. This is what lets the search "develop toward winning" instead of passing when it can't see a kill.
+_LIFE_REF, _LIB_REF = 40, 99                                   # normalization refs (commander-scale; harmless lower)
+
+
+def _others_of(s, me):
+    return [p for (p,) in s.get("is_player", set()) if p != me]
+
+
+def _stat(rows, p, *, key=0, val=-1, default=0):
+    return next((r[val] for r in rows if r[key] == p), default)
+
+
+def _opp_pressure(s, opp, axis):
+    """Fraction in [0,1] of the way `opp` is to losing on `axis` (read from the carried state the §104 rules
+    read: life total, poison/commander counters, library size)."""
+    if axis == "life_zero":
+        life = next((int(n) for (q, n) in s.get("life", set()) if q == opp), _LIFE_REF)
+        return max(0.0, (_LIFE_REF - life) / _LIFE_REF)
+    if axis == "poison_ten":
+        pz = next((int(n) for (q, n) in s.get("poison", set()) if q == opp), 0)
+        pz += sum(int(n) for (o, k, n) in s.get("counter", set()) if o == opp and k == "poison")
+        return min(1.0, pz / 10)
+    if axis == "commander_damage":
+        cd = max([int(n) for (q, _c, n) in s.get("commander_damage", set()) if q == opp] or [0])
+        return min(1.0, cd / 21)
+    if axis == "mill_out":
+        lib = sum(1 for (q, _c) in s.get("in_library", set()) if q == opp)
+        return max(0.0, (_LIB_REF - lib) / _LIB_REF)
+    return 0.0                                                 # alt_win / unknown -> no pressure metric (dev only)
+
+
+def _development(s, me, axis):
+    """A cheap resource term (no engine run): board power for the combat-leaning axes, mana + cards in hand
+    for the spell/combo/alt-win axes. Drives early deployment when no opponent pressure is yet possible."""
+    ptype = s.get("printed_type", set())
+    bf = {c for (c,) in s.get("on_battlefield", set())}
+    mine = {c for (p, c) in s.get("printed_control", set()) if p == me}
+    pw = {c: int(n) for (c, n) in s.get("printed_power", set())}
+    board = sum(pw.get(c, 0) for c in (mine & bf) if (c, "creature") in ptype)
+    mana = next((int(m) for (q, m) in s.get("mana_available", set()) if q == me), 0)
+    hand = sum(1 for (p, _c) in s.get("in_hand", set()) if p == me)
+    if axis in ("commander_damage", "poison_ten", "life_zero"):
+        return board * 1.0 + mana * 0.1 + hand * 0.1          # combat-leaning: bodies are the plan
+    return mana * 0.3 + hand * 0.3 + board * 0.2              # mill / alt_win / spell: resources are the plan
+
+
+def progress_score(state: dict, me: str, axis: str) -> float:
+    """How far this state is toward `me` winning on the deck's `axis`. Opponent pressure dominates (×100);
+    development breaks ties and drives development before any pressure exists."""
+    opps = _others_of(state, me)
+    pressure = sum(_opp_pressure(state, o, axis) for o in opps) / max(1, len(opps))
+    return pressure * 100 + _development(state, me, axis)
+
+
+def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
+                  max_turns: int = 2, node_budget: int = 2500):
+    """When there's no forced win: search MY plays (opponent passive) within `max_turns` and return the
+    action path to the highest-PROGRESS reachable state — the first step of 'developing setup to win'.
+    Returns (path, score); path[0] is the move to play. Baseline is doing nothing (an empty path)."""
+    s0 = env.start(state)
+    me = me or env.to_move(s0)
+    start_turn = s0.get("_turn", 0)
+    seen: set = set()
+    nodes = [0]
+    best = [progress_score(s0, me, axis), []]                  # (best score, my action path to it)
+
+    def dfs(s, path):
+        nodes[0] += 1
+        if nodes[0] > node_budget or env.is_terminal(s):
+            return
+        if s.get("_turn", 0) - start_turn > max_turns:
+            return
+        sc = progress_score(s, me, axis)
+        if sc > best[0]:
+            best[0], best[1] = sc, path
+        k = _key(s)
+        if k in seen:
+            return
+        seen.add(k)
+        if env.to_move(s) == me:
+            for a in _dedup_actions(s, env.legal_actions(s)):
+                dfs(env.step(s, a), path + [a])
+        else:
+            a = _opp_action(s)
+            if a is not None:
+                dfs(env.step(s, a), path)
+
+    dfs(s0, [])
+    return best[1], best[0]
+
+
 def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget: int = 4000):
     """Search for a line that wins for `me` within `max_turns` turns (any player's turn counts). Returns
     (path, nodes): path is MY action list to a win (opponent auto-passes between), or None."""
@@ -116,10 +212,14 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
     return dfs(s0), nodes[0]
 
 
-def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None):
-    """A policy (state, key, options, default)->choice: at the play decision, search for a win line and play
-    its first move if one exists; else defer to `fallback` (default greedy). 'If I can see a win within N
-    turns, take it.' Memoized per position so the per-decision search isn't repeated."""
+def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
+                       axis: str | None = None, progress_turns: int = 2, progress_budget: int = 2500):
+    """A policy (state, key, options, default)->choice. At a play decision:
+      1. search for a forced win within `max_turns` — if found, play its first move.
+      2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the first move of the
+         line that makes the MOST PROGRESS toward that axis — 'develop setup to win' instead of passing.
+      3. ELSE defer to `fallback` (default: do nothing).
+    Memoized per position. Pass axis=None to keep the pure win-or-pass behavior."""
     cache: dict = {}
 
     def pol(state, key, options, default):
@@ -128,6 +228,8 @@ def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=Non
         ck = _key(state)
         if ck not in cache:
             path, _ = find_win(state, me=env.to_move(state), max_turns=max_turns, node_budget=node_budget)
+            if not path and axis:                              # no kill in sight -> develop toward the win axis
+                path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget)
             cache[ck] = path[0] if path else None
         plan = cache[ck]
         if plan is not None and (options is None or plan in options):

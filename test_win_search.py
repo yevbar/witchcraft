@@ -62,10 +62,65 @@ def _no_false_win():
     check("no-win: returns None when no win is reachable (no false positive)", path is None)
 
 
+def _develop_state():
+    """No win is reachable, but alice can DEVELOP toward a life_zero win: 3 untapped Islands + a 3/3 in hand."""
+    return {
+        "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "has_priority": {("alice",)},
+        "current_step": {("precombat_main",)}, "life": {("alice", 20), ("bob", 20)},
+        "on_battlefield": {("isl1",), ("isl2",), ("isl3",)},
+        "printed_control": {("alice", "isl1"), ("alice", "isl2"), ("alice", "isl3")},
+        "printed_type": {("isl1", "land"), ("isl2", "land"), ("isl3", "land"), ("bear", "creature")},
+        "land_produces": {("isl1", "blue"), ("isl2", "blue"), ("isl3", "blue")},
+        "in_hand": {("alice", "bear")}, "instance_of": {("bear", "big_bear")},
+        "spell_type": {("bear", "creature")}, "card_type": {("big_bear", "creature")},
+        "printed_power": {("bear", 3)}, "printed_toughness": {("bear", 3)},
+        "mana_cost": {("bear", 3)}, "mana_generic": {("bear", 3)},
+        "on_stack": set(), "_stack_info": {}, "all_passed": set(), "tapped": set(), "counter": set(),
+        "in_library": {("alice", f"a{i}") for i in range(10)} | {("bob", f"b{i}") for i in range(10)},
+        "_lib_order": {"alice": [f"a{i}" for i in range(10)], "bob": [f"b{i}" for i in range(10)]},
+    }
+
+
+def _progress_checks():
+    import env
+    # progress_score rises monotonically toward an opponent losing on each §104 axis.
+    def life(b):
+        return {"is_player": {("alice",), ("bob",)}, "life": {("alice", 40), ("bob", b)}}
+    check("progress(life_zero): lower opponent life scores higher",
+          win_search.progress_score(life(5), "alice", "life_zero")
+          > win_search.progress_score(life(30), "alice", "life_zero"))
+    pz = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 40), ("bob", 40)},
+          "counter": {("bob", "poison", 8)}}
+    check("progress(poison_ten): opponent poison scores", win_search.progress_score(pz, "alice", "poison_ten") > 0)
+    cd = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 40), ("bob", 40)},
+          "commander_damage": {("bob", "cmd", 18)}}
+    check("progress(commander_damage): accrued commander damage scores",
+          win_search.progress_score(cd, "alice", "commander_damage") > 0)
+
+    # find_progress DEVELOPS (casts a creature toward the life_zero win) rather than returning nothing.
+    st = _develop_state()
+    assert win_search.find_win(st, me="alice", max_turns=2, node_budget=2000)[0] is None   # no forced win
+    path, score = win_search.find_progress(st, me="alice", axis="life_zero", max_turns=3, node_budget=4000)
+    check("find_progress returns a developing move (not pass)", bool(path) and path[0][0] == "cast")
+    check("the developing move deploys the creature", bool(path) and path[0][2] == "bear")
+
+    # the policy: with an axis it develops; WITHOUT an axis it keeps the old win-or-defer behavior.
+    s0 = env.start(_develop_state())
+    acts = env.legal_actions(s0)
+    dev_pol = win_search.win_seeking_policy(max_turns=2, node_budget=2000, axis="life_zero",
+                                            progress_turns=3, progress_budget=4000)
+    choice = dev_pol(s0, "action", acts, acts[0])
+    check("policy with an axis develops (casts) instead of passing", choice is not None and choice[0] == "cast")
+    plain_pol = win_search.win_seeking_policy(max_turns=2, node_budget=2000)   # axis=None
+    plain = plain_pol(env.start(_develop_state()), "action", acts, acts[0])
+    check("policy without an axis falls back (no development)", plain == acts[0])
+
+
 def run():
     _combat_lethal()
     _spell_win()
     _no_false_win()
+    _progress_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
