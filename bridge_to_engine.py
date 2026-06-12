@@ -650,6 +650,26 @@ def _fold_impulse(effs: list, emit) -> set:
     return {ex_i, play_i}
 
 
+def _fold_flashback(effs: list, emit) -> set:
+    """§702.34 FLASHBACK GRANT with cost = mana cost (Past in Flames, Recoup, Snapcaster Mage): fold the
+    '[grant flashback to <a/each instant or sorcery card in your graveyard>] + [grant flashback … cost equals
+    mana cost]' pair into ONE grant_flashback effect (scope 'all' for 'each …', else 'target'). Requires the
+    'cost equals mana cost' companion — a printed flashback with a SPECIFIC cost is a different alternative
+    cost we don't model, so it's left dropped (faithful abstain)."""
+    grant_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                    if v == "grant_keyword" and str(x) == "flashback" and "graveyard" in str(t)), None)
+    if grant_i is None:
+        return set()
+    cost_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                   if v == "grant_keyword" and str(x) == "cost_equals_mana_cost"), None)
+    if cost_i is None:
+        return set()                                            # a specific flashback cost -> abstain
+    tgt = str(effs[grant_i][3])
+    scope = "all" if ("each" in tgt or "all_" in tgt or tgt.startswith("all")) else "target"
+    emit("grant_flashback", 0, scope)
+    return {grant_i, cost_i}
+
+
 def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
@@ -853,8 +873,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # search_to_<dest> trigger_effect — same as the spell/activated paths (the relations carry no
             # clause order, so the search and its placement can't resolve as two separate rows).
             search_skip = _fold_search_placements(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §702.34 FLASHBACK GRANT on a TRIGGERED ability (Snapcaster Mage's ETB) -> one grant_flashback.
+            fb_skip = _fold_flashback(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip:                      # consumed by the folded search_to_<dest>
+                if _idx in search_skip or _idx in fb_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -983,8 +1005,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             dig_skip = _fold_dig(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §608 IMPULSE: 'exile top N, you may play them this turn' -> one impulse_play effect.
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §702.34 FLASHBACK GRANT (cost = mana cost): Past in Flames / Recoup -> one grant_flashback effect.
+            fb_skip = _fold_flashback(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue

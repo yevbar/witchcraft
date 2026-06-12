@@ -1759,8 +1759,25 @@ def _counter_target(state: dict, counterspell: str) -> str | None:
 
 
 def _to_graveyard(state: dict, obj: str) -> None:
-    """§608.2m / §405.5 — a resolved or countered spell that isn't a permanent goes to the graveyard."""
+    """§608.2m / §405.5 — a resolved or countered spell that isn't a permanent goes to the graveyard, UNLESS
+    it was cast with flashback (§702.34d): such a spell is EXILED instead of going to the graveyard."""
+    if (obj,) in state.get("_flashback", set()):
+        state.setdefault("exile", set()).add((obj,))
+        state["_flashback"].discard((obj,))
+        print(f"    {obj} was cast with flashback -> exiled (§702.34d)")
+        return
     state.setdefault("graveyard", set()).add((obj,))
+
+
+def _leave_cast_zone(state: dict, ap: str, spell: str) -> None:
+    """§601 remove a just-cast spell from its SOURCE zone. Normally the hand; but a card cast from a non-hand
+    source under a `may_play` permission (impulse from exile, flashback from the graveyard) leaves THAT zone
+    and loses the one-shot permission. Zone-agnostic so the same cast path serves every source."""
+    state["in_hand"].discard((ap, spell))
+    if (ap, spell) in state.get("may_play", set()):
+        for z in ("exile", "graveyard"):                     # impulse = exile, flashback = graveyard
+            state.get(z, set()).discard((spell,))
+        state["may_play"].discard((ap, spell))
 
 
 def _resolve_top(state: dict) -> None:
@@ -1849,7 +1866,7 @@ def _cast_instant_response(state: dict, p: str) -> bool:
         return False
     spell = castable[0]
     _spend_mana(state, p, spell)                             # mana model owns payment
-    state["in_hand"].discard((p, spell))
+    _leave_cast_zone(state, p, spell)                        # §601 leave the source zone (hand / flashback GY / exile)
     _stack_push(state, spell, p)
     _choose_mode(state, spell)                               # §601.2b — modal instant chooses its mode
     prior = _note_cast(state)                                # §608 a response-cast counts toward storm too
@@ -1902,10 +1919,7 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     response window + top-down resolution). The single-spell core of _cast_phase — reused by the env/search
     so an external policy can cast a CHOSEN spell (with forced mode/target via the _choose seam)."""
     _spend_mana(state, ap, spell)                            # §601.2g — consume the mana so casts are limited
-    state["in_hand"].discard((ap, spell))
-    if (ap, spell) in state.get("may_play", set()):          # §608 IMPULSE — a card cast from exile under a
-        state.get("exile", set()).discard((spell,))          # 'may play' permission leaves exile and loses
-        state["may_play"].discard((ap, spell))               # the permission (it's now on the stack)
+    _leave_cast_zone(state, ap, spell)                       # §601 leave the source zone (hand / exile / graveyard)
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
     prior = _note_cast(state)                                # §608 count this spell; `prior` = storm count
@@ -2149,7 +2163,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
-        state["may_play"] = set()                                # §608 impulse 'until end of turn' permission expires
+        state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
