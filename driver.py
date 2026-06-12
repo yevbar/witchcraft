@@ -135,7 +135,8 @@ def _variant_hand_size(variant: str) -> int:
     m = re.search(rf'starting_hand_size\("{re.escape(variant)}", (\d+)\)', text)
     return int(m.group(1)) if m else 7
 
-OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage", "pending"]
+OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
+           "combat_commander_damage", "pending"]
 
 
 def _lit(x: object) -> str:
@@ -772,6 +773,11 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         print(f"    {c} {verb} -> {to}")
     for (p, n) in sorted(out["player_damage"]):                  # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
+    for (p, cmd, n) in sorted(out.get("combat_commander_damage", set())):   # §903.10a accrue commander damage
+        cd = state.setdefault("commander_damage", set())          # carried per-(player, commander) total
+        old = next((b for (pp, cc, b) in cd if pp == p and cc == cmd), 0)
+        cd.discard((p, cmd, old)); cd.add((p, cmd, old + int(n)))
+        print(f"    {p} has now taken {old + int(n)} combat damage from commander {cmd} (§903.10a)")
     _apply_effects(state, out["pending"])                        # §603 -> §608 triggered effects
     # §104.2a — an effect-derived WIN ends the game: the winner wins, every other player loses.
     # The engine derives wins_game from a resolved "you win the game" effect (Thassa's Oracle, Approach

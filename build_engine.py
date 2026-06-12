@@ -125,6 +125,10 @@ INPUTS = [
     ("eff_switch_pt", [("e", "symbol"), ("c", "symbol")]),                          # layer 7d switch (parity)
     ("life", [("p", "symbol"), ("n", "number")]),
     ("poison", [("p", "symbol"), ("n", "number")]),
+    # §903.10a — the commander permanents (driver marks them; present ONLY in a Commander game) and the
+    # per-(player, commander) combat damage accrued so far this game (driver-carried, like base poison).
+    ("is_commander", [("c", "symbol")]),
+    ("commander_damage", [("p", "symbol"), ("c", "symbol"), ("n", "number")]),
     ("attacks", [("a", "symbol"), ("d", "symbol")]),
     ("blocks", [("b", "symbol"), ("a", "symbol")]),
     ("current_step", [("s", "symbol")]),
@@ -603,6 +607,18 @@ def _rules(p: Program) -> None:
     p.decl("total_poison", [("p", "symbol"), ("n", "number")])
     p.rule("total_poison(P, N)", ["poison(P, B)", "combat_poison(P, M)", "N = B + M"])
     p.rule("total_poison(P, N)", ["poison(P, N)", "!combat_poison(P, _)"])
+    p.comment("§903.10a COMMANDER DAMAGE — combat damage a player takes from a single commander accumulates")
+    p.comment("over the whole game. This combat's share is summed per (player, commander) from `deals`; the")
+    p.comment("driver folds it into the carried `commander_damage` total (like base poison), so TOTAL = carried")
+    p.comment("+ this-combat and the lethal hit registers the same step it lands. is_commander is fed ONLY in a")
+    p.comment("Commander game, so in every other format there are no rows and this is a clean no-op.")
+    p.decl("combat_commander_damage", [("p", "symbol"), ("c", "symbol"), ("n", "number")])
+    p.rule("combat_commander_damage(P, C, N)",
+           ["is_player(P)", "deals(C, P, _)", "is_commander(C)", "N = sum X : { deals(C, P, X) }"])
+    p.decl("total_commander_damage", [("p", "symbol"), ("c", "symbol"), ("n", "number")])
+    p.rule("total_commander_damage(P, C, N)", ["commander_damage(P, C, B)", "combat_commander_damage(P, C, M)", "N = B + M"])
+    p.rule("total_commander_damage(P, C, N)", ["commander_damage(P, C, N)", "!combat_commander_damage(P, C, _)"])
+    p.rule("total_commander_damage(P, C, N)", ["combat_commander_damage(P, C, N)", "!commander_damage(P, C, _)"])
     p.decl("remaining_life", [("p", "symbol"), ("n", "number")])
     p.rule("remaining_life(P, N)", ["life(P, B)", "player_damage(P, M)", "N = B - M"])
     p.rule("remaining_life(P, N)", ["life(P, N)", "!player_damage(P, _)"])
@@ -622,6 +638,8 @@ def _rules(p: Program) -> None:
     p.decl("loses_game", [("p", "symbol")])
     p.rule("loses_game(P)", ["remaining_life(P, L)", 'loss_threshold("life_zero", T)', "L <= T"], note="§704.5a — threshold interpreted into ending.dl")
     p.rule("loses_game(P)", ["total_poison(P, N)", 'loss_threshold("poison_ten", T)', "N >= T"], note="§704.5c")
+    p.rule("loses_game(P)", ["total_commander_damage(P, _, N)", 'loss_threshold("commander_damage", T)', "N >= T"],
+           note="§903.10a — 21+ combat damage from one commander over the game")
     p.rule("loses_game(P)", ["eff_lose_game(P)"], note="§104.3a — a resolved effect makes the player lose")
     p.comment("§104.3c deckout — drawing from an empty library is a LOSS, UNLESS a §614 replacement (Laboratory")
     p.comment("Maniac / Thassa's Oracle / Jace, Wielder of Mysteries) turns it into a WIN for that player instead.")
@@ -928,6 +946,7 @@ def _rules(p: Program) -> None:
                                         # creature-scoped target / board-scope / damage / reanimate effects (datalog-derived + bridge-fed)
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
              "eff_toughness",           # §613 layer 7 — so the driver can read a creature's final toughness (burn lethality)
+             "combat_commander_damage", # §903.10a — this combat's per-commander damage; the driver folds it into the carried total
              "stack_top", "resolves",   # §608 — the driver reads the stack top + what resolves to drive resolution
              "controls", "creature",    # derived (from printed_*); the driver reads these, not raw state
              # ONE WORLD — the printed identity, now DERIVED from the card-level card_* facts via instance_of

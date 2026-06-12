@@ -37,8 +37,8 @@ import ground
 AXES = {
     "life_zero":        "reduce a player to 0 life (§104.2a)",
     "poison_ten":       "give a player 10 poison counters (§104.2c)",
-    "commander_damage": "21 combat damage from one commander (§903.10a) — Commander games only; "
-                        "the engine declares the threshold but does not yet adjudicate it (a coverage gap)",
+    "commander_damage": "21 combat damage from one commander (§903.10a) — Commander games only; the engine "
+                        "now accumulates per-commander combat damage and adjudicates the loss",
     "mill_out":         "make a player draw from an empty library (§104.3a / §104.2c deck-out)",
     "alt_win":          "an effect that says you win / a player loses (§104.2)",
 }

@@ -1383,6 +1383,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
         "counter": set(), "tapped": set(), "attacks": set(), "blocks": set(),
         "on_battlefield": set(), "in_hand": set(), "in_library": set(),
         "command_zone": set(), "_commander_owner": set(), "_cmd_casts": {},
+        "is_commander": set(), "commander_damage": set(),        # §903.10a — engine inputs (Commander only)
         "_lib_order": {p: [] for p in players}, "_land_played": set(),
         "_seed": seed, "_variant": variant,
     }
@@ -1406,6 +1407,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
         elif zone == "command_zone":                         # §903 — the commander starts in the command zone
             state["command_zone"].add((pl, tid))
             state["_commander_owner"].add((pl, tid))
+            state["is_commander"].add((tid,))                # §903.10a — mark it so combat damage is tracked
         else:
             state["in_library"].add((pl, tid))
             state["_lib_order"][pl].append(tid)

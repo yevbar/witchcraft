@@ -26,6 +26,8 @@
 .decl eff_switch_pt(e: symbol, c: symbol)
 .decl life(p: symbol, n: number)
 .decl poison(p: symbol, n: number)
+.decl is_commander(c: symbol)
+.decl commander_damage(p: symbol, c: symbol, n: number)
 .decl attacks(a: symbol, d: symbol)
 .decl blocks(b: symbol, a: symbol)
 .decl current_step(s: symbol)
@@ -286,6 +288,17 @@ eff_toughness(C, N) :- toughness(C, N), !combat_m1m1(C, _).
 .decl total_poison(p: symbol, n: number)
 total_poison(P, N) :- poison(P, B), combat_poison(P, M), N = B + M.
 total_poison(P, N) :- poison(P, N), !combat_poison(P, _).
+// §903.10a COMMANDER DAMAGE — combat damage a player takes from a single commander accumulates
+// over the whole game. This combat's share is summed per (player, commander) from `deals`; the
+// driver folds it into the carried `commander_damage` total (like base poison), so TOTAL = carried
+// + this-combat and the lethal hit registers the same step it lands. is_commander is fed ONLY in a
+// Commander game, so in every other format there are no rows and this is a clean no-op.
+.decl combat_commander_damage(p: symbol, c: symbol, n: number)
+combat_commander_damage(P, C, N) :- is_player(P), deals(C, P, _), is_commander(C), N = sum X : { deals(C, P, X) }.
+.decl total_commander_damage(p: symbol, c: symbol, n: number)
+total_commander_damage(P, C, N) :- commander_damage(P, C, B), combat_commander_damage(P, C, M), N = B + M.
+total_commander_damage(P, C, N) :- commander_damage(P, C, N), !combat_commander_damage(P, C, _).
+total_commander_damage(P, C, N) :- combat_commander_damage(P, C, N), !commander_damage(P, C, _).
 .decl remaining_life(p: symbol, n: number)
 remaining_life(P, N) :- life(P, B), player_damage(P, M), N = B - M.
 remaining_life(P, N) :- life(P, N), !player_damage(P, _).
@@ -310,6 +323,8 @@ library_empty(P) :- is_player(P), !in_library(P, _).
 loses_game(P) :- remaining_life(P, L), loss_threshold("life_zero", T), L <= T.
 // §704.5c
 loses_game(P) :- total_poison(P, N), loss_threshold("poison_ten", T), N >= T.
+// §903.10a — 21+ combat damage from one commander over the game
+loses_game(P) :- total_commander_damage(P, _, N), loss_threshold("commander_damage", T), N >= T.
 // §104.3a — a resolved effect makes the player lose
 loses_game(P) :- eff_lose_game(P).
 // §104.3c deckout — drawing from an empty library is a LOSS, UNLESS a §614 replacement (Laboratory
@@ -922,6 +937,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output spell_reanimate
 .output has_keyword
 .output eff_toughness
+.output combat_commander_damage
 .output stack_top
 .output resolves
 .output controls
@@ -932,7 +948,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell just_entered prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)
