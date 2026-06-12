@@ -51,6 +51,17 @@ def _encode_checks() -> None:
           _enc("untap", "-", "two_other_target_legendary_creatures") is None)
     check("untap target nonland permanent abstains (unreadable class)",
           _enc("untap", "-", "target_nonland_permanent") is None)
+    # §701.20 'untap up to N lands' (Frantic Search / Snap) -> count-bounded own untap.
+    check("untap up to three lands -> untap_own_n 3 land",
+          _enc("untap", "-", "up_to_three_lands") == ("untap_own_n", 3, "land"))
+    check("untap up to two lands -> untap_own_n 2 land",
+          _enc("untap", "-", "up_to_two_lands") == ("untap_own_n", 2, "land"))
+    check("untap up to two target lands -> untap_own_n 2 land",
+          _enc("untap", "-", "up_to_two_target_lands") == ("untap_own_n", 2, "land"))
+    check("untap up to one artifact -> untap_own_n 1 artifact",
+          _enc("untap", "-", "up_to_one_artifact") == ("untap_own_n", 1, "artifact"))
+    check("untap up to twelve lands abstains (unknown number word)",
+          _enc("untap", "-", "up_to_twelve_lands") is None)
 
     # proliferate always resolves (deterministic superset choice).
     check("proliferate encodes", _enc("proliferate", "-", "-") == ("proliferate", 0, "-"))
@@ -141,6 +152,25 @@ def _apply_checks() -> None:
     _fire(st, "untap_own", 0, "other_any", src="src")
     check("untap_own other excludes the source", ("src",) in st["tapped"])
     check("untap_own other untaps a different own permanent", ("other",) not in st["tapped"])
+
+    # untap_own_n: untap UP TO n of the controller's own tapped lands (Frantic Search). 4 tapped, untap 3.
+    st = _base()
+    st["on_battlefield"] = {(f"land{i}",) for i in range(5)}
+    st["printed_control"] = {("alice", f"land{i}") for i in range(4)} | {("bob", "land4")}
+    st["printed_type"] = {(f"land{i}", "land") for i in range(5)}
+    st["tapped"] = {("land0",), ("land1",), ("land2",), ("land3",), ("land4",)}
+    _fire(st, "untap_own_n", 3, "land", src="fs")
+    tapped_left = sorted(c for (c,) in st["tapped"])
+    check("untap_own_n untaps exactly n own lands", len([c for c in tapped_left if c.startswith("land") and c != "land4"]) == 1)
+    check("untap_own_n never untaps an opponent's land", ("land4",) in st["tapped"])
+    # 'up to' = as many as legal when fewer are tapped than n (no error, no over-untap).
+    st = _base()
+    st["on_battlefield"] = {("a",), ("b",)}
+    st["printed_control"] = {("alice", "a"), ("alice", "b")}
+    st["printed_type"] = {("a", "land"), ("b", "land")}
+    st["tapped"] = {("a",)}
+    _fire(st, "untap_own_n", 3, "land", src="fs")
+    check("untap_own_n 'up to n' untaps fewer when fewer are tapped", ("a",) not in st["tapped"])
 
     # untap_own no eligible permanent -> no-op (none tapped).
     st = _base()

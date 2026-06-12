@@ -440,18 +440,137 @@ def _apply_regrowth(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {ctrl} returns {pick} from graveyard to hand")
 
 
+# number words the library-manip clauses use for a small fixed count ('put TWO cards on top').
+_NUMWORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+
+# §701 'look at …' scopes that change no game state — looking at the top of a library or a player's hand is
+# pure information (any reorder it enables is the player's choice and immaterial with opaque ids). Resolving
+# them as a no-op stops the look-then-draw/reorder spells dropping (Brainstorm-likes, Sensei's Top, Ponder,
+# Gitaxian Probe). An unusual look scope abstains.
+_LOOK_SCOPE = {"top_of_library", "target_player", "target_opponent", "each_player", "each_opponent",
+               "your_hand", "you", "a_player", "any_player", "that_player"}
+
+# §701 'put … back on top' anaphora after a look — a pure REORDER of the looked-at cards (no-op for opaque ids).
+_REORDER_OBJ = {"them", "they", "those_cards", "the_cards", "those", "the_top_cards"}
+
+
+@encoder("look")
+def _encode_look(verb, amt, tgt, extra):
+    if str(tgt) in _LOOK_SCOPE:
+        return ("look_noop", 0, str(tgt))
+    return None
+
+
+@applier("look_noop")
+def _apply_look_noop(D, state, a, n, tgt, src, ctrl):
+    """§701 'look at …' — information only; no game state changes (a paired reorder is handled separately)."""
+    print(f"    {a}: {ctrl} looks at {str(tgt).replace('_', ' ')}")
+
+
 @encoder("put_on_top")
 def _encode_put_on_top(verb, amt, tgt, extra):
-    if str(tgt) not in _SEARCHED_OBJ:
-        return None
-    return ("place_searched", 0, "top")
+    t = str(tgt)
+    if t in _SEARCHED_OBJ:
+        return ("place_searched", 0, "top")
+    if t in _REORDER_OBJ:                                    # 'put them back on top in any order' -> reorder no-op
+        return ("reorder_noop", 0, "-")
+    if t == "self":                                          # the source goes on top of its owner's library
+        return ("source_to_top", 0, "-")
+    if t in ("target_creature", "target_permanent", "target_creature_an_opponent_controls"):
+        return ("bounce_to_lib", 0, "top")                  # §701.21 a tempo bounce TO the library (Submerge)
+    m = re.match(r"^(\w+)_cards?$", t)                       # 'two cards' / 'a card' from HAND -> top (Brainstorm)
+    if m:
+        k = _NUMWORD.get(m.group(1), _int(m.group(1)))
+        if k:
+            return ("hand_to_top", k, "-")
+    return None
 
 
 @encoder("put_on_bottom")
 def _encode_put_on_bottom(verb, amt, tgt, extra):
-    if str(tgt) not in _SEARCHED_OBJ:
-        return None
-    return ("place_searched", 0, "bottom")
+    t = str(tgt)
+    if t in _SEARCHED_OBJ:
+        return ("place_searched", 0, "bottom")
+    if t in _REORDER_OBJ:                                    # 'put the rest on the bottom in any order' -> no-op-ish
+        return ("reorder_noop", 0, "-")
+    m = re.match(r"^(\w+)_cards?$", t)                       # 'put N cards from your hand on the bottom' (Valakut)
+    if m:
+        k = _NUMWORD.get(m.group(1), _int(m.group(1)))
+        if k:
+            return ("hand_to_bottom", k, "-")
+    return None
+
+
+@applier("reorder_noop")
+def _apply_reorder_noop(D, state, a, n, tgt, src, ctrl):
+    """§701 reorder the looked-at top cards — a no-op: the order of opaque library ids is immaterial, and
+    keeping them as-is is always a legal 'in any order'."""
+    print(f"    {a}: {ctrl} keeps the looked-at cards in order")
+
+
+@applier("hand_to_top")
+def _apply_hand_to_top(D, state, a, n, tgt, src, ctrl):
+    """§701 put n cards from the controller's HAND on top of their library (Brainstorm 'put two cards from
+    your hand on top'). With opaque ids WHICH cards is immaterial — the canonical-first n (or fewer if the
+    hand is smaller) go on top. NB: this is sequenced AFTER the spell's draw (the eff name sorts after
+    'draw' in _run_spell_effects), so a 'draw then put back' spell has the drawn cards in hand first."""
+    hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
+    k = min(n, len(hand))
+    order = _order(state, ctrl)
+    for c in reversed(hand[:k]):                             # insert so hand[0] ends up on the very top
+        state["in_hand"].discard((ctrl, c))
+        order.insert(0, c)
+        state.setdefault("in_library", set()).add((ctrl, c))
+    print(f"    {a}: {ctrl} puts {k} card(s) from hand on top of their library")
+
+
+@applier("hand_to_bottom")
+def _apply_hand_to_bottom(D, state, a, n, tgt, src, ctrl):
+    """§701 put n cards from the controller's HAND on the bottom of their library (Valakut Awakening). Same
+    opaque-id faithfulness as hand_to_top; sequenced after the spell's draw."""
+    hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
+    k = min(n, len(hand))
+    order = _order(state, ctrl)
+    for c in hand[:k]:
+        state["in_hand"].discard((ctrl, c))
+        order.append(c)
+        state.setdefault("in_library", set()).add((ctrl, c))
+    print(f"    {a}: {ctrl} puts {k} card(s) from hand on the bottom of their library")
+
+
+@applier("source_to_top")
+def _apply_source_to_top(D, state, a, n, tgt, src, ctrl):
+    """§701 put the SOURCE permanent on top of its owner's library (Sensei's Divining Top's draw ability —
+    it leaves the battlefield and goes on top). A no-op if it isn't on the battlefield."""
+    if (src,) in state.get("on_battlefield", set()):
+        state["on_battlefield"].discard((src,))
+    _order(state, ctrl).insert(0, src)
+    state.setdefault("in_library", set()).add((ctrl, src))
+    print(f"    {a}: {ctrl} puts {src} on top of their library")
+
+
+@applier("bounce_to_lib")
+def _apply_bounce_to_lib(D, state, a, n, tgt, src, ctrl):
+    """§701.21 put a target creature on top (or bottom) of its OWNER's library (Submerge). A tempo bounce —
+    so the driver picks the strongest creature the caster doesn't control; the card goes to its owner's
+    library (owner read from printed_control), removed from the battlefield. A no-op if there's no target."""
+    out = D.run(state, ["controls", "creature", "power"])
+    creatures = {c for (c,) in out["creature"]}
+    powers = {c: int(x) for (c, x) in out["power"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in out["controls"] if p == ctrl}
+    cands = [c for c in creatures if c in on_bf and c not in mine] or [c for c in creatures if c in on_bf]
+    if not cands:
+        print(f"    {a}: {ctrl} finds no creature to put into a library")
+        return
+    target = max(cands, key=lambda c: powers.get(c, 0))
+    owner = next((p for (p, c) in state.get("printed_control", set()) if c == target), ctrl)
+    state.setdefault("on_battlefield", set()).discard((target,))
+    order = _order(state, owner)
+    order.insert(0, target) if str(tgt) != "bottom" else order.append(target)
+    state.setdefault("in_library", set()).add((owner, target))
+    where = "bottom" if str(tgt) == "bottom" else "top"
+    print(f"    {a}: {ctrl} puts {target} on {where} of {owner}'s library")
 
 
 @encoder("return_to_battlefield")

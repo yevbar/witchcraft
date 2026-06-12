@@ -108,9 +108,10 @@ def _encode_checks() -> None:
     # ABSTAIN: a destination clause whose object is a real permanent target, not the searched card
     check("return_to_hand target_creature abstains",
           _enc("return_to_hand", "-", "target_creature") is None)
-    # ABSTAIN: reveal/look not registered (choice-driven multi-clause)
-    for v in ("reveal", "look"):
-        check(f"{v} not registered (abstained)", v not in effect_handlers.ENCODE)
+    # ABSTAIN: reveal not registered (choice-driven multi-clause). 'look' IS now registered (a no-op for the
+    # readable scopes — see _topdeck_checks), but a look at an UNREADABLE scope still abstains.
+    check("reveal not registered (abstained)", "reveal" not in effect_handlers.ENCODE)
+    check("look at an unreadable scope abstains", effect_handlers.ENCODE["look"]("look", "1", "the_weird_zone", "-") is None)
 
 
 # ── apply: state mutation ────────────────────────────────────────────────────
@@ -263,7 +264,58 @@ def _apply_checks() -> None:
     check("a second ritual accumulates colored mana", ("alice", "black", 4) in st["mana_pool"])
 
     _dyn_mana_checks()
+    _topdeck_checks()
     _name_exile_checks()
+
+
+def _topdeck_checks() -> None:
+    import effect_handlers as EH
+    enc = lambda v, a, t, x="-": EH.ENCODE[v](v, a, t, x)
+
+    # ── encode: look / put_on_top variants ──────────────────────────────────
+    check("look at top of library -> look_noop", enc("look", "3", "top_of_library") == ("look_noop", 0, "top_of_library"))
+    check("look at target player -> look_noop", enc("look", "1", "target_player") == ("look_noop", 0, "target_player"))
+    check("put 'them' back on top -> reorder no-op", enc("put_on_top", "-", "them") == ("reorder_noop", 0, "-"))
+    check("put 'two cards' from hand on top -> hand_to_top 2", enc("put_on_top", "-", "two_cards") == ("hand_to_top", 2, "-"))
+    check("put 'a card' from hand on top -> hand_to_top 1", enc("put_on_top", "-", "a_card") == ("hand_to_top", 1, "-"))
+    check("put self on top -> source_to_top", enc("put_on_top", "-", "self") == ("source_to_top", 0, "-"))
+    check("put target creature on top -> bounce_to_lib", enc("put_on_top", "-", "target_creature") == ("bounce_to_lib", 0, "top"))
+    check("put a searched card 'it' on top still -> place_searched", enc("put_on_top", "-", "it") == ("place_searched", 0, "top"))
+
+    # ── apply: hand_to_top (Brainstorm's putback) ───────────────────────────
+    st = _state(["L1", "L2", "L3"])
+    st["in_hand"] = {("alice", "h1"), ("alice", "h2"), ("alice", "h3")}
+    _fire(st, "hand_to_top", 2, tgt="-")
+    check("hand_to_top moves 2 cards from hand to the library", len([c for (p, c) in st["in_hand"] if p == "alice"]) == 1)
+    check("hand_to_top puts them on TOP (top two are the put-back cards)", st["_lib_order"]["alice"][:2] == ["h1", "h2"])
+    check("hand_to_top grows the library", ("alice", "h1") in st["in_library"])
+    # fewer in hand than asked -> moves what it can (no error).
+    st = _state(["L1"]); st["in_hand"] = {("alice", "only")}
+    _fire(st, "hand_to_top", 2, tgt="-")
+    check("hand_to_top moves fewer when the hand is smaller", not [c for (p, c) in st["in_hand"] if p == "alice"])
+
+    # ── apply: source_to_top (Sensei's Divining Top) ────────────────────────
+    st = _state(["x"]); st["on_battlefield"] = {("top",)}
+    _fire(st, "source_to_top", 0, tgt="-", src="top")
+    check("source_to_top leaves the battlefield", ("top",) not in st["on_battlefield"])
+    check("source_to_top goes on top of the library", st["_lib_order"]["alice"][0] == "top")
+
+    # ── apply: bounce_to_lib (Submerge) — strongest enemy creature to its owner's library top ──
+    st = _state([])
+    st["on_battlefield"] = {("big",), ("mine",)}
+    st["printed_control"] = {("bob", "big"), ("alice", "mine")}
+    st["printed_type"] = {("big", "creature"), ("mine", "creature")}
+    st["printed_power"] = {("big", 5), ("mine", 2)}
+    st["printed_toughness"] = {("big", 5), ("mine", 2)}
+    _fire(st, "bounce_to_lib", 0, tgt="top", src="submerge")
+    check("bounce_to_lib targets the enemy creature, not your own", ("big",) not in st["on_battlefield"] and ("mine",) in st["on_battlefield"])
+    check("bounce_to_lib puts it on its OWNER's library", st["_lib_order"].get("bob", [None])[0] == "big")
+
+    # ── apply: look / reorder are pure no-ops (no card moves) ────────────────
+    st = _state(["a", "b", "c"])
+    _fire(st, "look_noop", 0, tgt="top_of_library")
+    _fire(st, "reorder_noop", 0, tgt="-")
+    check("look + reorder change no library membership", sorted(c for (p, c) in st["in_library"]) == ["a", "b", "c"])
 
 
 def _dyn_mana_checks() -> None:

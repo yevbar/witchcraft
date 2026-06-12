@@ -26,6 +26,8 @@ for the @encoder / @applier contract and the driver helpers reachable on D.
 
 from __future__ import annotations
 
+import re
+
 from effect_handlers import encoder, applier
 
 
@@ -47,6 +49,14 @@ _OTHER_TARGET = {
 }
 
 
+# 'untap UP TO N <lands/permanents/artifacts>' (Frantic Search 'untap up to three lands', Snap 'untap up to
+# two lands') — a count-bounded own-board untap. The number word -> N; the noun -> the class. We untap up to
+# N of the controller's tapped permanents of that class (a beneficial, faithful 'up to' = as many as legal).
+_NUMWORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+_UNTAP_NOUN = {"land": "land", "lands": "land", "permanent": "any", "permanents": "any",
+               "artifact": "artifact", "artifacts": "artifact", "creature": "creature", "creatures": "creature"}
+
+
 @encoder("untap")
 def _encode_untap(verb, amt, tgt, extra):
     t = str(tgt)
@@ -58,6 +68,12 @@ def _encode_untap(verb, amt, tgt, extra):
     cls = _OTHER_TARGET.get(t)
     if cls is not None:
         return ("untap_own", 0, "other_" + cls)             # untap a DIFFERENT own permanent (§601 'another')
+    m = re.match(r"^up_to_(\w+?)_(?:target_)?(\w+)$", t)     # 'up to three lands' / 'up to two target lands'
+    if m:
+        n = _NUMWORD.get(m.group(1))
+        noun = _UNTAP_NOUN.get(m.group(2))
+        if n is not None and noun is not None:
+            return ("untap_own_n", n, noun)
     return None                                              # opponent-facing / unreadable target -> abstain
 
 
@@ -101,6 +117,18 @@ def _apply_untap_own(D, state, a, n, tgt, src, ctrl):
     pick = src if (not other and src in cands) else cands[0]
     state["tapped"].discard((pick,))
     print(f"    {a}: {ctrl} untaps {pick}")
+
+
+@applier("untap_own_n")
+def _apply_untap_own_n(D, state, a, n, tgt, src, ctrl):
+    """§701.20 — untap UP TO n of the controller's own tapped permanents of class `tgt` (Frantic Search /
+    Snap untapping lands to re-use mana). 'up to' = as many as are legal (a beneficial choice), capped at n;
+    a no-op if none are tapped."""
+    cands = _own_tapped(state, ctrl, str(tgt))[:n]
+    for c in cands:
+        state["tapped"].discard((c,))
+    if cands:
+        print(f"    {a}: {ctrl} untaps {len(cands)} {tgt}(s): {', '.join(cands)}")
 
 
 # ── proliferate (§701.27) ────────────────────────────────────────────────────────────────────────────
