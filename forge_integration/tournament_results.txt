@@ -1,50 +1,44 @@
 compiled ForgeComboKill + ForgeVsBot
 
 === WIN-CON: Thassa's Oracle (library-out) (witchcraft pilots; Forge confirms) ===
-  winner=Witchcraft-Engine turns=1 wall=13593ms modeled=0.739 endorsed=0.304  -> PASS
+  winner=Witchcraft-Engine turns=2 wall=19860ms modeled=0.829 endorsed=0.2  -> PASS
 
 === WIN-CON: Tendrils storm (storm count) (witchcraft pilots; Forge confirms) ===
   winner=TIMEOUT/ERR turns=? wall=?ms modeled=None endorsed=None  -> SLOW
 
-=== SEARCH DEPTH max_turns=1 (node budget 20000) ===
-  d1 izzet-vs-izzet g1: winner=Forge-AI turns=15 wall=11610ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d1 izzet-vs-vanilla g1: winner=Forge-AI turns=14 wall=9519ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d1 vanilla-vs-izzet g1: winner=Forge-AI turns=19 wall=13459ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d1 vanilla-vs-vanilla g1: winner=Forge-AI turns=13 wall=8012ms modeled=1.0 endorsed=0.0 engine_decided=0
+=== izzet (witchcraft) vs vanilla (forge-ai) ===
+  izzet-vs-vanilla g1: winner=Forge-AI turns=13 wall=8506ms modeled=1.0 endorsed=0.0
 
-=== SEARCH DEPTH max_turns=5 (node budget 2500) ===
-  d5 izzet-vs-izzet g1: winner=Forge-AI turns=16 wall=12246ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d5 izzet-vs-vanilla g1: winner=Forge-AI turns=16 wall=10632ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d5 vanilla-vs-izzet g1: winner=Forge-AI turns=27 wall=18045ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d5 vanilla-vs-vanilla g1: winner=Forge-AI turns=16 wall=10148ms modeled=1.0 endorsed=0.0 engine_decided=0
+=== vanilla (witchcraft) vs izzet (forge-ai) ===
+  vanilla-vs-izzet g1: winner=Forge-AI turns=22 wall=15843ms modeled=1.0 endorsed=0.0
 
-=== SEARCH DEPTH max_turns=10 (node budget 2500) ===
-  d10 izzet-vs-izzet g1: winner=Forge-AI turns=18 wall=14022ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d10 izzet-vs-vanilla g1: winner=Forge-AI turns=12 wall=8426ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d10 vanilla-vs-izzet g1: winner=Forge-AI turns=31 wall=23493ms modeled=1.0 endorsed=0.0 engine_decided=0
-  d10 vanilla-vs-vanilla g1: winner=Forge-AI turns=13 wall=7802ms modeled=1.0 endorsed=0.0 engine_decided=0
+=== izzet (witchcraft) vs infect (forge-ai) ===
+  izzet-vs-infect g1: winner=Forge-AI turns=7 wall=4916ms modeled=1.0 endorsed=0.0
+
+=== infect (witchcraft) vs vanilla (forge-ai) ===
+  infect-vs-vanilla g1: winner=Forge-AI turns=13 wall=54105ms modeled=1.0 endorsed=0.0
+
+=== infect (witchcraft) vs izzet (forge-ai) ===
+  infect-vs-izzet g1: winner=Forge-AI turns=20 wall=92049ms modeled=1.0 endorsed=0.0
+
+=== vanilla (witchcraft) vs vanilla (forge-ai) ===
+  vanilla-vs-vanilla g1: winner=Forge-AI turns=13 wall=7746ms modeled=1.0 endorsed=0.0
 
 ==============================================================================
-TOURNAMENT SUMMARY  (Forge = referee; witchcraft drives its seat via win_search)
+TOURNAMENT SUMMARY  (Forge = referee + opponent; witchcraft drives its seat via win_search)
 ==============================================================================
 
 WIN-CON REGRESSIONS (witchcraft must win as the piloting seat):
-  PASS  winner=Witchcraft-Engine         modeled=0.739 endorsed=0.304
-  SLOW  winner=TIMEOUT/ERR               modeled=None endorsed=None
+  PASS  winner=Witchcraft-Engine         endorsed=0.2
+  SLOW  winner=TIMEOUT/ERR               endorsed=None
 
-DECK MATCHUPS BY SEARCH DEPTH  (endorsed = fraction of plays the tree search DROVE; deeper = sees more wins):
-  depth  witchcraft forge-ai   winner             modeled  endorsed
-  d1     izzet      izzet      Forge-AI           1.0      0.0     
-  d1     izzet      vanilla    Forge-AI           1.0      0.0     
-  d1     vanilla    izzet      Forge-AI           1.0      0.0     
-  d1     vanilla    vanilla    Forge-AI           1.0      0.0     
-  d5     izzet      izzet      Forge-AI           1.0      0.0     
-  d5     izzet      vanilla    Forge-AI           1.0      0.0     
-  d5     vanilla    izzet      Forge-AI           1.0      0.0     
-  d5     vanilla    vanilla    Forge-AI           1.0      0.0     
-  d10    izzet      izzet      Forge-AI           1.0      0.0     
-  d10    izzet      vanilla    Forge-AI           1.0      0.0     
-  d10    vanilla    izzet      Forge-AI           1.0      0.0     
-  d10    vanilla    vanilla    Forge-AI           1.0      0.0     
+DECK MATCHUPS — witchcraft (win_search) vs Forge-AI:
+  witchcraft forge-ai   winner         modeled   endorsed 
+  izzet      vanilla    Forge-AI       1.0       0.0      
+  vanilla    izzet      Forge-AI       1.0       0.0      
+  izzet      infect     Forge-AI       1.0       0.0      
+  infect     vanilla    Forge-AI       1.0       0.0      
+  infect     izzet      Forge-AI       1.0       0.0      
+  vanilla    vanilla    Forge-AI       1.0       0.0      
 
-wall: 313s
+wall: 335s
