@@ -238,7 +238,19 @@ class EnginePolicy:
         plan = driver.mana_plan(state, seat, pips, generic)
         if not plan:
             return None, 0, 0, 1, 0
-        return plan, len(plan), len(plan), 1, 1
+        return plan, 1, 1, 1, 1                                # ONE payment decision endorsed (not len(plan) -> frac>1)
+
+    def _pick_mulligan(self, driver, state, seat, options, default):
+        """§103.4 — keep a hand with a workable land count (2-5 of 7); mulligan a no-lander or a flood. Cap at
+        2 mulligans so a low-land deck doesn't mull to death (London: keep the next hand regardless). Without
+        this the seat kept EVERY hand — including 0-land and all-land — and stalled before it could develop."""
+        self._mulls = getattr(self, "_mulls", 0)
+        hand = [c for (p, c) in state.get("in_hand", set()) if p == seat]
+        lands = sum(1 for c in hand if (c, "land") in state.get("spell_type", set()))
+        keep = (2 <= lands <= 5) or self._mulls >= 2 or len(hand) <= 4
+        if not keep:
+            self._mulls += 1
+        return keep, 1, 1, 1, 1
 
     def __call__(self, obs, key, options, default):
         seat = obs.get("seat")
