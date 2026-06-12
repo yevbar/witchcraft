@@ -480,8 +480,26 @@ public class ForgeVsBot {
         return d;   // 60 cards
     }
 
+    // "infect": a §122.1/§104.2c POISON deck — infect creatures + pump, a DIFFERENT win axis than life_zero.
+    static Deck infect(String name) {
+        Deck d = new Deck(name);
+        d.getMain().add(card("Glistener Elf"), 4);
+        d.getMain().add(card("Blighted Agent"), 4);
+        d.getMain().add(card("Plague Stinger"), 4);
+        d.getMain().add(card("Ichorclaw Myr"), 4);
+        d.getMain().add(card("Giant Growth"), 4);
+        d.getMain().add(card("Groundswell"), 4);
+        d.getMain().add(card("Mutagenic Growth"), 4);
+        d.getMain().add(card("Rancor"), 4);
+        d.getMain().add(card("Triumph of the Hordes"), 2);
+        d.getMain().add(card("Forest"), 26);
+        return d;   // 60 cards
+    }
+
     static Deck deckFor(String which, String name) {
-        return "izzet".equalsIgnoreCase(which) ? izzet(name) : vanilla(name);
+        if ("izzet".equalsIgnoreCase(which)) return izzet(name);
+        if ("infect".equalsIgnoreCase(which)) return infect(name);
+        return vanilla(name);
     }
 
     public static void main(String[] args) {

@@ -98,12 +98,14 @@ def _stat(rows, p, *, key=0, val=-1, default=0):
     return next((r[val] for r in rows if r[key] == p), default)
 
 
-def _opp_pressure(s, opp, axis):
+def _opp_pressure(s, opp, axis, start_life=20):
     """Fraction in [0,1] of the way `opp` is to losing on `axis` (read from the carried state the §104 rules
-    read: life total, poison/commander counters, library size)."""
+    read: life total, poison/commander counters, library size). For life_zero, `start_life` is the format's
+    starting total (20 Standard / 40 Commander) so the fraction is DAMAGE DEALT — 0 at full life, 1 damage
+    in Standard = 5%, 1 poison = 10% — directly comparable to the synergy fraction."""
     if axis == "life_zero":
-        life = next((int(n) for (q, n) in s.get("life", set()) if q == opp), _LIFE_REF)
-        return max(0.0, (_LIFE_REF - life) / _LIFE_REF)
+        life = next((int(n) for (q, n) in s.get("life", set()) if q == opp), start_life)
+        return max(0.0, (start_life - life) / start_life)
     if axis == "poison_ten":
         pz = next((int(n) for (q, n) in s.get("poison", set()) if q == opp), 0)
         pz += sum(int(n) for (o, k, n) in s.get("counter", set()) if o == opp and k == "poison")
@@ -132,19 +134,42 @@ def _development(s, me, axis):
     return mana * 0.3 + hand * 0.3 + board * 0.2              # mill / alt_win / spell: resources are the plan
 
 
-def progress_score(state: dict, me: str, axis: str) -> float:
-    """How far this state is toward `me` winning on the deck's `axis`. Opponent pressure dominates (×100);
-    development breaks ties and drives development before any pressure exists."""
+def synergy_score(state: dict, me: str, cluster) -> float:
+    """Fraction in [0,1] (CONVEX) of the deck's primary synergy combo `me` has assembled. The combo is the
+    interaction graph's largest cluster (interaction_evaluator.synergy_cluster -> {slugs,size}); a card in
+    PLAY weighs full (the synergy is live/invoking), one in HAND weighs half (a piece you can still play to
+    PREPARE the combo). SQUARED so a partial combo is worth much less than direct win progress — a 2-of-5
+    assembly -> 0.16 (< a 25% win-progress move), a 4-of-5 -> 0.64 (now worth chasing). No combo (size<2)->0."""
+    if not cluster:
+        return 0.0
+    slugs, size = cluster.get("slugs") or set(), cluster.get("size") or 0
+    if size < 2 or not slugs:
+        return 0.0
+    inst = {o: c for (o, c) in state.get("instance_of", set())}
+    mine = {c for (p, c) in state.get("printed_control", set()) if p == me}
+    in_play = {inst.get(c, c) for c in mine if (c,) in state.get("on_battlefield", set())} & slugs
+    in_hand = ({inst.get(c, c) for (p, c) in state.get("in_hand", set()) if p == me} & slugs) - in_play
+    assembled = (len(in_play) + 0.5 * len(in_hand)) / size
+    return min(1.0, assembled) ** 2
+
+
+def progress_score(state: dict, me: str, axis: str, synergy=None, start_life: int = 20) -> float:
+    """How far this state is toward `me` winning, on a shared %-scale (×100): DIRECT win-axis pressure
+    (damage/poison/mill/commander toward the §104 threshold) PLUS the SYNERGY combo fraction the deck leans
+    on — so the search compares 'work toward the win' against 'assemble/invoke the synergy' and takes the
+    better (a near-complete combo can outscore a small chip of direct damage; a small synergy can't). A small
+    development term breaks ties and drives deployment before any pressure or synergy exists."""
     opps = _others_of(state, me)
-    pressure = sum(_opp_pressure(state, o, axis) for o in opps) / max(1, len(opps))
-    return pressure * 100 + _development(state, me, axis)
+    pressure = sum(_opp_pressure(state, o, axis, start_life) for o in opps) / max(1, len(opps))
+    return pressure * 100 + synergy_score(state, me, synergy) * 100 + _development(state, me, axis)
 
 
 def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
-                  max_turns: int = 4, node_budget: int = 3000):
+                  max_turns: int = 4, node_budget: int = 3000, synergy=None, start_life: int = 20):
     """When there's no forced win: search MY plays (opponent passive) within `max_turns` and return the
     action path to the highest-PROGRESS reachable state — the first step of 'developing setup to win'.
-    Returns (path, score); path[0] is the move to play. Baseline is doing nothing (an empty path).
+    `synergy` (interaction_evaluator.synergy_cluster) lets a line that ASSEMBLES/INVOKES the deck's combo
+    win when it out-scores chip damage. Returns (path, score); path[0] is the move to play.
 
     The horizon must be deep enough to reach the FOLLOW-THROUGH, not just the setup: a creature cast this
     turn is summoning-sick, so the line that USES it (attacks next turn for real axis pressure) only appears
@@ -155,7 +180,7 @@ def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
     start_turn = s0.get("_turn", 0)
     seen: set = set()
     nodes = [0]
-    best = [progress_score(s0, me, axis), []]                  # (best score, my action path to it)
+    best = [progress_score(s0, me, axis, synergy, start_life), []]   # (best score, my action path to it)
 
     def dfs(s, path):
         nodes[0] += 1
@@ -163,7 +188,7 @@ def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
             return
         if s.get("_turn", 0) - start_turn > max_turns:
             return
-        sc = progress_score(s, me, axis)
+        sc = progress_score(s, me, axis, synergy, start_life)
         if sc > best[0]:
             best[0], best[1] = sc, path
         k = _key(s)
@@ -218,7 +243,8 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
 
 
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
-                       axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000):
+                       axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000,
+                       synergy=None, start_life: int = 20):
     """A policy (state, key, options, default)->choice. At a play decision:
       1. search for a forced win within `max_turns` — if found, play its first move.
       2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the first move of the
@@ -234,7 +260,8 @@ def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=Non
         if ck not in cache:
             path, _ = find_win(state, me=env.to_move(state), max_turns=max_turns, node_budget=node_budget)
             if not path and axis:                              # no kill in sight -> develop toward the win axis
-                path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget)
+                path, _ = find_progress(state, env.to_move(state), axis, progress_turns, progress_budget,
+                                        synergy=synergy, start_life=start_life)
             cache[ck] = path[0] if path else None
         plan = cache[ck]
         if plan is not None and (options is None or plan in options):

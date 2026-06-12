@@ -105,6 +105,9 @@ def _deck_cards(name: str) -> list:
     if name == "izzet":
         import meta_decklists_constructed as M
         return list(M.DECKS["Izzet Prowess (STD)"]["cards"].keys())
+    if name == "infect":                                       # §104.2c poison axis (a DIFFERENT win condition)
+        return ["Glistener Elf", "Blighted Agent", "Plague Stinger", "Ichorclaw Myr", "Giant Growth",
+                "Groundswell", "Mutagenic Growth", "Rancor", "Triumph of the Hordes", "Forest"]
     return ["Grizzly Bears", "Gray Ogre", "Hill Giant", "Craw Wurm", "Forest", "Mountain"]   # vanilla = gruul
 
 
@@ -113,11 +116,19 @@ def _axis_of(name: str) -> str:
     return deck_evaluator.deck_axis(_deck_cards(name))
 
 
+def _synergy_of(name: str) -> dict:
+    import interaction_evaluator
+    return interaction_evaluator.synergy_cluster(_deck_cards(name))
+
+
 def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
     """One deck matchup: the witchcraft win_search ENGINE seat (develops toward the witch deck's win axis via
-    MTG_DECK_AXIS when it sees no forced win) vs Forge-AI, Forge refereeing. Returns the series + stats."""
+    MTG_DECK_AXIS, and toward assembling/invoking its synergy combo via MTG_SYNERGY, when it sees no forced
+    win) vs Forge-AI, Forge refereeing. Returns the series + stats."""
+    syn = _synergy_of(witch)
     bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": _axis_of(witch),
-               "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000"}
+               "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000", "MTG_START_LIFE": "20",
+               "MTG_SYNERGY": ",".join(sorted(syn["slugs"])), "MTG_SYNERGY_SIZE": str(syn["size"])}
     need = best_of // 2 + 1
     wins = {"witchcraft": 0, "Forge-AI": 0}
     games = []
@@ -143,9 +154,12 @@ def main() -> None:
     # Petals blow up the first search — a symmetric-duplicate edge, not a coverage gap).
     combos = [run_combo("Thassa's Oracle (library-out)", "oracle", free_port(8800)),
               run_combo("Tendrils storm (storm count)", "storm", free_port(8810), timeout=90)]
-    pairings = [("izzet", "izzet"), ("izzet", "vanilla"), ("vanilla", "izzet"), ("vanilla", "vanilla")]
+    # various pairings across THREE decks with two different win axes (izzet/vanilla = life_zero,
+    # infect = poison_ten) — so the engine seat develops toward a different §104 axis + synergy each time.
+    pairings = [("izzet", "vanilla"), ("vanilla", "izzet"), ("izzet", "infect"),
+                ("infect", "vanilla"), ("infect", "izzet"), ("vanilla", "vanilla")]
     if quick:
-        pairings = [("izzet", "vanilla")]
+        pairings = [("izzet", "vanilla"), ("infect", "vanilla")]
     # DECK MATCHUPS: the win_search engine seat (now DEVELOPS toward its deck's win axis when it sees no
     # forced win) vs Forge-AI, Forge refereeing.
     matchups = []

@@ -112,6 +112,28 @@ def _progress_checks():
           any(a[0] == "attack" and a[1] for a in deep))
     check("seeing the follow-through scores higher than just setup", deep_sc > shallow_sc)
 
+    # SYNERGY vs DIRECT progress, on a shared %-scale (the second evaluator wired in). A 5-card combo:
+    # assembling pieces is CONVEX-discounted so a partial combo can't beat real win progress, but a near-
+    # complete one can. Calibration matches the spec: 2/5 -> 16% (< a 25% damage move), 4/5 -> 64%.
+    combo = {"slugs": {f"p{i}" for i in range(5)}, "size": 5}
+
+    def assembled(k):
+        pieces = [f"p{i}" for i in range(k)]
+        return {"is_player": {("me",), ("opp",)}, "on_battlefield": {(c,) for c in pieces},
+                "printed_control": {("me", c) for c in pieces}, "in_hand": set(),
+                "instance_of": {(c, c) for c in pieces}}
+    check("synergy: 2-of-5 combo ~ 16% (< a 25% win move)",
+          15 < win_search.synergy_score(assembled(2), "me", combo) * 100 < 20)
+    check("synergy: 4-of-5 combo ~ 64% (now worth chasing)",
+          60 < win_search.synergy_score(assembled(4), "me", combo) * 100 < 68)
+    check("synergy folds into progress_score (a near-combo outscores 1 chip of damage)",
+          win_search.progress_score(assembled(4), "me", "alt_win", synergy=combo)
+          > win_search.progress_score({"is_player": {("me",), ("opp",)}, "life": {("me", 20), ("opp", 19)}},
+                                      "me", "life_zero", start_life=20))
+    check("direct calibration: 1 damage in Standard = 5%",
+          abs(win_search.progress_score({"is_player": {("me",), ("opp",)}, "life": {("me", 20), ("opp", 19)}},
+                                        "me", "life_zero", start_life=20) - 5) < 0.5)
+
     # the policy: with an axis it develops; WITHOUT an axis it keeps the old win-or-defer behavior.
     s0 = env.start(_develop_state())
     acts = env.legal_actions(s0)

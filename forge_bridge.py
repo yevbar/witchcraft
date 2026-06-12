@@ -196,6 +196,13 @@ class EnginePolicy:
         self.axis = os.environ.get("MTG_DECK_AXIS") or None
         self.progress_turns = int(os.environ.get("MTG_PROGRESS_TURNS", "4"))   # deep enough to value the
         self.progress_budget = int(os.environ.get("MTG_PROGRESS_BUDGET", "3000"))  # follow-through (attack), not just setup
+        # the deck's primary synergy combo (interaction_evaluator.synergy_cluster) — slugs + size, handed in
+        # via MTG_SYNERGY / MTG_SYNERGY_SIZE — so the develop search can value assembling/invoking the combo
+        # against direct win progress on a shared %-scale. start_life sets the §104 life ref (20 vs 40).
+        _syn = os.environ.get("MTG_SYNERGY")
+        self.synergy = ({"slugs": set(_syn.split(",")), "size": int(os.environ.get("MTG_SYNERGY_SIZE", "0"))}
+                        if _syn else None)
+        self.start_life = int(os.environ.get("MTG_START_LIFE", "20"))
         self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
                       "unmodeled_cards": set(), "by_kind": {}, "search_turns": self.max_turns}
         self._pending_name = None      # the card name the lookahead planned for the next 'choose a card name'
@@ -273,7 +280,8 @@ class EnginePolicy:
         path, _n = win_search.find_win(s, me=seat, max_turns=self.max_turns, node_budget=self.node_budget)
         if not path and self.axis:                            # no kill in sight -> develop toward the win axis
             path, _ = win_search.find_progress(s, me=seat, axis=self.axis,
-                                               max_turns=self.progress_turns, node_budget=self.progress_budget)
+                                               max_turns=self.progress_turns, node_budget=self.progress_budget,
+                                               synergy=self.synergy, start_life=self.start_life)
         choice = None
         if path and path[0][0] == "cast":                    # play the winning/developing line's first cast
             a0 = path[0]

@@ -439,6 +439,18 @@ def _clusters(graph: dict) -> list[set]:
     return sorted(comps, key=len, reverse=True)
 
 
+def synergy_cluster(names, commander: bool = False) -> dict:
+    """The deck's PRIMARY synergy combo — the largest weakly-connected cluster — as card SLUGS (so it matches
+    win_search's instance_of), with its size and the deck's total edge count. This is what the agent develops
+    TOWARD as a synergy/combo plan: {slugs: set, size: int, edges: int}. A thin wrapper the win_search policy
+    consumes once per deck (like deck_evaluator.deck_axis). size < 2 -> no combo to assemble."""
+    import ground
+    g = interactions(names, commander)
+    comps = _clusters(g)
+    top = comps[0] if comps else set()
+    return {"slugs": {ground.slug(n) for n in top}, "size": len(top), "edges": len(g["edges"])}
+
+
 def evaluate(names, label: str = "deck", quiet: bool = False, commander: bool = False) -> dict:
     """Build + REPORT the interaction graph: stats, the dominant interaction TYPES, the hub cards, the
     tightest cluster, and the discoverable frontier."""
