@@ -1403,10 +1403,24 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
     is one of those fires here automatically (this is what carries PROWESS-style 'whenever you cast …'
     abilities once a card supplies the trigger)."""
     before = run(state, ["pending"])["pending"]
+    # §608 PER-TURN NTH-CAST ordinal: this is the caster's n-th spell this turn (and m-th noncreature). Fed
+    # as cast_ord / cast_nc_ord ONLY during the window so 'first/second … spell each turn' triggers fire
+    # exactly on the matching cast. The counters are per-(player, turn), reset at the turn boundary.
+    by = state.setdefault("_cast_by", {})
+    by[caster] = n = by.get(caster, 0) + 1
     state["cast_spell"] = {(caster, spell)}
+    state["cast_ord"] = {(caster, n)}
+    if (spell, "creature") not in state.get("spell_type", set()):       # noncreature ordinal (Esper Sentinel)
+        ncby = state.setdefault("_cast_nc_by", {})
+        ncby[caster] = m = ncby.get(caster, 0) + 1
+        state["cast_nc_ord"] = {(caster, m)}
+    else:
+        state["cast_nc_ord"] = set()
     new = run(state, ["pending"])["pending"] - before
     _apply_effects(state, new)
     state["cast_spell"] = set()
+    state["cast_ord"] = set()
+    state["cast_nc_ord"] = set()
 
 
 # --- §608 CAST COUNTER + §707.10 SPELL COPYING ------------------------------------------------------
@@ -2131,6 +2145,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
+        state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")

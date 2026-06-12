@@ -54,16 +54,17 @@ _EVENT = {
     # casts a spell -> opponent_cast; the noncreature variant adds the spell-type guard.
     "an_opponent_casts_a_spell": "opponent_cast",
     "an_opponent_casts_a_noncreature_spell": "opponent_cast_noncreature",
-    # §601 'first/second … spell each turn' cast triggers (Esper Sentinel, Lotho, Monologue Tax, Mangara).
-    # The engine fires the cast family from the cast window (cast_spell -> opponent_cast / opponent_cast_noncreature
-    # / any_cast), but it has NO per-turn, per-player nth-cast counter to surface to the trigger layer, so the
-    # 'first … each turn' / 'second … each turn' RESTRICTION can't be gated. We map to the unrestricted cast
-    # event of the same scope and shape — a CONSERVATIVE OVER-FIRE (the trigger fires on EVERY qualifying
-    # opponent/any cast, not only the nth one), in the same spirit as the documented 'you_attack' approximation
-    # above. The EFFECTS (draw, lose_life, create Treasure) resolve faithfully; only the frequency is approximate.
-    "an_opponent_casts_their_first_noncreature_spell_each_turn": "opponent_cast_noncreature",
-    "an_opponent_casts_their_second_spell_each_turn": "opponent_cast",
-    "a_player_casts_their_second_spell_each_turn": "any_cast",
+    # §601/§608 'first/second … spell each turn' cast triggers (Esper Sentinel, Lotho, Monologue Tax, Mangara).
+    # Now gated EXACTLY by the engine's per-(player,turn) nth-cast ordinal (cast_ord / cast_nc_ord, fed by the
+    # driver during the cast window): the trigger fires only on the matching cast, not on every cast.
+    "an_opponent_casts_their_first_noncreature_spell_each_turn": "opp_cast_first_noncreature",
+    "an_opponent_casts_their_second_spell_each_turn": "opp_cast_second",
+    "an_opponent_casts_their_first_spell_each_turn": "opp_cast_first",
+    "a_player_casts_their_second_spell_each_turn": "any_cast_second",
+    "a_player_casts_their_first_spell_each_turn": "any_cast_first",
+    "you_cast_your_first_spell_each_turn": "you_cast_first",
+    "you_cast_your_second_spell_each_turn": "you_cast_second",
+    "you_cast_your_first_noncreature_spell_each_turn": "you_cast_first_noncreature",
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
     "the_beginning_of_the_end_step": "any_end_step",
     # §603 landfall alt phrasing ('a_land_you_control_enters' is in the typed-ETB block below).

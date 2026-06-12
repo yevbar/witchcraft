@@ -211,6 +211,11 @@ INPUTS = [
     ("phased_out", [("o", "symbol")]),                            # §603.10b a permanent phased out
     ("countered", [("o", "symbol")]),                             # §603.10e a spell was countered
     ("cast_spell", [("p", "symbol"), ("s", "symbol")]),           # §601 a player just put a spell on the stack
+    # §608 PER-TURN NTH-CAST ordinals (driver-fed during the cast window): cast_ord(p,n) = THIS cast is p's
+    # n-th spell this turn; cast_nc_ord(p,n) = p's n-th NONCREATURE spell this turn. They gate the 'first /
+    # second … spell each turn' triggers EXACTLY (not 'on every cast'), the faithful per-turn counter.
+    ("cast_ord", [("p", "symbol"), ("n", "number")]),
+    ("cast_nc_ord", [("p", "symbol"), ("n", "number")]),
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
@@ -851,6 +856,18 @@ def _rules(p: Program) -> None:
     # controller casts a spell; the noncreature variant guards on the spell's type.
     p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_cast")', "cast_spell(P, _)", "controls(Q, S)", "P != Q"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_cast_noncreature")', "cast_spell(P, Sp)", "controls(Q, S)", "P != Q", '!spell_type(Sp, "creature")'])
+    # §608 NTH-CAST-EACH-TURN triggers — gated on the driver-fed per-(player,turn) ordinal of THIS cast, so
+    # they fire EXACTLY on the 1st / 2nd / … such spell, not on every cast (the faithful replacement for the
+    # old 'fires on any opponent cast' approximation). cast_ord = ordinal among ALL of P's spells this turn;
+    # cast_nc_ord = ordinal among P's NONCREATURE spells (for 'first noncreature spell each turn').
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_first")', "cast_spell(P, _)", "controls(P, S)", "cast_ord(P, 1)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_second")', "cast_spell(P, _)", "controls(P, S)", "cast_ord(P, 2)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_cast_first")', "cast_spell(P, _)", "controls(Q, S)", "P != Q", "cast_ord(P, 1)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_cast_second")', "cast_spell(P, _)", "controls(Q, S)", "P != Q", "cast_ord(P, 2)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_cast_first")', "cast_spell(P, _)", "cast_ord(P, 1)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_cast_second")', "cast_spell(P, _)", "cast_ord(P, 2)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_first_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")', "cast_nc_ord(P, 1)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_cast_first_noncreature")', "cast_spell(P, Sp)", "controls(Q, S)", "P != Q", '!spell_type(Sp, "creature")', "cast_nc_ord(P, 1)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "dealt_damage_self")', "ev_dealt_damage(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_self")', "ev_leaves(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_other")', "ev_leaves(O)", "O != S"])
