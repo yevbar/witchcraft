@@ -232,6 +232,12 @@ _TARGET_CLASS = {
     # exactly ONE own creature/enchantment is a legal subset of 'one or two', so we resolve it as a single
     # OWN-restricted target (perm_own_*) — a beneficial self-bounce the driver aims at the controller's board.
     "one_or_two_target_creatures_and_or_enchantments_you_own": "perm_own_creature_enchantment",
+    # §115.4 opponent-controlled permanent bounce — 'you don't control / an opponent controls' is a HARD
+    # legal-target restriction (the caster's own permanents are illegal). The driver's perm_<filter> path now
+    # has an 'opp_' prefix (restrict candidates to NOT printed_control == ctrl, the mirror of 'own_') plus a
+    # perm_acep type-union (artifact/creature/enchantment/planeswalker), so these resolve faithfully:
+    "target_nonland_permanent_you_don_t_control": "perm_opp_nonland",                 # Cyclonic Rift (base mode)
+    "target_artifact_creature_enchantment_or_planeswalker": "perm_opp_acep",          # Otawara (channel)
 }
 
 # The perm_<filter> class is opaque to the bridge — it flows straight through target_class into the datalog

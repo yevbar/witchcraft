@@ -600,6 +600,7 @@ _PERM_FILTER = {
     "artifact_enchantment": ("artifact", "enchantment"),
     "creature_enchantment": ("creature", "enchantment"),
     "cep": ("creature", "enchantment", "planeswalker"),
+    "acep": ("artifact", "creature", "enchantment", "planeswalker"),   # Otawara: artifact/creature/ench/pw
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 
@@ -611,8 +612,11 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
     'any' = every permanent. A leading 'own_' restricts to the controller's permanents (printed_control)."""
     body = cls[len("perm_"):] if cls.startswith("perm_") else cls
     own = body.startswith("own_")
+    opp = body.startswith("opp_")                              # §115.4 'you don't control / an opponent controls'
     if own:
         body = body[len("own_"):]
+    elif opp:
+        body = body[len("opp_"):]
     want = _PERM_FILTER.get(body, ())
     on_bf = sorted(c for (c,) in state.get("on_battlefield", set()))
     ptype = state.get("printed_type", set())
@@ -620,6 +624,8 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
 
     def matches(c: str) -> bool:
         if own and c not in mine:
+            return False
+        if opp and c in mine:                                 # an opponent-controlled restriction excludes mine
             return False
         types = {t for (o, t) in ptype if o == c}
         if c in creatures:
