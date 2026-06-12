@@ -229,6 +229,9 @@ _TARGET_CLASS = {
     "target_creature_or_enchantment": "perm_creature_enchantment",
     "target_creature_or_planeswalker_or_enchantment": "perm_cep",
     "target_creature_enchantment_or_planeswalker": "perm_cep",
+    # §105 COLOR-restricted permanent (Pyroblast / Red Elemental Blast — destroy target BLUE permanent). The
+    # driver's perm_<color> filter matches any permanent of that color (printed_color).
+    "target_blue_permanent": "perm_blue", "target_permanent_if_it_s_blue": "perm_blue",
     # 'one or two target creatures and/or enchantments YOU OWN' (Get Out's protective bounce): choosing
     # exactly ONE own creature/enchantment is a legal subset of 'one or two', so we resolve it as a single
     # OWN-restricted target (perm_own_*) — a beneficial self-bounce the driver aims at the controller's board.

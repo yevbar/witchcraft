@@ -603,6 +603,7 @@ _PERM_FILTER = {
     "acep": ("artifact", "creature", "enchantment", "planeswalker"),   # Otawara: artifact/creature/ench/pw
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
+_PERM_COLORS = {"white", "blue", "black", "red", "green"}    # §105 a COLOR target class (Pyroblast/REB: a blue permanent)
 
 
 def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = None) -> list[str]:
@@ -617,9 +618,11 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
         body = body[len("own_"):]
     elif opp:
         body = body[len("opp_"):]
+    color = body if body in _PERM_COLORS else None            # §105 a color-only filter (Pyroblast: a blue permanent)
     want = _PERM_FILTER.get(body, ())
     on_bf = sorted(c for (c,) in state.get("on_battlefield", set()))
     ptype = state.get("printed_type", set())
+    pcolor = state.get("printed_color", set())
     mine = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
 
     def matches(c: str) -> bool:
@@ -627,6 +630,8 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
             return False
         if opp and c in mine:                                 # an opponent-controlled restriction excludes mine
             return False
+        if color is not None:                                 # any permanent of that color (§105)
+            return (c, color) in pcolor
         types = {t for (o, t) in ptype if o == c}
         if c in creatures:
             types.add("creature")
