@@ -129,7 +129,7 @@ def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
     # PERFECT-INFORMATION MINIMAX (MTG_MINIMAX=1): the develop search maximizes the witch seat's win while
     # the opponent plays its best line on ITS deck's §104 axis (MTG_OPP_AXIS = the opp deck's axis).
     bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": _axis_of(witch), "MTG_OPP_AXIS": _axis_of(opp),
-               "MTG_MINIMAX": "1", "MTG_MINIMAX_TURNS": "2",
+               "MTG_MINIMAX": "1", "MTG_MINIMAX_TURNS": "2", "MTG_PROGRESS_BUDGET": "2000",  # cap minimax/decision
                "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000", "MTG_START_LIFE": "20",
                "MTG_SYNERGY": ",".join(sorted(syn["slugs"])), "MTG_SYNERGY_SIZE": str(syn["size"])}
     need = best_of // 2 + 1
