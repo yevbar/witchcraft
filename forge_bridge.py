@@ -191,6 +191,11 @@ class EnginePolicy:
         # to compare search depths (deeper = endorses multi-turn kills it can't see at depth 1, but costs more).
         self.max_turns = max_turns if max_turns is not None else int(os.environ.get("MTG_SEARCH_TURNS", "1"))
         self.node_budget = node_budget if node_budget is not None else int(os.environ.get("MTG_SEARCH_BUDGET", "20000"))
+        # when no forced win is found, DEVELOP toward the deck's win axis (§104) instead of passing — the axis
+        # comes from deck_evaluator.deck_axis, handed in via MTG_DECK_AXIS. None -> pure win-or-pass.
+        self.axis = os.environ.get("MTG_DECK_AXIS") or None
+        self.progress_turns = int(os.environ.get("MTG_PROGRESS_TURNS", "4"))   # deep enough to value the
+        self.progress_budget = int(os.environ.get("MTG_PROGRESS_BUDGET", "3000"))  # follow-through (attack), not just setup
         self.stats = {"decisions": 0, "engine_decided": 0, "offered": 0, "modeled": 0, "endorsed": 0,
                       "unmodeled_cards": set(), "by_kind": {}, "search_turns": self.max_turns}
         self._pending_name = None      # the card name the lookahead planned for the next 'choose a card name'
@@ -266,8 +271,11 @@ class EnginePolicy:
         s["active_player"] = {(seat,)}
         s.setdefault("current_step", {("precombat_main",)})
         path, _n = win_search.find_win(s, me=seat, max_turns=self.max_turns, node_budget=self.node_budget)
+        if not path and self.axis:                            # no kill in sight -> develop toward the win axis
+            path, _ = win_search.find_progress(s, me=seat, axis=self.axis,
+                                               max_turns=self.progress_turns, node_budget=self.progress_budget)
         choice = None
-        if path and path[0][0] == "cast":                    # play the winning line's first cast
+        if path and path[0][0] == "cast":                    # play the winning/developing line's first cast
             a0 = path[0]
             sid = str(a0[2])
             choice = next((o for o in spells if str(o["id"]) == sid), None)
@@ -330,6 +338,29 @@ def engine_policy(obs, key, options, default):
 
 
 _ENGINE_SINGLETON = EnginePolicy()
+
+
+class RandomPolicy:
+    """A uniform-random BASELINE seat: among the legal options Forge offers at each decision, pick one at
+    random (a mana-payment Forge can do itself is deferred). This is the control our win_search 'stockfish'
+    must beat — if the search can't out-play random, it isn't earning its cost. Same (obs, key, options,
+    default)->choice seam as EnginePolicy, so it drops straight into ForgePlayer."""
+
+    def __init__(self, seed: int = 0):
+        self._rng = random.Random(seed)                       # seeded -> reproducible
+        self.history: list = []
+        self.stats = {"decisions": 0, "policy": "random"}
+
+    def __call__(self, obs, key, options, default):
+        self.stats["decisions"] += 1
+        if key == "pay":                                      # let Forge pay mana (random pip choices break casts)
+            return default
+        if isinstance(options, (list, tuple)) and options:
+            return self._rng.choice(list(options))
+        return default
+
+    def coverage(self) -> dict:
+        return {"policy": "random", "decisions": self.stats["decisions"], "modeled_frac": None, "endorsed_frac": 0.0}
 
 
 class ForgePlayer:

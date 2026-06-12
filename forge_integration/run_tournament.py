@@ -27,6 +27,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)                                       # so `import deck_evaluator` (repo root) works
 JDK = os.environ.get("JDK", "/home/zucc/opt/jdk-17.0.13+11")
 FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
 FATJAR = f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar"
@@ -100,70 +101,70 @@ def run_combo(name: str, combo: str, port: int, timeout: int = GAME_TIMEOUT) -> 
     return res
 
 
-def run_matchup(witch: str, opp: str, port_base: int, turns: int, budget: int,
-                best_of: int = 1) -> dict:
-    """One deck matchup at a fixed SEARCH DEPTH (turns). The witchcraft seat's lookahead horizon is set via
-    the bot env (MTG_SEARCH_TURNS/BUDGET). Returns the series + per-game stats (modeled/endorsed)."""
-    bot_env = {"MTG_SEARCH_TURNS": str(turns), "MTG_SEARCH_BUDGET": str(budget)}
+def _deck_cards(name: str) -> list:
+    if name == "izzet":
+        import meta_decklists_constructed as M
+        return list(M.DECKS["Izzet Prowess (STD)"]["cards"].keys())
+    return ["Grizzly Bears", "Gray Ogre", "Hill Giant", "Craw Wurm", "Forest", "Mountain"]   # vanilla = gruul
+
+
+def _axis_of(name: str) -> str:
+    import deck_evaluator
+    return deck_evaluator.deck_axis(_deck_cards(name))
+
+
+def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
+    """One deck matchup: the witchcraft win_search ENGINE seat (develops toward the witch deck's win axis via
+    MTG_DECK_AXIS when it sees no forced win) vs Forge-AI, Forge refereeing. Returns the series + stats."""
+    bot_env = {"MTG_POLICY": "engine", "MTG_DECK_AXIS": _axis_of(witch),
+               "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000"}
     need = best_of // 2 + 1
-    wins = {"Witchcraft-Engine": 0, "Forge-AI": 0}
+    wins = {"witchcraft": 0, "Forge-AI": 0}
     games = []
     for g in range(best_of):
         port = free_port(port_base + g)
         res = run_game("ForgeVsBot", {"witchDeck": witch, "oppDeck": opp}, port, bot_env=bot_env)
         games.append(res)
-        if res["winner"] in wins:
-            wins[res["winner"]] += 1
-        print(f"  d{turns} {witch}-vs-{opp} g{g + 1}: winner={res['winner']} turns={res['turns']} "
-              f"wall={res['wall']}ms modeled={res['modeled']} endorsed={res['endorsed']} "
-              f"engine_decided={res.get('engine_decided')}", flush=True)
+        seat = "witchcraft" if res["winner"] == "Witchcraft-Engine" else res["winner"]
+        if seat in wins:
+            wins[seat] += 1
+        print(f"  {witch}-vs-{opp} g{g + 1}: winner={seat} turns={res['turns']} "
+              f"wall={res['wall']}ms modeled={res['modeled']} endorsed={res['endorsed']}", flush=True)
         if max(wins.values()) >= need:
             break
-    champ = max(wins, key=wins.get) if max(wins.values()) >= need else "split"
-    return {"witch": witch, "opp": opp, "turns": turns, "wins": wins, "champ": champ, "games": games}
-
-
-# (search depth in turns, node budget). Deeper horizons get a tighter node cap so a single decision stays
-# bounded — depth-5/10 trees are far larger than the shallow depth-1 lethal-finder.
-DEPTHS = [(1, 20000), (5, 2500), (10, 2500)]
+    return {"witch": witch, "opp": opp, "wins": wins, "games": games}
 
 
 def main() -> None:
     quick = "--quick" in sys.argv
     compile_harnesses()
     t0 = time.time()
-    # Thassa's Oracle is the proven, fast win-con (a turn-1 kill, so depth 1 suffices). Storm capped short
-    # (its 9 identical Lotus Petals blow up the first search — a symmetric-duplicate edge, not a coverage gap).
+    # Thassa's Oracle is the proven, fast win-con (a turn-1 kill). Storm capped short (its 9 identical Lotus
+    # Petals blow up the first search — a symmetric-duplicate edge, not a coverage gap).
     combos = [run_combo("Thassa's Oracle (library-out)", "oracle", free_port(8800)),
               run_combo("Tendrils storm (storm count)", "storm", free_port(8810), timeout=90)]
     pairings = [("izzet", "izzet"), ("izzet", "vanilla"), ("vanilla", "izzet"), ("vanilla", "vanilla")]
-    depths = [(1, 20000)] if quick else DEPTHS
     if quick:
         pairings = [("izzet", "vanilla")]
-    # DEPTH SWEEP: each deck matchup at search depth 1, 5 and 10 — does a deeper lookahead let the seat
-    # endorse (drive) more of its own plays, and win more?
-    sweep = []
-    for di, (turns, budget) in enumerate(depths):
-        print(f"\n=== SEARCH DEPTH max_turns={turns} (node budget {budget}) ===", flush=True)
-        for pi, (w, o) in enumerate(pairings):
-            sweep.append(run_matchup(w, o, 8900 + di * 40 + pi * 8, turns, budget,
-                                     best_of=1 if quick else 1))
+    # DECK MATCHUPS: the win_search engine seat (now DEVELOPS toward its deck's win axis when it sees no
+    # forced win) vs Forge-AI, Forge refereeing.
+    matchups = []
+    for pi, (w, o) in enumerate(pairings):
+        print(f"\n=== {w} (witchcraft) vs {o} (forge-ai) ===", flush=True)
+        matchups.append(run_matchup(w, o, 8900 + pi * 12))
 
     print("\n" + "=" * 78)
-    print("TOURNAMENT SUMMARY  (Forge = referee; witchcraft drives its seat via win_search)")
+    print("TOURNAMENT SUMMARY  (Forge = referee + opponent; witchcraft drives its seat via win_search)")
     print("=" * 78)
     print("\nWIN-CON REGRESSIONS (witchcraft must win as the piloting seat):")
     for c in combos:
-        print(f"  {c['status']:5} {('winner=' + c['winner']):32} "
-              f"modeled={c['modeled']} endorsed={c['endorsed']}")
-    print("\nDECK MATCHUPS BY SEARCH DEPTH  (endorsed = fraction of plays the tree search DROVE; "
-          "deeper = sees more wins):")
-    print(f"  {'depth':6} {'witchcraft':10} {'forge-ai':10} {'winner':18} {'modeled':8} {'endorsed':8}")
-    for m in sweep:
+        print(f"  {c['status']:5} {('winner=' + c['winner']):32} endorsed={c['endorsed']}")
+    print("\nDECK MATCHUPS — witchcraft (win_search) vs Forge-AI:")
+    print(f"  {'witchcraft':10} {'forge-ai':10} {'winner':14} {'modeled':9} {'endorsed':9}")
+    for m in matchups:
         g = m["games"][0]
-        win = max(m["wins"], key=m["wins"].get) if max(m["wins"].values()) else g["winner"]
-        print(f"  d{m['turns']:<5} {m['witch']:10} {m['opp']:10} {win:18} "
-              f"{str(g['modeled']):8} {str(g['endorsed']):8}")
+        seat = "witchcraft" if g["winner"] == "Witchcraft-Engine" else g["winner"]
+        print(f"  {m['witch']:10} {m['opp']:10} {seat:14} {str(g['modeled']):9} {str(g['endorsed']):9}")
     print(f"\nwall: {round(time.time() - t0)}s")
 
 

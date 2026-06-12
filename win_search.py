@@ -141,10 +141,15 @@ def progress_score(state: dict, me: str, axis: str) -> float:
 
 
 def find_progress(state: dict, me: str | None = None, axis: str = "life_zero",
-                  max_turns: int = 2, node_budget: int = 2500):
+                  max_turns: int = 4, node_budget: int = 3000):
     """When there's no forced win: search MY plays (opponent passive) within `max_turns` and return the
     action path to the highest-PROGRESS reachable state — the first step of 'developing setup to win'.
-    Returns (path, score); path[0] is the move to play. Baseline is doing nothing (an empty path)."""
+    Returns (path, score); path[0] is the move to play. Baseline is doing nothing (an empty path).
+
+    The horizon must be deep enough to reach the FOLLOW-THROUGH, not just the setup: a creature cast this
+    turn is summoning-sick, so the line that USES it (attacks next turn for real axis pressure) only appears
+    a couple turn-passes ahead. At a shallow horizon the search would value a 3/3 only as static board; at
+    max_turns≈4 it values it by the damage it will actually deal — working IN THE DIRECTION of the win."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     start_turn = s0.get("_turn", 0)
@@ -213,7 +218,7 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
 
 
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
-                       axis: str | None = None, progress_turns: int = 2, progress_budget: int = 2500):
+                       axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000):
     """A policy (state, key, options, default)->choice. At a play decision:
       1. search for a forced win within `max_turns` — if found, play its first move.
       2. ELSE, if `axis` is given (the deck's win condition from deck_evaluator), play the first move of the

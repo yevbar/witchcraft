@@ -100,9 +100,17 @@ def _progress_checks():
     # find_progress DEVELOPS (casts a creature toward the life_zero win) rather than returning nothing.
     st = _develop_state()
     assert win_search.find_win(st, me="alice", max_turns=2, node_budget=2000)[0] is None   # no forced win
-    path, score = win_search.find_progress(st, me="alice", axis="life_zero", max_turns=3, node_budget=4000)
+    path, score = win_search.find_progress(st, me="alice", axis="life_zero", max_turns=4, node_budget=6000)
     check("find_progress returns a developing move (not pass)", bool(path) and path[0][0] == "cast")
     check("the developing move deploys the creature", bool(path) and path[0][2] == "bear")
+
+    # FOLLOW-THROUGH: the default-horizon line doesn't just SET UP — it USES the creature (the cast-now,
+    # attack-next-turn arc), so a just-cast 3/3 is valued by the damage it will deal, not as static board.
+    deep, deep_sc = win_search.find_progress(st, me="alice", axis="life_zero", max_turns=4, node_budget=6000)
+    shallow, shallow_sc = win_search.find_progress(st, me="alice", axis="life_zero", max_turns=2, node_budget=6000)
+    check("the develop line works toward the win — it attacks with the creature",
+          any(a[0] == "attack" and a[1] for a in deep))
+    check("seeing the follow-through scores higher than just setup", deep_sc > shallow_sc)
 
     # the policy: with an axis it develops; WITHOUT an axis it keeps the old win-or-defer behavior.
     s0 = env.start(_develop_state())
