@@ -110,6 +110,16 @@ _EVENT = {
     # §603 'when you play another land' (City of Traitors) — a land you control entering the battlefield
     # (O != S already excludes the source), the same window as a landfall trigger.
     "you_play_another_land": "your_land_etb",
+    # §603 'whenever this becomes tapped' (City of Brass + many) — the driver feeds just_tapped when it taps a
+    # permanent and fires this window at a safe checkpoint (after mana payment / a {T} cost / a tap effect).
+    "becomes_tapped": "becomes_tapped",
+    # §603 DRAW triggers (driver feeds just_drew + a per-(player,turn) draw ordinal). 'an opponent draws their
+    # second card each turn' (Faerie Mastermind) / 'whenever you draw a card' / 'whenever an opponent draws'.
+    "you_draw_a_card": "you_draw",
+    "whenever_you_draw_a_card": "you_draw",
+    "an_opponent_draws_a_card": "opp_draw",
+    "an_opponent_draws_their_second_card_each_turn": "opp_draw_second",
+    "a_player_draws_their_second_card_each_turn": "any_draw_second",
     # §603 composite self-triggers ('enters or attacks', 'enters or dies') — two firing conditions, both
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
     "enters_or_attacks": "self_enters_or_attacks",
@@ -118,21 +128,20 @@ _EVENT = {
     # battlefield, so the unlock trigger fires on ETB. (A door unlocked LATER by paying its cost is a
     # separate action we don't model; the cast-the-front-half case — the common one — is faithful.)
     "you_unlock_this_door": "etb_self",
-    # DELIBERATELY UNMAPPED — abstained per faithful-or-abstain (NOT an oversight):
-    #   * '… draws a card' / '… draws their second card each turn' (Smothering Tithe, Faerie Mastermind,
-    #     Tataru Taru, Consecrated Sphinx): the engine fires NO draw event. driver._draw moves a card from
-    #     library to hand with no trigger window, and there is no ev_draw relation for has_trigger to join.
-    #     Mapping these would fire the wrong moment (or never), so the EVENT stays dropped (the card abstains).
-    #   * 'becomes tapped' (City of Brass + ~51 others): the engine taps permanents (driver taps state['tapped'])
-    #     but opens NO tap window — there is no ev_tap relation, and tapping happens MID-mana-payment (a
-    #     re-entrant spot to resolve a trigger). The 'deals 1 damage to you on tap' trigger has no safe game
-    #     moment to fire on, so it abstains rather than guess.
-    #   * delayed 'at the beginning of your NEXT upkeep' (Pact of Negation): a one-shot DELAYED trigger the
-    #     engine has no scheduling for (it would fire every upkeep, not just the next one).
-    #   * 'you win a coin flip' (Tavern Scoundrel): there is no flip_coin event/result the engine models.
-    # Adding any of these would require a new engine event (ev_draw / ev_tap / a delayed-trigger scheduler /
-    # a coin-flip result) the driver actually fires — out of scope for the bridge, which only maps to events
-    # the engine supports.
+    # NOW MAPPED (the driver feeds the window): 'becomes tapped' -> just_tapped/ev_tapped (City of Brass; the
+    # driver fires _fire_tap_triggers at safe checkpoints after mana payment / a {T} cost / combat); draws ->
+    # just_drew/ev_draw + a per-turn draw ordinal (Faerie Mastermind 'opponent's second card each turn');
+    # 'beginning of your next upkeep' -> a driver-scheduled DELAYED pact_delayed (the Pact cycle: pay-or-lose
+    # at the controller's next upkeep, resolved in the turn loop); coin flips -> a folded coin_flip effect
+    # (Mana Crypt's flip-or-take-3) through the _flip_coin chance seam.
+    #
+    # STILL DELIBERATELY UNMAPPED — abstained per faithful-or-abstain (NOT an oversight):
+    #   * 'you win a coin flip' (Tavern Scoundrel): a STANDING trigger that watches every flip needs an engine
+    #     ev_won_flip window the driver fires on each won flip — the coin_flip applier models the flip's own
+    #     win/lose damage, but not a separate watcher (and Tavern's flip ability abstains on its sac cost anyway).
+    #   * a TYPE-restricted draw ('you draw your second CARD' is mapped, but 'draws a LAND'/'a nonland card' is
+    #     not — there is no card-type guard on the draw window).
+    # Adding these would require a further engine event (ev_won_flip / a typed-draw guard) the driver fires.
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
@@ -706,6 +715,31 @@ def _is_impulse_card_obj(tgt) -> bool:
     return s in _IMPULSE_CARD_OBJ
 
 
+def _fold_coinflip(effs: list, emit) -> set:
+    """§705 COIN FLIP — 'flip a coin. If you lose the flip, ~ deals N damage to you' (Mana Crypt; Ral's
+    downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
+    by flipping and applying the matching branch's damage to the controller. payload 'lose:<N>|win:<M>'. Other
+    conditional branches (Ral's exile-and-transform on a win) aren't damage, so they're left to drop."""
+    flip_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "flip_coin"), None)
+    if flip_i is None:
+        return set()
+    skip = {flip_i}
+    lose_n = win_n = 0
+    for i, (_s, v, a, t, _x, c) in enumerate(effs):
+        if i in skip:
+            continue
+        if v == "deal_damage" and str(t) in ("you", "controller", "self") and _int(a) is not None:
+            cc = str(c)
+            if "lose_the_flip" in cc:
+                lose_n = _int(a); skip.add(i)
+            elif "win_the_flip" in cc:
+                win_n = _int(a); skip.add(i)
+    if lose_n == 0 and win_n == 0:
+        return set()                                          # a flip whose consequence ISN'T self-damage we model
+    emit("coin_flip", 0, f"lose:{lose_n}|win:{win_n}")        # -> don't fold (leave flip_coin to drop, stay honest)
+    return skip
+
+
 def _fold_impulse(effs: list, emit) -> set:
     """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play/cast them.'
     (Light Up the Stage, Mind's Desire, Stella Lee, Opera Love Song …). Fold the '[exile N top_of_library] +
@@ -863,6 +897,21 @@ def _activated_cost(cost: str) -> tuple | None:
 # 'Pay N life' (Treasonous Ogre), 'Exile ~ from your hand' (Simian/Elvish Spirit Guide — the source is a card
 # in HAND), 'Discard your hand' (Lion's Eye Diamond, which also Sacrifices — flagged source_sacrifice from the
 # card text). Returns (kind, amount) or None to abstain. The mana itself is registered via _add_mana_source.
+def _pact_cost(amt) -> int | None:
+    """The §202 mana VALUE of a Pact's 'pay <cost>' upkeep cost slug ('3_u_u' -> 5, 'w_w' -> 2): a leading
+    generic number plus one per colored pip. The driver charges this many generic mana at the next upkeep
+    (or the controller loses). A non-mana / variable cost returns None (abstain)."""
+    total = 0
+    for tok in str(amt).split("_"):
+        if tok.isdigit():
+            total += int(tok)
+        elif tok in ("w", "u", "b", "r", "g", "c"):
+            total += 1
+        elif tok:
+            return None                                       # an unparseable cost component -> abstain
+    return total if total > 0 else None
+
+
 def _alt_mana_cost(cost) -> tuple | None:
     s = str(cost or "").strip()
     m = re.match(r"^Pay (\d+) life$", s, re.I)
@@ -1013,6 +1062,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # misclassification of a one-shot effect ('target creature gets +1/+1 until end of turn' split off
             # from its 'and gains hexproof' clause). Resolve it on the SPELL path (spell_target/spell_effect).
             kind = "spell"
+        if kind == "triggered" and is_instant_sorcery \
+                and str(ab.get("trigger")) == "the_beginning_of_your_next_upkeep":
+            # §603.7c a DELAYED trigger set up when an INSTANT/SORCERY resolves (the Pact cycle: 'At the
+            # beginning of your next upkeep, pay <cost>. If you don't, you lose the game.'). It outlives the
+            # spell (which goes to the graveyard), so it can't be a standing has_trigger on a permanent — the
+            # driver schedules it on resolution and resolves it at the controller's next upkeep. Fold the
+            # [pay COST] + [lose_game if you don't] pair into one pact_delayed spell_effect (amount = the cost's
+            # mana value). Any other next-upkeep shape abstains (stays dropped).
+            pay = next((e for e in ab.get("effects", []) if e[1] == "pay"), None)
+            lose = any(e[1] == "lose_game" for e in ab.get("effects", []))
+            if pay is not None and lose and _pact_cost(pay[2]) is not None:
+                add("spell_effect", (tid, "pact_delayed", _pact_cost(pay[2]), "-"))
+            else:
+                dropped.append(("event", ab.get("trigger")))
+            continue
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
             trig = str(ab.get("trigger"))
             if trig.startswith("becomes_level_") and trig.rsplit("_", 1)[1].isdigit():
@@ -1044,8 +1108,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §608 IMPULSE on a TRIGGERED ability (Stella Lee: 'exile the top card, you may play it') -> one
             # impulse_play trigger_effect, same as the spell path (the card engine's triggered card advantage).
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §705 COIN FLIP on a TRIGGERED ability (Mana Crypt's upkeep flip-or-take-3).
+            flip_skip = _fold_coinflip(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -1178,8 +1244,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             fb_skip = _fold_flashback(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §720 STEAL-AND-SWING (Threaten / Claim the Firstborn): gain control (+untap +haste) -> gain_control.
             steal_skip = _fold_threaten(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §705 COIN FLIP on a spell (flip + win/lose self-damage branches).
+            flip_skip = _fold_coinflip(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue

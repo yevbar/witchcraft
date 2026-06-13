@@ -231,6 +231,9 @@ INPUTS = [
     # free_cast when the controller actually controls a commander, making it affordable for 0.
     ("free_if_commander", [("s", "symbol")]),
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
+    ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
+    ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
+    ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -835,6 +838,10 @@ def _rules(p: Program) -> None:
     # §305 a PLAYED land enters the battlefield without using the stack (no resolves), so the driver asserts
     # just_entered(O) for the land it played this step; the same ETB event fires (landfall).
     p.rule("ev_etb(O)", ["just_entered(O)"])
+    p.decl("ev_tapped", [("o", "symbol")])               # §603 'whenever ~ becomes tapped' — driver-fed tap window
+    p.rule("ev_tapped(O)", ["just_tapped(O)"])
+    p.decl("ev_draw", [("p", "symbol")])                 # §603 'whenever a player draws a card' — driver-fed draw window
+    p.rule("ev_draw(P)", ["just_drew(P)"])
     p.decl("ev_dies", [("c", "symbol")])
     p.rule("ev_dies(C)", ["dies(C)"])
     p.decl("ev_leaves", [("c", "symbol")])               # §603.6d 'leaves the battlefield' — a superset of dies
@@ -891,6 +898,14 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "first_main_phase")', "ev_first_main(P)", "controls(P, S)"])
     # §504/§603 'at the beginning of your draw step' (Mana Vault, Howling Mine-likes).
     p.rule("fires(A, S)", ['has_trigger(A, S, "draw_step")', "ev_draw_step(P)", "controls(P, S)"])
+    # §603 'whenever ~ becomes tapped' (City of Brass) — the SOURCE itself was just tapped.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_tapped")', "ev_tapped(S)"])
+    # §603 DRAW triggers (driver-fed just_drew + per-(player,turn) draw ordinal). 'you draw' = the controller
+    # drew; 'opponent draws their Nth card each turn' = another player drew, gated on draw_ord.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_draw")', "ev_draw(P)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw")', "ev_draw(P)", "controls(Q, S)", "P != Q"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw_second")', "ev_draw(P)", "controls(Q, S)", "P != Q", "draw_ord(P, 2)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_draw_second")', "ev_draw(P)", "draw_ord(P, 2)"])
     # §603 composite self-triggers — the union of two self-scoped firing conditions under one event key.
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_etb(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_attacks(S)"])

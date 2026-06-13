@@ -179,11 +179,70 @@ def _new_window_checks() -> None:
     check("bridge maps 'cast a red spell'", bridge._EVENT.get("you_cast_a_red_spell") == "you_cast_red")
     check("bridge maps 'play another land' to the landfall window", bridge._EVENT.get("you_play_another_land") == "your_land_etb")
 
+    # §603 becomes_tapped (City of Brass): the SOURCE itself was just tapped.
+    tap_st = {"is_player": {("me",)}, "active_player": {("me",)}, "on_battlefield": {("cob",)},
+              "printed_control": {("me", "cob")}, "just_tapped": {("cob",)},
+              "has_trigger": {("c", "cob", "becomes_tapped")}, "trigger_damage": {("c", 1, "self")}, "life": {("me", 40)}}
+    check("becomes_tapped fires for the just-tapped source",
+          ("c", "cob") in driver.run(tap_st, ["fires"])["fires"])
+    other = dict(tap_st); other["just_tapped"] = {("xyz",)}      # a DIFFERENT permanent tapped
+    check("becomes_tapped does NOT fire for another permanent",
+          ("c", "cob") not in driver.run(other, ["fires"])["fires"])
+
+    # §603 opponent draws their second card each turn (Faerie Mastermind), gated on draw_ord.
+    def draw_st(ord_n):
+        return {"is_player": {("me",), ("op",)}, "on_battlefield": {("fm",)}, "printed_control": {("me", "fm")},
+                "just_drew": {("op",)}, "draw_ord": {("op", ord_n)},
+                "has_trigger": {("f", "fm", "opp_draw_second")}, "trigger_effect": {("f", "draw", 1, "controller")}}
+    check("opp_draw_second fires on the opponent's SECOND draw", ("f", "fm") in driver.run(draw_st(2), ["fires"])["fires"])
+    check("opp_draw_second does NOT fire on the opponent's first draw", ("f", "fm") not in driver.run(draw_st(1), ["fires"])["fires"])
+
+
+def _coinflip_pact_checks() -> None:
+    import contextlib, io
+    import effect_handlers
+    effect_handlers.load()
+
+    def fire(state, eff, amt, tgt, ctrl="me", src="src"):
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver._apply_effects(state, {("ab", eff, amt, tgt, src, ctrl)})
+
+    def life(st, p):
+        return next((l for (q, l) in st.get("life", set()) if q == p), None)
+
+    # §705 coin flip — Mana Crypt: lose the flip -> 3 damage; win -> nothing. Force the outcome via _chance.
+    st = {"is_player": {("me",)}, "life": {("me", 40)}, "_chance": lambda s, k, o, w=None: "tails"}
+    fire(st, "coin_flip", 0, "lose:3|win:0")
+    check("coin_flip: a LOST flip deals the lose-branch damage", life(st, "me") == 37)
+    st = {"is_player": {("me",)}, "life": {("me", 40)}, "_chance": lambda s, k, o, w=None: "heads"}
+    fire(st, "coin_flip", 0, "lose:3|win:0")
+    check("coin_flip: a WON flip deals no lose-branch damage", life(st, "me") == 40)
+    check("the fold drops a flip with no self-damage branch (stays honest)",
+          not bridge._fold_coinflip([(0, "flip_coin", "-", "you", "-", "-")], lambda *a: None))
+    check("_pact_cost('3_u_u') = 5", bridge._pact_cost("3_u_u") == 5)
+
+    # §603.7c Pact delayed upkeep: schedule, then pay-or-lose at a later turn.
+    st = {"is_player": {("me",)}, "life": {("me", 40)}, "_turn": 0, "_delayed_upkeep": set(),
+          "on_battlefield": set(), "printed_control": set(), "printed_type": set(), "tapped": set(), "mana_available": set()}
+    fire(st, "pact_delayed", 5, "-")
+    check("pact_delayed schedules the upkeep cost", ("me", 5, 0) in st["_delayed_upkeep"])
+    st["_turn"] = 1
+    check("an unpayable Pact makes the controller lose at upkeep", driver._resolve_delayed_upkeep(st, "me") == "me")
+    # with 6 lands the Pact is paid (no loss).
+    st2 = {"is_player": {("me",)}, "life": {("me", 40)}, "_turn": 1, "tapped": set(), "mana_available": set(),
+           "_delayed_upkeep": {("me", 5, 0)}, "land_produces": {(f"L{i}", "blue") for i in range(6)},
+           "on_battlefield": {(f"L{i}",) for i in range(6)}, "printed_control": {("me", f"L{i}") for i in range(6)},
+           "printed_type": {(f"L{i}", "land") for i in range(6)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        paid_loser = driver._resolve_delayed_upkeep(st2, "me")
+    check("a payable Pact is paid (no loss, lands tapped)", paid_loser is None and len(st2["tapped"]) >= 5)
+
 
 def run() -> None:
     _engine_checks()
     _bridge_checks()
     _new_window_checks()
+    _coinflip_pact_checks()
     _room_dyn_damage_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

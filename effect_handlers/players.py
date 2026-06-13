@@ -106,6 +106,30 @@ def apply_sacrifice(D, state, a, n, tgt, src, ctrl):
             D._sacrifice(state, c)                         # fires 'when sacrificed', then -> graveyard
 
 
+@applier("pact_delayed")
+def apply_pact_delayed(D, state, a, n, tgt, src, ctrl):
+    """§603.7c schedule a Pact's DELAYED upkeep cost: 'at the beginning of your next upkeep, pay <n generic>;
+    if you don't, you lose'. Recorded as (controller, cost, turn_scheduled) in _delayed_upkeep; the turn loop
+    (driver._resolve_delayed_upkeep) charges it at the controller's NEXT upkeep or makes them lose. n = the
+    cost's mana value. The trigger outlives the spell (which is in the graveyard), so it lives in driver state."""
+    state.setdefault("_delayed_upkeep", set()).add((ctrl, int(n), state.get("_turn", 0)))
+    print(f"    {a}: {ctrl} must pay {{{n}}} at their next upkeep (Pact) or lose the game")
+
+
+@applier("coin_flip")
+def apply_coin_flip(D, state, a, n, tgt, src, ctrl):
+    """§705 flip a coin (50/50 through the chance seam), then apply the matching branch's self-damage:
+    'lose:<N>|win:<M>' — on a LOST flip deal N to the controller (Mana Crypt / Ral downside), on a WON flip
+    deal M. The flip routes through D._flip_coin so a search/policy can observe or fix the outcome."""
+    parts = dict(p.split(":") for p in str(tgt).split("|"))
+    lose_n = int(parts.get("lose", 0)); win_n = int(parts.get("win", 0))
+    won = D._flip_coin(state, f"flip:{a}") == "heads"
+    print(f"    {a}: {ctrl} flips a coin and {'WINS' if won else 'LOSES'} the flip")
+    dmg = win_n if won else lose_n
+    if dmg:
+        print(f"      {src} deals {dmg} to {ctrl} -> {D._adjust_life(state, ctrl, -dmg)} life")
+
+
 @applier("sacrifice_self")
 def apply_sacrifice_self(D, state, a, n, tgt, src, ctrl):
     """§701.16 'Sacrifice this permanent' — the SOURCE sacrifices itself (City of Traitors on a land drop,

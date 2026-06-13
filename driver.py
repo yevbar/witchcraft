@@ -122,6 +122,48 @@ def _flip_coin(state: dict, key: str = "coin") -> str:
     return _random(state, key, ("heads", "tails"))
 
 
+def _tap(state: dict, c: str) -> None:
+    """§701.20 tap a permanent AND record it in just_tapped so a 'whenever ~ becomes tapped' trigger (City of
+    Brass) can fire at the next _fire_tap_triggers checkpoint. A no-op for the trigger if it was already tapped."""
+    tapped = state.setdefault("tapped", set())
+    if (c,) not in tapped:
+        tapped.add((c,))
+        state.setdefault("_just_tapped", set()).add((c,))
+
+
+def _resolve_delayed_upkeep(state: dict, ap: str) -> str | None:
+    """§603.7c resolve any DELAYED upkeep trigger due for `ap` (the Pact cycle: 'at your next upkeep pay
+    <cost> or lose'). 'Next upkeep' = an upkeep on a LATER turn than the one it was scheduled. The controller
+    pays the generic cost from its mana if able (a greedy player always pays to avoid losing); otherwise it
+    loses the game. Returns the loser if a Pact goes unpaid, else None."""
+    due = [(c, cost, t) for (c, cost, t) in state.get("_delayed_upkeep", set())
+           if c == ap and state.get("_turn", 0) > t]
+    for entry in due:
+        c, cost, _t = entry
+        state["_delayed_upkeep"].discard(entry)
+        _refresh_mana_pool(state, c)
+        avail = next((m for (q, m) in state.get("mana_available", set()) if q == c), 0)
+        if avail >= cost:
+            _spend_ability_mana(state, c, cost)
+            print(f"    {c} pays {{{cost}}} for the Pact at upkeep")
+        else:
+            print(f"  ** {c} can't pay the Pact's {{{cost}}} at upkeep and loses the game (§104.3a) **")
+            return c
+    return None
+
+
+def _fire_tap_triggers(state: dict) -> None:
+    """§603 fire 'whenever ~ becomes tapped' triggers for the permanents tapped since the last checkpoint. Fed
+    as just_tapped (mirrors the landfall just_entered pattern); resolve the pending, then clear the window so
+    it doesn't re-fire. Called at SAFE points (after mana payment / combat), never mid-tap-loop."""
+    just = state.pop("_just_tapped", set())
+    if not just:
+        return
+    state["just_tapped"] = just
+    _apply_effects(state, run(state, ["pending"])["pending"])
+    state["just_tapped"] = set()
+
+
 # --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
 # hardcoded here — so adding a variant to the rules interpretation is enough; the shim follows. ---
 def _variant_life(variant: str) -> int:
@@ -479,7 +521,7 @@ def _apply_creature_effects(state: dict) -> None:
             print(f"    trigger {a}: {c} is returned to {ctrl}'s hand")
     for (a, c, _ctrl) in sorted(out["pending_tap"]):
         if (c,) in state.get("on_battlefield", set()) and (c,) not in state.get("tapped", set()):
-            state.setdefault("tapped", set()).add((c,))       # §701.20 tap
+            _tap(state, c)                                    # §701.20 tap (records just_tapped)
             print(f"    trigger {a}: {c} is tapped")
     for (a, c, _ctrl) in sorted(out["pending_untap"]):
         if (c,) in state.get("on_battlefield", set()) and (c,) in state.get("tapped", set()):
@@ -583,7 +625,7 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         print(f"    {kind} {a}: returns target {tgt} to {owner_of.get(tgt, ctrl)}'s hand")
     elif verb == "tap":
         if (tgt,) not in state.get("tapped", set()):
-            state.setdefault("tapped", set()).add((tgt,))
+            _tap(state, tgt)
             print(f"    {kind} {a}: taps target {tgt}")
     elif verb == "untap":
         if (tgt,) in state.get("tapped", set()):
@@ -748,7 +790,28 @@ def _draw(state: dict, p: str) -> bool:
     state["in_library"].discard((p, card))
     state.setdefault("in_hand", set()).add((p, card))
     print(f"    {p} draws {card}")
+    _fire_draw_triggers(state, p)                            # §603 'whenever a player draws a card' triggers
     return True
+
+
+def _fire_draw_triggers(state: dict, p: str) -> None:
+    """§603 fire 'whenever ~ draws a card' triggers for p's just-completed draw, gated on the per-(player,turn)
+    draw ORDINAL (draw_ord — 'their second card each turn', Faerie Mastermind). Fed as just_drew + draw_ord
+    (mirrors the cast-ordinal window); resolve the pending, then clear. A re-entrancy guard caps the natural
+    chain (a draw trigger that itself draws) so a pathological loop can't run away."""
+    by = state.setdefault("_draw_by", {})
+    by[p] = n = by.get(p, 0) + 1
+    if state.get("_in_draw_trigger", 0) >= 8:                # depth cap — natural draw chains are short
+        return
+    state["_in_draw_trigger"] = state.get("_in_draw_trigger", 0) + 1
+    try:
+        state["just_drew"] = {(p,)}
+        state["draw_ord"] = {(p, n)}
+        _apply_effects(state, run(state, ["pending"])["pending"])
+    finally:
+        state["just_drew"] = set()
+        state["draw_ord"] = set()
+        state["_in_draw_trigger"] -= 1
 
 
 def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
@@ -1423,7 +1486,7 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         elif (sid,) in sacrifices:                            # §605 one-shot fast mana: sacrificed, not tapped
             _sacrifice_source(state, sid)
         else:
-            state.setdefault("tapped", set()).add((sid,))
+            _tap(state, sid)                                  # §701.20 tap (records just_tapped -> City of Brass)
     # §106.4 a tapped source yields ALL its mana at once; mana beyond the cost FLOATS (Sol Ring -> {C}{C} for
     # a {C} cost leaves {C} floating; Black Lotus -> 3 blue for {U}{U} leaves 1 blue). Production minus the
     # cost the sources covered is the excess.
@@ -2038,6 +2101,7 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     escaping = (ap, spell) in state.get("may_play", set()) \
         and (spell,) in run(state, ["has_escape"])["has_escape"]    # §702.166 cast via escape (before may_play clears)
     _spend_mana(state, ap, spell)                            # §601.2g — consume the mana so casts are limited
+    _fire_tap_triggers(state)                                # §603 'whenever ~ becomes tapped' (sources tapped to pay)
     _leave_cast_zone(state, ap, spell)                       # §601 leave the source zone (hand / exile / graveyard)
     if escaping:
         _pay_escape_cost(state, ap, spell)                   # §702.166 additional cost: exile N other GY cards
@@ -2206,7 +2270,8 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     if int(cost):                                            # pay the mana part via the mana model
         _spend_ability_mana(state, ap, int(cost))
     if taps == "T":
-        state.setdefault("tapped", set()).add((src,))        # §602.2 pay {T}
+        _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
+    _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
     state.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
     _stack_push(state, a, ap)
     print(f"    {ap} activates {a} ({src}: {eff} {amt})")
@@ -2228,7 +2293,7 @@ def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
         net = sum(1 for _u in units) - cg
         if net <= 0:
             continue
-        state.setdefault("tapped", set()).add((sid,))
+        _tap(state, sid)                                      # §701.20 tap a source for ability mana (just_tapped)
         paid += net
     _refresh_mana_pool(state, ap)                             # recompute pool/count from sources still untapped (0 if all tapped)
 
@@ -2255,15 +2320,21 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
     variant = "two-player" if len(players) == 2 else "default"   # §103.8 first-turn draw skip applies per variant
     for turn in range(max_turns):
         ap = next(iter(state["active_player"]))[0]
+        state["_turn"] = turn                                    # §603.7c turn counter for delayed (Pact) triggers
         skip_draw = turn == 0 and variant in DRAW_SKIP_VARIANTS   # the starting player skips their first draw
         while True:                                              # one step at a time, this turn
             step = next(iter(state["current_step"]))[0]
+            if step == "upkeep":                     # §603.7c resolve a delayed Pact cost (pay or lose) first
+                pact_loser = _resolve_delayed_upkeep(state, ap)
+                if pact_loser:
+                    return pact_loser
             if step == "declare_attackers":          # §508 turn-based action (before priority)
                 declare_attackers(state, ap)
             elif step == "declare_blockers":         # §509 turn-based action (before priority)
                 declare_blockers(state, ap)
             if step in GRANTS_PRIORITY:              # §5 priority window — the active player may cast
                 _cast_phase(state, ap)
+            _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
             if step == "cleanup":                    # §514.2 cleanup
                 _end_of_turn(state)
             out = run(state, OUTPUTS)
@@ -2284,6 +2355,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
+        state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
