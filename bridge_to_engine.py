@@ -915,30 +915,38 @@ def _fold_coinflip(effs: list, emit) -> set:
     downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
     by flipping and applying the matching branch's damage to the controller. payload 'lose:<N>|win:<M>'.
 
-    Other conditional branches aren't self-damage, so they're left to drop — notably Ral's win branch, 'you MAY
-    exile Ral; if you do, return him transformed'. That correctly ABSTAINS for two reasons: (1) it is an
-    OPTIONAL 'may', so declining the transform is a legal §601.2b line in itself; and (2) the §712 back face
-    (Ral, Leyline Prodigy, a planeswalker) is ABSENT from the oracle corpus — transform cards load front-face
-    only — so there is no faithful permanent to return. Returning the front creature, or an empty planeswalker,
-    would misrepresent the card; we don't fabricate a face. (A real transform needs DFC back-face data + a §712
-    transform subsystem — a data-pipeline change across all 401 transform cards, not a one-off.)"""
+    §712 ALSO folds Ral, Monsoon Mage's win branch — 'you may exile Ral; if you do, return him to the
+    battlefield TRANSFORMED' — into the payload (appending '|transform'). On a won flip the driver may exile
+    the source and return it as its back face (Ral, Leyline Prodigy, the planeswalker now in the corpus); the
+    transform_target(tid, back_slug) fact the bridge emits supplies the back identity. Other non-self-damage
+    branches still drop (faithful abstain)."""
     flip_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "flip_coin"), None)
     if flip_i is None:
         return set()
     skip = {flip_i}
     lose_n = win_n = 0
-    for i, (_s, v, a, t, _x, c) in enumerate(effs):
+    transform = False
+    exile_win_i = ret_xform_i = None
+    for i, (_s, v, a, t, x, c) in enumerate(effs):
         if i in skip:
             continue
+        cc = str(c)
         if v == "deal_damage" and str(t) in ("you", "controller", "self") and _int(a) is not None:
-            cc = str(c)
             if "lose_the_flip" in cc:
                 lose_n = _int(a); skip.add(i)
             elif "win_the_flip" in cc:
                 win_n = _int(a); skip.add(i)
-    if lose_n == 0 and win_n == 0:
-        return set()                                          # a flip whose consequence ISN'T self-damage we model
-    emit("coin_flip", 0, f"lose:{lose_n}|win:{win_n}")        # -> don't fold (leave flip_coin to drop, stay honest)
+        elif v == "exile" and "win_the_flip" in cc:           # §712 win branch: '[may] exile Ral'
+            exile_win_i = i
+        elif v == "return_to_battlefield" and "transformed" in str(x):   # '… return him transformed'
+            ret_xform_i = i
+    if exile_win_i is not None and ret_xform_i is not None:   # the full exile-self + return-transformed pair
+        transform = True
+        skip.update({exile_win_i, ret_xform_i})
+    if lose_n == 0 and win_n == 0 and not transform:
+        return set()                                          # a flip whose consequence ISN'T something we model
+    payload = f"lose:{lose_n}|win:{win_n}" + ("|transform" if transform else "")
+    emit("coin_flip", 0, payload)                             # -> don't fold (leave flip_coin to drop, stay honest)
     return skip
 
 
@@ -1349,6 +1357,38 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("card_escape_pip", (facts, col, int(n)))
     if f.get("mana"):                                         # §605 activated mana ability ('{T}: Add …')
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
+
+    # §712 TRANSFORM — a front face records its back face (corpus 'back', e.g. Ral, Leyline Prodigy). Emit the
+    # back's card-level identity + abilities keyed by the back SLUG, plus transform_target(tid, back_slug) and
+    # its starting loyalty, so when this object transforms the driver just flips instance_of(tid) to the back
+    # slug and the engine derives the back-face permanent (a planeswalker with its loyalty abilities). Inert
+    # until then (no instance points at the back slug).
+    back_name = c.get("back")
+    if back_name:
+        back_slug = ground.slug(back_name)
+        bdb = db.get(back_slug, {})
+        bc = corpus.get(back_name, {})
+        add("transform_target", (tid, back_slug))
+        for t in bc.get("types") or []:
+            add("card_type", (back_slug, t.lower()))
+        for st in bc.get("subtypes") or []:
+            add("card_subtype", (back_slug, st.lower()))
+        for ci in bc.get("colorIdentity") or []:
+            if ci in _COLOR_NAME:
+                add("card_color", (back_slug, _COLOR_NAME[ci]))
+        bp, bt = bc.get("power"), bc.get("toughness")
+        if str(bp or "").lstrip("-").isdigit():
+            add("card_power", (back_slug, int(bp)))
+        if str(bt or "").lstrip("-").isdigit():
+            add("card_toughness", (back_slug, int(bt)))
+        if str(bc.get("loyalty") or "").isdigit():
+            add("card_loyalty", (back_slug, int(bc["loyalty"])))   # §306.5b starting loyalty (driver-side fact)
+        for baid, bab in (bdb.get("abilities") or {}).items():
+            add("card_ability", (back_slug, baid, bab.get("kind", "spell")))
+            if bab.get("trigger"):
+                add("ability_trigger", (back_slug, baid, bab["trigger"]))
+            for (bseq, bverb, bamt, btgt, bextra, bcond) in bab.get("effects", []):
+                add("card_effect", (back_slug, baid, int(bseq), bverb, str(bamt), str(btgt), str(bextra), str(bcond)))
 
     modes = set(f.get("modes", []))
     is_instant_sorcery = bool({"Instant", "Sorcery"} & set(c.get("types") or []))

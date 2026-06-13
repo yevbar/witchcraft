@@ -395,6 +395,37 @@ def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
         print(f"    {controller} creates a {spec} token ({tid})")
 
 
+def _transform(state: dict, obj: str, ctrl: str) -> None:
+    """§712 transform `obj` into its back face: flip instance_of(obj) to the back slug the bridge linked via
+    transform_target, re-materialize its printed identity from the back's card_* facts (the engine then derives
+    the back-face permanent — for Ral, a planeswalker with its loyalty abilities), and enter it as a NEW object
+    under `ctrl` — summoning sick, front-face counters cleared, with §306.5b starting loyalty: the back's
+    printed loyalty PLUS one per instant/sorcery cast this turn (Ral, Leyline Prodigy's enters-with rider).
+    Fires the §603 enters-the-battlefield window. A no-op if obj has no transform target."""
+    back = next((bs for (o, bs) in state.get("transform_target", set()) if o == obj), None)
+    if back is None:
+        return
+    state["instance_of"] = {(o, s) for (o, s) in state.get("instance_of", set()) if o != obj} | {(obj, back)}
+    bt = {t for (s, t) in state.get("card_type", set()) if s == back}
+    bsub = {st for (s, st) in state.get("card_subtype", set()) if s == back}
+    bcol = {co for (s, co) in state.get("card_color", set()) if s == back}
+    for rel, vals in (("printed_type", bt), ("printed_subtype", bsub), ("printed_color", bcol)):
+        state[rel] = {(o, v) for (o, v) in state.get(rel, set()) if o != obj} | {(obj, v) for v in vals}
+    for rel in ("printed_power", "printed_toughness"):         # a planeswalker has no P/T
+        state[rel] = {(o, v) for (o, v) in state.get(rel, set()) if o != obj}
+    state["counter"] = {(o, k, c) for (o, k, c) in state.get("counter", set()) if o != obj}   # new object: fresh
+    base = next((n for (s, n) in state.get("card_loyalty", set()) if s == back), 0)
+    loy = base + (state.get("_is_cast_count", 0) if "planeswalker" in bt else 0)   # §306.5b ETB loyalty scaling
+    if "planeswalker" in bt and loy > 0:
+        state.setdefault("counter", set()).add((obj, "loyalty", loy))
+    state.setdefault("_sick", set()).add((obj,))               # §302.6 a new object is summoning sick
+    state.setdefault("just_entered", set()).add((obj,))        # §603 enters-the-battlefield window
+    print(f"    {obj} transforms into {back}"
+          + (f" (planeswalker, loyalty {loy})" if "planeswalker" in bt else ""))
+    _apply_effects(state, run(state, ["pending"])["pending"])  # §603 fire 'when ~ enters' triggers
+    state["just_entered"].discard((obj,))
+
+
 def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
     cur = next((c for (o, k, c) in state.get("counter", set()) if o == obj and k == kind), 0)
     state.setdefault("counter", set()).discard((obj, kind, cur))
@@ -1663,12 +1694,16 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
 # 'copy target spell' family, replicate). The cast counter is per-turn shim state the engine doesn't need
 # (storm's copy is a shim action, not a datalog derivation); the copier reuses the engine's instance_of
 # re-derivation so a copy's effects/targets fall out for free.
-def _note_cast(state: dict) -> int:
+def _note_cast(state: dict, spell: str | None = None) -> int:
     """Record that a spell was just cast THIS TURN (§608), returning how many were cast BEFORE it (the
     storm count). Reset to 0 at each turn boundary (play_game / env). Counts spells by ANY player —
-    §702.40a 'each spell cast before it this turn' is not controller-restricted."""
+    §702.40a 'each spell cast before it this turn' is not controller-restricted. Also tallies INSTANT/SORCERY
+    casts this turn (_is_cast_count) for 'for each instant/sorcery you've cast this turn' payoffs (Ral,
+    Leyline Prodigy's enters-with-extra-loyalty)."""
     prior = state.get("_cast_count", 0)
     state["_cast_count"] = prior + 1
+    if spell is not None and {t for (s, t) in state.get("spell_type", set()) if s == spell} & {"instant", "sorcery"}:
+        state["_is_cast_count"] = state.get("_is_cast_count", 0) + 1
     return prior
 
 
@@ -2177,7 +2212,7 @@ def _cast_instant_response(state: dict, p: str) -> bool:
     _leave_cast_zone(state, p, spell)                        # §601 leave the source zone (hand / flashback GY / exile)
     _stack_push(state, spell, p)
     _choose_mode(state, spell)                               # §601.2b — modal instant chooses its mode
-    prior = _note_cast(state)                                # §608 a response-cast counts toward storm too
+    prior = _note_cast(state, spell)                         # §608 a response-cast counts toward storm too
     _fire_cast_triggers(state, p, spell)                     # §601.2i — cast triggers
     print(f"    {p} responds: casts {spell} (onto the stack)")
     _storm(state, spell, p, prior)                           # §702.40 storm on a response-cast instant
@@ -2236,7 +2271,7 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
         _pay_escape_cost(state, ap, spell)                   # §702.166 additional cost: exile N other GY cards
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
-    prior = _note_cast(state)                                # §608 count this spell; `prior` = storm count
+    prior = _note_cast(state, spell)                         # §608 count this spell; `prior` = storm count
     _fire_cast_triggers(state, ap, spell)                    # §601.2i — 'whenever you cast a spell' triggers
     print(f"    {ap} casts {spell}")
     _storm(state, spell, ap, prior)                          # §702.40 storm — copy it once per earlier spell
@@ -2487,6 +2522,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
+        state["_is_cast_count"] = 0                              # §712 instant/sorcery-cast tally is per-turn (Ral)
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT

@@ -166,16 +166,22 @@ def apply_flip_coin(D, state, a, n, tgt, src, ctrl):
 
 @applier("coin_flip")
 def apply_coin_flip(D, state, a, n, tgt, src, ctrl):
-    """§705 flip a coin (50/50 through the chance seam), then apply the matching branch's self-damage:
-    'lose:<N>|win:<M>' — on a LOST flip deal N to the controller (Mana Crypt / Ral downside), on a WON flip
-    deal M. The flip routes through D._flip_coin so a search/policy can observe or fix the outcome."""
-    parts = dict(p.split(":") for p in str(tgt).split("|"))
+    """§705 flip a coin (50/50 through the chance seam), then apply the matching branch: 'lose:<N>|win:<M>'
+    self-damage — on a LOST flip deal N to the controller (Mana Crypt / Ral downside), on a WON flip deal M;
+    plus an optional '|transform' rider (§712 Ral, Monsoon Mage: 'if you win, you MAY exile Ral and return him
+    transformed') resolved on a WON flip. The flip routes through D._flip_coin so a search/policy can observe
+    or fix the outcome; the 'may' transform routes through D._choose (default: take it — a planeswalker)."""
+    fields = str(tgt).split("|")
+    parts = dict(p.split(":") for p in fields if ":" in p)
     lose_n = int(parts.get("lose", 0)); win_n = int(parts.get("win", 0))
     won = D._flip_coin(state, f"flip:{a}") == "heads"
     print(f"    {a}: {ctrl} flips a coin and {'WINS' if won else 'LOSES'} the flip")
     dmg = win_n if won else lose_n
     if dmg:
         print(f"      {src} deals {dmg} to {ctrl} -> {D._adjust_life(state, ctrl, -dmg)} life")
+    if won and "transform" in fields and (src,) in {(o,) for (o,) in state.get("on_battlefield", set())}:
+        if D._choose(state, "transform", (True, False), True):  # §712 'you MAY exile ~ and return transformed'
+            D._transform(state, src, ctrl)
 
 
 @applier("sacrifice_self")

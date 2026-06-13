@@ -14,8 +14,13 @@ from pathlib import Path
 
 _MTG = Path(__file__).parent / "mtgjson"
 _KEEP = ("name", "manaCost", "type", "types", "subtypes", "supertypes",
-         "keywords", "power", "toughness", "text", "layout", "colorIdentity")
+         "keywords", "power", "toughness", "loyalty", "text", "layout", "colorIdentity")
 _SKIP_LAYOUT = {"token", "emblem", "art_series", "double_faced_token"}
+# §712 TRANSFORM cards store TWO card objects under one combined "Front // Back" name (side a/b). The front
+# (side a) is the cast-able card; the BACK (side b) is the transformed permanent (e.g. Ral, Leyline Prodigy).
+# We keep the front keyed by the combined name (with a `back` pointer) AND emit the back as its OWN entry
+# keyed by its faceName, so the pipeline interprets the back-face permanent (its loyalty abilities, ETB, …).
+_TRANSFORM = {"transform"}
 
 
 def main() -> None:
@@ -24,13 +29,32 @@ def main() -> None:
     for s in data.values():
         for c in s.get("cards", []):
             n = c.get("name")
-            if not n or n in seen or c.get("layout") in _SKIP_LAYOUT:
+            if not n or c.get("layout") in _SKIP_LAYOUT:
                 continue
-            seen[n] = {k: c.get(k) for k in _KEEP}
+            if c.get("layout") in _TRANSFORM and c.get("side") and c.get("side") != "a":
+                # a transform BACK face -> its own entry keyed by faceName (its own slug). `front` links back.
+                fn = c.get("faceName") or n
+                if fn in seen:
+                    continue
+                entry = {k: c.get(k) for k in _KEEP}
+                entry["name"] = fn                            # the back face's OWN name -> its own slug
+                entry["face"] = "back"
+                if " // " in n:
+                    entry["front"] = n.split(" // ", 1)[0]
+                seen[fn] = entry
+                continue
+            if n in seen:
+                continue
+            entry = {k: c.get(k) for k in _KEEP}
+            if c.get("layout") in _TRANSFORM and " // " in n:    # the front records its back face's name
+                entry["back"] = n.split(" // ", 1)[1]
+            seen[n] = entry
     cards = list(seen.values())
     json.dump(cards, open(_MTG / "oracle_corpus.json", "w", encoding="utf-8"), ensure_ascii=False)
     with_text = sum(1 for c in cards if c.get("text"))
-    print(f"wrote mtgjson/oracle_corpus.json ({len(cards)} unique cards, {with_text} with oracle text)")
+    backs = sum(1 for c in cards if c.get("face") == "back")
+    print(f"wrote mtgjson/oracle_corpus.json ({len(cards)} unique cards, {with_text} with oracle text, "
+          f"{backs} transform back faces)")
 
 
 if __name__ == "__main__":
