@@ -87,6 +87,33 @@ def _encode_shuffle(verb, amt, tgt, extra):
     return ("shuffle", 0, "controller")
 
 
+@applier("wheel")
+def _apply_wheel(D, state, a, n, tgt, src, ctrl):
+    """§103.2 a WHEEL (Timetwister / Echo of Eons): each affected player shuffles their hand and graveyard
+    INTO their library, THEN draws N — resolved atomically so the draw always follows the reshuffle. `tgt` is
+    'scope|from_<zones>' (scope: each_player / controller). A graveyard card's owner is read from its last
+    controller (printed_control)."""
+    scope, _, zones = str(tgt).partition("|")
+    players = sorted(p for (p,) in state.get("is_player", set())) if scope == "each_player" else [ctrl]
+    move_hand = "hand" in zones
+    move_gy = "graveyard" in zones
+    owner_of = {c: p for (p, c) in state.get("printed_control", set())}
+    inlib = state.setdefault("in_library", set())
+    for p in players:
+        order = _order(state, p)
+        if move_hand:
+            for c in [c for (pp, c) in list(state.get("in_hand", set())) if pp == p]:
+                state["in_hand"].discard((p, c)); inlib.add((p, c)); order.append(c)
+        if move_gy:
+            for (c,) in [g for g in list(state.get("graveyard", set())) if owner_of.get(g[0], ctrl) == p]:
+                state["graveyard"].discard((c,)); inlib.add((p, c)); order.append(c)
+        D._shuffle_library(state, p)                            # §701.19 randomize the refilled library
+        for _ in range(int(n)):                                # §103.2 then draw N (after the reshuffle)
+            D._draw(state, p)
+    print(f"    {a}: each of [{', '.join(players)}] shuffles {zones.replace('from_', '').replace('_', ' ')} into "
+          f"their library and draws {n}")
+
+
 @applier("shuffle")
 def _apply_shuffle(D, state, a, n, tgt, src, ctrl):
     # NB: a card the preceding search set aside (state['_searched']) is intentionally LEFT OUT of the

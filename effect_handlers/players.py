@@ -134,6 +134,23 @@ def apply_pact_delayed(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {ctrl} must pay {{{n}}} at their next upkeep (Pact) or lose the game")
 
 
+@encoder("flip_coin")
+def encode_flip_coin(verb, amt, tgt, extra):
+    return ("flip_coin", 0, "-")                              # a standalone 'flip a coin' (Tavern Scoundrel)
+
+
+@applier("flip_coin")
+def apply_flip_coin(D, state, a, n, tgt, src, ctrl):
+    """§705 a standalone 'flip a coin' (Tavern Scoundrel's activated ability). On a WIN, fire the controller's
+    'whenever you win a coin flip' triggers via the won_flip window (the flip routes through the chance seam)."""
+    won = D._flip_coin(state, f"flip:{a}") == "heads"
+    print(f"    {a}: {ctrl} flips a coin and {'WINS' if won else 'loses'} the flip")
+    if won:
+        state["won_flip"] = {(ctrl,)}
+        D._apply_effects(state, D.run(state, ["pending"])["pending"])
+        state["won_flip"] = set()
+
+
 @applier("coin_flip")
 def apply_coin_flip(D, state, a, n, tgt, src, ctrl):
     """§705 flip a coin (50/50 through the chance seam), then apply the matching branch's self-damage:

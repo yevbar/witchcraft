@@ -120,6 +120,10 @@ _EVENT = {
     "an_opponent_draws_a_card": "opp_draw",
     "an_opponent_draws_their_second_card_each_turn": "opp_draw_second",
     "a_player_draws_their_second_card_each_turn": "any_draw_second",
+    # §705 'whenever you win a coin flip' (Tavern Scoundrel) + §707 magecraft 'cast or copy an instant or
+    # sorcery' (Storm-Kiln Artist) — the driver fires won_flip / copied_spell windows.
+    "you_win_a_coin_flip": "won_coin_flip",
+    "you_cast_or_copy_an_instant_or_sorcery_spell": "cast_or_copy_is",
     # §603 composite self-triggers ('enters or attacks', 'enters or dies') — two firing conditions, both
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
     "enters_or_attacks": "self_enters_or_attacks",
@@ -135,13 +139,14 @@ _EVENT = {
     # at the controller's next upkeep, resolved in the turn loop); coin flips -> a folded coin_flip effect
     # (Mana Crypt's flip-or-take-3) through the _flip_coin chance seam.
     #
+    # ALSO MAPPED: 'you win a coin flip' -> won_flip/ev_won_flip (Tavern Scoundrel; the standalone flip_coin
+    # applier fires it on a win) and §707 magecraft 'cast or copy an instant/sorcery' -> the cast window OR a
+    # driver-fed copied_spell/ev_copy window (Storm-Kiln Artist — fired from driver._copy_spell).
+    #
     # STILL DELIBERATELY UNMAPPED — abstained per faithful-or-abstain (NOT an oversight):
-    #   * 'you win a coin flip' (Tavern Scoundrel): a STANDING trigger that watches every flip needs an engine
-    #     ev_won_flip window the driver fires on each won flip — the coin_flip applier models the flip's own
-    #     win/lose damage, but not a separate watcher (and Tavern's flip ability abstains on its sac cost anyway).
     #   * a TYPE-restricted draw ('you draw your second CARD' is mapped, but 'draws a LAND'/'a nonland card' is
     #     not — there is no card-type guard on the draw window).
-    # Adding these would require a further engine event (ev_won_flip / a typed-draw guard) the driver fires.
+    # Adding these would require a further engine event (a typed-draw guard) the driver fires.
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
@@ -825,6 +830,24 @@ def _fold_coinflip(effs: list, emit) -> set:
     return skip
 
 
+def _wheel_of(effs: list) -> tuple | None:
+    """§103.2 a WHEEL — '[<player> shuffles their hand and graveyard into their library] + [<player> draws N]'
+    (Timetwister, Echo of Eons, Wheel of Fortune-likes). The shuffle clause carries the source zones in extra
+    (from_<zones>, captured by card_effects._shuffle). Returns (shuffle_idx, draw_idx, scope, zones, N) or None.
+    The wheel is ONE atomic effect (move zones into the library, shuffle, then draw) so the draw can't run
+    before the shuffle — its draw is owned by the wheel applier, not the generic draw path."""
+    sh = next((i for i, (_s, v, _a, _t, x, _c) in enumerate(effs)
+               if v == "shuffle" and ("hand" in str(x) or "graveyard" in str(x))), None)
+    if sh is None:
+        return None
+    dr = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs) if v == "draw" and _int(a) is not None), None)
+    if dr is None:
+        return None
+    sh_tgt = str(effs[sh][3])
+    scope = "each_player" if sh_tgt in ("each_player", "all_players", "each_opponent") else "controller"
+    return (sh, dr, scope, str(effs[sh][4]), _int(effs[dr][2]))
+
+
 def _fold_impulse(effs: list, emit) -> set:
     """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play/cast them.'
     (Light Up the Stage, Mind's Desire, Stella Lee, Opera Love Song …). Fold the '[exile N top_of_library] +
@@ -1134,7 +1157,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_ability", (facts, aid, akind))
         if ab.get("trigger"):
             add("ability_trigger", (facts, aid, ab["trigger"]))
+        wheel = _wheel_of(ab.get("effects", []))                # §103.2 the wheel's DRAW is owned by the wheel
+        wheel_draw_seq = ab["effects"][wheel[1]][0] if wheel else None   # effect (atomic) — skip its card_effect
         for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
+            if seq == wheel_draw_seq:                           # so the generic draw path doesn't ALSO derive it
+                continue
             add("card_effect", (facts, aid, int(seq), verb, str(amt), str(tgt), str(extra), str(cond)))
     # ONE WORLD: feed the card-level PRINTED IDENTITY (§613 base characteristics) keyed by the card slug
     # (`facts`, set-deduped across instances). The engine derives the per-instance printed_* via instance_of
@@ -1364,8 +1391,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §118.9 GRAVEYARD FREE-RECAST (Storm of Memories: exile a card from your GY, cast it for free).
             gyr_skip = _fold_gy_recast(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
+            wheel = _wheel_of(effs)
+            wheel_skip = set()
+            if wheel is not None:
+                sh, dr, scope, zones, dn = wheel
+                add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
+                wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue

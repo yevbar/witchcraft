@@ -1619,6 +1619,11 @@ def _copy_spell(state: dict, spell: str, controller: str, n: int = 1) -> list:
         state.setdefault("_is_copy", set()).add((cp,))
         _stack_push(state, cp, controller)
         made.append(cp)
+    if made:
+        # §707 MAGECRAFT 'whenever you copy a spell' (Storm-Kiln Artist): fire the copy window for the copier.
+        state["copied_spell"] = {(controller,)}
+        _apply_effects(state, run(state, ["pending"])["pending"])
+        state["copied_spell"] = set()
     return made
 
 

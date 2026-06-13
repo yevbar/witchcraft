@@ -237,6 +237,35 @@ def _coinflip_pact_checks() -> None:
         paid_loser = driver._resolve_delayed_upkeep(st2, "me")
     check("a payable Pact is paid (no loss, lands tapped)", paid_loser is None and len(st2["tapped"]) >= 5)
 
+    # §705 'you win a coin flip' (Tavern Scoundrel): the won_flip window fires the trigger; the standalone
+    # flip_coin applier fires it on a WIN (forced via _chance), not on a loss.
+    won_st = lambda: {"is_player": {("me",)}, "on_battlefield": {("tav",)}, "printed_control": {("me", "tav")},
+                      "has_trigger": {("t", "tav", "won_coin_flip")}, "trigger_effect": {("t", "draw", 1, "controller")},
+                      "in_library": {("me", "c1")}, "_lib_order": {"me": ["c1"]}, "in_hand": set()}
+    s = won_st(); s["won_flip"] = {("me",)}
+    check("won_coin_flip fires when the controller wins a flip", ("t", "tav") in driver.run(s, ["fires"])["fires"])
+    s = won_st(); s["_chance"] = lambda st, k, o, w=None: "heads"
+    fire(s, "flip_coin", 0, "-")
+    check("a WON standalone flip fires the win trigger (drew a card)", ("me", "c1") in s["in_hand"])
+    s = won_st(); s["_chance"] = lambda st, k, o, w=None: "tails"
+    fire(s, "flip_coin", 0, "-")
+    check("a LOST flip fires nothing", ("me", "c1") not in s["in_hand"])
+
+    # §707 magecraft 'cast or copy an i/s': the copy window fires the trigger.
+    s = {"is_player": {("me",)}, "on_battlefield": {("sk",)}, "printed_control": {("me", "sk")}, "copied_spell": {("me",)},
+         "has_trigger": {("m", "sk", "cast_or_copy_is")}, "trigger_effect": {("m", "draw", 1, "controller")}}
+    check("cast_or_copy_is fires on a copy", ("m", "sk") in driver.run(s, ["fires"])["fires"])
+
+    # §103.2 the WHEEL (Timetwister): each player shuffles hand+graveyard into library, THEN draws N.
+    w = {"is_player": {("me",), ("op",)}, "in_hand": {("me", "h1"), ("me", "h2"), ("op", "oh1")},
+         "graveyard": {("g1",), ("g2",)}, "printed_control": {("me", "g1"), ("op", "g2")},
+         "in_library": {("me", f"L{i}") for i in range(9)} | {("op", f"oL{i}") for i in range(9)},
+         "_lib_order": {"me": [f"L{i}" for i in range(9)], "op": [f"oL{i}" for i in range(9)]}, "_seed": 3}
+    fire(w, "wheel", 7, "each_player|from_hand_and_graveyard")
+    check("wheel: every player draws N after the reshuffle (hand size 7)",
+          len([c for (p, c) in w["in_hand"] if p == "me"]) == 7 and len([c for (p, c) in w["in_hand"] if p == "op"]) == 7)
+    check("wheel: graveyards are shuffled away (empty)", not w["graveyard"])
+
 
 def run() -> None:
     _engine_checks()

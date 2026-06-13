@@ -700,9 +700,14 @@ def _discard_set(m):
     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?shuffles?(?: (?:your|their|his or her) library| (?:it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$")
+@_t(rf"^(?:({_TGT}) )?shuffles?(?: (?:your|their|his or her) library| (it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$")
 def _shuffle(m):
-    return Effect("shuffle", "-", _target(m.group(1) or "you"))
+    """'<player> shuffles [their library | <X> into their library]'. When X is a ZONE phrase (Timetwister:
+    'hand and graveyard'), record it as a 'from_<zones>' slug so the wheel applier moves those zones into the
+    library before shuffling; the searched-card idiom ('shuffle it into your library') keeps extra '-'."""
+    obj = re.sub(r"^(?:your|their|his or her)\s+", "", (m.group(2) or "").strip(), flags=re.I)
+    extra = "from_" + ground.slug(obj) if obj and obj.lower() not in ("it", "them") else "-"
+    return Effect("shuffle", "-", _target(m.group(1) or "you"), extra)
 
 
 @_t(rf"^(?:({_TGT}) )?draws? (an|a|\w+) additional cards?$")

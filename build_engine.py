@@ -235,6 +235,8 @@ INPUTS = [
     ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
+    ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
+    ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -846,6 +848,10 @@ def _rules(p: Program) -> None:
     p.rule("ev_tapped(O)", ["just_tapped(O)"])
     p.decl("ev_draw", [("p", "symbol")])                 # §603 'whenever a player draws a card' — driver-fed draw window
     p.rule("ev_draw(P)", ["just_drew(P)"])
+    p.decl("ev_won_flip", [("p", "symbol")])             # §705 'whenever you win a coin flip' — driver-fed flip window
+    p.rule("ev_won_flip(P)", ["won_flip(P)"])
+    p.decl("ev_copy", [("p", "symbol")])                 # §707 'whenever you copy a spell' — driver-fed copy window
+    p.rule("ev_copy(P)", ["copied_spell(P)"])
     p.decl("ev_dies", [("c", "symbol")])
     p.rule("ev_dies(C)", ["dies(C)"])
     p.decl("ev_leaves", [("c", "symbol")])               # §603.6d 'leaves the battlefield' — a superset of dies
@@ -910,6 +916,13 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw")', "ev_draw(P)", "controls(Q, S)", "P != Q"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw_second")', "ev_draw(P)", "controls(Q, S)", "P != Q", "draw_ord(P, 2)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "any_draw_second")', "ev_draw(P)", "draw_ord(P, 2)"])
+    # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "won_coin_flip")', "ev_won_flip(P)", "controls(P, S)"])
+    # §707 MAGECRAFT 'whenever you cast OR COPY an instant or sorcery spell' (Storm-Kiln Artist) — the cast
+    # half reuses the cast window (spell_type i/s), the copy half the driver-fed copy window.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "cast_or_copy_is")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "cast_or_copy_is")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "cast_or_copy_is")', "ev_copy(P)", "controls(P, S)"])
     # §603 composite self-triggers — the union of two self-scoped firing conditions under one event key.
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_etb(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_attacks(S)"])

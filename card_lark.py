@@ -659,7 +659,7 @@ def _lk_frame(full: str):
 # byte-for-byte; a clause outside both frames abstains (faithful-or-abstain).
 _SH_SHUFFLE = re.compile(
     rf"^(?:({_TGT}) )?shuffles?(?: (?:your|their|his or her) library"
-    r"| (?:it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$", re.I)       # _shuffle
+    r"| (it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$", re.I)         # _shuffle
 _SH_SUBJ = re.compile(
     rf"^({_TGT}) shuffles? (?:their|its owner's|his or her) ([\w ]+?) "
     r"into (?:their|its owner's|his or her) library$", re.I)                                    # _shuffle_subj
@@ -668,9 +668,11 @@ _SH_SUBJ = re.compile(
 def _sh_frame(full: str):
     """Apply the shuffle frames in TEMPLATE PRECEDENCE ORDER to a full (lowercased) clause, returning the
     first grounded Effect (byte-identical to parse_effect) or None (abstain)."""
-    m = _SH_SHUFFLE.match(full)                       # 1. _shuffle (extra='-')
+    m = _SH_SHUFFLE.match(full)                       # 1. _shuffle (extra='-', or 'from_<zones>' for a wheel)
     if m:
-        return Effect("shuffle", "-", _target(m.group(1) or "you"))
+        obj = re.sub(r"^(?:your|their|his or her)\s+", "", (m.group(2) or "").strip(), flags=re.I)
+        extra = "from_" + ground.slug(obj) if obj and obj.lower() not in ("it", "them") else "-"
+        return Effect("shuffle", "-", _target(m.group(1) or "you"), extra)
     m = _SH_SUBJ.match(full)                          # 2. _shuffle_subj (extra='from_<source>')
     if m:
         return Effect("shuffle", "-", _target(m.group(1)), "from_" + ground.slug(m.group(2)))
