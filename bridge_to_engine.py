@@ -35,6 +35,9 @@ _EVENT = {
     "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
     "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
+    # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles) — fires once
+    # per combat for the controller (set semantics dedupe the per-creature ev_combat_dmg_player).
+    "one_or_more_creatures_you_control_deal_combat_damage_to_a_player": "your_creatures_combat_damage",
     # §603 'another creature [you control]' enters/dies — the engine restricts to creature + controller.
     "another_creature_enters": "other_creature_etb",
     "a_creature_enters": "other_creature_etb",
@@ -643,6 +646,37 @@ def _fold_search_placements(effs: list, emit) -> set:
 
 
 _NUMWORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+_NUMWORD_BIG = {**_NUMWORDS, "eight": 8, "nine": 9, "ten": 10, "twenty": 20, "thirty": 30, "forty": 40,
+                "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100}
+
+
+def _num(tok: str):
+    """A count from a digit string ('40') or a number word ('forty'), or None."""
+    return int(tok) if str(tok).isdigit() else _NUMWORD_BIG.get(str(tok))
+
+
+def _win_condition(cond) -> str | None:
+    """§104.2 the VERIFIABLE alt-win/loss condition a 'if <cond>, you win/lose' trigger gates on -> a payload
+    'kind:N[:filter]' the driver checks (life:40 Felidar / control:30:artifact Knuckles, :treasure Revel /
+    graveyard:20:creature Mortal Combat / counter:100:tower Helix Pinnacle). Returns '' for an UNCONDITIONAL
+    win ('-'), or None for a condition we can't verify — so the bridge ABSTAINS instead of asserting a WRONG
+    unconditional win (the prior behavior: every conditional alt-win fired regardless of the condition)."""
+    c = str(cond)
+    if c in ("-", ""):
+        return ""
+    m = re.match(r"^you_have_(\w+)_or_more_life$", c)
+    if m and _num(m.group(1)) is not None:
+        return f"life:{_num(m.group(1))}"
+    m = re.match(r"^you_control_(\w+)_or_more_(\w+)$", c)         # Knuckles artifacts / Revel treasures
+    if m and _num(m.group(1)) is not None:
+        return f"control:{_num(m.group(1))}:{m.group(2)}"
+    m = re.match(r"^(\w+)_or_more_(\w+)_cards_are_in_your_graveyard$", c)   # Mortal Combat
+    if m and _num(m.group(1)) is not None:
+        return f"graveyard:{_num(m.group(1))}:{m.group(2)}"
+    m = re.match(r"^there_are_(\w+)_or_more_(\w+)_counters_on", c)          # Helix Pinnacle
+    if m and _num(m.group(1)) is not None:
+        return f"counter:{_num(m.group(1))}:{m.group(2)}"
+    return None                                                  # unverifiable condition -> abstain (no false win)
 
 
 def _fold_search_to_graveyard(effs: list, emit) -> set:
@@ -1320,6 +1354,38 @@ def _loyalty_delta(cost) -> int | None:
     return (-1 if m.group(1) == "-" else 1) * int(m.group(2))
 
 
+def _add_mana_amount(ab: dict):
+    """(count, color) a single-add_mana 'spell' ability produces — an int amount of one fixed color, OR a
+    mangled multi-pip color slug ('black_or_black_or_black' = 3 black). None if it isn't a clean single-color
+    add_mana."""
+    effs = ab.get("effects", [])
+    if len(effs) != 1 or effs[0][1] != "add_mana":
+        return None
+    amt, color = effs[0][2], str(effs[0][4])
+    parts = color.split("_or_")
+    if not all(p in _FIXED_COLORS for p in parts) or len(set(parts)) != 1:
+        return None
+    n = _int(amt) if len(parts) == 1 else len(parts)         # single color -> the amount; mangled pips -> pip count
+    return (n, parts[0]) if n else None
+
+
+def _threshold_ritual(f: dict):
+    """§702.18 a THRESHOLD ritual — 'Add <base>. Threshold — Add <more> of the same color instead if there are
+    seven or more cards in your graveyard' (Cabal Ritual). Detect a non-modal spell with exactly TWO
+    single-add_mana abilities of the SAME color in DIFFERENT amounts -> (base, threshold, color, {ability_ids}).
+    The driver adds `threshold` when the controller has 7+ graveyard cards, else `base`. None otherwise."""
+    if f.get("modes"):
+        return None
+    amts = {aid: _add_mana_amount(ab) for aid, ab in (f.get("abilities") or {}).items() if ab.get("kind") == "spell"}
+    amts = {aid: v for aid, v in amts.items() if v is not None}
+    if len(amts) != 2:
+        return None
+    (n1, c1), (n2, c2) = amts.values()
+    if c1 != c2 or n1 == n2:
+        return None
+    return (min(n1, n2), max(n1, n2), c1, set(amts.keys()))
+
+
 def _modal_count(f: dict, n_offered: int) -> tuple[int, int]:
     """§700.2 — (base, commander_more): how many modes a modal spell's controller chooses by DEFAULT, and the
     count if a Commander-precon 'you may choose both/another instead' rider applies. `base` from the modal slug
@@ -1442,9 +1508,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("card_effect", (back_slug, baid, int(bseq), bverb, str(bamt), str(btgt), str(bextra), str(bcond)))
 
     modes = set(f.get("modes", []))
+    thr = _threshold_ritual(f)                                # §702.18 Cabal Ritual: 'Add BBB; Threshold — Add
+    if thr is not None:                                       # BBBBB instead if 7+ cards in your graveyard'
+        base, threshold, color, thr_abilities = thr
+        add("spell_effect", (tid, "threshold_mana", base, f"{threshold}|{color}"))
+        modes = modes | thr_abilities                        # skip the two add_mana abilities (one threshold_mana instead)
     is_instant_sorcery = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     for aid, ab in f.get("abilities", {}).items():
-        if aid in modes:                                     # a modal mode's effects -> emitted by the modal block below
+        if aid in modes:                                     # a modal mode (or a threshold ritual's add_mana abilities)
             continue
         kind = ab.get("kind")
         if kind == "static" and is_instant_sorcery:
@@ -1518,6 +1589,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # an UNFOLDED search/reveal (no recognized destination to pair with) abstains rather than
                     # pull a card out with nowhere to put it (mirrors the spell path).
                     dropped.append(("effect", verb)); continue
+                if verb in ("win_game", "lose_game") and _win_condition(_cond):
+                    # §104.2 a VERIFIABLE conditional alt-win/loss ('at upkeep, if you control 30+ artifacts,
+                    # you win' — Knuckles/Felidar/Test of Endurance/Revel/Mortal Combat/Helix). Gate it on the
+                    # condition (win_if/lose_if the driver checks) instead of asserting an unconditional win.
+                    # An UNVERIFIABLE condition falls through to the prior handling (e.g. win_lib_empty below).
+                    add("trigger_effect", (a, "win_if" if verb == "win_game" else "lose_if", 0, _win_condition(_cond)))
+                    emitted = True; continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
                 # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
@@ -1674,6 +1752,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # emit a bare search_select that would pull a card out of the library with nowhere to put
                     # it (spell_effect is unordered, so a separate placement can't be relied on to follow).
                     dropped.append(("effect", "search")); continue
+                if verb in ("win_game", "lose_game") and _win_condition(_cond):
+                    # §104.2 a VERIFIABLE conditional alt-win/loss on a SPELL — gate on the condition (win_if/
+                    # lose_if); an unverifiable condition falls through to the prior handling.
+                    add("spell_effect", (tid, "win_if" if verb == "win_game" else "lose_if", 0, _win_condition(_cond)))
+                    continue
                 if verb == "cast" and str(tgt) in ("self", "it") and "control_a_commander" in str(_cond):
                     # §118.9 'you may cast this spell without paying its mana cost if you control a commander'
                     # (Fierce Guardianship, Deflecting Swat) -> the engine derives free_cast from this flag.

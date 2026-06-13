@@ -812,6 +812,39 @@ def _apply_name_exile_lib(D, state, a, n, tgt, src, ctrl):
 # can't supply. Colorless is a real fixed 'color' here (the §106 generic {C} pool slot).
 # ─────────────────────────────────────────────────────────────────────────────
 _MANA_COLORS = {"white", "blue", "black", "red", "green", "colorless"}
+_MANA_LETTER = {"w": "white", "u": "blue", "b": "black", "r": "red", "g": "green", "c": "colorless"}
+
+
+@encoder("grant_ability")
+def _encode_grant_ability(verb, amt, tgt, extra):
+    """§605 Rain of Filth — 'until end of turn, lands you control gain Sacrifice this land: Add <C>'. Only this
+    sac-for-mana grant is owned (each land becomes sacrificeable for one mana); any other granted ability
+    abstains."""
+    if str(tgt) == "lands_you_control" and str(extra).startswith("sacrifice_add"):
+        color = _MANA_LETTER.get(str(extra).rsplit("_", 1)[-1])
+        if color:
+            return ("sac_lands_for_mana", 0, color)
+    return None
+
+
+@applier("sac_lands_for_mana")
+def _apply_sac_lands_for_mana(D, state, a, n, tgt, src, ctrl):
+    """§605 Rain of Filth — each land the controller controls MAY be sacrificed to add one `tgt` mana. We
+    resolve the grant at resolution (a small timing simplification of 'until end of turn'); per land the
+    controller chooses through the _choose seam — DEFAULT is NOT to sacrifice (emptying your mana base is a
+    dedicated-combo line; a policy opts in). Each sacrifice adds one mana to the controller's floating pool."""
+    color = str(tgt)
+    lands = sorted(c for (c,) in state.get("on_battlefield", set())
+                   if (ctrl, c) in state.get("printed_control", set()) and (c, "land") in state.get("printed_type", set()))
+    sacked = 0
+    for land in lands:
+        if D._choose(state, "sac_for_mana", (False, True), False):
+            D._sacrifice(state, land)                          # fires 'when ~ is sacrificed', then -> graveyard
+            D._add_floating(state, ctrl, {color: 1})
+            sacked += 1
+    if sacked:
+        D._refresh_mana_pool(state, ctrl)
+    print(f"    {a}: {ctrl} may sacrifice lands for {color} (Rain of Filth) — sacrificed {sacked}")
 
 
 @encoder("add_mana")
@@ -823,6 +856,19 @@ def _encode_add_mana(verb, amt, tgt, extra):
     if n is None or n <= 0 or color not in _MANA_COLORS:     # variable amount / choice-of-color / combo -> abstain
         return None
     return ("add_mana", n, color)
+
+
+@applier("threshold_mana")
+def _apply_threshold_mana(D, state, a, n, tgt, src, ctrl):
+    """§702.18 a THRESHOLD ritual (Cabal Ritual) — add `n` (base) mana of the color, OR the threshold amount
+    instead when the controller has SEVEN OR MORE cards in their graveyard. `tgt` is 'threshold|color'."""
+    threshold, _, color = str(tgt).partition("|")
+    gy = sum(1 for (c,) in state.get("graveyard", set())
+             if (ctrl, c) in state.get("printed_control", set()))
+    amount = int(threshold) if gy >= 7 else int(n)
+    D._add_floating(state, ctrl, {color: amount})
+    D._refresh_mana_pool(state, ctrl)
+    print(f"    {a}: {ctrl} adds {amount} {color} mana ({'threshold — 7+ in graveyard' if gy >= 7 else 'base'})")
 
 
 @applier("add_mana")

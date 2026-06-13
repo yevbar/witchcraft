@@ -994,6 +994,11 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "blocks_self")', "ev_blocks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_player")', "ev_combat_dmg_player(S, _)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_creature")', "ev_combat_dmg_creature(S, _)"])
+    # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles): the SOURCE S
+    # fires when a creature C its controller P also controls dealt combat damage — fires(A,S) is a SET, so the
+    # several damaging creatures collapse to ONE firing of S.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creatures_combat_damage")',
+                           "ev_combat_dmg_player(C, _)", "controls(P, C)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).

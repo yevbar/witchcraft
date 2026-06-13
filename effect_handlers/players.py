@@ -258,6 +258,57 @@ def apply_win(D, state, a, n, tgt, src, ctrl):
     _assert_win(D, state, ctrl)
 
 
+def _win_condition_met(D, state, ctrl, payload: str) -> bool:
+    """§104.2 evaluate a verifiable alt-win/loss condition for `ctrl`. payload is 'kind:N[:filter]':
+      life:N            — ctrl's life total is >= N (Felidar Sovereign 40, Test of Endurance 50);
+      control:N:thing   — ctrl controls >= N permanents of type/subtype `thing` (Knuckles 30 artifacts,
+                          Revel in Riches 10 treasures — depluralized, matched against has_type/subtype);
+      graveyard:N:type  — >= N `type` cards in ctrl's graveyard (Mortal Combat 20 creatures);
+      counter:N:kind    — ctrl controls >= N `kind` counters total (Helix Pinnacle 100 tower)."""
+    parts = payload.split(":")
+    kind, n = parts[0], int(parts[1])
+    if kind == "life":
+        return next((v for (p, v) in state.get("life", set()) if p == ctrl), 0) >= n
+    thing = parts[2].rstrip("s") if len(parts) > 2 else ""      # 'artifacts' -> 'artifact', 'treasures' -> 'treasure'
+    if kind == "control":
+        out = D.run(state, ["controls", "has_type", "subtype"])
+        mine = {c for (p, c) in out["controls"] if p == ctrl}
+        types = {(c, t) for (c, t) in out["has_type"]}
+        subs = {(c, s) for (c, s) in out["subtype"]}
+        return sum(1 for c in mine if (c, thing) in types or (c, thing) in subs) >= n
+    if kind == "graveyard":
+        ptype = state.get("printed_type", set())
+        owner = {c: p for (p, c) in state.get("printed_control", set())}
+        return sum(1 for (c,) in state.get("graveyard", set())
+                   if owner.get(c) == ctrl and (c, thing) in ptype) >= n
+    if kind == "counter":
+        out = D.run(state, ["controls"])
+        mine = {c for (p, c) in out["controls"] if p == ctrl}
+        return sum(cnt for (o, k, cnt) in state.get("counter", set()) if o in mine and k == thing) >= n
+    return False
+
+
+@applier("win_if")
+def apply_win_if(D, state, a, n, tgt, src, ctrl):
+    """§104.2 'if <condition>, you win the game' (Felidar Sovereign, Test of Endurance, Knuckles, Revel in
+    Riches, Mortal Combat, Helix Pinnacle) — assert the controller's win ONLY when the verifiable condition
+    (tgt = 'kind:N[:filter]') holds; otherwise abstain (no false win)."""
+    if _win_condition_met(D, state, ctrl, str(tgt)):
+        print(f"    {a}: {ctrl} meets the win condition ({str(tgt).replace(':', ' ')}) -> wins the game (§104.2)")
+        _assert_win(D, state, ctrl)
+    else:
+        print(f"    {a}: {ctrl} does not meet the win condition ({str(tgt).replace(':', ' ')}) -> no win")
+
+
+@applier("lose_if")
+def apply_lose_if(D, state, a, n, tgt, src, ctrl):
+    """§104.3 'if <condition>, you lose the game' — assert the controller's loss only when the verifiable
+    condition holds (mirror of win_if); an unverifiable condition abstained at the bridge."""
+    if _win_condition_met(D, state, ctrl, str(tgt)):
+        print(f"    {a}: {ctrl} meets the loss condition ({str(tgt).replace(':', ' ')}) -> loses the game (§104.3)")
+        _assert_lose(D, state, ctrl)
+
+
 @applier("win_lib_empty")
 def apply_win_lib_empty(D, state, a, n, tgt, src, ctrl):
     """Thassa's Oracle / Jace, Wielder of Mysteries / Laboratory Maniac shape — 'you win the game' GATED on
