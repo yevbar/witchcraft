@@ -127,10 +127,48 @@ def test_overspend_invariant() -> None:
           len({c for c in _tapped(state) if c in {"l0", "l1"}}) <= 2)
 
 
+def test_counter_magic_frontier() -> None:
+    import bridge_to_engine as B
+    import card_corpus
+    import sim
+    import effect_handlers
+    effect_handlers.load()
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    # the Force cycle (pitch alt-cost) + the mass/exile counters are CLEAN.
+    for nm in ("Force of Negation", "Force of Will", "Commandeer", "Mindbreak Trap"):
+        _f, dropped = B.card_facts(nm, "me", "x", db, corpus)
+        check(f"{nm} is CLEAN", dropped == [])
+    # Misdirection's change_targets ABSTAINS (targets are chosen at resolution, not on the stack — faithful).
+    _f, dropped = B.card_facts("Misdirection", "me", "x", db, corpus)
+    check("Misdirection abstains on change_targets (resolution-time targeting)",
+          ("effect", "change_targets") in dropped)
+
+    # §614 mass-counter (Mindbreak Trap): exile every OTHER spell on the stack.
+    st = {"is_player": {("me",), ("op",)}, "on_stack": {("mbt", 3), ("sa", 2), ("sb", 1)}, "_stack_info": {},
+          "graveyard": set(), "exile": set(), "_flashback": set(), "spell_mode": set(), "spell_effect_mode": set(),
+          "spell_effect": {("mbt", "counter_mass", 0, "-")}, "printed_control": set()}
+    with redirect_stdout(io.StringIO()):
+        D._run_spell_effects(st, "mbt", "me")
+    check("mass-counter exiles every other spell on the stack", {("sa",), ("sb",)} <= st["exile"])
+    check("mass-counter leaves itself on the stack", ("mbt", 3) in st["on_stack"])
+
+    # §614 counter-exile rider (Force of Negation): the countered spell is EXILED, not put into the graveyard.
+    st = {"is_player": {("me",), ("op",)}, "on_stack": {("fon", 2), ("v", 1)}, "_stack_info": {},
+          "graveyard": set(), "exile": set(), "_flashback": set(), "spell_mode": set(), "spell_effect_mode": set(),
+          "spell_effect": {("fon", "counter", 0, "target_spell"), ("fon", "counter_exile", 0, "-")}, "printed_control": set()}
+    with redirect_stdout(io.StringIO()):
+        D._run_spell_effects(st, "fon", "me")
+    check("counter-exile exiles the countered spell", ("v",) in st["exile"])
+    check("counter-exile keeps it OUT of the graveyard", ("v",) not in st["graveyard"])
+
+
 def run() -> None:
     test_counterspell_counters_on_stack()
     test_activated_ability_resolves()
     test_overspend_invariant()
+    test_counter_magic_frontier()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

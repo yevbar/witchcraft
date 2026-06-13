@@ -231,6 +231,7 @@ INPUTS = [
     # free_cast when the controller actually controls a commander, making it affordable for 0.
     ("free_if_commander", [("s", "symbol")]),
     ("free_grant", [("p", "symbol"), ("s", "symbol")]),          # §118.9 driver-granted free cast of a specific card
+    ("pitch_cost", [("s", "symbol"), ("color", "symbol"), ("gate", "symbol")]),   # §118.9 'exile a <color> card rather than pay'
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
@@ -746,6 +747,14 @@ def _rules(p: Program) -> None:
     # §118.9 a one-shot 'cast <a card> without paying its mana cost' the driver grants on resolution (Kari
     # Zev's Expertise from hand, Storm of Memories from the graveyard) — free_grant flags the specific card.
     p.rule("free_cast(P, S)", ["free_grant(P, S)", "playable_source(P, S)"])
+    # §118.9 PITCH alternative cost: 'you may exile a <color> card from your hand rather than pay this spell's
+    # mana cost' (Force of Negation/Force of Will + the Force cycle). Castable for free when the controller
+    # holds ANOTHER card of that color (color via printed_color = color identity); the 'not_your_turn' gate
+    # (Force of Negation) restricts it to an opponent's turn. The driver exiles the pitched card on cast.
+    p.rule("free_cast(P, S)", ["pitch_cost(S, Col, \"any\")", "playable_source(P, S)",
+                               "in_hand(P, O)", "O != S", "printed_color(O, Col)"])
+    p.rule("free_cast(P, S)", ["pitch_cost(S, Col, \"not_your_turn\")", "playable_source(P, S)",
+                               "in_hand(P, O)", "O != S", "printed_color(O, Col)", "!active_player(P)"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
     p.rule("can_afford(P, S)", ["free_cast(P, S)"], note="§118.9 an alternative free cost is always affordable")
     p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],

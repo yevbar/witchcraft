@@ -761,6 +761,16 @@ def _fold_optional_pay(effs: list, emit) -> set:
 # §118.9 'cast a <filter> spell with mana value N or less from your <zone> without paying its mana cost'
 # (Kari Zev's Expertise from hand, Storm of Memories from the graveyard). Parse the zone / type filter / MV
 # cap from the target slug into a cast_free payload the driver resolves (pick a matching card, cast it free).
+# §118.9 PITCH alt-cost: 'exile a <color> card from your hand rather than pay this spell's mana cost' (the
+# Force cycle). Parse the pitch color + the turn gate ('if it's not your turn' -> not_your_turn, else any).
+def _pitch_spec(tgt, cond) -> tuple | None:
+    m = re.match(r"^a[n]?_(\w+?)_card_from_your_hand_rather_than_pay", str(tgt))
+    if not m or m.group(1) not in _COLOR_NAME.values():
+        return None
+    gate = "not_your_turn" if "not_your_turn" in str(cond) else "any"
+    return (m.group(1), gate)
+
+
 def _cast_free_spec(tgt, extra) -> str | None:
     s = str(tgt)
     if "without_paying" not in str(extra) and "without_paying" not in s:
@@ -1422,6 +1432,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     spec = _cast_free_spec(tgt, extra)
                     if spec is not None:
                         add("spell_effect", (tid, "cast_free", 0, spec)); continue
+                if verb == "exile":
+                    # §118.9 PITCH alt-cost 'exile a <color> card from your hand rather than pay' (Force of
+                    # Negation/Force of Will) -> pitch_cost; the engine derives free_cast, the driver exiles it.
+                    pitch = _pitch_spec(tgt, _cond)
+                    if pitch is not None:
+                        add("pitch_cost", (tid, pitch[0], pitch[1])); continue
+                    if "instead_of_putting_it_into" in str(tgt):
+                        # §614 'exile it instead of putting it into its owner's graveyard' (Force of Negation):
+                        # the countered spell is EXILED — a counter_exile rider the driver applies to the victim.
+                        add("spell_effect", (tid, "counter_exile", 0, "-")); continue
+                    if str(tgt) in ("any_number_of_target_spells", "all_spells", "each_spell"):
+                        # §701.5 'exile any number of target spells' (Mindbreak Trap) — a MASS counter; the
+                        # driver exiles every other spell on the stack.
+                        add("spell_effect", (tid, "counter_mass", 0, "-")); continue
                 if verb == "untap" and _scope(tgt) is None and _target_class(tgt) is None:
                     # §701.20 'untap up to N lands' / 'untap target land' (Frantic Search, Snap) -> the own-untap
                     # encoder (untap_own / untap_own_n). 'untap' rides in _CREATURE_VERBS for the creature-target

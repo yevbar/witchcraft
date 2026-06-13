@@ -1370,6 +1370,24 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
     return plan if _done() else None
 
 
+def _pay_pitch_cost(state: dict, ap: str, spell: str) -> None:
+    """§118.9 PITCH alternative cost (the Force cycle): if `spell` has a pitch_cost, the controller exiles a
+    card of that color from hand (the pitched fodder) — the cost it paid INSTEAD of mana. A no-op if the spell
+    has no pitch cost (a different free cast). The pitched card is the canonical-first matching card, excluding
+    the spell itself; color via printed_color (color identity), the same signal the engine's free_cast used."""
+    pitch = [(s, col) for (s, col, _g) in state.get("pitch_cost", set()) if s == spell]
+    if not pitch:
+        return
+    color = pitch[0][1]
+    pcolor = run(state, ["printed_color"])["printed_color"]
+    fodder = sorted(c for (p, c) in state.get("in_hand", set())
+                    if p == ap and c != spell and (c, color) in pcolor)
+    if fodder:
+        state["in_hand"].discard((ap, fodder[0]))
+        state.setdefault("exile", set()).add((fodder[0],))
+        print(f"    {ap} exiles {fodder[0]} (a {color} card) to pitch-cast {spell}")
+
+
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
     """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources for their REAL mana. Each tapped
     source yields ALL its mana at once (§106.4: Sol Ring -> 2 colorless, a Signet -> its 2 colors after
@@ -1379,6 +1397,7 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     the rest of the cast loop sees the reduced mana. INVARIANT: only call when can_afford held."""
     out = run(state, ["free_cast", "has_escape", "escape_pip", "escape_generic"])
     if (ap, spell) in out["free_cast"]:                         # §118.9 an alternative free cost: pay no mana
+        _pay_pitch_cost(state, ap, spell)                       # §118.9 PITCH: exile a matching card if applicable
         print(f"    {ap} casts {spell} without paying its mana cost (§118.9)")
         return
     # §702.166 when cast via ESCAPE (a may_play card with an escape cost), pay the ESCAPE mana cost, not the
@@ -1657,6 +1676,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
                       if s == spell and m in active)
     else:
         effs = _spell_effects(state, spell)
+    exile_countered = any(e == "counter_exile" for (_s, e, _a, _t) in effs)   # §614 Force of Negation rider
     for (_s, eff, amt, tgt) in effs:
         if eff == "counter":                                 # §701.5 — counter the spell below it on the stack
             victim = _counter_target(state, spell)
@@ -1666,9 +1686,23 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
                 _apply_effects(state, run(state, ["pending"])["pending"])
                 state["countered"] = set()
                 _stack_remove(state, victim)
+                if exile_countered:                          # §614 'exile it instead of … graveyard'
+                    state.setdefault("_flashback", set()).add((victim,))   # _to_graveyard exiles a flagged object
                 _to_graveyard(state, victim)
             else:
                 print(f"      {spell} has no spell to counter")
+        elif eff == "counter_exile":                         # §614 the rider itself — handled with the counter above
+            continue
+        elif eff == "counter_mass":                          # §701.5 exile EVERY other spell on the stack (Mindbreak Trap)
+            victims = sorted(o for (o, _p) in state.get("on_stack", set()) if o != spell)
+            for v in victims:
+                print(f"      {spell} exiles {v} from the stack")
+                state["countered"] = {(v,)}
+                _apply_effects(state, run(state, ["pending"])["pending"])
+                state["countered"] = set()
+                _stack_remove(state, v)
+                state.setdefault("_flashback", set()).add((v,))   # Mindbreak Trap EXILES them
+                _to_graveyard(state, v)
         elif eff == "ctarget":                               # §601.2c a CHOSEN mode's single-target zone move
             verb, payload, cls = str(tgt).split("|")          # (Prismari Charm bounce, Get Out self-bounce)
             _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
