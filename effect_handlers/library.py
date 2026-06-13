@@ -87,6 +87,21 @@ def _encode_shuffle(verb, amt, tgt, extra):
     return ("shuffle", 0, "controller")
 
 
+@applier("loot_bottom")
+def _apply_loot_bottom(D, state, a, n, tgt, src, ctrl):
+    """§701 'put any number of cards from your hand on the bottom of your library, then draw that many + 1'
+    (Valakut Awakening). Put the controller's whole hand on the bottom, then draw (that count) + n — a fresh
+    hand of the same size plus the net advantage (n=1). With opaque ids WHICH cards is immaterial."""
+    hand = [c for (p, c) in list(state.get("in_hand", set())) if p == ctrl]
+    order = _order(state, ctrl)
+    for c in hand:
+        state["in_hand"].discard((ctrl, c)); order.append(c); state.setdefault("in_library", set()).add((ctrl, c))
+    draws = len(hand) + int(n)
+    print(f"    {a}: {ctrl} puts {len(hand)} card(s) on the bottom and draws {draws}")
+    for _ in range(draws):
+        D._draw(state, ctrl)
+
+
 @applier("wheel")
 def _apply_wheel(D, state, a, n, tgt, src, ctrl):
     """§103.2 a WHEEL (Timetwister / Echo of Eons): each affected player shuffles their hand and graveyard
@@ -274,6 +289,12 @@ def _type_predicate(tgt) -> str | None:
     for art in ("a_", "an_"):
         if core.startswith(art):
             core = core[len(art):]
+            break
+    # strip a leading COLOR qualifier ('a blue instant card' -> 'instant card' — Merchant Scroll). The color
+    # restriction is an approximation (a typed tutor in a mostly on-color deck almost always finds a match).
+    for _col in ("white", "blue", "black", "red", "green", "colorless", "multicolored"):
+        if core.startswith(_col + "_"):
+            core = core[len(_col) + 1:]
             break
     if not core.endswith("_card"):
         return None                                          # not a 'a <…> card' sought-object shape

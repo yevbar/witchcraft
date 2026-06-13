@@ -62,6 +62,11 @@ def _encode_checks() -> None:
           _enc("untap", "-", "up_to_one_artifact") == ("untap_own_n", 1, "artifact"))
     check("untap up to twelve lands abstains (unknown number word)",
           _enc("untap", "-", "up_to_twelve_lands") is None)
+    # 'untap target legendary permanent/land' (Minamo) -> untap_own.
+    check("untap target legendary permanent -> untap_own any",
+          _enc("untap", "-", "target_legendary_permanent") == ("untap_own", 0, "any"))
+    check("untap target legendary land -> untap_own land",
+          _enc("untap", "-", "target_legendary_land") == ("untap_own", 0, "land"))
 
     # proliferate always resolves (deterministic superset choice).
     check("proliferate encodes", _enc("proliferate", "-", "-") == ("proliferate", 0, "-"))

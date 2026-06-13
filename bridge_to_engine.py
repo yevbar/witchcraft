@@ -252,6 +252,9 @@ _TARGET_CLASS = {
     "up_to_one_target_creature": "any", "target_creature_you_control": "you_control",
     "another_target_creature_you_control": "you_control", "target_creature_you_don_t_control": "opponent",
     "target_creature_an_opponent_controls": "opponent",
+    # §115 'one or two target creatures [each]' (Opera Love Song's pump mode): choosing exactly ONE creature
+    # is a legal subset of 'one or two', so we resolve it as a single (beneficial) own-creature target.
+    "one_or_two_target_creatures_each": "you_control", "one_or_two_target_creatures": "you_control",
     # §115 'target creature or planeswalker' (Bitter Triumph): the engine models only the creature
     # alternative; picking a creature is a LEGAL target (faithful — the PW option is simply not exercised).
     "target_creature_or_planeswalker": "any",
@@ -841,6 +844,23 @@ def _fold_gy_recast(effs: list, emit) -> set:
     return skip
 
 
+def _fold_valakut(effs: list, emit) -> set:
+    """§701 'put ANY NUMBER of cards from your hand on the bottom of your library, then draw that many plus
+    one' (Valakut Awakening). Fold the [put_on_bottom <any number from hand>] + [draw that_amount_plus_one]
+    pair into one loot_bottom effect: the driver puts the hand on the bottom and draws (that count) + 1 — a
+    fresh hand of the same size +1 (the +1 net advantage is the point; with opaque cards which cards is moot)."""
+    put_i = next((i for i, (_s, v, _a, _t, x, _c) in enumerate(effs)
+                  if v == "put_on_bottom" and "from_your_hand" in str(x)), None)
+    if put_i is None:
+        return set()
+    draw_i = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs)
+                   if v == "draw" and "plus_one" in str(a)), None)
+    if draw_i is None:
+        return set()
+    emit("loot_bottom", 1, "-")                                # amount 1 = the 'plus one' net advantage
+    return {put_i, draw_i}
+
+
 def _fold_counter_draw(effs: list, emit) -> set:
     """§122 'put a <counter> on this, then draw a card for each <counter> on this' (The One Ring's
     {T} ability). Fold the [put_counter <kind> on self] + [draw N per <kind> counter] pair into one
@@ -1064,10 +1084,13 @@ def _activated_cost(cost: str) -> tuple | None:
     if cost is None:
         return None
     parts = [p.strip() for p in str(cost).split(",")]
-    mana, taps = 0, False
+    mana, taps, sac_self = 0, False, False
     for part in parts:
+        if re.match(r"^sacrifice (this|~|it)(\b|$)", part, re.I):  # §118 'Sacrifice this <permanent>' / '~' (Teardrop Kami)
+            sac_self = True
+            continue
         syms = _MV_SYM.findall(part)
-        if not syms and part:                                # bare words like 'Sacrifice ~' — abstain
+        if not syms and part:                                # other bare words ('Pay N life', 'Discard …') — abstain
             return None
         for sym in syms:
             head = sym.split("/")[0]
@@ -1079,7 +1102,7 @@ def _activated_cost(cost: str) -> tuple | None:
                 return None                                   # variable cost — defer
             else:
                 mana += 1                                     # a colored/hybrid pip costs 1 (colorless abstraction)
-    return (mana, taps)
+    return (mana, taps, sac_self)
 
 
 # §605 a non-mana ACTIVATION cost on a mana ability that the driver pays SPECIALLY (not as generic+tap):
@@ -1446,6 +1469,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §118.9 GRAVEYARD FREE-RECAST (Storm of Memories: exile a card from your GY, cast it for free).
             gyr_skip = _fold_gy_recast(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 Valakut Awakening dig: put any number from hand on the bottom, draw that many + 1.
+            valakut_skip = _fold_valakut(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
             wheel = _wheel_of(effs)
             wheel_skip = set()
@@ -1454,7 +1479,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -1600,6 +1625,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue
             a = f"{tid}_{aid}"
             taps = "T" if paid[1] else "-"
+            if len(paid) > 2 and paid[2]:                     # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
+                add("ability_sac_cost", (a,))                 # the driver sacrifices the source when activated
             emitted = False
             act_effs = list(ab.get("effects", []))
             # §701.18 SEARCH-PLACEMENT on an ACTIVATED ability (fetchlands: '{T},…,Sac ~: search for a basic

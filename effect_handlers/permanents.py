@@ -44,6 +44,10 @@ _OWN_TARGET = {
     # §701.20 anaphoric 'untap that creature' (Cerulean Wisps, Snap-likes) — the creature a prior clause on the
     # same instant just affected; resolve to the controller's strongest creature (matches the prior pick).
     "that_creature": "creature",
+    # 'untap target legendary <permanent/land/creature>' (Minamo: '{U},{T}: untap target legendary permanent'
+    # — used to untap your own land for mana, or Minamo itself). The legendary restriction isn't enforced, but
+    # untapping the controller's own tapped permanent of that type is the faithful, beneficial resolution.
+    "target_legendary_permanent": "any", "target_legendary_land": "land", "target_legendary_creature": "creature",
 }
 # 'untap ANOTHER target …' — same own-board resolution, but the SOURCE is not a legal target (§601 'another'),
 # so we must untap a DIFFERENT own permanent. Encoded with an 'other_' class prefix the applier honors.

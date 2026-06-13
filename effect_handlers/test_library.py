@@ -265,7 +265,23 @@ def _apply_checks() -> None:
 
     _dyn_mana_checks()
     _topdeck_checks()
+    _loot_bottom_checks()
     _name_exile_checks()
+
+
+def _loot_bottom_checks() -> None:
+    # §701 Valakut Awakening: put the whole hand on the bottom, then draw (that count) + 1.
+    st = _state(["L0", "L1", "L2", "L3", "L4"])
+    st["in_hand"] = {("alice", "h1"), ("alice", "h2"), ("alice", "h3")}
+    _fire(st, "loot_bottom", 1, tgt="-")
+    hand = sorted(c for (p, c) in st["in_hand"] if p == "alice")
+    check("loot_bottom draws hand_size + 1 (3 -> 4)", len(hand) == 4)
+    check("loot_bottom puts the old hand on the bottom (none of h1..h3 left in hand)",
+          not any(c.startswith("h") for c in hand))
+    # an empty hand: draw 0 + 1 = 1.
+    st = _state(["a", "b"]); st["in_hand"] = set()
+    _fire(st, "loot_bottom", 1, tgt="-")
+    check("loot_bottom on an empty hand draws 1", len([c for (p, c) in st["in_hand"] if p == "alice"]) == 1)
 
 
 def _topdeck_checks() -> None:

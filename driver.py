@@ -2357,6 +2357,8 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     if taps == "T":
         _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
+    if (a,) in state.get("ability_sac_cost", set()):         # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
+        _sacrifice(state, src)                               # fires 'when sacrificed', then -> graveyard
     state.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
     _stack_push(state, a, ap)
     print(f"    {ap} activates {a} ({src}: {eff} {amt})")

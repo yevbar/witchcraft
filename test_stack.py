@@ -173,11 +173,41 @@ def test_counter_magic_frontier() -> None:
     check("counter-exile keeps it OUT of the graveyard", ("v",) not in st["graveyard"])
 
 
+def test_sacrifice_activation_cost() -> None:
+    import bridge_to_engine as B
+    import card_corpus
+    import sim
+    import effect_handlers
+    effect_handlers.load()
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    # §118 a 'Sacrifice this' activation cost (Teardrop Kami) is CLEAN; 'Sacrifice ANOTHER/A creature' abstains.
+    _f, dropped = B.card_facts("Teardrop Kami", "me", "x", db, corpus)
+    check("Teardrop Kami is CLEAN (sacrifice-self activation cost)", dropped == [])
+    check("_activated_cost('Sacrifice ~') flags sac_self", B._activated_cost("Sacrifice ~")[2] is True)
+    check("_activated_cost('{2}, {T}') does NOT flag sac_self", B._activated_cost("{2}, {T}")[2] is False)
+    check("a 'Sacrifice a creature' cost still abstains (not self)", B._activated_cost("Sacrifice a creature") is None)
+
+    # the driver sacrifices the source when such an ability is activated.
+    st = {"is_player": {("me",), ("op",)}, "active_player": {("me",)}, "has_priority": {("me",)},
+          "on_battlefield": {("kami",), ("bear",)}, "printed_control": {("me", "kami"), ("op", "bear")},
+          "printed_type": {("kami", "creature"), ("bear", "creature")}, "tapped": {("bear",)}, "_sick": set(),
+          "activated_ability": {("kami_a0", "kami", 0, "-", "ctarget", 0, "untap|-|any")},
+          "ability_sac_cost": {("kami_a0",)}, "mana_available": {("me", 0)}, "graveyard": set(),
+          "on_stack": set(), "_stack_info": {}, "all_passed": set(), "counter": set(),
+          "current_step": {("precombat_main",)}}
+    with redirect_stdout(io.StringIO()):
+        D._activate_phase(st, "me", ["me", "op"])
+    check("the sac-cost ability sacrifices its source", ("kami",) in st["graveyard"] and ("kami",) not in st["on_battlefield"])
+
+
 def run() -> None:
     test_counterspell_counters_on_stack()
     test_activated_ability_resolves()
     test_overspend_invariant()
     test_counter_magic_frontier()
+    test_sacrifice_activation_cost()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
