@@ -106,6 +106,24 @@ def apply_sacrifice(D, state, a, n, tgt, src, ctrl):
             D._sacrifice(state, c)                         # fires 'when sacrificed', then -> graveyard
 
 
+@applier("may_pay")
+def apply_may_pay(D, state, a, n, tgt, src, ctrl):
+    """§118 a recurring OPTIONAL payment 'you may pay {n}. If you do, untap this' (Mana Vault). The driver
+    decides through the _choose seam — DEFAULT is NOT to pay (the common line: leave Mana Vault tapped and
+    take the draw-step ping), so a policy/search can opt in. Only pays if affordable; on payment, untaps the
+    source (the 'untap_self' follow-up)."""
+    D._refresh_mana_pool(state, ctrl)
+    avail = next((m for (q, m) in state.get("mana_available", set()) if q == ctrl), 0)
+    if avail < int(n):
+        return                                                # can't afford the optional cost -> can't pay
+    if not D._choose(state, "may_pay", (False, True), False):
+        return                                                # default: decline (leave it tapped)
+    D._spend_ability_mana(state, ctrl, int(n))
+    if str(tgt) == "untap_self":
+        state.get("tapped", set()).discard((src,))
+        print(f"    {a}: {ctrl} pays {{{n}}} and untaps {src}")
+
+
 @applier("pact_delayed")
 def apply_pact_delayed(D, state, a, n, tgt, src, ctrl):
     """§603.7c schedule a Pact's DELAYED upkeep cost: 'at the beginning of your next upkeep, pay <n generic>;

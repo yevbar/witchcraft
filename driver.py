@@ -643,6 +643,7 @@ _PERM_FILTER = {
     "creature_enchantment": ("creature", "enchantment"),
     "cep": ("creature", "enchantment", "planeswalker"),
     "acep": ("artifact", "creature", "enchantment", "planeswalker"),   # Otawara: artifact/creature/ench/pw
+    "acl": ("artifact", "creature", "land"),                           # Twitch: artifact/creature/land tapper
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 _PERM_COLORS = {"white", "blue", "black", "red", "green"}    # §105 a COLOR target class (Pyroblast/REB: a blue permanent)
@@ -1836,9 +1837,14 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
     owner_of = {c: p for (p, c) in controls}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
+    ptype = state.get("printed_type", set())
     for (_s, verb, payload, scope) in rows:
-        targets = sorted(c for c in creatures if c in on_bf
-                         and (scope == "all_creatures" or c in mine))
+        if scope == "own_nonland_perms":
+            # §613 Dramatic Reversal — every NONLAND permanent the controller controls (not just creatures).
+            targets = sorted(c for c in mine if c in on_bf and (c, "land") not in ptype)
+        else:
+            targets = sorted(c for c in creatures if c in on_bf
+                             and (scope == "all_creatures" or c in mine))
         for tgt in targets:
             _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
 

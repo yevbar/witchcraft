@@ -481,6 +481,52 @@ def _perm_target_checks() -> None:
         f, dropped = bridge.card_facts(nm, "alice", "x", db, corpus)
         check(f"{nm} is CLEAN (perm-target removal resolves)", dropped == [])
 
+    # NEW perm filters: opponent's nonland permanent (Into the Flood Maw), artifact/creature/land (Twitch).
+    check("target_nonland_permanent_an_opponent_controls -> perm_opp_nonland",
+          bridge._target_class("target_nonland_permanent_an_opponent_controls") == "perm_opp_nonland")
+    check("target_artifact_creature_or_land -> perm_acl",
+          bridge._target_class("target_artifact_creature_or_land") == "perm_acl")
+    acl_st = {"on_battlefield": {("mox",), ("bear",), ("land",), ("ench",)},
+              "printed_type": {("mox", "artifact"), ("bear", "creature"), ("land", "land"), ("ench", "enchantment")}}
+    check("perm_acl = artifact/creature/land (no enchantment)",
+          driver._perm_candidates(acl_st, "perm_acl", {"bear"}) == ["bear", "land", "mox"])
+
+    # §613 board-scope untap of NONLAND permanents (Dramatic Reversal): spell_scope is DATALOG-derived and the
+    # driver untaps only the controller's nonland permanents.
+    f, dropped = bridge.card_facts("Dramatic Reversal", "me", "dr", db, corpus)
+    check("Dramatic Reversal is CLEAN", dropped == [])
+    st = {k: set(v) for k, v in f.items()}
+    st.update({"is_player": {("me",), ("op",)},
+               "on_battlefield": {("rock",), ("dork",), ("myland",), ("opprock",), ("dr",)},
+               "printed_control": {("me", "rock"), ("me", "dork"), ("me", "myland"), ("op", "opprock"), ("me", "dr")},
+               "printed_type": {("rock", "artifact"), ("dork", "creature"), ("myland", "land"), ("opprock", "artifact")},
+               "tapped": {("rock",), ("dork",), ("myland",), ("opprock",)}})
+    check("Dramatic Reversal derives a DATALOG spell_scope (untap own_nonland_perms)",
+          ("dr", "untap", "-", "own_nonland_perms") in driver.run(st, ["spell_scope"])["spell_scope"])
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_scope(st, "dr", "me")
+    check("Dramatic Reversal untaps own artifact + creature", ("rock",) not in st["tapped"] and ("dork",) not in st["tapped"])
+    check("Dramatic Reversal leaves your LAND tapped (nonland only)", ("myland",) in st["tapped"])
+    check("Dramatic Reversal leaves an opponent's permanent tapped", ("opprock",) in st["tapped"])
+
+    # §118 Mana Vault recurring optional pay: declines by default (stays tapped), pays + untaps when chosen.
+    import effect_handlers
+    effect_handlers.load()
+    mv = {"is_player": {("me",)}, "on_battlefield": {("mv",), ("L0",), ("L1",), ("L2",), ("L3",)},
+          "printed_control": {("me", "mv")} | {("me", f"L{i}") for i in range(4)},
+          "printed_type": {("mv", "artifact")} | {(f"L{i}", "land") for i in range(4)},
+          "land_produces": {(f"L{i}", "blue") for i in range(4)}, "mana_available": set(), "mana_pool": set(), "tapped": {("mv",)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(dict(mv), {("a", "may_pay", 4, "untap_self", "mv", "me")})
+    check("Mana Vault declines the optional pay by default (stays tapped)", ("mv",) in mv["tapped"])
+    forced = dict(mv); forced["_forced"] = {"may_pay": True}; forced["tapped"] = {("mv",)}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(forced, {("a", "may_pay", 4, "untap_self", "mv", "me")})
+    check("Mana Vault pays + untaps when the policy opts in", ("mv",) not in forced["tapped"])
+    for nm in ("Into the Flood Maw", "Twitch", "Sink into Stupor // Soporific Springs", "Mana Vault"):
+        f, dropped = bridge.card_facts(nm, "me", "x", db, corpus)
+        check(f"{nm} is CLEAN", dropped == [])
+
 
 def run() -> None:
     _driver_checks()

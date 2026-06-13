@@ -226,7 +226,14 @@ def _scope(tgt: str) -> str | None:
         return "creatures_you_control"
     if tgt in ("all_creatures", "all_other_creatures"):
         return "all_creatures"
+    if tgt in ("all_nonland_permanents_you_control", "nonland_permanents_you_control"):
+        return "own_nonland_perms"                            # §613 Dramatic Reversal — a PERMANENT (not creature) scope
     return None
+
+
+# the board scopes whose spell_scope the driver expands on resolution: the creature scopes plus the
+# nonland-permanent scope (untap-all). Used by the bridge to know which scope tokens are DATALOG-derived.
+_BOARD_SCOPES = ("creatures_you_control", "all_creatures", "own_nonland_perms")
 
 
 def _int(amt) -> int | None:
@@ -268,7 +275,14 @@ _TARGET_CLASS = {
     # has an 'opp_' prefix (restrict candidates to NOT printed_control == ctrl, the mirror of 'own_') plus a
     # perm_acep type-union (artifact/creature/enchantment/planeswalker), so these resolve faithfully:
     "target_nonland_permanent_you_don_t_control": "perm_opp_nonland",                 # Cyclonic Rift (base mode)
+    "target_nonland_permanent_an_opponent_controls": "perm_opp_nonland",              # Into the Flood Maw
+    # 'target SPELL or nonland permanent an opponent controls' (Sink into Stupor): we resolve the PERMANENT
+    # half (bounce an opponent's nonland permanent); the spell-bounce option is simply not surfaced (a missing
+    # option, never a wrong action — faithful-or-abstain).
+    "target_spell_or_nonland_permanent_an_opponent_controls": "perm_opp_nonland",
     "target_artifact_creature_enchantment_or_planeswalker": "perm_opp_acep",          # Otawara (channel)
+    # §115 'target artifact, creature, or land' (Twitch, Icy-style tappers) — a type union over ANY controller.
+    "target_artifact_creature_or_land": "perm_acl",
 }
 
 # The perm_<filter> class is opaque to the bridge — it flows straight through target_class into the datalog
@@ -715,6 +729,29 @@ def _is_impulse_card_obj(tgt) -> bool:
     return s in _IMPULSE_CARD_OBJ
 
 
+def _fold_optional_pay(effs: list, emit) -> set:
+    """§118 a RECURRING optional payment 'you may pay <cost>. If you do, untap this' (Mana Vault's upkeep).
+    Fold the [pay COST (may)] + [untap self (if you did)] pair into one may_pay effect (amount = the cost's
+    mana value, target 'untap_self'); the driver decides whether to pay (default: don't — leave it tapped)
+    and, if it pays, untaps the source. Only the pay->untap-self shape is modeled; any other 'pay' abstains."""
+    pay_i = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs)
+                  if v == "pay" and _pact_cost(a) is not None), None)
+    if pay_i is None:
+        return set()
+    cost = _pact_cost(effs[pay_i][2])
+    skip = {pay_i}
+    follow = None
+    for i, (_s, v, _a, t, _x, c) in enumerate(effs):
+        if i in skip:
+            continue
+        if "if_you_did" in str(c) and v == "untap" and str(t) in ("self", "it"):
+            follow = "untap_self"; skip.add(i); break
+    if follow is None:
+        return set()                                          # a 'pay' with no modeled benefit -> stay dropped
+    emit("may_pay", cost, follow)
+    return skip
+
+
 def _fold_coinflip(effs: list, emit) -> set:
     """§705 COIN FLIP — 'flip a coin. If you lose the flip, ~ deals N damage to you' (Mana Crypt; Ral's
     downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
@@ -1110,8 +1147,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §705 COIN FLIP on a TRIGGERED ability (Mana Crypt's upkeep flip-or-take-3).
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §118 RECURRING optional payment on a TRIGGERED ability (Mana Vault's 'pay {4} to untap').
+            pay_skip = _fold_optional_pay(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -1285,9 +1324,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # the pt_value foundation table) and switch_pt are now DATALOG-derived too — no python add().
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
-                    if scope in ("creatures_you_control", "all_creatures"):
-                        # board-scope spell (Overrun=+X/+X your creatures, Wrath=destroy all) -> the driver
-                        # expands the scope to concrete creatures on resolution and applies the verb to each.
+                    if scope in _BOARD_SCOPES:
+                        # board-scope spell (Overrun=+X/+X your creatures, Wrath=destroy all, Dramatic Reversal=
+                        # untap all your nonland permanents) -> the driver expands the scope on resolution and
+                        # applies the verb to each. spell_scope is DATALOG-derived (board_scope + zone_move_verb).
                         r = _creature_verb_payload(verb, amt, extra)
                         if r[0] is None:
                             dropped.append((r[1], r[2])); continue

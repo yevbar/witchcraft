@@ -1463,7 +1463,11 @@ def _emit_translate_triggered_target(p) -> None:
     p.decl("board_scope", [("tgt", "symbol"), ("scope", "symbol")])
     p.facts(['board_scope("creatures_you_control", "creatures_you_control")',
              'board_scope("all_creatures", "all_creatures")',
-             'board_scope("all_other_creatures", "all_creatures")'])
+             'board_scope("all_other_creatures", "all_creatures")',
+             # §613 a NONLAND-PERMANENT board scope (Dramatic Reversal: untap all nonland permanents you
+             # control). The driver expands own_nonland_perms to permanents (not just creatures) on resolve.
+             'board_scope("all_nonland_permanents_you_control", "own_nonland_perms")',
+             'board_scope("nonland_permanents_you_control", "own_nonland_perms")'])
     p.comment("zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —")
     p.comment("destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).")
     p.decl("zone_move_verb", [("verb", "symbol")])
