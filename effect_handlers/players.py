@@ -331,3 +331,25 @@ def apply_discard_draw(D, state, a, n, tgt, src, ctrl):
         for _ in range(int(n)):
             D._draw(state, p)
         print(f"    {a}: {p} discards their hand ({len(hand)}) and draws {n}")
+
+
+@applier("combat_draw")
+def apply_combat_draw(D, state, a, n, tgt, src, ctrl):
+    """§510 Tymna the Weaver — at your postcombat main phase, you MAY pay X life and draw X, where X is the
+    number of OPPONENTS dealt combat damage this turn (state['_combat_damaged'], filtered to ctrl's opponents).
+    Default greedy: take it whenever X > 0 (X cards for X life is a premier draw engine); the _choose seam lets
+    a policy decline. A no-op when no opponent took combat damage."""
+    fired = state.setdefault("_combat_draw_fired", set())     # §603 once-per-firing guard: the postcombat-main
+    if (a,) in fired:                                         # `fires` holds for the whole phase, and a draw here
+        return                                               # re-derives pending — so resolve this trigger ONCE.
+    fired.add((a,))
+    opps = set(D._others(state, ctrl))
+    x = len({p for (p,) in state.get("_combat_damaged", set()) if p in opps})
+    if x <= 0:
+        return
+    if not D._choose(state, "combat_draw", (True, False), True):
+        return
+    print(f"    {a}: {ctrl} pays {x} life ({x} opponent(s) dealt combat damage) -> draws {x}")
+    D._adjust_life(state, ctrl, -x)
+    for _ in range(x):
+        D._draw(state, ctrl)

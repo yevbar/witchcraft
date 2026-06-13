@@ -572,6 +572,8 @@ def _encode_put_on_bottom(verb, amt, tgt, extra):
         return ("place_searched", 0, "bottom")
     if t in _REORDER_OBJ:                                    # 'put the rest on the bottom in any order' -> no-op-ish
         return ("reorder_noop", 0, "-")
+    if t == "library" and "them" in str(extra):             # §701 'put up to one OF THEM on top and the rest on
+        return ("reorder_noop", 0, "-")                     # the bottom' (Thassa's Oracle) — a reorder of looked-at cards
     m = re.match(r"^(\w+)_cards?$", t)                       # 'put N cards from your hand on the bottom' (Valakut)
     if m:
         k = _NUMWORD.get(m.group(1), _int(m.group(1)))

@@ -898,6 +898,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_beginning_of_combat(P)", ['current_step("beginning_of_combat")', "active_player(P)"])
     p.decl("ev_first_main", [("p", "symbol")])               # §505/§603 'at the beginning of your first/precombat main phase'
     p.rule("ev_first_main(P)", ['current_step("precombat_main")', "active_player(P)"])
+    p.decl("ev_postcombat_main", [("p", "symbol")])          # §505/§603 'at the beginning of each of your POSTcombat main phases' (Tymna)
+    p.rule("ev_postcombat_main(P)", ['current_step("postcombat_main")', "active_player(P)"])
     p.decl("ev_draw_step", [("p", "symbol")])                # §504/§603 'at the beginning of your draw step'
     p.rule("ev_draw_step(P)", ['current_step("draw")', "active_player(P)"])
     p.comment("§603.10 look-back events (sacrifice / phase out / counter / a player losing).")
@@ -929,6 +931,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_attack")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)"])
     # §505/§603 'at the beginning of your first (precombat) main phase'.
     p.rule("fires(A, S)", ['has_trigger(A, S, "first_main_phase")', "ev_first_main(P)", "controls(P, S)"])
+    # §505/§603 'at the beginning of each of your postcombat main phases' (Tymna the Weaver's draw).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "postcombat_main")', "ev_postcombat_main(P)", "controls(P, S)"])
     # §504/§603 'at the beginning of your draw step' (Mana Vault, Howling Mine-likes).
     p.rule("fires(A, S)", ['has_trigger(A, S, "draw_step")', "ev_draw_step(P)", "controls(P, S)"])
     # §603 'whenever ~ becomes tapped' (City of Brass) — the SOURCE itself was just tapped.

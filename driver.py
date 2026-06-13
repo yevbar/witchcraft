@@ -899,6 +899,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         print(f"    {c} {verb} -> {to}")
     for (p, n) in sorted(out["player_damage"]):                  # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
+        state.setdefault("_combat_damaged", set()).add((p,))     # §510 players dealt combat damage THIS TURN (Tymna)
     for (p, cmd, n) in sorted(out.get("combat_commander_damage", set())):   # §903.10a accrue commander damage
         cd = state.setdefault("commander_damage", set())          # carried per-(player, commander) total
         old = next((b for (pp, cc, b) in cd if pp == p and cc == cmd), 0)
@@ -2555,6 +2556,7 @@ def _end_of_turn(state: dict) -> None:
     # again next turn — they only prevent a re-derived trigger doubling within a single firing window.
     state["_reanimated"] = set()
     state["_counter_applied"] = set()
+    state["_combat_draw_fired"] = set()                      # §510 Tymna's postcombat-main draw fires once/turn
     state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
     state["_cant_block"] = set()                             # §509.1b 'can't block this turn' restriction
 
@@ -2603,6 +2605,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_is_cast_count"] = 0                              # §712 instant/sorcery-cast tally is per-turn (Ral)
         state["_loyalty_used"] = set()                          # §606.3 loyalty ability is once-per-turn per planeswalker
+        state["_combat_damaged"] = set()                        # §510 'dealt combat damage this turn' resets (Tymna)
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT

@@ -31,6 +31,7 @@ _EVENT = {
     "blocks": "blocks_self",
     "the_beginning_of_your_upkeep": "upkeep",
     "the_beginning_of_your_end_step": "end_step",
+    "the_beginning_of_each_of_your_postcombat_main_phases": "postcombat_main",   # §505 Tymna the Weaver's draw
     "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
     "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
@@ -794,6 +795,36 @@ def _is_impulse_card_obj(tgt) -> bool:
     return s in _IMPULSE_CARD_OBJ
 
 
+def _fold_pay_or_create(effs: list, emit) -> set:
+    """§603 'that player may pay {N}. If the player doesn't, you create a <token>' (Smothering Tithe). The
+    create is already DATALOG-owned (one-world create_token), so we only CONSUME the 'may pay' clause here (so
+    it isn't dropped). The DEFAULT line — the player declines, the controller gets the token — is exactly what
+    the datalog create produces; modeling the player paying to DENY the token (rare, and needs their mana on
+    your turn) is a conservative omission. Returns the pay clause's index iff it is paired with such a create."""
+    pi = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+               if v == "pay" and _int(a) is not None and str(t) in ("that_player", "the_player")), None)
+    ci = next((i for i, (_s, v, _a, _t, x, c) in enumerate(effs)
+               if v == "create" and "doesn" in str(c)), None)
+    if pi is None or ci is None:
+        return set()
+    return {pi}                                              # consume the pay clause; the datalog owns the create
+
+
+def _fold_combat_draw(effs: list, emit) -> set:
+    """§510 'you may pay X life, where X is the number of opponents that were dealt combat damage this turn; if
+    you do, draw X cards' (Tymna the Weaver's postcombat-main draw). Fold the [pay x_life (may)] + [draw X (if
+    you did)] pair into ONE combat_draw effect the driver SIZES at resolution (X = opponents dealt combat
+    damage this turn — tracked in _combat_damaged). Only the x_life/draw-X shape is folded; called only for the
+    postcombat-main trigger so it can't mis-fire on an unrelated 'pay X life, draw X' card."""
+    pi = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs) if v == "pay" and str(a) == "x_life"), None)
+    di = next((i for i, (_s, v, a, _t, _x, c) in enumerate(effs)
+               if v == "draw" and str(a) in ("X", "x") and "if_you_did" in str(c)), None)
+    if pi is None or di is None:
+        return set()
+    emit("combat_draw", 0, "opponents_dealt_combat_damage")
+    return {pi, di}
+
+
 def _fold_optional_pay(effs: list, emit) -> set:
     """§118 a RECURRING optional payment 'you may pay <cost>. If you do, untap this' (Mana Vault's upkeep).
     Fold the [pay COST (may)] + [untap self (if you did)] pair into one may_pay effect (amount = the cost's
@@ -1474,8 +1505,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §118 RECURRING optional payment on a TRIGGERED ability (Mana Vault's 'pay {4} to untap').
             pay_skip = _fold_optional_pay(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §510 Tymna's postcombat-main 'pay X life, draw X' (X = opponents dealt combat damage this turn).
+            cd_skip = (_fold_combat_draw(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+                       if event == "postcombat_main" else set())
+            # §603 'that player may pay {N}; if they don't, you create a <token>' (Smothering Tithe).
+            poc_skip = _fold_pay_or_create(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
