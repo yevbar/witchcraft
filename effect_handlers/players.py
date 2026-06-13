@@ -74,6 +74,8 @@ def encode_sacrifice(verb, amt, tgt, extra):
     # amt = COUNT (default 1 when the count is implicit and the class names a single creature);
     # the class lives in tgt for controller-scoped ('Sacrifice a creature') and in extra for
     # player-targeted ('each opponent sacrifices a creature of their choice').
+    if str(tgt) in ("self", "it"):                            # §701.16 'Sacrifice this permanent' (the source)
+        return ("sacrifice_self", 0, "-")
     if str(extra) not in ("-", "None") and _player_scope(tgt):
         scope, cls = _player_scope(tgt), str(extra)
         n = _int(amt)
@@ -102,6 +104,15 @@ def apply_sacrifice(D, state, a, n, tgt, src, ctrl):
         mine.sort(key=lambda c: (power.get(c, 0), c))     # weakest first, deterministic tie-break
         for c in mine[:n]:
             D._sacrifice(state, c)                         # fires 'when sacrificed', then -> graveyard
+
+
+@applier("sacrifice_self")
+def apply_sacrifice_self(D, state, a, n, tgt, src, ctrl):
+    """§701.16 'Sacrifice this permanent' — the SOURCE sacrifices itself (City of Traitors on a land drop,
+    a self-sac payoff). A no-op if it's already left the battlefield."""
+    if (src,) in state.get("on_battlefield", set()):
+        D._sacrifice(state, src)                           # fires 'when sacrificed', then -> graveyard
+        print(f"    trigger {a}: {ctrl} sacrifices {src}")
 
 
 # ----- get_energy -----------------------------------------------------------------------------------

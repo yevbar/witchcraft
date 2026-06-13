@@ -41,6 +41,9 @@ _OWN_TARGET = {
     "target_land": "land", "target_permanent": "any", "target_artifact": "artifact",
     "target_creature_you_control": "creature", "target_land_you_control": "land",
     "target_permanent_you_control": "any", "target_artifact_you_control": "artifact",
+    # §701.20 anaphoric 'untap that creature' (Cerulean Wisps, Snap-likes) — the creature a prior clause on the
+    # same instant just affected; resolve to the controller's strongest creature (matches the prior pick).
+    "that_creature": "creature",
 }
 # 'untap ANOTHER target …' — same own-board resolution, but the SOURCE is not a legal target (§601 'another'),
 # so we must untap a DIFFERENT own permanent. Encoded with an 'other_' class prefix the applier honors.
@@ -136,6 +139,28 @@ def _apply_untap_own_n(D, state, a, n, tgt, src, ctrl):
 def _encode_proliferate(verb, amt, tgt, extra):
     # proliferate carries no useful amt/target — it always acts on every eligible counter. Always faithful.
     return ("proliferate", 0, "-")
+
+
+@applier("becomes_color")
+def _apply_becomes_color(D, state, a, n, tgt, src, ctrl):
+    """§613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps — paired with
+    a haste grant on the same creature). Beneficial flavor, so the driver picks the controller's strongest
+    creature (matching the haste grant's own-creature pick) and sets eff_set_color until cleanup."""
+    color, _, cls = str(tgt).partition("|")
+    out = D.run(state, ["controls", "creature", "power"])
+    creatures = {c for (c,) in out["creature"]}
+    powers = {c: int(x) for (c, x) in out["power"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (p, c) in out["controls"] if p == ctrl}
+    cands = [c for c in creatures if c in on_bf and (c in mine if cls in ("you_control", "any") else True)]
+    if not cands:
+        print(f"    {a}: no creature to make {color}")
+        return
+    target = max(cands, key=lambda c: powers.get(c, 0))
+    eid = f"{a}__color__{target}"
+    state.setdefault("eff_set_color", set()).add((eid, target, color, 1))
+    state.setdefault("until_eot", set()).add((eid,))
+    print(f"    {a}: {target} becomes {color} until end of turn")
 
 
 @applier("proliferate")

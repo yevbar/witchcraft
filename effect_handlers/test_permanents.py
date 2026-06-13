@@ -275,9 +275,27 @@ def _driver_activation_checks() -> None:
     check("driver: the {4} untap cost was paid (alice 4 -> 0 mana)", ("alice", 0) in st["mana_available"])
 
 
+def _becomes_color_checks() -> None:
+    # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps): the driver
+    # sets eff_set_color on the controller's strongest creature, until cleanup.
+    st = _base()
+    st["on_battlefield"] = {("mine",), ("theirs",)}
+    st["printed_control"] = {("alice", "mine"), ("bob", "theirs")}
+    st["printed_type"] = {("mine", "creature"), ("theirs", "creature")}
+    st["printed_power"] = {("mine", 3), ("theirs", 9)}
+    st["printed_toughness"] = {("mine", 3), ("theirs", 9)}
+    st["eff_set_color"] = set(); st["until_eot"] = set()
+    _fire(st, "becomes_color", 0, "red|any", src="wisps")
+    set_rows = {(c, col) for (_e, c, col, _ts) in st.get("eff_set_color", set())}
+    check("becomes_color sets the color on the controller's own creature", ("mine", "red") in set_rows)
+    check("becomes_color does not recolor an opponent's creature", not any(c == "theirs" for (c, _col) in set_rows))
+    check("becomes_color is registered until end of turn", any(True for _ in st.get("until_eot", set())))
+
+
 def run() -> None:
     _encode_checks()
     _apply_checks()
+    _becomes_color_checks()
     _driver_activation_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

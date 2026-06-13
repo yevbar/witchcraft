@@ -97,6 +97,19 @@ _EVENT = {
     "you_attack": "you_attack",
     "the_beginning_of_your_first_main_phase": "first_main_phase",
     "the_beginning_of_your_precombat_main_phase": "first_main_phase",
+    "the_beginning_of_your_draw_step": "draw_step",          # §504 (Mana Vault, Howling Mine-likes)
+    # §601 'whenever you cast an instant or sorcery spell DURING YOUR TURN' (Ral) and 'whenever you cast a
+    # <color> spell' (Runaway Steam-Kin, chromatic cast payoffs) — gated by the engine on active_player /
+    # spell_color during the cast window.
+    "you_cast_an_instant_or_sorcery_spell_during_your_turn": "you_cast_is_your_turn",
+    "you_cast_a_white_spell": "you_cast_white",
+    "you_cast_a_blue_spell": "you_cast_blue",
+    "you_cast_a_black_spell": "you_cast_black",
+    "you_cast_a_red_spell": "you_cast_red",
+    "you_cast_a_green_spell": "you_cast_green",
+    # §603 'when you play another land' (City of Traitors) — a land you control entering the battlefield
+    # (O != S already excludes the source), the same window as a landfall trigger.
+    "you_play_another_land": "your_land_etb",
     # §603 composite self-triggers ('enters or attacks', 'enters or dies') — two firing conditions, both
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
     "enters_or_attacks": "self_enters_or_attacks",
@@ -111,10 +124,15 @@ _EVENT = {
     #     library to hand with no trigger window, and there is no ev_draw relation for has_trigger to join.
     #     Mapping these would fire the wrong moment (or never), so the EVENT stays dropped (the card abstains).
     #   * 'becomes tapped' (City of Brass + ~51 others): the engine taps permanents (driver taps state['tapped'])
-    #     but opens NO tap window — there is no ev_tap relation. The 'deals 1 damage to you on tap' trigger has
-    #     no game moment to fire on, so it abstains rather than guess.
-    # Adding either would require a new engine event (ev_draw / ev_tap) the driver actually fires — out of
-    # scope for the bridge, which only maps to events the engine already supports.
+    #     but opens NO tap window — there is no ev_tap relation, and tapping happens MID-mana-payment (a
+    #     re-entrant spot to resolve a trigger). The 'deals 1 damage to you on tap' trigger has no safe game
+    #     moment to fire on, so it abstains rather than guess.
+    #   * delayed 'at the beginning of your NEXT upkeep' (Pact of Negation): a one-shot DELAYED trigger the
+    #     engine has no scheduling for (it would fire every upkeep, not just the next one).
+    #   * 'you win a coin flip' (Tavern Scoundrel): there is no flip_coin event/result the engine models.
+    # Adding any of these would require a new engine event (ev_draw / ev_tap / a delayed-trigger scheduler /
+    # a coin-flip result) the driver actually fires — out of scope for the bridge, which only maps to events
+    # the engine supports.
 }
 
 # ONE WORLD: these triggered player-scoped effects are now DERIVED IN DATALOG (translate.dl) from the card
@@ -948,8 +966,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # the operational relations itself (translate.dl). instance_of links the object to its card; the card_*
     # facts are card-level (shared across instances, set-deduped).
     add("instance_of", (tid, facts))
+    is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     for aid, ab in (f.get("abilities") or {}).items():
-        add("card_ability", (facts, aid, ab.get("kind", "spell")))
+        akind = ab.get("kind", "spell")
+        if akind == "static" and is_is_card:                 # §611.2 an instant/sorcery has no static abilities —
+            akind = "spell"                                  # a parser misclassification; the engine derives spell_*
+        add("card_ability", (facts, aid, akind))
         if ab.get("trigger"):
             add("ability_trigger", (facts, aid, ab["trigger"]))
         for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
@@ -981,10 +1003,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("mana_source", (tid,))                            # the loop taps it for 1 colorless mana/turn
 
     modes = set(f.get("modes", []))
+    is_instant_sorcery = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     for aid, ab in f.get("abilities", {}).items():
         if aid in modes:                                     # a modal mode's effects -> emitted by the modal block below
             continue
         kind = ab.get("kind")
+        if kind == "static" and is_instant_sorcery:
+            # §611.2 an INSTANT/SORCERY has no static abilities — a 'static'-tagged ability here is a parser
+            # misclassification of a one-shot effect ('target creature gets +1/+1 until end of turn' split off
+            # from its 'and gains hexproof' clause). Resolve it on the SPELL path (spell_target/spell_effect).
+            kind = "spell"
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
             trig = str(ab.get("trigger"))
             if trig.startswith("becomes_level_") and trig.rsplit("_", 1)[1].isdigit():
@@ -1155,6 +1183,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "becomes" and str(extra) in _COLOR_NAME.values() and _target_class(tgt) is not None:
+                    # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps)
+                    # -> a becomes_color spell_effect the driver resolves (pick a creature, set eff_set_color).
+                    add("spell_effect", (tid, "becomes_color", 0, f"{extra}|{_target_class(tgt)}")); continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
                     # emit a bare search_select that would pull a card out of the library with nowhere to put

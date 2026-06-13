@@ -144,9 +144,46 @@ def _room_dyn_damage_checks() -> None:
     check("an empty hand deals 0 damage (the 2/2 survives)", ("enemy",) not in st["graveyard"])
 
 
+def _new_window_checks() -> None:
+    # §504 draw-step phase event (Mana Vault): a draw_step trigger fires on the controller's draw step only.
+    def draw_state(step, ap):
+        return {"is_player": {("me",), ("op",)}, "active_player": {(ap,)}, "current_step": {(step,)},
+                "on_battlefield": {("mv",)}, "printed_control": {("me", "mv")},
+                "has_trigger": {("d", "mv", "draw_step")}, "trigger_effect": {("d", "draw", 1, "controller")}}
+    fired = lambda st: ("d", "mv") in driver.run(st, ["fires"])["fires"]
+    check("draw_step fires on the controller's draw step", fired(draw_state("draw", "me")))
+    check("draw_step does NOT fire on the upkeep step", not fired(draw_state("upkeep", "me")))
+    check("draw_step does NOT fire on an opponent's draw step", not fired(draw_state("draw", "op")))
+
+    # §601 'cast an instant or sorcery DURING YOUR TURN' (Ral) — fires only when the caster is active.
+    def cast_turn_state(ap):
+        return {"is_player": {("me",), ("op",)}, "active_player": {(ap,)}, "on_battlefield": {("ral",)},
+                "printed_control": {("me", "ral")}, "spell_type": {("s", "instant")}, "cast_spell": {("me", "s")},
+                "has_trigger": {("r", "ral", "you_cast_is_your_turn")}, "trigger_effect": {("r", "draw", 1, "controller")}}
+    rfired = lambda st: ("r", "ral") in driver.run(st, ["fires"])["fires"]
+    check("cast-during-your-turn fires when you cast on your turn", rfired(cast_turn_state("me")))
+    check("cast-during-your-turn does NOT fire on an opponent's turn", not rfired(cast_turn_state("op")))
+
+    # §601 'cast a <color> spell' (Runaway Steam-Kin) — gated on the cast spell's color.
+    def color_state(col):
+        return {"is_player": {("me",)}, "active_player": {("me",)}, "on_battlefield": {("sk",)},
+                "printed_control": {("me", "sk")}, "spell_color": {("s", col)}, "cast_spell": {("me", "s")},
+                "has_trigger": {("k", "sk", "you_cast_red")}, "trigger_effect": {("k", "draw", 1, "controller")}}
+    cfired = lambda st: ("k", "sk") in driver.run(st, ["fires"])["fires"]
+    check("you_cast_red fires on a red spell", cfired(color_state("red")))
+    check("you_cast_red does NOT fire on a blue spell", not cfired(color_state("blue")))
+
+    # the bridge maps the new oracle phrases to these event tokens.
+    check("bridge maps 'beginning of your draw step'", bridge._EVENT.get("the_beginning_of_your_draw_step") == "draw_step")
+    check("bridge maps 'cast … during your turn'", bridge._EVENT.get("you_cast_an_instant_or_sorcery_spell_during_your_turn") == "you_cast_is_your_turn")
+    check("bridge maps 'cast a red spell'", bridge._EVENT.get("you_cast_a_red_spell") == "you_cast_red")
+    check("bridge maps 'play another land' to the landfall window", bridge._EVENT.get("you_play_another_land") == "your_land_etb")
+
+
 def run() -> None:
     _engine_checks()
     _bridge_checks()
+    _new_window_checks()
     _room_dyn_damage_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

@@ -64,6 +64,15 @@ def encode_checks() -> None:
           _enc("sacrifice", "-", "each_player", "x_creatures_of_their_choice") is None)
     check("encode sacrifice named permanent ('kuro') ABSTAINS",
           _enc("sacrifice", "-", "kuro") is None)
+    # §701.16 'Sacrifice this permanent' (the source) -> sacrifice_self
+    check("encode sacrifice self -> sacrifice_self", _enc("sacrifice", "-", "self") == ("sacrifice_self", 0, "-"))
+    check("encode sacrifice it -> sacrifice_self", _enc("sacrifice", "-", "it") == ("sacrifice_self", 0, "-"))
+    # apply: the SOURCE moves to its owner's graveyard, off the battlefield (City of Traitors on a land drop).
+    st = {"is_player": {("alice",)}, "on_battlefield": {("city",)}, "printed_control": {("alice", "city")},
+          "printed_type": {("city", "land")}, "graveyard": set(), "tapped": set()}
+    _fire(st, "sacrifice_self", 0, "-", "alice", src="city")
+    check("sacrifice_self moves the source off the battlefield", ("city",) not in st["on_battlefield"])
+    check("sacrifice_self puts the source in the graveyard", ("city",) in st["graveyard"])
 
     # get_energy — plain int resolves; variable abstains.
     check("encode get_energy 2 -> (get_energy,2,controller)",

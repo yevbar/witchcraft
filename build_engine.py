@@ -858,6 +858,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_beginning_of_combat(P)", ['current_step("beginning_of_combat")', "active_player(P)"])
     p.decl("ev_first_main", [("p", "symbol")])               # §505/§603 'at the beginning of your first/precombat main phase'
     p.rule("ev_first_main(P)", ['current_step("precombat_main")', "active_player(P)"])
+    p.decl("ev_draw_step", [("p", "symbol")])                # §504/§603 'at the beginning of your draw step'
+    p.rule("ev_draw_step(P)", ['current_step("draw")', "active_player(P)"])
     p.comment("§603.10 look-back events (sacrifice / phase out / counter / a player losing).")
     p.decl("ev_sacrifice", [("o", "symbol")])
     p.rule("ev_sacrifice(O)", ["sacrificed(O)"])
@@ -887,6 +889,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_attack")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)"])
     # §505/§603 'at the beginning of your first (precombat) main phase'.
     p.rule("fires(A, S)", ['has_trigger(A, S, "first_main_phase")', "ev_first_main(P)", "controls(P, S)"])
+    # §504/§603 'at the beginning of your draw step' (Mana Vault, Howling Mine-likes).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "draw_step")', "ev_draw_step(P)", "controls(P, S)"])
     # §603 composite self-triggers — the union of two self-scoped firing conditions under one event key.
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_etb(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "self_enters_or_attacks")', "ev_attacks(S)"])
@@ -900,6 +904,14 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    # §601 'whenever you cast an instant or sorcery spell DURING YOUR TURN' (Ral, Monsoon Mage) — the same as
+    # above but gated to the caster's own turn (active_player == the caster).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_is_your_turn")', "cast_spell(P, Sp)", "controls(P, S)", "active_player(P)", 'spell_type(Sp, "instant")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_is_your_turn")', "cast_spell(P, Sp)", "controls(P, S)", "active_player(P)", 'spell_type(Sp, "sorcery")'])
+    # §601 'whenever you cast a <color> spell' (Runaway Steam-Kin, the chromatic cast payoffs) — gated on the
+    # cast spell's §105 color. spell_color is fed for the spell on the stack during the cast window.
+    for _col in ("white", "blue", "black", "red", "green"):
+        p.rule("fires(A, S)", [f'has_trigger(A, S, "you_cast_{_col}")', "cast_spell(P, Sp)", "controls(P, S)", f'spell_color(Sp, "{_col}")'])
     # §601 OPPONENT-cast triggers (Rhystic Study, Smothering Tithe): a player OTHER than the source's
     # controller casts a spell; the noncreature variant guards on the spell's type.
     p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_cast")', "cast_spell(P, _)", "controls(Q, S)", "P != Q"])
