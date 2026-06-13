@@ -280,6 +280,8 @@ def _advance_one(state: dict) -> None:
         state["attacks"], state["blocks"] = set(), set()
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                # §608/§702.40 storm count resets each turn
+        state["_is_cast_count"] = 0                             # §712 instant/sorcery-cast tally is per-turn (Ral)
+        state["_loyalty_used"] = set()                         # §606.3 loyalty ability once-per-turn per planeswalker
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}       # §608 per-player nth-cast ordinals reset each turn
         state["may_play"] = set(); state["_flashback"] = set() # §608/§702.34 impulse + flashback permissions expire EOT
         ctrl = {c for (pp, c) in driver.run(state, ["controls"])["controls"] if pp == nxt}

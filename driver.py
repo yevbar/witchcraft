@@ -600,6 +600,22 @@ def _aura_sba(state: dict) -> None:
                 print(f"    {perm} falls off (host {host} gone) -> graveyard")
             else:                                            # §704.5q an Equipment just unattaches
                 print(f"    {perm} becomes unattached (host {host} gone)")
+    _loyalty_sba(state)                                       # §704.5i a planeswalker with 0 loyalty -> graveyard
+
+
+def _loyalty_sba(state: dict) -> None:
+    """§704.5i — a planeswalker with 0 (or less) loyalty is put into its owner's graveyard. Loyalty is a
+    `loyalty` counter (set when the planeswalker enters / activates a loyalty ability); a planeswalker with NO
+    loyalty counter row is left alone (defensive — it was never loyalty-tracked, so we don't fabricate a death)."""
+    bf = state.get("on_battlefield", set())
+    ptype = state.get("printed_type", set())
+    dead = [o for (o, k, c) in state.get("counter", set())
+            if k == "loyalty" and c <= 0 and (o,) in bf and (o, "planeswalker") in ptype]
+    for o in sorted(dead):
+        bf.discard((o,))
+        state.setdefault("graveyard", set()).add((o,))
+        state["counter"] = {r for r in state.get("counter", set()) if r[0] != o}
+        print(f"    {o} has 0 loyalty -> graveyard (§704.5i)")
 
 
 # Verbs that HURT the targeted creature -> aim at the opponent's board; the rest BENEFIT it -> aim own.
@@ -2151,6 +2167,11 @@ def _resolve_top(state: dict) -> None:
         else:
             _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
         return
+    if any(top == ia for (ia, _c, _a) in state.get("loy_cast", set())):   # §606 a resolving LOYALTY ability
+        print(f"    {top} resolves (loyalty ability)")
+        _run_spell_effects(state, top, ctrl)                 # same effect/target/scope/damage path as a spell
+        state["loy_cast"] = {r for r in state.get("loy_cast", set()) if r[0] != top}   # it ceases to exist (no zone)
+        return
     if (top,) in out["fizzles"]:
         if (top,) in state.get("_is_copy", set()):           # §707.10a a fizzled COPY just ceases to exist
             print(f"    {top} (copy) fizzles (no legal target) -> ceases to exist")
@@ -2171,6 +2192,10 @@ def _resolve_top(state: dict) -> None:
             state["_enters_with_haste"].discard((top,))
             print(f"      {top} enters with haste (cast with Arena of Glory's mana)")
         _attach_aura(state, top, ctrl)                        # §303.4 an Aura enters attached to a creature
+        if (top, "planeswalker") in state.get("printed_type", set()):   # §306.5b enters with its starting loyalty
+            base = next((n for (s, n) in state.get("card_loyalty", set())
+                         if s in {sl for (o, sl) in state.get("instance_of", set()) if o == top}), 0)
+            _bump_counter(state, top, "loyalty", base); print(f"      {top} enters with {base} loyalty")
         if (top,) in out["enters_tapped"]:
             state.setdefault("tapped", set()).add((top,)); print(f"      {top} enters tapped")
         for (c, k, n) in sorted(out["enters_with_counter"]):
@@ -2256,6 +2281,7 @@ def _cast_phase(state: dict, ap: str) -> None:
         _cast_spell(state, ap, castable[0], players)         # greedy: cast the first castable spell
     state["has_priority"] = set()
     _activate_phase(state, ap, players)                      # §602 — then use a non-mana activated ability if able
+    _activate_loyalty(state, ap, players)                    # §606.3 — a planeswalker loyalty ability (sorcery speed)
 
 
 def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
@@ -2444,6 +2470,59 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     _resolve_stack(state, ap, players)
 
 
+def _loyalty_activatable(state: dict, p: str) -> list:
+    """§606 — the loyalty abilities p can activate right now: a planeswalker p controls that hasn't yet
+    activated a loyalty ability this turn (§606.3), each ability whose cost is PAYABLE (a [−N] needs ≥N
+    loyalty) AND whose effects RESOLVE (probed via the loy_cast spell path, so we never offer a no-op that
+    would burn loyalty for nothing). Returns (planeswalker, card_slug, ability_id, delta) rows. Sorcery
+    speed / once-per-turn timing is enforced by the caller (only invoked in the main phase, empty stack)."""
+    bf = state.get("on_battlefield", set())
+    ctrl = state.get("printed_control", set())
+    ptype = state.get("printed_type", set())
+    used = state.get("_loyalty_used", set())
+    loy_ab = state.get("loyalty_ability", set())             # (card_slug, ability_id, delta) — driver-side
+    if not loy_ab:
+        return []
+    inst = {o: s for (o, s) in state.get("instance_of", set())}
+    cur_loy = {o: c for (o, k, c) in state.get("counter", set()) if k == "loyalty"}
+    cands = []
+    for o in sorted(c for (c,) in bf):
+        if (p, o) not in ctrl or (o, "planeswalker") not in ptype or (o,) in used or o not in inst:
+            continue
+        for (cs, aid, delta) in loy_ab:
+            if cs == inst[o] and not (int(delta) < 0 and cur_loy.get(o, 0) < -int(delta)):
+                cands.append((o, inst[o], aid, int(delta)))
+    if not cands:
+        return []
+    # batch-probe resolvability: one engine run, a distinct loy_cast probe per candidate.
+    probe = {**state, "loy_cast": {(f"__loyq_{i}", cs, aid) for i, (_o, cs, aid, _d) in enumerate(cands)}}
+    out = run(probe, ["spell_effect", "spell_target", "spell_scope", "spell_damage"])
+    resolves = {r[0] for rel in out.values() for r in rel if str(r[0]).startswith("__loyq_")}
+    return sorted(c for i, c in enumerate(cands) if f"__loyq_{i}" in resolves)
+
+
+def _activate_loyalty(state: dict, ap: str, players: list) -> None:
+    """§606.3 — the active player may activate ONE loyalty ability of a planeswalker it controls (sorcery
+    speed, once per turn per planeswalker). Pays the loyalty cost (adds/removes `delta` loyalty counters),
+    marks the planeswalker used this turn, and puts the ability on the stack to resolve through the spell
+    path (loy_cast -> spell_effect/target/scope/damage). Default greedy: DECLINE (None) — loyalty is a scarce
+    resource, so a policy/search opts in via the _choose seam."""
+    usable = _loyalty_activatable(state, ap)
+    if not usable:
+        return
+    chosen = _choose(state, "loyalty", usable + [None], None)   # §606.3 the activation choice (default: decline)
+    if chosen is None:
+        return
+    pw, card, aid, delta = chosen
+    _bump_counter(state, pw, "loyalty", delta)               # §606.3 pay: add/remove loyalty counters
+    state.setdefault("_loyalty_used", set()).add((pw,))      # §606.3 only once per turn per planeswalker
+    ia = f"{pw}__loy__{aid}"
+    state.setdefault("loy_cast", set()).add((ia, card, aid))
+    _stack_push(state, ia, ap)
+    print(f"    {ap} activates {pw}'s loyalty ability {aid} ({'+' if delta >= 0 else ''}{delta} loyalty)")
+    _resolve_stack(state, ap, players)
+
+
 def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
     """Pay an activated ability's GENERIC mana cost by tapping untapped sources for their real mana —
     each source contributes its full net output (§106.4), so a Sol Ring pays a {2} cost with one tap.
@@ -2523,6 +2602,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_is_cast_count"] = 0                              # §712 instant/sorcery-cast tally is per-turn (Ral)
+        state["_loyalty_used"] = set()                          # §606.3 loyalty ability is once-per-turn per planeswalker
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT

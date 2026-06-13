@@ -1279,6 +1279,16 @@ def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, eff
     return True
 
 
+def _loyalty_delta(cost) -> int | None:
+    """§606.3 the signed loyalty change of a planeswalker ability's activation cost ('+1'→1, '−2'/'-2'→−2,
+    '0'→0), or None if it isn't a plain ± integer (e.g. a '−X' variable cost, which abstains)."""
+    s = str(cost or "").strip().replace("−", "-")        # normalize the unicode MINUS SIGN to ASCII '-'
+    m = re.match(r"^([+-]?)(\d+)$", s)
+    if not m:
+        return None
+    return (-1 if m.group(1) == "-" else 1) * int(m.group(2))
+
+
 def _modal_count(f: dict, n_offered: int) -> tuple[int, int]:
     """§700.2 — (base, commander_more): how many modes a modal spell's controller chooses by DEFAULT, and the
     count if a Commander-precon 'you may choose both/another instead' rider applies. `base` from the modal slug
@@ -1321,6 +1331,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         if akind == "static" and is_is_card:                 # §611.2 an instant/sorcery has no static abilities —
             akind = "spell"                                  # a parser misclassification; the engine derives spell_*
         add("card_ability", (facts, aid, akind))
+        if akind == "loyalty":                               # §606 a planeswalker loyalty ability '[+N]/[−N]: …'
+            d = _loyalty_delta(ab.get("cost"))               # the signed loyalty cost (driver-side: offer + pay)
+            if d is not None:
+                add("loyalty_ability", (facts, aid, d))
         if ab.get("trigger"):
             add("ability_trigger", (facts, aid, ab["trigger"]))
         wheel = _wheel_of(ab.get("effects", []))                # §103.2 the wheel's DRAW is owned by the wheel
@@ -1344,6 +1358,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_power", (facts, int(p)))
     if str(t or "").lstrip("-").isdigit():
         add("card_toughness", (facts, int(t)))
+    if str(c.get("loyalty") or "").isdigit():                # §306.5b a planeswalker's printed starting loyalty
+        add("card_loyalty", (facts, int(c["loyalty"])))      # (driver-side: set as loyalty counters on enter)
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
         add("card_keyword", (facts, kw))
     if "flashback" in {str(k).lower() for k in f.get("keywords", set())}:
@@ -1385,6 +1401,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("card_loyalty", (back_slug, int(bc["loyalty"])))   # §306.5b starting loyalty (driver-side fact)
         for baid, bab in (bdb.get("abilities") or {}).items():
             add("card_ability", (back_slug, baid, bab.get("kind", "spell")))
+            if bab.get("kind") == "loyalty":                 # §606 the back-face planeswalker's loyalty abilities
+                d = _loyalty_delta(bab.get("cost"))
+                if d is not None:
+                    add("loyalty_ability", (back_slug, baid, d))
             if bab.get("trigger"):
                 add("ability_trigger", (back_slug, baid, bab["trigger"]))
             for (bseq, bverb, bamt, btgt, bextra, bcond) in bab.get("effects", []):

@@ -263,6 +263,11 @@ INPUTS = [
     ("spell_scope", [("spell", "symbol"), ("verb", "symbol"), ("payload", "symbol"), ("scope", "symbol")]),
     ("spell_damage", [("spell", "symbol"), ("n", "number"), ("kind", "symbol")]),
     ("spell_reanimate", [("spell", "symbol"), ("mode", "symbol")]),
+    # §606 LOYALTY ABILITY activation — the driver, when a planeswalker activates one of its loyalty abilities,
+    # feeds loy_cast(activation_id, card_slug, ability_id). The engine then derives the SAME spell_effect /
+    # spell_target / spell_scope / spell_damage for that activation object (via resolves_ability), so the
+    # loyalty ability resolves through the driver's _run_spell_* path with proper targeting (per-ability).
+    ("loy_cast", [("ia", "symbol"), ("card", "symbol"), ("ability", "symbol")]),
     # §611 duration: a continuous effect that lasts only until end of turn
     ("until_eot", [("e", "symbol")]),
     ("is_keyword", [("kw", "symbol")]),                            # §122.1b which counter kinds are keyword counters
@@ -1218,10 +1223,17 @@ def _emit_translate(p) -> None:
             "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
             'card_effect(C, A, _, "create", Amount, _, Spec, _)',
             'match("[0-9]+", Amount)', "N = to_number(Amount)", 'Spec != "-"', 'Spec != ""'])
+    p.comment("§606 resolves_ability — an object that resolves a card's ability A: an instant/sorcery SPELL")
+    p.comment("(instance_of + a 'spell' ability) OR a LOYALTY ability ACTIVATION (loy_cast, fed by the driver).")
+    p.comment("Every spell_effect / spell_target / spell_scope / spell_damage rule keys on THIS, so a loyalty")
+    p.comment("ability resolves through the very same effect/target/scope/damage path — keyed per-ability A.")
+    p.decl("resolves_ability", [("obj", "symbol"), ("card", "symbol"), ("ability", "symbol")])
+    p.rule("resolves_ability(S, Card, A)", ["instance_of(S, Card)", 'card_ability(Card, A, "spell")'])
+    p.rule("resolves_ability(IA, Card, A)", ["loy_cast(IA, Card, A)"])
     p.comment("DERIVE spell_effect for an instant/sorcery's player-scoped, numeric, unconditional effect. Keyed")
     p.comment("by the SPELL instance id (== the bridge's tid; the driver's _run_spell_effects runs it on resolve).")
     p.rule("spell_effect(Spell, Eff, N, Scope)",
-           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, Verb, Amount, Target, _, "-")',
             "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
             "player_scope(Target, Scope)"])
@@ -1231,21 +1243,21 @@ def _emit_translate(p) -> None:
     p.comment("match ANY cond — unlike the pscope rules above which require cond == '-'.")
     p.comment("§701.5 counter target spell -> spell_effect(counter, 0, target_spell). amount/cond unused.")
     p.rule('spell_effect(Spell, "counter", 0, "target_spell")',
-           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, "counter", _, _, _, _)'])
     p.comment("§615 Fog: 'prevent all combat damage this turn' -> spell_effect(fog, 0, -). amt=='all' AND")
     p.comment("'combat' in target OR extra (two rules for the OR). Targeted/partial prevention abstains.")
     p.rule('spell_effect(Spell, "fog", 0, "-")',
-           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, "prevent_damage", "all", Tgt, _, _)', 'contains("combat", Tgt)'])
     p.rule('spell_effect(Spell, "fog", 0, "-")',
-           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, "prevent_damage", "all", _, Extra, _)', 'contains("combat", Extra)'])
     p.comment("§111 create a token -> spell_effect(create_token, n, spec). n = int(amount) (all-digit, matching")
     p.comment("the bridge's _int), the token SPEC rides in the EXTRA column. Empty / '-' spec abstains. match()")
     p.comment("guards to_number (it aborts the binary on non-numeric input even behind a later filter).")
     p.rule('spell_effect(Spell, "create_token", N, Spec)',
-           ["instance_of(Spell, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, "create", Amount, _, Spec, _)',
             'match("[0-9]+", Amount)', "N = to_number(Amount)", 'Spec != "-"', 'Spec != ""'])
     p.blank()
@@ -1514,7 +1526,7 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("souffle's to_number errors on a non-numeric amount even when a match filter precedes it).")
     p.decl("spell_put_counter", [("spell", "symbol"), ("tgt", "symbol"), ("payload", "symbol")])
     p.rule("spell_put_counter(S, Target, cat(Kind, cat(\":\", Amount)))",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "put_counter", Amount, Target, Extra, "-")',
             "counter_kind(Extra, Kind)", 'match("[1-9][0-9]*", Amount)'])
 
@@ -1522,11 +1534,11 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("zone moves (destroy/exile/tap/untap/return_to_hand) -> payload '-'; grant_keyword -> ('grant', kw)")
     p.comment("with the keyword in the EXTRA column; put_counter -> ('counter', 'p1p1:N'/'m1m1:N').")
     p.rule("spell_target(S, Verb, \"-\", Cls)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, Verb, _, Target, _, "-")',
             "zone_move_verb(Verb)", "target_class(Target, Cls)"])
     p.rule("spell_target(S, \"grant\", Kw, Cls)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-")',
             "engine_keyword(Kw)", "target_class(Target, Cls)"])
     p.rule("spell_target(S, \"counter\", Payload, Cls)",
@@ -1534,13 +1546,13 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("modify_pt single-target P/T pump/shrink (Giant Growth): payload 'dp/dt' lexed via pt_value")
     p.comment("(REUSED foundation table — souffle can't parse '+1/+1'). Matches the bridge's f'{dp}/{dt}'.")
     p.rule("spell_target(S, \"modify_pt\", Payload, Cls)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "target_class(Target, Cls)",
             'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
     p.comment("switch_pt single-target §613 layer-7d P/T switch (no payload — the verb says it all).")
     p.rule("spell_target(S, \"switchpt\", \"-\", Cls)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "switch_pt", _, Target, _, "-")',
             "target_class(Target, Cls)"])
 
@@ -1548,11 +1560,11 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("Same verb/payload vocabulary as spell_target, but a board_scope target (creatures_you_control /")
     p.comment("all_creatures) instead of a single-target class.")
     p.rule("spell_scope(S, Verb, \"-\", Scope)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, Verb, _, Target, _, "-")',
             "zone_move_verb(Verb)", "board_scope(Target, Scope)"])
     p.rule("spell_scope(S, \"grant\", Kw, Scope)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-")',
             "engine_keyword(Kw)", "board_scope(Target, Scope)"])
     p.rule("spell_scope(S, \"counter\", Payload, Scope)",
@@ -1560,7 +1572,7 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("modify_pt board-scope P/T anthem-on-resolution (Overrun): payload 'dp/dt' via pt_value, same")
     p.comment("as the single-target modify_pt rule but a board_scope target instead of a target_class.")
     p.rule("spell_scope(S, \"modify_pt\", Payload, Scope)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "board_scope(Target, Scope)",
             'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
@@ -1568,14 +1580,14 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("DERIVE spell_damage — §120 direct damage from a burn instant/sorcery. n = the numeric amount,")
     p.comment("kind = damage_kind(target) (creature lethality / face life loss / sweeper). Variable/restricted abstain.")
     p.rule("spell_damage(S, N, Kind)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "deal_damage", Amount, Target, _, "-")',
             'match("[0-9]+", Amount)', "N = to_number(Amount)", "damage_kind(Target, Kind)"])
 
     p.comment("DERIVE spell_reanimate — §701 put a graveyard/hand creature card onto the battlefield. The")
     p.comment("reanimate_target gate + the source zone/tappedness mode (reanimate_mode over the EXTRA column).")
     p.rule("spell_reanimate(S, Mode)",
-           ["instance_of(S, Card)", 'card_ability(Card, A, "spell")',
+           ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "return_to_battlefield", _, Target, Extra, "-")',
             "reanimate_target(Target)", "reanimate_gate(Extra)", "reanimate_mode(Extra, Mode)"])
 
