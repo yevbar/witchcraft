@@ -456,6 +456,32 @@ def _depluralize(word: str, universe: frozenset) -> str | None:
     return next((c for c in cands if c in universe), None)
 
 
+_DYN_PT_TYPES = ("artifact", "creature", "land", "enchantment", "planeswalker")
+
+
+def _dyn_pt_spec(amt, tgt, cond) -> tuple | None:
+    """§613 a COUNT-SCALED SELF P/T 'gets +dp/+dt for each <type> you control' (Storm-Kiln Artist) -> (dp, dt,
+    type). The count rides either in the COND ('for_each_artifact_you_control', amt a plain '+1/+0') or folded
+    into the AMOUNT ('+1/+1_per_artifact_you_control'). Only a self-target + a single readable card-TYPE count
+    qualifies; a multi-clause count (Multani's 'land you control AND each land card in graveyard') abstains."""
+    if str(tgt) not in ("self", "it"):
+        return None
+    m = re.match(r"^([+-]\d+/[+-]\d+)_per_(.+)$", str(amt))
+    if m:
+        pt, cnt = _parse_pt(m.group(1)), m.group(2)
+    elif re.match(r"^[+-]\d+/[+-]\d+$", str(amt)):
+        cm = re.match(r"^for_each_(.+)$", str(cond))
+        pt, cnt = _parse_pt(str(amt)), (cm.group(1) if cm else None)
+    else:
+        return None
+    if pt is None or cnt is None:
+        return None
+    cm = re.match(r"^(\w+?)s?_you_control$", cnt)
+    if not cm or cm.group(1) not in _DYN_PT_TYPES:
+        return None
+    return (pt[0], pt[1], cm.group(1))
+
+
 def _anthem_target(tgt: str, corpus: dict):
     """Parse a static-anthem scope slug into (base_scope, fkind|None, fval|None), or None to abstain. Strips
     the you_control suffix and other/all prefix to find the core '<filter>_creatures'; the filter token is
@@ -1446,6 +1472,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         # §701.5 'exile any number of target spells' (Mindbreak Trap) — a MASS counter; the
                         # driver exiles every other spell on the stack.
                         add("spell_effect", (tid, "counter_mass", 0, "-")); continue
+                if verb == "change_targets" and str(tgt) in ("target_spell", "target_spell_with_a_single_target"):
+                    # §115 'change the target of target spell with a single target' (Misdirection): the driver
+                    # redirects the spell below it — its targets are then picked to serve the Misdirector.
+                    add("spell_effect", (tid, "change_targets", 0, "-")); continue
                 if verb == "untap" and _scope(tgt) is None and _target_class(tgt) is None:
                     # §701.20 'untap up to N lands' / 'untap target land' (Frantic Search, Snap) -> the own-untap
                     # encoder (untap_own / untap_own_n). 'untap' rides in _CREATURE_VERBS for the creature-target
@@ -1644,6 +1674,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if verb == "gain_control" and str(tgt) in ("enchanted_creature", "enchanted_permanent"):
                     add("aura_control", (tid,))
                     continue
+                if verb == "add_mana" and "sticker" in str(amt):
+                    # the un-set STICKER mechanic ('Add R for each unique vowel on that sticker' — the ___ Goblin):
+                    # stickers aren't modeled, and with NO sticker applied the count is 0, so this adds 0 mana —
+                    # a faithful no-op (not a dropped clause).
+                    continue
+                # §613 a COUNT-SCALED self P/T ('gets +1/+0 for each artifact you control' — Storm-Kiln) ->
+                # dyn_pt; the engine recomputes the live count. Handled BEFORE the conditional drop below
+                # (the 'for each …' count rides in the cond / amount, which that guard would otherwise drop).
+                if verb == "modify_pt":
+                    dp = _dyn_pt_spec(amt, tgt, cond)
+                    if dp is not None:
+                        add("dyn_pt", (tid, dp[0], dp[1], dp[2])); continue
                 # only the unconditional board anthems map (a condition the engine can't evaluate, or a
                 # subtype/attachment-restricted scope, abstains). modify_pt -> static_pt, grant -> static_grant.
                 if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):

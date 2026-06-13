@@ -201,9 +201,27 @@ def _driver_checks() -> None:
           ("kamikaze",) not in state["on_battlefield"] and ("kamikaze",) in state.get("graveyard", set()))
 
 
+def _dyn_pt_checks() -> None:
+    # §613 count-scaled self P/T: Storm-Kiln Artist (base 2/2) 'gets +1/+0 for each artifact you control'.
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    f, dropped = bridge.card_facts("Storm-Kiln Artist", "me", "sk", db, corpus)
+    check("Storm-Kiln Artist is CLEAN (count-scaled P/T)", dropped == [])
+    check("Storm-Kiln emits a dyn_pt(+1/+0 per artifact)", ("sk", 1, 0, "artifact") in f.get("dyn_pt", set()))
+    st = {k: set(v) for k, v in f.items()}
+    st.update({"is_player": {("me",)}, "on_battlefield": {("sk",), ("a1",), ("a2",), ("a3",)},
+               "printed_control": {("me", "sk"), ("me", "a1"), ("me", "a2"), ("me", "a3")},
+               "printed_type": {("sk", "creature"), ("a1", "artifact"), ("a2", "artifact"), ("a3", "artifact")}})
+    pw = lambda s: next((int(n) for (c, n) in driver.run(s, ["power"])["power"] if c == "sk"), None)
+    check("Storm-Kiln power = base 2 + 3 artifacts = 5", pw(st) == 5)
+    st["on_battlefield"].discard(("a3",)); st["printed_control"].discard(("me", "a3"))
+    check("Storm-Kiln power recomputes live as artifacts leave (2 + 2 = 4)", pw(st) == 4)
+
+
 def run() -> None:
     _bridge_checks()
     _driver_checks()
+    _dyn_pt_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

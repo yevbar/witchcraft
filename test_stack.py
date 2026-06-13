@@ -136,14 +136,23 @@ def test_counter_magic_frontier() -> None:
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
-    # the Force cycle (pitch alt-cost) + the mass/exile counters are CLEAN.
-    for nm in ("Force of Negation", "Force of Will", "Commandeer", "Mindbreak Trap"):
+    # the Force cycle (pitch alt-cost) + the mass/exile counters + Misdirection's redirect are CLEAN.
+    for nm in ("Force of Negation", "Force of Will", "Commandeer", "Mindbreak Trap", "Misdirection"):
         _f, dropped = B.card_facts(nm, "me", "x", db, corpus)
         check(f"{nm} is CLEAN", dropped == [])
-    # Misdirection's change_targets ABSTAINS (targets are chosen at resolution, not on the stack — faithful).
-    _f, dropped = B.card_facts("Misdirection", "me", "x", db, corpus)
-    check("Misdirection abstains on change_targets (resolution-time targeting)",
-          ("effect", "change_targets") in dropped)
+
+    # §115 Misdirection redirect: a harmful spell's target is repicked from the REDIRECTOR's perspective.
+    rst = {"is_player": {("me",), ("op",)}, "active_player": {("op",)},
+           "on_stack": {("mis", 2), ("bolt", 1)}, "_stack_info": {"mis": "me", "bolt": "op"},
+           "spell_effect": {("mis", "change_targets", 0, "-")}, "spell_damage": {("bolt", 3, "any_target")},
+           "spell_mode": set(), "spell_effect_mode": set(), "spell_type": {("bolt", "instant"), ("mis", "instant")},
+           "on_battlefield": set(), "printed_control": set(), "printed_type": set(), "graveyard": set(),
+           "exile": set(), "life": {("me", 40), ("op", 40)}, "_redirect": {}}
+    with redirect_stdout(io.StringIO()):
+        D._run_spell_effects(rst, "mis", "me")
+        D._run_spell_effects(rst, "bolt", "op", rst["_redirect"].pop("bolt", "op"))
+    check("Misdirection redirects a burn spell to hit the redirector's enemy", _life(rst, "op") == 37)
+    check("Misdirection spares the redirector from the spell", _life(rst, "me") == 40)
 
     # §614 mass-counter (Mindbreak Trap): exile every OTHER spell on the stack.
     st = {"is_player": {("me",), ("op",)}, "on_stack": {("mbt", 3), ("sa", 2), ("sb", 1)}, "_stack_info": {},

@@ -16,6 +16,7 @@
 .decl printed_power(c: symbol, n: number)
 .decl printed_toughness(c: symbol, n: number)
 .decl counter(c: symbol, kind: symbol, n: number)
+.decl dyn_pt(s: symbol, dp: number, dt: number, type: symbol)
 .decl mod_power(c: symbol, dp: number)
 .decl mod_toughness(c: symbol, dt: number)
 .decl printed_keyword(c: symbol, kw: symbol)
@@ -229,6 +230,10 @@ anthem_creature(S, C) :- static_src(S, "attached"), on_battlefield(S), attached_
 // buffing one creature stay distinct tuples and both sum / both grant).
 .decl static_mod_power(source: symbol, c: symbol, dp: number)
 static_mod_power(S, C, DP) :- static_pt(S, DP, _, _), anthem_creature(S, C).
+.decl dyn_mod_power(c: symbol, dp: number)
+dyn_mod_power(C, N) :- dyn_pt(C, Dp, _, Ty), Dp != 0, controls(P, C), Cnt = count : { controls(P, A), has_type(A, Ty) }, N = Dp * Cnt.
+.decl dyn_mod_toughness(c: symbol, dt: number)
+dyn_mod_toughness(C, N) :- dyn_pt(C, _, Dt, Ty), Dt != 0, controls(P, C), Cnt = count : { controls(P, A), has_type(A, Ty) }, N = Dt * Cnt.
 .decl static_mod_toughness(source: symbol, c: symbol, dt: number)
 static_mod_toughness(S, C, DT) :- static_pt(S, _, DT, _), anthem_creature(S, C).
 .decl static_grant_kw(source: symbol, c: symbol, kw: symbol)
@@ -238,9 +243,9 @@ static_grant_kw(S, C, K) :- static_grant(S, K, _), anthem_creature(S, C).
 // triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord
 // continuous effects — all feed the same layer sum.
 .decl pt7c_power(c: symbol, n: number)
-pt7c_power(C, N) :- base_power(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_power(C, X) }, G = sum X : { eff_mod_power(_, C, X) }, S2 = sum X : { static_mod_power(_, C, X) }, N = B + P - M + E + G + S2.
+pt7c_power(C, N) :- base_power(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_power(C, X) }, G = sum X : { eff_mod_power(_, C, X) }, S2 = sum X : { static_mod_power(_, C, X) }, D = sum X : { dyn_mod_power(C, X) }, N = B + P - M + E + G + S2 + D.
 .decl pt7c_toughness(c: symbol, n: number)
-pt7c_toughness(C, N) :- base_toughness(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_toughness(C, X) }, G = sum X : { eff_mod_toughness(_, C, X) }, S2 = sum X : { static_mod_toughness(_, C, X) }, N = B + P - M + E + G + S2.
+pt7c_toughness(C, N) :- base_toughness(C, B), P = sum X : { counter(C, "p1p1", X) }, M = sum X : { counter(C, "m1m1", X) }, E = sum X : { mod_toughness(C, X) }, G = sum X : { eff_mod_toughness(_, C, X) }, S2 = sum X : { static_mod_toughness(_, C, X) }, D = sum X : { dyn_mod_toughness(C, X) }, N = B + P - M + E + G + S2 + D.
 // §613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.
 .decl switched(c: symbol)
 switched(C) :- eff_switch_pt(_, C), N = count : { eff_switch_pt(_, C) }, N % 2 = 1.
@@ -1031,7 +1036,7 @@ spell_reanimate(S, Mode) :- instance_of(S, Card), card_ability(Card, A, "spell")
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)

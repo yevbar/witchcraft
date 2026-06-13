@@ -1666,10 +1666,13 @@ def _storm(state: dict, spell: str, controller: str, prior: int) -> None:
     print(f"      storm: {spell} is copied {prior} time(s) (spells cast before it this turn: {prior})")
 
 
-def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
+def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = None) -> None:
     """§608.2c — a resolving instant/sorcery runs its effects, then goes to the graveyard. `counter`
     removes its target from the stack (the engine's `countered` event then lets any 'when countered'
-    trigger fire); the rest are applied via _apply_effects (the shared effect resolver)."""
+    trigger fire); the rest are applied via _apply_effects (the shared effect resolver). `tctrl` is the
+    TARGETING perspective — usually the spell's controller, but a player who MISDIRECTED this spell instead
+    (its targets are then picked to serve them); the spell's own effects still belong to `ctrl`."""
+    tctrl = tctrl or ctrl
     if any(s == spell for (s, _m) in state.get("spell_mode", set())):   # §700.2 modal: only the CHOSEN mode resolves
         active = {m for (s, m) in run(state, ["active_mode"])["active_mode"] if s == spell}
         effs = sorted((spell, eff, amt, tgt) for (s, m, eff, amt, tgt) in state.get("spell_effect_mode", set())
@@ -1703,16 +1706,23 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str) -> None:
                 _stack_remove(state, v)
                 state.setdefault("_flashback", set()).add((v,))   # Mindbreak Trap EXILES them
                 _to_graveyard(state, v)
+        elif eff == "change_targets":                        # §115 Misdirection — redirect the spell below it
+            victim = _counter_target(state, spell)
+            if victim is not None:
+                state.setdefault("_redirect", {})[victim] = ctrl   # its targets now serve the Misdirector
+                print(f"      {spell} changes the target of {victim} (it now serves {ctrl})")
+            else:
+                print(f"      {spell} has no spell to redirect")
         elif eff == "ctarget":                               # §601.2c a CHOSEN mode's single-target zone move
             verb, payload, cls = str(tgt).split("|")          # (Prismari Charm bounce, Get Out self-bounce)
-            _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
+            _resolve_one_target(state, spell, "spell", tctrl, verb, payload, cls)
         elif eff == "cdamage":                               # §120 a chosen mode's direct damage to a target
-            _apply_damage(state, spell, int(amt), str(tgt), ctrl)
+            _apply_damage(state, spell, int(amt), str(tgt), tctrl)
         else:                                                # shared effect resolver (§603 -> §608 vocabulary)
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
-    _run_spell_targets(state, spell, ctrl)                    # §115 single-target creature effects (Murder, ...)
+    _run_spell_targets(state, spell, tctrl)                   # §115 single-target creature effects (Murder, ...)
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
-    _run_spell_damage(state, spell, ctrl)                     # §120 direct damage (Lightning Bolt, Shock, ...)
+    _run_spell_damage(state, spell, tctrl)                    # §120 direct damage (Lightning Bolt, Shock, ...)
     _run_spell_reanimate(state, spell, ctrl)                  # §701 reanimation (Resurrection, Zombify, ...)
 
 
@@ -2072,7 +2082,10 @@ def _resolve_top(state: dict) -> None:
         _stack_remove(state, top)
         return
     print(f"    {top} resolves")                             # an instant/sorcery: run effects, then graveyard
-    _run_spell_effects(state, top, ctrl)
+    # §115 MISDIRECTION redirect: if this spell's target was changed, pick its target from the perspective of
+    # the player who redirected it (a harmful spell now hits THEIR enemy), not the spell's own controller.
+    tctrl = state.setdefault("_redirect", {}).pop(top, ctrl)
+    _run_spell_effects(state, top, ctrl, tctrl)
     if (top,) in state.get("_is_copy", set()):               # §707.10a a resolved COPY ceases to exist (no graveyard)
         _discard_copy(state, top)
     else:

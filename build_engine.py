@@ -115,6 +115,7 @@ INPUTS = [
     ("printed_power", [("c", "symbol"), ("n", "number")]),
     ("printed_toughness", [("c", "symbol"), ("n", "number")]),
     ("counter", [("c", "symbol"), ("kind", "symbol"), ("n", "number")]),
+    ("dyn_pt", [("s", "symbol"), ("dp", "number"), ("dt", "number"), ("type", "symbol")]),   # §613 +dp/dt per <type> you control
     ("mod_power", [("c", "symbol"), ("dp", "number")]),         # §613.4 layer 7c P/T modifier
     ("mod_toughness", [("c", "symbol"), ("dt", "number")]),
     ("printed_keyword", [("c", "symbol"), ("kw", "symbol")]),   # §613 layer-system BASE characteristics
@@ -566,6 +567,14 @@ def _rules(p: Program) -> None:
     p.comment("buffing one creature stay distinct tuples and both sum / both grant).")
     p.decl("static_mod_power", [("source", "symbol"), ("c", "symbol"), ("dp", "number")])
     p.rule("static_mod_power(S, C, DP)", ["static_pt(S, DP, _, _)", "anthem_creature(S, C)"])
+    # §613 a COUNT-SCALED self P/T ('gets +1/+0 for each artifact you control' — Storm-Kiln Artist): the
+    # source's own P/T grows by dp/dt per permanent of `type` its controller controls (counted live).
+    p.decl("dyn_mod_power", [("c", "symbol"), ("dp", "number")])
+    p.rule("dyn_mod_power(C, N)", ["dyn_pt(C, Dp, _, Ty)", "Dp != 0", "controls(P, C)",
+                                   "Cnt = count : { controls(P, A), has_type(A, Ty) }", "N = Dp * Cnt"])
+    p.decl("dyn_mod_toughness", [("c", "symbol"), ("dt", "number")])
+    p.rule("dyn_mod_toughness(C, N)", ["dyn_pt(C, _, Dt, Ty)", "Dt != 0", "controls(P, C)",
+                                       "Cnt = count : { controls(P, A), has_type(A, Ty) }", "N = Dt * Cnt"])
     p.decl("static_mod_toughness", [("source", "symbol"), ("c", "symbol"), ("dt", "number")])
     p.rule("static_mod_toughness(S, C, DT)", ["static_pt(S, _, DT, _)", "anthem_creature(S, C)"])
     p.decl("static_grant_kw", [("source", "symbol"), ("c", "symbol"), ("kw", "symbol")])
@@ -575,9 +584,9 @@ def _rules(p: Program) -> None:
     p.comment("triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord")
     p.comment("continuous effects — all feed the same layer sum.")
     p.decl("pt7c_power", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "S2 = sum X : { static_mod_power(_, C, X) }", "N = B + P - M + E + G + S2"])
+    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "S2 = sum X : { static_mod_power(_, C, X) }", "D = sum X : { dyn_mod_power(C, X) }", "N = B + P - M + E + G + S2 + D"])
     p.decl("pt7c_toughness", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "S2 = sum X : { static_mod_toughness(_, C, X) }", "N = B + P - M + E + G + S2"])
+    p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "S2 = sum X : { static_mod_toughness(_, C, X) }", "D = sum X : { dyn_mod_toughness(C, X) }", "N = B + P - M + E + G + S2 + D"])
     p.comment("§613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.")
     p.decl("switched", [("c", "symbol")])
     p.rule("switched(C)", ["eff_switch_pt(_, C)", "N = count : { eff_switch_pt(_, C) }", "N % 2 = 1"])
