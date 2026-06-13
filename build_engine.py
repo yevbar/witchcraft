@@ -230,6 +230,7 @@ INPUTS = [
     # commander' (Fierce Guardianship, Deflecting Swat). The bridge flags the spell; the engine derives
     # free_cast when the controller actually controls a commander, making it affordable for 0.
     ("free_if_commander", [("s", "symbol")]),
+    ("free_grant", [("p", "symbol"), ("s", "symbol")]),          # §118.9 driver-granted free cast of a specific card
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
@@ -740,6 +741,9 @@ def _rules(p: Program) -> None:
     # Deflecting Swat — free while you control a commander. Trivially affordable; the driver pays no mana.
     p.decl("free_cast", [("p", "symbol"), ("s", "symbol")])
     p.rule("free_cast(P, S)", ["free_if_commander(S)", "playable_source(P, S)", "controls(P, C)", "is_commander(C)"])
+    # §118.9 a one-shot 'cast <a card> without paying its mana cost' the driver grants on resolution (Kari
+    # Zev's Expertise from hand, Storm of Memories from the graveyard) — free_grant flags the specific card.
+    p.rule("free_cast(P, S)", ["free_grant(P, S)", "playable_source(P, S)"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
     p.rule("can_afford(P, S)", ["free_cast(P, S)"], note="§118.9 an alternative free cost is always affordable")
     p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],

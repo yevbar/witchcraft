@@ -54,6 +54,42 @@ def _fold_checks():
     check("a triggered impulse flags it may_play", ("me", "z1") in st["may_play"])
 
 
+def _theft_and_freecast_checks():
+    import bridge_to_engine as B
+    import card_corpus
+    import ground
+    import sim
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    # §608 THEFT IMPULSE (Ragavan): exile the top of an OPPONENT's library, the caster may cast it.
+    st = {"is_player": {("me",), ("op",)}, "in_library": {("op", "o1"), ("op", "o2")},
+          "_lib_order": {"op": ["o1", "o2"]}, "exile": set(), "may_play": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        effect_handlers.APPLY["impulse_opp"](driver, st, "rag", 1, "-", "rag", "me")
+    check("theft impulse exiles the opponent's top card", ("o1",) in st["exile"])
+    check("theft impulse flags it may_play for the CASTER (not the owner)",
+          ("me", "o1") in st["may_play"] and ("op", "o1") not in st["may_play"])
+
+    # the corpus cards that motivated these resolve CLEAN.
+    for nm in ("Ragavan, Nimble Pilferer", "Kari Zev's Expertise", "Storm of Memories",
+               "Rite of Flame", "Jeska's Will"):
+        f, dropped = B.card_facts(nm, "me", "x", db, corpus)
+        check(f"{nm} is CLEAN", dropped == [])
+
+    # §118.9 cast_free (Kari Zev): free-cast a MV-2 spell from hand through the real cast path.
+    full = B.make_deck_state({"me": ["Shock", "Mountain", "Mountain", "Mountain"], "op": ["Island"] * 4}, seed=1, hand=0, life=40)
+    shock = next(t for (t, n) in sorted(full["instance_of"]) if n == ground.slug("Shock") and ("me", t) in full["in_library"])
+    full["in_library"].discard(("me", shock)); full["in_hand"].add(("me", shock))
+    if shock in full["_lib_order"]["me"]:
+        full["_lib_order"]["me"].remove(shock)
+    full["active_player"] = {("me",)}; full["has_priority"] = {("me",)}; full["current_step"] = {("precombat_main",)}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(full, {("kz", "cast_free", 0, "hand|any|2", "kz", "me")})
+    check("cast_free casts the spell from hand (it leaves the hand)", ("me", shock) not in full["in_hand"])
+    check("cast_free resolved the spell (Shock -> graveyard after dealing damage)", (shock,) in full.get("graveyard", set()))
+
+
 def run():
     # engine: may_play makes an EXILED card a castable source (playable_source = in_hand ∪ may_play)
     base = {"is_player": {("me",)}, "has_priority": {("me",)}, "active_player": {("me",)},
@@ -83,6 +119,7 @@ def run():
     check("casting an impulse card clears its may_play flag", ("me", "bolt") not in cs.get("may_play", set()))
 
     _fold_checks()
+    _theft_and_freecast_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

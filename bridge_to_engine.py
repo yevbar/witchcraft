@@ -352,6 +352,7 @@ def _damage_qty(amt) -> str | None:
 _MANA_PER = {
     "card_in_your_hand": "hand:you",
     "card_in_target_opponent_s_hand": "hand:opp",
+    "card_named_in_each_graveyard": "gy:named_self",         # Rite of Flame ('for each card named ~ in each gy')
 }
 _MANA_TYPE_NOUNS = {"creature", "artifact", "enchantment", "land", "planeswalker"}
 _MANA_SCOPES = (("_you_control", "own"), ("_on_the_battlefield", "all"))
@@ -752,6 +753,53 @@ def _fold_optional_pay(effs: list, emit) -> set:
     return skip
 
 
+# §118.9 'cast a <filter> spell with mana value N or less from your <zone> without paying its mana cost'
+# (Kari Zev's Expertise from hand, Storm of Memories from the graveyard). Parse the zone / type filter / MV
+# cap from the target slug into a cast_free payload the driver resolves (pick a matching card, cast it free).
+def _cast_free_spec(tgt, extra) -> str | None:
+    s = str(tgt)
+    if "without_paying" not in str(extra) and "without_paying" not in s:
+        return None
+    if "from_your_hand" in s:
+        zone = "hand"
+    elif "from_your_graveyard" in s:
+        zone = "gy"
+    else:
+        return None
+    m = re.search(r"mana_value_(\d+)_or_less", s)
+    mv = m.group(1) if m else "99"
+    filt = "is" if "instant_or_sorcery" in s else "any"
+    return f"{zone}|{filt}|{mv}"
+
+
+def _fold_gy_recast(effs: list, emit) -> set:
+    """§118.9 GRAVEYARD FREE-RECAST (Storm of Memories): '[exile a <filter> card with MV ≤ N from your
+    graveyard (at random)] + [cast it (without paying)] (+ [exile it if it would be put into a graveyard])'.
+    Fold into one cast_free effect (zone gy) — the driver picks a matching graveyard spell, casts it free, and
+    (the exile-after clause) exiles it on resolution instead of returning it to the graveyard."""
+    ex_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                 if v == "exile" and "from_your_graveyard" in str(t)), None)
+    if ex_i is None:
+        return set()
+    tslug = str(effs[ex_i][3])
+    cast_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                   if v == "cast" and str(t) in ("it", "that_card")), None)
+    if cast_i is None:
+        return set()                                            # an exile-from-GY with no 'cast it' isn't this
+    m = re.search(r"mana_value_(\d+)_or_less", tslug)
+    mv = m.group(1) if m else "99"
+    filt = "is" if "instant_or_sorcery" in tslug else "any"
+    skip = {ex_i, cast_i}
+    exile_after = False
+    for i, (_s, v, _a, t, _x, c) in enumerate(effs):           # the trailing 'exile it if it would hit the GY'
+        if i in skip:
+            continue
+        if v == "exile" and str(t) in ("it", "that_card") and "graveyard" in str(c):
+            exile_after = True; skip.add(i)
+    emit("cast_free", 0, f"gy|{filt}|{mv}" + ("|exile_after" if exile_after else ""))
+    return skip
+
+
 def _fold_coinflip(effs: list, emit) -> set:
     """§705 COIN FLIP — 'flip a coin. If you lose the flip, ~ deals N damage to you' (Mana Crypt; Ral's
     downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
@@ -795,6 +843,32 @@ def _fold_impulse(effs: list, emit) -> set:
     if play_i is None:
         return set()                                            # an exile with no 'play them' clause isn't impulse
     emit("impulse_play", n, "-")
+    return {ex_i, play_i}
+
+
+# §608 'exile the top card of THAT/AN OPPONENT's library' — the library the impulse exiles from is not the
+# caster's own (Ragavan: the damaged player's; theft-impulse). The caster still gets the may_play permission.
+_OPP_LIB = {"top_of_that_player_s_library", "top_of_target_player_s_library",
+            "top_of_target_opponent_s_library", "top_of_an_opponent_s_library"}
+
+
+def _fold_impulse_opp(effs: list, emit) -> set:
+    """§608 THEFT IMPULSE — 'exile the top card of that player's library. Until end of turn, you may cast it'
+    (Ragavan). Same shape as _fold_impulse but the exiled-from library is an OPPONENT's; fold into one
+    impulse_opp effect (the applier exiles the top N of an opponent's library and flags them may_play for the
+    CASTER, who casts them for their normal cost from exile)."""
+    ex_i = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+                 if v == "exile" and str(t) in _OPP_LIB and _int(a) is not None), None)
+    if ex_i is None:
+        return set()
+    n = _int(effs[ex_i][2])
+    if n is None or n <= 0:
+        return set()
+    play_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs)
+                   if v in ("play", "cast") and _is_impulse_card_obj(_t)), None)
+    if play_i is None:
+        return set()
+    emit("impulse_opp", n, "-")
     return {ex_i, play_i}
 
 
@@ -1145,6 +1219,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §608 IMPULSE on a TRIGGERED ability (Stella Lee: 'exile the top card, you may play it') -> one
             # impulse_play trigger_effect, same as the spell path (the card engine's triggered card advantage).
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §608 THEFT IMPULSE on a TRIGGERED ability (Ragavan: 'exile the top card of that player's library,
+            # you may cast it') -> one impulse_opp trigger_effect.
+            impulse_skip |= _fold_impulse_opp(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §705 COIN FLIP on a TRIGGERED ability (Mana Crypt's upkeep flip-or-take-3).
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §118 RECURRING optional payment on a TRIGGERED ability (Mana Vault's 'pay {4} to untap').
@@ -1285,8 +1362,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             steal_skip = _fold_threaten(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §705 COIN FLIP on a spell (flip + win/lose self-damage branches).
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §118.9 GRAVEYARD FREE-RECAST (Storm of Memories: exile a card from your GY, cast it for free).
+            gyr_skip = _fold_gy_recast(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -1303,6 +1382,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §118.9 'you may cast this spell without paying its mana cost if you control a commander'
                     # (Fierce Guardianship, Deflecting Swat) -> the engine derives free_cast from this flag.
                     add("free_if_commander", (tid,)); continue
+                if verb == "cast":
+                    # §118.9 'cast a <filter> spell with MV ≤ N from your hand/graveyard without paying'
+                    # (Kari Zev's Expertise) -> a cast_free effect the driver resolves on resolution.
+                    spec = _cast_free_spec(tgt, extra)
+                    if spec is not None:
+                        add("spell_effect", (tid, "cast_free", 0, spec)); continue
                 if verb == "untap" and _scope(tgt) is None and _target_class(tgt) is None:
                     # §701.20 'untap up to N lands' / 'untap target land' (Frantic Search, Snap) -> the own-untap
                     # encoder (untap_own / untap_own_n). 'untap' rides in _CREATURE_VERBS for the creature-target
@@ -1586,6 +1671,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if verb == "deal_damage" and _int(amt) is not None and _damage_target(tgt) is not None:
                     mode_effs.append((tid, mode, "cdamage", _int(amt), _damage_target(tgt)))
                     continue
+                if verb == "add_mana":
+                    # §106 a mode's VARIABLE ritual ('• Add R for each card in target opponent's hand' —
+                    # Jeska's Will mode1) -> a dyn_mana mode effect the driver sizes at resolution, mirroring
+                    # the non-modal spell path. The fixed-amount/fixed-color case still flows through below.
+                    mq = _mana_qty(amt)
+                    color = str(extra)
+                    if mq is not None and color in _MANA_QTY_COLORS and str(tgt) in _MANA_QTY_SELF:
+                        mult, qtag = mq
+                        mode_effs.append((tid, mode, "dyn_mana", mult, f"{qtag}|{color}"))
+                        continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

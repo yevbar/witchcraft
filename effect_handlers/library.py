@@ -762,10 +762,11 @@ def _apply_add_mana(D, state, a, n, tgt, src, ctrl):
 # the fixed color to the controller's floating pool (mirroring dyn_damage / _dyn_quantity).
 #   (*) the 'tapped land an opponent controls' count abstains in the bridge — we don't track tappedness of an
 #       opponent's lands faithfully — so only the counts below ever reach this applier.
-def _mana_quantity(D, state, tag: str, ctrl: str) -> int:
+def _mana_quantity(D, state, tag: str, ctrl: str, src: str = "") -> int:
     """The live value of a 'for each <X>' mana count for the controller (§107.3). `tag` is 'type:<t>:<scope>'
-    / 'subtype:<s>:<scope>' (scope: own = the controller's permanents, all = every permanent) or 'hand:you'
-    / 'hand:opp' (the largest opposing hand). An unknown tag counts 0 (the bridge only emits known tags)."""
+    / 'subtype:<s>:<scope>' (scope: own = the controller's permanents, all = every permanent), 'hand:you' /
+    'hand:opp' (the largest opposing hand), or 'gy:named_self' (cards in ANY graveyard sharing the source's
+    name — Rite of Flame). An unknown tag counts 0 (the bridge only emits known tags)."""
     kind, _, rest = tag.partition(":")
     if kind == "hand":
         if rest == "you":
@@ -776,6 +777,14 @@ def _mana_quantity(D, state, tag: str, ctrl: str) -> int:
                 if p != ctrl:
                     counts[p] = counts.get(p, 0) + 1
             return max(counts.values(), default=0)
+        return 0
+    if kind == "gy":                                          # §107.3 'for each card named ~ in each graveyard'
+        if rest == "named_self":
+            of = {o: c for (o, c) in state.get("instance_of", set())}
+            my_name = of.get(src)
+            if my_name is None:
+                return 0
+            return sum(1 for (g,) in state.get("graveyard", set()) if of.get(g) == my_name)
         return 0
     body, _, scope = rest.partition(":")
     bf = {c for (c,) in state.get("on_battlefield", set())}
@@ -789,7 +798,7 @@ def _mana_quantity(D, state, tag: str, ctrl: str) -> int:
 def _apply_dyn_mana(D, state, a, n, tgt, src, ctrl):
     """§106 add mult×count mana of a fixed color, the count evaluated against live state at resolution."""
     tag, _, color = str(tgt).rpartition("|")
-    count = _mana_quantity(D, state, tag, ctrl)
+    count = _mana_quantity(D, state, tag, ctrl, src)
     total = n * count
     if total > 0:
         D._add_floating(state, ctrl, {color: total})
