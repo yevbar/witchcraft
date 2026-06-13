@@ -360,6 +360,8 @@ def _matches(state: dict, card: str, pred: str) -> bool:
     """True if `card` satisfies the §701.18 search predicate, judged from the SURFACED printed identity."""
     if pred == "any":
         return True
+    if pred == "keyword:flashback":                          # §702.34 a card that natively has flashback (Quiet
+        return (card,) in state.get("flashback_card", set())  # Speculation: 'cards with flashback'); surfaced by the bridge
     ptype = state.get("printed_type", set())
     if pred == "any_land":
         return (card, "land") in ptype
@@ -416,6 +418,24 @@ def _apply_search_select(D, state, a, n, tgt, src, ctrl):
         return
     state.setdefault("_searched", {})[ctrl] = card
     print(f"    trigger {a}: {ctrl} searches their library and finds {card}")
+
+
+@applier("search_to_graveyard")
+def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
+    """§701.18 'Search [target player's] library for up to N cards matching <pred> and put them into the
+    graveyard, then shuffle' (Quiet Speculation: up to three cards WITH FLASHBACK). Faithful 'up to' = take as
+    many matching cards as available, up to N (a fail-to-find is legal). Default searched player = the
+    controller (the beneficial choice — your own flashback fuel). Atomic: select all, then one shuffle."""
+    pred = str(tgt)
+    moved = []
+    for _ in range(int(n)):
+        card = _select_card(state, ctrl, pred)               # pulls one matching card OUT of the library
+        if card is None:
+            break
+        state.setdefault("graveyard", set()).add((card,))
+        moved.append(card)
+    D._shuffle_library(state, ctrl)                           # §701.18 'then shuffle'
+    print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
 
 
 def _take_searched(state: dict, ctrl: str) -> str | None:

@@ -1597,15 +1597,34 @@ def _spell_effects(state: dict, spell: str) -> list:
     return sorted(r for r in run(state, ["spell_effect"])["spell_effect"] if r[0] == spell)
 
 
+def _controls_commander(state: dict, p: str) -> bool:
+    """§903 — does player p control a commander (a commander permanent on the battlefield they control)?
+    Used by the modal 'you may choose both if you control a commander' Commander-precon rider."""
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+    mine = {c for (pp, c) in state.get("printed_control", set()) if pp == p}
+    return any(c in on_bf and c in mine for (_o, c) in state.get("_commander_owner", set()))
+
+
 def _choose_mode(state: dict, spell: str) -> None:
-    """§601.2b — as a modal spell is cast, its controller chooses the mode(s). Greedy/deterministic: pick
-    the first offered mode and record chose_mode so the engine derives active_mode(spell, mode); only that
-    mode's effects resolve. (The bridge offers a mode only if its effects are resolvable.)"""
+    """§601.2b — as a modal spell is cast, its controller chooses the mode(s). Records chose_mode so the engine
+    derives active_mode(spell, mode); only chosen modes' effects resolve. The bridge offers a mode only if its
+    effects are resolvable, and emits HOW MANY to choose (spell_mode_count; bumped by spell_mode_count_commander
+    when the controller controls a commander — the 'choose both if commander' rider). Greedy default: the first
+    `count` offered modes, exposed as a SET-valued referee choice (_choose) a policy/search can override."""
     modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell)
-    if modes:
-        mode = _choose(state, "mode", modes, modes[0])        # §601.2b — the mode choice (referee seam)
-        state.setdefault("chose_mode", set()).add((spell, mode))
-        print(f"      {spell}: chooses mode {mode}")
+    if not modes:
+        return
+    ctrl = state.get("_stack_info", {}).get(spell)
+    count = next((int(n) for (s, n) in state.get("spell_mode_count", set()) if s == spell), 1)
+    cmore = next((int(n) for (s, n) in state.get("spell_mode_count_commander", set()) if s == spell), None)
+    if cmore is not None and ctrl is not None and _controls_commander(state, ctrl):
+        count = max(count, cmore)                             # §700.2 'choose both if you control a commander'
+    count = min(count, len(modes))
+    chosen = _choose(state, "modes", None, frozenset(modes[:count]))   # §601.2b — SET-valued mode choice (referee seam)
+    picked = sorted(m for m in (chosen if isinstance(chosen, (set, frozenset)) else {chosen}) if m in modes)
+    for m in picked:
+        state.setdefault("chose_mode", set()).add((spell, m))
+    print(f"      {spell}: chooses mode(s) {', '.join(picked)}")
 
 
 def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:

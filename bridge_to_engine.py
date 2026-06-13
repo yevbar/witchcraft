@@ -641,6 +641,35 @@ def _fold_search_placements(effs: list, emit) -> set:
     return consumed
 
 
+_NUMWORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+
+
+def _fold_search_to_graveyard(effs: list, emit) -> set:
+    """§701.18 'Search [target player's] library for up to N cards WITH FLASHBACK and put them into [that
+    player's] graveyard. Then the player shuffles.' (Quiet Speculation) — fold the search + put-in-graveyard
+    (+ shuffle) into ONE atomic search_to_graveyard effect: move up to N flashback cards from the controller's
+    library to the graveyard, then shuffle. The flashback restriction is read from the card's `flashback_card`
+    surface (keyword:flashback); a search with no confirmable filter is left to the bare-search path."""
+    si = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "search" and "with_flashback" in str(t)), None)
+    if si is None:
+        return set()
+    m = re.search(r"up_to_(one|two|three|four|five|six|seven)", str(effs[si][3]))
+    n = _NUMWORDS.get(m.group(1)) if m else None
+    if n is None:
+        return set()
+    pi = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+               if i != si and v == "put_in_graveyard" and ("graveyard" in str(x) or "graveyard" in str(t))), None)
+    if pi is None:
+        return set()
+    consumed = {si, pi}
+    for i, (_s, v, _a, _t, _x, _c) in enumerate(effs):        # absorb the trailing 'then the player shuffles'
+        if i not in consumed and v == "shuffle":
+            consumed.add(i)
+    emit("search_to_graveyard", n, "keyword:flashback")
+    return consumed
+
+
 def _fold_name_exile(effs: list, emit) -> set:
     """§701.18 'choose a card name' + 'reveal from the top of YOUR library until …' — fold the whole
     Demonic-Consultation / Divining-Witch / Spoils-of-the-Vault self-mill sequence into ONE atomic
@@ -884,8 +913,15 @@ def _fold_counter_draw(effs: list, emit) -> set:
 def _fold_coinflip(effs: list, emit) -> set:
     """§705 COIN FLIP — 'flip a coin. If you lose the flip, ~ deals N damage to you' (Mana Crypt; Ral's
     downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
-    by flipping and applying the matching branch's damage to the controller. payload 'lose:<N>|win:<M>'. Other
-    conditional branches (Ral's exile-and-transform on a win) aren't damage, so they're left to drop."""
+    by flipping and applying the matching branch's damage to the controller. payload 'lose:<N>|win:<M>'.
+
+    Other conditional branches aren't self-damage, so they're left to drop — notably Ral's win branch, 'you MAY
+    exile Ral; if you do, return him transformed'. That correctly ABSTAINS for two reasons: (1) it is an
+    OPTIONAL 'may', so declining the transform is a legal §601.2b line in itself; and (2) the §712 back face
+    (Ral, Leyline Prodigy, a planeswalker) is ABSENT from the oracle corpus — transform cards load front-face
+    only — so there is no faithful permanent to return. Returning the front creature, or an empty planeswalker,
+    would misrepresent the card; we don't fabricate a face. (A real transform needs DFC back-face data + a §712
+    transform subsystem — a data-pipeline change across all 401 transform cards, not a one-off.)"""
     flip_i = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "flip_coin"), None)
     if flip_i is None:
         return set()
@@ -904,6 +940,26 @@ def _fold_coinflip(effs: list, emit) -> set:
         return set()                                          # a flip whose consequence ISN'T self-damage we model
     emit("coin_flip", 0, f"lose:{lose_n}|win:{win_n}")        # -> don't fold (leave flip_coin to drop, stay honest)
     return skip
+
+
+def _fold_discard_draw(effs: list, emit) -> set:
+    """§700.2 'each player may discard their hand and draw N cards' (Will of the Jeskai mode1) — fold the
+    discard-hand clause + the matching draw clause into ONE atomic discard_draw effect (per player it is a
+    single MAY choice: discard the whole hand, then draw N). payload 'scope|may?'. Consumed indices returned."""
+    di = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+               if v == "discard" and ("hand" in str(x) or "hand" in str(t))), None)
+    if di is None:
+        return set()
+    (_s0, _v0, _a0, dtgt, _x0, dcond) = effs[di]
+    for j, (_s2, v2, a2, t2, _x2, _c2) in enumerate(effs):
+        if j == di or v2 != "draw" or _int(a2) is None:
+            continue
+        if str(t2) == str(dtgt):                              # the draw shares the discard's player scope
+            scope = "each_player" if "each" in str(dtgt) else "controller"
+            may = "may" if "may" in str(dcond) else "-"
+            emit("discard_draw", _int(a2), f"{scope}|{may}")
+            return {di, j}
+    return set()
 
 
 def _wheel_of(effs: list) -> tuple | None:
@@ -1215,6 +1271,22 @@ def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, eff
     return True
 
 
+def _modal_count(f: dict, n_offered: int) -> tuple[int, int]:
+    """§700.2 — (base, commander_more): how many modes a modal spell's controller chooses by DEFAULT, and the
+    count if a Commander-precon 'you may choose both/another instead' rider applies. `base` from the modal slug
+    ('one'→1, 'two'→2, 'choose one or both'→2, …); a 'choose more if you control a commander' static rider
+    bumps the count to ALL offered modes. Both are clamped to the number of offered (resolvable) modes."""
+    slug = str(f.get("modal") or "").replace("_at_random", "")
+    base = {"one": 1, "two": 2, "three": 3, "up_to_one": 1, "up_to_two": 2, "up_to_three": 3,
+            "one_or_both": 2, "one_or_more": n_offered}.get(slug, 1)
+    base = max(1, min(base, n_offered))
+    cmore = base
+    for s in f.get("statics", []):                            # the commander/kicker 'choose both/another' rider
+        if "commander" in s and ("both" in s or "more" in s or "another" in s or "additional" in s):
+            cmore = n_offered
+    return base, cmore
+
+
 def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[dict, list]:
     """The (relation -> rows) an instance `tid` of card `name` controlled by `ctrl` contributes to a
     driver state, plus a list of (kind, detail) for the clauses that abstained. Pure data — no rules."""
@@ -1233,8 +1305,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # facts are card-level (shared across instances, set-deduped).
     add("instance_of", (tid, facts))
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
-    for aid, ab in (f.get("abilities") or {}).items():
-        akind = ab.get("kind", "spell")
+    modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as
+    for aid, ab in (f.get("abilities") or {}).items():        # card_ability/card_effect — that would MERGE every mode
+        if aid in modal_modes:                               # into the flat spell_* relations (a mode-choice leak).
+            continue                                         # modes resolve ONLY via the mode-gated spell_effect_mode
+        akind = ab.get("kind", "spell")                      # emitted by the modal block below.
         if akind == "static" and is_is_card:                 # §611.2 an instant/sorcery has no static abilities —
             akind = "spell"                                  # a parser misclassification; the engine derives spell_*
         add("card_ability", (facts, aid, akind))
@@ -1263,6 +1338,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_toughness", (facts, int(t)))
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
         add("card_keyword", (facts, kw))
+    if "flashback" in {str(k).lower() for k in f.get("keywords", set())}:
+        add("flashback_card", (tid,))                        # §702.34 a card that natively HAS flashback (driver-side
+        #                                                      filter for 'search for cards with flashback' — Quiet Speculation)
     esc = f.get("escape")                                    # §702.166 escape cost (parsed at build time): the
     if esc:                                                  # engine derives the instance escape_* via instance_of
         add("card_escape_generic", (facts, int(esc.get("generic", 0))))
@@ -1476,6 +1554,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             gyr_skip = _fold_gy_recast(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §701 Valakut Awakening dig: put any number from hand on the bottom, draw that many + 1.
             valakut_skip = _fold_valakut(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701.18 SEARCH-TO-GRAVEYARD: 'search for up to N cards with flashback, put into the graveyard,
+            # then shuffle' (Quiet Speculation) -> one atomic search_to_graveyard effect.
+            s2gy_skip = _fold_search_to_graveyard(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
             wheel = _wheel_of(effs)
             wheel_skip = set()
@@ -1484,7 +1565,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -1828,15 +1909,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("activated_ability", (f"{tid}_lvl{level}", tid, paid[0], "-", "level_up", int(level), "-"))
 
     if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
+        offered = []
         for mode in f.get("modes", []):
             mab = f.get("abilities", {}).get(mode, {})
             mode_effs = []
             m_effs = list(mab.get("effects", []))
             # §608 IMPULSE in a MODE (Opera Love Song: '• exile the top two cards, you may play those cards') ->
             # one impulse_play spell_effect_mode row, resolved only for the chosen mode.
-            imp_skip = _fold_impulse(m_effs, lambda e, n, t: mode_effs.append((tid, mode, e, n, t)))
+            _emit_mode = lambda e, n, t: mode_effs.append((tid, mode, e, n, t))
+            imp_skip = _fold_impulse(m_effs, _emit_mode)
+            # §700.2 a mode that is 'each player may discard their hand and draw N' (Will of the Jeskai mode1) ->
+            # one atomic discard_draw; 'grant flashback to each i/s in your graveyard' (mode2) reuses the shared
+            # §702.34 _fold_flashback -> grant_flashback (Past in Flames machinery).
+            mode_skip = imp_skip | _fold_discard_draw(m_effs, _emit_mode) | _fold_flashback(m_effs, _emit_mode)
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(m_effs):
-                if _idx in imp_skip:
+                if _idx in mode_skip:
                     continue
                 # §601.2c a mode's SINGLE-TARGET zone-move (Prismari Charm 'return target nonland permanent',
                 # Get Out 'return one/two creatures you own') or direct DAMAGE rides the same target machinery
@@ -1866,9 +1953,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 mode_effs.append((tid, mode, r[0], r[1], r[2]))
             if mode_effs:                                    # offer a mode only if at least one of its effects resolves
+                offered.append(mode)
                 add("spell_mode", (tid, mode))               # engine input -> active_mode(s,m) :- spell_mode, chose_mode
                 for row in mode_effs:
                     add("spell_effect_mode", row)            # driver-side: resolved only for the chosen mode
+        if offered:                                          # §700.2 HOW MANY modes to choose (the driver's _choose_mode
+            base, cmore = _modal_count(f, len(offered))      # picks `base`, or `cmore` if the controller controls a
+            add("spell_mode_count", (tid, base))             # commander — the 'choose both if commander' precon rider).
+            if cmore != base:
+                add("spell_mode_count_commander", (tid, cmore))
 
     # §301.5 EQUIPMENT — an Equipment with the 'equip' keyword and an 'equipped creature' static buff gets an
     # equip ability the driver can use: '{cost}: Attach to target creature you control'. The cost is parsed

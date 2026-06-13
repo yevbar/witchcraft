@@ -51,6 +51,7 @@ def main():
 
     _modal_target_checks()
     _modal_damage_checks()
+    _modal_count_and_card_checks()
 
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return FAIL == 0
@@ -109,6 +110,94 @@ def _modal_damage_checks():
         driver._run_spell_effects(st, "charm", "a")
     life_a = next(v for (p, v) in st["life"] if p == "a")
     check("modal damage does NOT hit the caster (no self-damage bug)", life_a == 20)
+
+
+def _modal_count_and_card_checks():
+    """The mode-LEAK fix + the mode-COUNT selection + the three effects modal infrastructure unlocked, all
+    over REAL cards (card_facts -> engine/driver). 'Choose two' picks two; 'Choose one; both if you control a
+    commander' picks one normally and both with a commander; Will of the Jeskai (both modes) and Quiet
+    Speculation resolve end-to-end."""
+    import contextlib
+    import io
+    import copy
+    import card_corpus
+    import sim
+    import bridge_to_engine as B
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    def facts(name, tid):
+        f, dr = B.card_facts(name, "p", tid, db, corpus)
+        st = {}
+        for k, rows in f.items():
+            st.setdefault(k, set()).update(rows)
+        st.setdefault("is_player", set()).update({("p",), ("q",)})
+        st.setdefault("_stack_info", {})[tid] = "p"
+        return st, f, dr
+
+    def chosen(st, tid, commander=False):
+        if commander:
+            st.setdefault("on_battlefield", set()).add(("cmdr",))
+            st.setdefault("printed_control", set()).add(("p", "cmdr"))
+            st.setdefault("_commander_owner", set()).add(("p", "cmdr"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver._choose_mode(st, tid)
+        return sorted(m for (s, m) in st.get("chose_mode", set()) if s == tid)
+
+    # (1) the mode-LEAK fix: a modal card derives NO flat spell_* (only the mode-gated spell_effect_mode).
+    cst, cf, _ = facts("Cryptic Command", "cc")
+    flat = driver.run(cst, ["spell_target", "spell_effect", "spell_scope", "spell_damage"])
+    check("modal Cryptic Command leaks NO flat spell_* row",
+          sum(len([r for r in flat[rel] if r[0] == "cc"]) for rel in flat) == 0)
+    # (2) mode-COUNT: 'Choose two' picks two.
+    check("'Choose two' (Cryptic Command) picks two modes", len(chosen(copy.deepcopy(cst), "cc")) == 2)
+
+    wst, wf, wdr = facts("Will of the Jeskai", "w")
+    check("Will of the Jeskai is CLEAN (both modes interpreted)", wdr == [])
+    check("no commander -> chooses ONE mode", len(chosen(copy.deepcopy(wst), "w")) == 1)
+    check("controls a commander -> chooses BOTH modes", len(chosen(copy.deepcopy(wst), "w", commander=True)) == 2)
+
+    # (3a) Will of the Jeskai end-to-end (both modes): discard hand + draw five; a GY Bolt gains flashback.
+    est, _, _ = facts("Will of the Jeskai", "w")
+    bf, _ = B.card_facts("Lightning Bolt", "p", "bolt", db, corpus)
+    for k, rows in bf.items():
+        est.setdefault(k, set()).update(rows)
+    est.setdefault("on_battlefield", set()).add(("cmdr",))
+    est.setdefault("printed_control", set()).update({("p", "cmdr"), ("p", "bolt")})
+    est.setdefault("_commander_owner", set()).add(("p", "cmdr"))
+    est.setdefault("graveyard", set()).add(("bolt",))
+    est.setdefault("spell_type", set()).add(("bolt", "instant"))   # the deck loader sets spell_type per card
+    est.setdefault("in_hand", set()).update({("p", "h1"), ("p", "h2")})
+    est["_lib_order"] = {"p": [f"lib{i}" for i in range(8)]}
+    est.setdefault("in_library", set()).update({("p", f"lib{i}") for i in range(8)})
+    est.setdefault("life", set()).update({("p", 40), ("q", 40)})
+    est["printed_type"] = driver.run(est, ["printed_type"])["printed_type"]
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._choose_mode(est, "w")
+        driver._run_spell_effects(est, "w", "p")
+    check("mode1 discards hand and draws five",
+          sorted(c for (pp, c) in est["in_hand"] if pp == "p") == [f"lib{i}" for i in range(5)])
+    check("mode2 makes the GY Bolt flashback-castable (may_play + exile-on-resolve)",
+          ("p", "bolt") in est.get("may_play", set()) and ("bolt",) in est.get("_flashback", set()))
+
+    # (3b) Quiet Speculation: only the flashback cards move to the graveyard; non-flashback stay.
+    qst, qf, qdr = facts("Quiet Speculation", "qs")
+    check("Quiet Speculation is CLEAN", qdr == [])
+    check("Quiet Speculation = search_to_graveyard 3 keyword:flashback",
+          ("qs", "search_to_graveyard", 3, "keyword:flashback") in qf.get("spell_effect", set()))
+    for nm, t in [("Faithless Looting", "fl"), ("Deep Analysis", "da"), ("Lightning Bolt", "lb"), ("Counterspell", "cs")]:
+        cf2, _ = B.card_facts(nm, "p", t, db, corpus)
+        for k, rows in cf2.items():
+            qst.setdefault(k, set()).update(rows)
+        qst.setdefault("in_library", set()).add(("p", t))
+    qst["_lib_order"] = {"p": ["fl", "da", "lb", "cs"]}
+    qst.setdefault("life", set()).update({("p", 40), ("q", 40)})
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._run_spell_effects(qst, "qs", "p")
+    check("only flashback cards (fl, da) move to the graveyard",
+          sorted(c for (c,) in qst.get("graveyard", set())) == ["da", "fl"])
+    check("non-flashback cards (lb, cs) stay in the library",
+          sorted(c for (pp, c) in qst.get("in_library", set()) if pp == "p") == ["cs", "lb"])
 
 
 if __name__ == "__main__":

@@ -24,10 +24,13 @@ _OWNED_EFF = {"counter", "fog", "create_token"}
 def _old_spell_rows(f) -> set:
     """The spell_effect rows the OLD bridge generic tail (r = _resolved_effect(verb,amt,tgt,extra)) would
     have emitted for the 3 owned verbs, keyed by the spell instance id. Mirrors the spell branch exactly:
-    _resolved_effect handles the create numeric+spec guard and the prevent_damage fog gate internally."""
+    _resolved_effect handles the create numeric+spec guard and the prevent_damage fog gate internally.
+    §700.2 modal MODE abilities are excluded — their effects resolve via the mode-gated spell_effect_mode,
+    NOT the flat spell_effect (the bridge no longer feeds modes as card_ability/card_effect to the engine)."""
     rows = set()
-    for ab in f.get("abilities", {}).values():
-        if ab.get("kind") != "spell":
+    modes = set(f.get("modes", []))
+    for aid, ab in f.get("abilities", {}).items():
+        if aid in modes or ab.get("kind") != "spell":
             continue
         for (_seq, verb, amt, tgt, extra, _cond) in ab.get("effects", []):
             if verb not in ("counter", "prevent_damage", "create"):

@@ -64,6 +64,8 @@ def load_db():
             db.setdefault(a[0], {})["modal"] = a[1]
         elif rel == "mode_option":                           # one offered mode; its effects live in abilities[mode]
             db.setdefault(a[0], {}).setdefault("modes", []).append(a[1])
+        elif rel == "static":                                # §700.2 descriptive static slugs (e.g. the modal
+            db.setdefault(a[0], {}).setdefault("statics", []).append(a[1])   # 'choose both if commander' rider)
     return db
 
 

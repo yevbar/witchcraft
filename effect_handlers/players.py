@@ -304,3 +304,24 @@ def apply_dyn_damage(D, state, a, n, tgt, src, ctrl):
     amount = _dyn_quantity(state, qty_tag, ctrl)
     print(f"    trigger {a}: {ctrl} deals {amount} damage (= {qty_tag.replace('_', ' ')})")
     D._apply_damage(state, a, amount, dk, ctrl)
+
+
+@applier("discard_draw")
+def apply_discard_draw(D, state, a, n, tgt, src, ctrl):
+    """§700.2 'each player may discard their hand and draw N cards' (Will of the Jeskai mode1). Per player it
+    is a single MAY choice (discard the WHOLE hand, then draw N — atomic). `tgt` = 'scope|may?'. The greedy
+    default: the controller takes the new hand; each opponent declines (a legal 'may' decline). The _choose
+    seam exposes every player's choice so a policy/search can opt them in/out."""
+    scope, _, flag = str(tgt).partition("|")
+    may = (flag == "may")
+    players = sorted(p for (p,) in state.get("is_player", set())) if scope == "each_player" else [ctrl]
+    for p in players:
+        if may and not D._choose(state, "discard_draw", (False, True), p == ctrl):
+            continue                                          # this player declines (default: only the controller does it)
+        hand = [c for (pp, c) in list(state.get("in_hand", set())) if pp == p]
+        for c in hand:
+            state["in_hand"].discard((p, c))
+            state.setdefault("graveyard", set()).add((c,))
+        for _ in range(int(n)):
+            D._draw(state, p)
+        print(f"    {a}: {p} discards their hand ({len(hand)}) and draws {n}")
