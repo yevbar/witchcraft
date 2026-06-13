@@ -163,14 +163,36 @@ def _frontier_mana_checks():
     _f, dr = Bm2.card_facts("Arena of Glory", "me", "x", sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()})
     check("Arena of Glory is CLEAN", dr == [])
 
+    # §605 Runaway Steam-Kin: 'Remove three +1/+1 counters from ~: Add {R}{R}{R}' — a counter-removal mana
+    # source. With 3 counters it taps for RRR (removing them); with fewer it is NOT a usable source.
+    sf, sdr = Bm2.card_facts("Runaway Steam-Kin", "me", "kin", sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()})
+    check("Runaway Steam-Kin is CLEAN", sdr == [])
+    kbase = {"is_player": {("me",)}, "on_battlefield": {("kin",)}, "printed_control": {("me", "kin")},
+             "printed_type": {("kin", "creature")}, "tapped": set(), "_sick": set(), "land_produces": set(),
+             "source_produces": {("kin", "red", 3)}, "source_special_cost": {("kin", "remove_counter:p1p1", 3)},
+             "source_cost": {("kin", 0, False)}, "mana_source": {("kin",)}}
+    k3 = {**{k: set(v) if isinstance(v, set) else v for k, v in kbase.items()}, "counter": {("kin", "p1p1", 3)}}
+    units = list(driver._source_units(k3, "me"))
+    check("Steam-Kin with 3 counters taps for 3 red", sum(len(u[1]) for u in units) == 3 and units and units[0][1][0] == "red")
+    k2 = {**{k: set(v) if isinstance(v, set) else v for k, v in kbase.items()}, "counter": {("kin", "p1p1", 2)}}
+    check("Steam-Kin with 2 counters is NOT a usable mana source", sum(len(u[1]) for u in driver._source_units(k2, "me")) == 0)
+    # paying with it removes the 3 counters (§605 the special cost).
+    kpay = {**{k: set(v) if isinstance(v, set) else v for k, v in kbase.items()},
+            "counter": {("kin", "p1p1", 3)}, "mana_pip": {("rr", "red", 3)}, "mana_generic": {("rr", 0)},
+            "mana_pool": set(), "floating_mana": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._spend_mana(kpay, "me", "rr")
+    check("paying with Steam-Kin removes its 3 +1/+1 counters", ("kin", "p1p1", 0) in kpay["counter"] or
+          not any(o == "kin" and k == "p1p1" and v > 0 for (o, k, v) in kpay["counter"]))
+
 
 def run():
     _frontier_mana_checks()
     # lexing: both get a sac-self source row; Black Lotus = any_one_color×3, Lotus Petal = any_color×1.
     bl = list(B._mana_source_outputs(CORPUS["Black Lotus"]))
     lp = list(B._mana_source_outputs(CORPUS["Lotus Petal"]))
-    check("Black Lotus lexes a sac-self source", bool(bl) and bl[0][2] is True and bl[0][4] == {"any_one_color": 3})
-    check("Lotus Petal lexes a sac-self source", bool(lp) and lp[0][2] is True and lp[0][4] == {"any_color": 1})
+    check("Black Lotus lexes a sac-self source", bool(bl) and bl[0][2] is True and bl[0][5] == {"any_one_color": 3})
+    check("Lotus Petal lexes a sac-self source", bool(lp) and lp[0][2] is True and lp[0][5] == {"any_color": 1})
 
     # Black Lotus bundle: 3 of ONE color. With a {U}{U} spell in hand the pool aims all 3 at blue.
     st, ids = _state(["Black Lotus"], ["Thassa's Oracle"])

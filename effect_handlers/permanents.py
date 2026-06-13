@@ -263,3 +263,24 @@ def _apply_earthbend(D, state, a, n, tgt, src, ctrl):
     state.setdefault("eff_grant_keyword", set()).add((eid, pick, "haste"))
     D._bump_counter(state, pick, "p1p1", n)                  # §122 N +1/+1 counters -> the 0/0 becomes N/N
     print(f"    {a}: {ctrl} earthbends {pick} (0/0 creature-land with haste, +{n} +1/+1 counters)")
+
+
+# ── cant_block (§509.1b a turn-scoped block restriction) ──────────────────────────────────────────────
+# 'Creatures without flying can't block this turn.' (Sundering Eruption). A symmetric, choice-free turn
+# restriction: every non-flying creature loses the ability to be declared as a blocker until end of turn.
+# We own ONLY the 'creatures_without_flying' filter (the printed wording) — any narrower/odder restriction
+# abstains rather than guess which creatures it hits. The driver's declare_blockers reads _cant_block and
+# drops matching creatures from the eligible-blocker pool; the turn cleanup clears it like prevent_all_combat.
+@encoder("cant_block")
+def _encode_cant_block(verb, amt, tgt, extra):
+    if str(tgt) != "creatures_without_flying":
+        return None
+    return ("cant_block", 0, "without_flying")
+
+
+@applier("cant_block")
+def _apply_cant_block(D, state, a, n, tgt, src, ctrl):
+    """§509.1b set a turn-scoped block restriction. tgt is the filter tag the driver's declare_blockers
+    honors ('without_flying' -> a creature with no flying keyword can't be declared as a blocker this turn)."""
+    state.setdefault("_cant_block", set()).add((str(tgt),))
+    print(f"    {a}: creatures ({str(tgt).replace('_', ' ')}) can't block this turn")

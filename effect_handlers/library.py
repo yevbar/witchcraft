@@ -444,12 +444,23 @@ _REGROWTH_FILTER = {
 
 
 def _regrowth_filter(tgt) -> str | None:
-    return _REGROWTH_FILTER.get(str(tgt))
+    t = str(tgt)
+    hit = _REGROWTH_FILTER.get(t)
+    if hit is not None:
+        return hit
+    # §701 a 'from your graveyard' return whose source zone rides IN the target slug (Sorceress's Schemes:
+    # 'target instant or sorcery card from your graveyard or exiled card with flashback you own'). Peel the
+    # zone tail and re-match the typed head; the 'or exiled flashback card' alternative isn't modeled (the
+    # graveyard return is the faithful slice).
+    if "from_your_graveyard" in t:
+        head = t.split("_from_your_graveyard", 1)[0]
+        return _REGROWTH_FILTER.get(head)
+    return None
 
 
 @encoder("return_to_hand")
 def _encode_search_to_hand(verb, amt, tgt, extra):
-    if str(extra) == "from_graveyard":                       # §701 Regrowth — return a graveyard card to hand
+    if str(extra) == "from_graveyard" or "from_your_graveyard" in str(tgt):   # §701 Regrowth — graveyard -> hand
         filt = _regrowth_filter(tgt)
         return ("regrowth", 0, filt) if filt is not None else None
     if str(tgt) not in _SEARCHED_OBJ:

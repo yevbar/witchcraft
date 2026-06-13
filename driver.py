@@ -644,6 +644,7 @@ _PERM_FILTER = {
     "cep": ("creature", "enchantment", "planeswalker"),
     "acep": ("artifact", "creature", "enchantment", "planeswalker"),   # Otawara: artifact/creature/ench/pw
     "acl": ("artifact", "creature", "land"),                           # Twitch: artifact/creature/land tapper
+    "land": ("land",),                                                 # Sundering Eruption: destroy target land
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 _PERM_COLORS = {"white", "blue", "black", "red", "green"}    # §105 a COLOR target class (Pyroblast/REB: a blue permanent)
@@ -758,6 +759,9 @@ def declare_blockers(state: dict, ap: str) -> None:
     opp = _others(state, ap)[0]
     attackers = sorted(a for (a, _) in state.get("attacks", set()))
     blockers = [b for b in _creatures_of(state, opp) if (b,) not in state.get("tapped", set())]
+    if ("without_flying",) in state.get("_cant_block", set()):  # §509.1b 'creatures without flying can't block'
+        flyers = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "flying"}
+        blockers = [b for b in blockers if b in flyers]
     blocks: dict = {}                                            # attacker -> blocker (one blocker each)
     for b in blockers:
         for a in attackers:
@@ -995,6 +999,7 @@ def _source_units(state: dict, ap: str):
     # untapped permanent it controls. We yield the mana they produce with cost_generic=0 / taps_self=False —
     # the SPECIAL cost (life / discard / exile / sacrifice) is paid by _spend_mana when the source is used.
     in_hand = state.get("in_hand", set())
+    counters = state.get("counter", set())
     for (t, kind, _amt) in sorted(special_cost):
         if t not in precise:
             continue
@@ -1004,6 +1009,11 @@ def _source_units(state: dict, ap: str):
         else:
             if (t,) not in bf or (ap, t) not in ctrl or (t,) in tapped:
                 continue                                     # a battlefield alt-cost source, untapped & controlled
+            if kind.startswith("remove_counter:"):           # §605 Steam-Kin: must HAVE the N counters to remove
+                ckind = kind.split(":", 1)[1]
+                have = next((c for (o, k, c) in counters if o == t and k == ckind), 0)
+                if have < int(_amt):
+                    continue
         yield (t, _source_unit_list(t, s_fixed, s_wild), 0, False)
 
 
@@ -1240,7 +1250,11 @@ def _pay_special_source_cost(state: dict, ap: str, sid: str, cost: tuple) -> Non
                      its self-sacrifice is handled separately via source_sacrifice).
     The mana itself is produced by the normal source machinery; this only deducts the cost."""
     kind, amount = cost
-    if kind == "pay_life":
+    if kind.startswith("remove_counter:"):                   # §605 Runaway Steam-Kin: remove N counters for mana
+        ckind = kind.split(":", 1)[1]
+        _bump_counter(state, sid, ckind, -int(amount))
+        print(f"    {ap} removes {amount} {ckind} counter(s) from {sid} for mana")
+    elif kind == "pay_life":
         _adjust_life(state, ap, -int(amount))
         print(f"    {ap} pays {amount} life to activate {sid}")
     elif kind == "exile_hand":
@@ -2409,6 +2423,7 @@ def _end_of_turn(state: dict) -> None:
     state["_reanimated"] = set()
     state["_counter_applied"] = set()
     state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
+    state["_cant_block"] = set()                             # §509.1b 'can't block this turn' restriction
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:

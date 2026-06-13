@@ -255,6 +255,7 @@ _TARGET_CLASS = {
     # §115 'one or two target creatures [each]' (Opera Love Song's pump mode): choosing exactly ONE creature
     # is a legal subset of 'one or two', so we resolve it as a single (beneficial) own-creature target.
     "one_or_two_target_creatures_each": "you_control", "one_or_two_target_creatures": "you_control",
+    "target_land": "perm_land",                              # §115 destroy/tap a land (Sundering Eruption)
     # §115 'target creature or planeswalker' (Bitter Triumph): the engine models only the creature
     # alternative; picking a creature is a LEGAL target (faithful — the PW option is simply not exercised).
     "target_creature_or_planeswalker": "any",
@@ -1133,6 +1134,10 @@ def _alt_mana_cost(cost) -> tuple | None:
         return ("exile_hand", 0)
     if re.match(r"^Discard your hand$", s, re.I):
         return ("discard_hand", 0)
+    rc = re.match(r"^Remove (\w+) ([+-]1/[+-]1) counters? from (~|this creature|this artifact|it)$", s, re.I)
+    if rc and rc.group(1).lower() in _NUMWORD:                # §605 Runaway Steam-Kin counter-removal mana cost
+        ckind = "p1p1" if rc.group(2).startswith("+") else "m1m1"
+        return (f"remove_counter:{ckind}", _NUMWORD[rc.group(1).lower()])
     return None
 
 
@@ -1528,6 +1533,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     r = _resolved_effect("untap", amt, tgt, extra)
                     if r is not None:
                         add("spell_effect", (tid, r[0], r[1], r[2])); continue
+                if verb == "return_to_hand" and "from_your_graveyard" in str(tgt):
+                    # §701 'return target <type> card from your graveyard to your hand' (Sorceress's Schemes):
+                    # return_to_hand rides in _CREATURE_VERBS for a battlefield bounce, but a GRAVEYARD return is
+                    # the regrowth path — route it to the encoder before the creature-target branch drops it.
+                    r = _resolved_effect("return_to_hand", amt, tgt, extra)
+                    if r is not None:
+                        add("spell_effect", (tid, r[0], r[1], r[2])); continue
                 if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     continue                                  # spell_effect is now DERIVED IN DATALOG from the card
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
@@ -1890,10 +1902,13 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
     if "Land" in (c.get("types") or []):
         for col in _land_colors(c):
             state.setdefault("land_produces", set()).add((tid, col))
-    for cost_generic, taps_self, sac_self, fixed, wild in _mana_source_outputs(c):
+    for cost_generic, taps_self, sac_self, special, fixed, wild in _mana_source_outputs(c):
         state.setdefault("source_cost", set()).add((tid, cost_generic, taps_self))
         if sac_self:                                          # §605 one-shot fast mana (Lotus Petal, Black Lotus)
             state.setdefault("source_sacrifice", set()).add((tid,))
+        if special is not None:                               # §605 a counter-removal cost (Runaway Steam-Kin)
+            kind, n, ckind = special                          # ('remove_counter', N, 'p1p1'/'m1m1')
+            state.setdefault("source_special_cost", set()).add((tid, f"{kind}:{ckind}", n))
         for col, amt in fixed.items():
             state.setdefault("source_produces", set()).add((tid, col, amt))
         for kind, amt in wild.items():
@@ -1929,7 +1944,7 @@ def _mana_source_outputs(c: dict):
         prod = _mana_production(what)
         if not prod:
             continue                                          # variable/conditional production -> abstain
-        cost_generic, taps_self, sac_self, ok = _parse_ability_cost(cost)
+        cost_generic, taps_self, sac_self, special, ok = _parse_ability_cost(cost)
         if not ok:
             continue                                          # non-mana / {X} cost -> abstain (driver can't pay)
         # Lands are already modeled by land_produces (one color per land); only emit source rows for
@@ -1951,18 +1966,28 @@ def _mana_source_outputs(c: dict):
                 break
         if abstain or (not fixed and not wild):
             continue
-        yield cost_generic, taps_self, sac_self, fixed, wild
+        yield cost_generic, taps_self, sac_self, special, fixed, wild
 
 
 _SAC_SELF = re.compile(r"^sacrifice (this |~|it$)", re.I)
 
 
+_NUMWORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+# §605 a counter-REMOVAL activation cost (Runaway Steam-Kin 'Remove three +1/+1 counters from ~: Add {R}{R}{R}').
+# Captures the count word and the counter kind; resolves to a source_special_cost('remove_counter', N|kind) the
+# driver pays by removing N counters of that kind from the source (and gating activation on having that many).
+_REMOVE_COUNTER_COST = re.compile(r"^remove (\w+) ([+-]1/[+-]1) counters? from (this|~|it)", re.I)
+
+
 def _parse_ability_cost(cost: str):
     """Decompose a mana ability's activation cost (the part before ':') into (generic, taps_self, sac_self,
-    ok). A cost is payable by the loop iff each component is {N} generic, {T} (tap this), or 'Sacrifice this
-    <permanent>' (the one-shot fast-mana idiom: Lotus Petal, Black Lotus). Anything else — a colored pip,
-    {X}, Tap another, a loyalty/discard/'Pay N life' cost — sets ok=False (abstain)."""
+    special, ok). A cost is payable by the loop iff each component is {N} generic, {T} (tap this), or
+    'Sacrifice this <permanent>' (the one-shot fast-mana idiom: Lotus Petal, Black Lotus). A SPECIAL cost the
+    driver pays separately — 'Remove N +1/+1 counters from ~' — sets special=('remove_counter', N, kind).
+    Anything else — a colored pip, {X}, Tap another, a loyalty/discard/'Pay N life' cost — sets ok=False
+    (abstain)."""
     taps_self = sac_self = False
+    special = None
     generic = 0
     parts = [p.strip() for p in cost.split(",") if p.strip()]
     for part in parts:
@@ -1972,13 +1997,19 @@ def _parse_ability_cost(cost: str):
         if _SAC_SELF.match(part):                             # 'Sacrifice this artifact' / 'Sacrifice ~'
             sac_self = True
             continue
+        rc = _REMOVE_COUNTER_COST.match(part)
+        if rc and rc.group(1).lower() in _NUMWORD:            # §605 'Remove N +1/+1 counters from ~' (Steam-Kin)
+            n = _NUMWORD[rc.group(1).lower()]
+            kind = "p1p1" if rc.group(2).startswith("+") else "m1m1"
+            special = ("remove_counter", n, kind)
+            continue
         syms = _MV_SYM.findall(part)
         # a clean generic component like {1} or {3}: just digits, nothing else around the symbol(s)
         if syms and _MV_SYM.sub("", part).strip() == "" and all(s.isdigit() for s in syms):
             generic += sum(int(s) for s in syms)
             continue
-        return 0, False, False, False                         # any other cost component -> not loop-payable
-    return generic, taps_self, sac_self, True
+        return 0, False, False, None, False                   # any other cost component -> not loop-payable
+    return generic, taps_self, sac_self, special, True
 
 
 def make_state(boards: dict, life: int = 20) -> dict:
