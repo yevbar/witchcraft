@@ -1548,6 +1548,11 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
             take = min(g, max(0, prod.get(col, 0)))
             prod[col] = prod.get(col, 0) - take; g -= take
         _add_floating(state, ap, {c: n for c, n in prod.items() if n > 0})
+    # §106 'haste mana' rider (Arena of Glory): if a CREATURE spell was paid (partly) with a source whose mana
+    # grants haste 'if spent on a creature spell', the creature enters with haste this turn.
+    if (spell, "creature") in state.get("spell_type", set()) \
+            and used & {t for (t,) in state.get("source_haste_rider", set())}:
+        state.setdefault("_enters_with_haste", set()).add((spell,))
     _refresh_mana_pool(state, ap)                             # pool/count from sources still untapped + floating
 
 
@@ -2091,6 +2096,12 @@ def _resolve_top(state: dict) -> None:
         state["on_battlefield"].add((top,))
         state.setdefault("printed_control", set()).add((ctrl, top))
         state.setdefault("_sick", set()).add((top,))         # §302.6 summoning sickness until controller's next turn
+        if (top,) in state.get("_enters_with_haste", set()):  # §106 cast with Arena of Glory's 'haste mana'
+            eid = f"hastemana__{top}"
+            state.setdefault("eff_grant_keyword", set()).add((eid, top, "haste"))
+            state.setdefault("until_eot", set()).add((eid,))  # §613 layer 6 — wears off at cleanup
+            state["_enters_with_haste"].discard((top,))
+            print(f"      {top} enters with haste (cast with Arena of Glory's mana)")
         _attach_aura(state, top, ctrl)                        # §303.4 an Aura enters attached to a creature
         if (top,) in out["enters_tapped"]:
             state.setdefault("tapped", set()).add((top,)); print(f"      {top} enters tapped")

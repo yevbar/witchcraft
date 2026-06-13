@@ -1675,6 +1675,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):    # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "grant_keyword" and str(extra) == "haste" and "mana_is_spent_on_a_creature" in str(_cond):
+                    # §106 a 'haste-mana' rider on a mana ability: 'Add {R}{R}. If that mana is spent on a
+                    # creature spell, it gains haste' (Arena of Glory). Flag the source — the driver grants
+                    # haste to a creature cast with this source's mana (only meaningful with mana_registered).
+                    if mana_registered:
+                        add("source_haste_rider", (tid,))
+                    continue
                 if verb == "search":                          # an UNFOLDED search -> abstain (see the spell path)
                     dropped.append(("effect", "search")); continue
                 # §115/§120/§122 single-target creature verbs on an activated ability ('{T}: tap target

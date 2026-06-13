@@ -143,6 +143,26 @@ def _frontier_mana_checks():
         driver._apply_effects(ost, {("r", "dyn_counter_draw", 1, "burden", "tor", "me")})
     check("One Ring draws 1 then 2 (count-scaled by burden)", h1 == 1 and len([c for (p, c) in ost["in_hand"] if p == "me"]) == 3)
 
+    # §106 Arena of Glory 'haste mana': a CREATURE paid with its red gets flagged to enter with haste; an
+    # instant does not. (The flag is set in _spend_mana; the ETB grant happens when the creature resolves.)
+    base = {"is_player": {("me",)}, "on_battlefield": {("arena",), ("mtn",)},
+            "printed_control": {("me", "arena"), ("me", "mtn")}, "printed_type": {("arena", "land"), ("mtn", "land")},
+            "tapped": set(), "_sick": set(), "land_produces": {("arena", "red"), ("mtn", "red")},
+            "source_haste_rider": {("arena",)}, "mana_pool": set(), "floating_mana": set(), "_enters_with_haste": set()}
+    cst = {**{k: set(v) if isinstance(v, set) else v for k, v in base.items()},
+           "spell_type": {("bear", "creature")}, "mana_pip": {("bear", "red", 2)}, "mana_generic": {("bear", 0)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._spend_mana(cst, "me", "bear")
+    check("a creature paid with Arena's mana is flagged to enter with haste", ("bear",) in cst["_enters_with_haste"])
+    ist = {**{k: set(v) if isinstance(v, set) else v for k, v in base.items()},
+           "spell_type": {("bolt", "instant")}, "mana_pip": {("bolt", "red", 1)}, "mana_generic": {("bolt", 0)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._spend_mana(ist, "me", "bolt")
+    check("a NON-creature spell paid with Arena's mana is NOT flagged", ("bolt",) not in ist["_enters_with_haste"])
+    import bridge_to_engine as Bm2
+    _f, dr = Bm2.card_facts("Arena of Glory", "me", "x", sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()})
+    check("Arena of Glory is CLEAN", dr == [])
+
 
 def run():
     _frontier_mana_checks()
