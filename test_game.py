@@ -145,11 +145,34 @@ def _self_play() -> None:
     check("greedy self-play also reaches a decisive winner", wg in ("alice", "bob"))
 
 
+def _cedh_commander() -> None:
+    # §903 the witchcraft 'stockfish' can play a REAL cEDH decklist under Commander format: a 1v1 game from
+    # two Izzet spellslinger lists, 40 life + command zone, driven through the env referee without error.
+    import contextlib
+    import io
+    with contextlib.redirect_stdout(io.StringIO()):
+        st = game.new_cedh_game("Ral Turbo Storm", "Stella Lee Wild Card", seed=4)
+    check("cEDH commander game starts at 40 life", next(l for (p, l) in st["life"] if p == "alice") == 40)
+    check("each commander is in the command zone", any(p == "alice" for (p, _c) in st.get("command_zone", set())))
+    moves = 0
+    with contextlib.redirect_stdout(io.StringIO()):
+        st["active_player"] = {("alice",)}; st["current_step"] = {("precombat_main",)}; st["has_priority"] = {("alice",)}
+        for _ in range(40):
+            if env.is_terminal(st):
+                break
+            la = env.legal_actions(st)
+            if not la:
+                break
+            st = env.step(st, la[0]); moves += 1
+    check("the env referee steps the cEDH commander game (legal_actions/step)", moves >= 1)
+
+
 def run() -> None:
     _randomness()
     _setup()
     _mulligan()
     _self_play()
+    _cedh_commander()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

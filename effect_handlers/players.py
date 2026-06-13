@@ -134,6 +134,19 @@ def apply_pact_delayed(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {ctrl} must pay {{{n}}} at their next upkeep (Pact) or lose the game")
 
 
+@applier("dyn_counter_draw")
+def apply_dyn_counter_draw(D, state, a, n, tgt, src, ctrl):
+    """§122 'put a <kind> counter on this, then draw a card for each <kind> counter on this' (The One Ring):
+    add one counter to the source, then draw mult × the LIVE counter count (so the just-added one counts)."""
+    kind = str(tgt)
+    D._bump_counter(state, src, kind, 1)
+    count = next((c for (o, k, c) in state.get("counter", set()) if o == src and k == kind), 0)
+    draws = int(n) * int(count)
+    print(f"    {a}: {ctrl} puts a {kind} counter on {src} ({count}) and draws {draws}")
+    for _ in range(draws):
+        D._draw(state, ctrl)
+
+
 @encoder("flip_coin")
 def encode_flip_coin(verb, amt, tgt, extra):
     return ("flip_coin", 0, "-")                              # a standalone 'flip a coin' (Tavern Scoundrel)

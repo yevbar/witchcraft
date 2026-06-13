@@ -782,6 +782,24 @@ def _apply_add_mana(D, state, a, n, tgt, src, ctrl):
     print(f"    trigger {a}: {ctrl} adds {n} {color} mana -> floating {D._floating(state, ctrl).get(color, 0)} {color}")
 
 
+@encoder("retain_mana")
+def _encode_retain_mana(verb, amt, tgt, extra):
+    return ("retain_mana", 0, "controller")                    # §500.4 'you don't lose this mana …' (Birgi)
+
+
+@applier("retain_mana")
+def _apply_retain_mana(D, state, a, n, tgt, src, ctrl):
+    """§500.4 'Until end of turn, you don't lose this mana as steps and phases end' (Birgi, Pyromancer's
+    Goggles-likes). Mark the controller's CURRENT floating mana as RETAINED — _empty_mana_pool keeps the
+    retained amount (capped at what's actually left, so spent retained mana doesn't return) across step/phase
+    boundaries; it empties at end of turn like normal mana."""
+    fl = D._floating(state, ctrl)
+    state["_retained_mana"] = {(p, c, k) for (p, c, k) in state.get("_retained_mana", set()) if p != ctrl} \
+        | {(ctrl, c, k) for c, k in fl.items() if k > 0}
+    if fl:
+        print(f"    trigger {a}: {ctrl} retains {sum(fl.values())} mana until end of turn")
+
+
 # §106 'add N mana of a color FOR EACH <a game quantity>' — a VARIABLE-amount ritual whose size depends on
 # live board/hand state (Battle Hymn = R per creature you control, Mana Geyser = R per tapped land an
 # opponent controls(*), Inner Fire = R per card in your hand). The bridge couldn't compute the amount at

@@ -841,6 +841,25 @@ def _fold_gy_recast(effs: list, emit) -> set:
     return skip
 
 
+def _fold_counter_draw(effs: list, emit) -> set:
+    """§122 'put a <counter> on this, then draw a card for each <counter> on this' (The One Ring's
+    {T} ability). Fold the [put_counter <kind> on self] + [draw N per <kind> counter] pair into one
+    dyn_counter_draw row (amount = the per-counter multiplier, target = the counter kind); the driver adds the
+    counter, then draws multiplier × the live counter count (so the just-added counter is included)."""
+    put_i = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+                  if v == "put_counter" and str(t) in ("self", "it") and _int(a) is not None), None)
+    if put_i is None:
+        return set()
+    kind = str(effs[put_i][4])
+    draw_i = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs)
+                   if v == "draw" and re.match(rf"^\d+_per_{re.escape(kind)}_counter", str(a))), None)
+    if draw_i is None:
+        return set()
+    mult = int(re.match(r"^(\d+)_per_", str(effs[draw_i][2])).group(1))
+    emit("dyn_counter_draw", mult, kind)
+    return {put_i, draw_i}
+
+
 def _fold_coinflip(effs: list, emit) -> set:
     """§705 COIN FLIP — 'flip a coin. If you lose the flip, ~ deals N damage to you' (Mana Crypt; Ral's
     downside). Fold the flip + its win/lose self-damage branches into ONE coin_flip effect the driver resolves
@@ -1594,6 +1613,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # '{B}, {T}, Sacrifice ~, Pay 1 life: …') — fold into one name_exile_lib activated_ability row.
             act_skip |= _fold_name_exile(act_effs, _emit_act)
             act_skip |= _fold_dig(act_effs, _emit_act)         # §701 'look N, put M into hand, rest to bottom/yard'
+            # §122 'put a <counter> on ~, then draw a card for each <counter> on ~' (The One Ring) -> one
+            # dyn_counter_draw row (add the counter, then draw = the live counter count).
+            act_skip |= _fold_counter_draw(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT
@@ -1602,7 +1624,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # add_mana verb. Handles the whole ability's add_mana clauses at once (a mana ability's
             # multiple Add clauses are one source); the loop below skips them once they're registered.
             mana_registered = False
-            if any(e[1] == "add_mana" for e in act_effs):
+            # §106 a DYNAMIC-amount any-combination mana ability ('{0}: Add X mana in any combination of {U}
+            # and/or {R}, where X is Vivi's power' — Vivi Ornitier). Model it as a source that taps for `power`
+            # mana of the card's COLOR IDENTITY (the tap approximates 'only once each turn'; the {0} cost is free).
+            if any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
+                cols = [_COLOR_NAME[ci] for ci in (c.get("colorIdentity") or []) if ci in _COLOR_NAME]
+                if cols:
+                    add("mana_source", (tid,)); add("source_dyn_power", (tid,))
+                    for col in cols:
+                        add("source_dyn_color", (tid, col))
+                    add("source_cost", (tid, 0, True))
+                    emitted = mana_registered = True
+            if not mana_registered and any(e[1] == "add_mana" for e in act_effs):
                 is_land = "Land" in (c.get("types") or [])
                 if _add_mana_source(add, tid, is_land, paid[0], paid[1], act_effs):
                     emitted = mana_registered = True

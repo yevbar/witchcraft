@@ -12,11 +12,15 @@ Run: python3 test_fast_mana.py
 
 from __future__ import annotations
 
+import contextlib
+import io
+
 import card_corpus
 import driver
 import bridge_to_engine as B
 import effect_handlers
 import ground
+import sim
 
 effect_handlers.load()
 CORPUS = {c["name"]: c for c in card_corpus.load_cards()}
@@ -100,7 +104,48 @@ def _altmana_checks():
     check("an alt-cost source is a LAST resort (a land is used before paying life)", _life(st, "alice") == before)
 
 
+def _frontier_mana_checks():
+    import bridge_to_engine as Bm
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    for nm in ("Vivi Ornitier", "Birgi, God of Storytelling // Harnfel, Horn of Bounty", "The One Ring"):
+        _f, dropped = Bm.card_facts(nm, "me", "x", db, corpus)
+        check(f"{nm[:24]} is CLEAN", dropped == [])
+
+    # §106 Vivi: a DYNAMIC source = its power, in its U/R identity (base power 0, grows via +1/+1 counters).
+    f, _ = Bm.card_facts("Vivi Ornitier", "me", "vivi", db, corpus)
+    st = {k: set(v) for k, v in f.items()}
+    st.update({"is_player": {("me",)}, "on_battlefield": {("vivi",)}, "printed_control": {("me", "vivi")},
+               "printed_type": {("vivi", "creature")}, "tapped": set(), "_sick": set(), "land_produces": set(),
+               "counter": {("vivi", "p1p1", 3)}})
+    units = list(driver._source_units(st, "me"))
+    check("Vivi taps for `power` mana (3 counters -> 3)", sum(len(u[1]) for u in units) == 3)
+    check("Vivi's mana is in its U/R identity", units and set(units[0][1][0]) == {"blue", "red"})
+    st["counter"] = set()
+    check("Vivi with 0 power makes 0 mana", sum(len(u[1]) for u in driver._source_units(st, "me")) == 0)
+
+    # §500.4 Birgi retain: added mana survives a step-empty, but spent retained mana doesn't return.
+    rst = {"is_player": {("me",)}, "floating_mana": set(), "_retained_mana": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(rst, {("b", "add_mana", 1, "red", "b", "me")})
+        driver._apply_effects(rst, {("b", "retain_mana", 0, "controller", "b", "me")})
+    driver._empty_mana_pool(rst)
+    check("Birgi-retained mana survives a step empty", ("me", "red", 1) in rst["floating_mana"])
+    driver._set_floating(rst, "me", {}); driver._empty_mana_pool(rst)
+    check("spent retained mana does NOT return", not rst["floating_mana"])
+
+    # §122 The One Ring: each {T} adds a burden then draws = the live burden count (1, then 2, …).
+    ost = {"is_player": {("me",)}, "counter": set(), "in_hand": set(),
+           "in_library": {("me", f"c{i}") for i in range(10)}, "_lib_order": {"me": [f"c{i}" for i in range(10)]}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(ost, {("r", "dyn_counter_draw", 1, "burden", "tor", "me")})
+        h1 = len([c for (p, c) in ost["in_hand"] if p == "me"])
+        driver._apply_effects(ost, {("r", "dyn_counter_draw", 1, "burden", "tor", "me")})
+    check("One Ring draws 1 then 2 (count-scaled by burden)", h1 == 1 and len([c for (p, c) in ost["in_hand"] if p == "me"]) == 3)
+
+
 def run():
+    _frontier_mana_checks()
     # lexing: both get a sac-self source row; Black Lotus = any_one_color×3, Lotus Petal = any_color×1.
     bl = list(B._mana_source_outputs(CORPUS["Black Lotus"]))
     lp = list(B._mana_source_outputs(CORPUS["Lotus Petal"]))

@@ -969,12 +969,23 @@ def _source_units(state: dict, ap: str):
     # non-land sources controlled by ap and untapped. §302.6 summoning sickness only blocks a CREATURE's
     # {T} mana ability (a dork that entered this turn) — a mana ROCK (artifact) taps the turn it enters.
     is_creature = state.get("printed_type", set())
+    # §106 DYNAMIC-amount sources (Vivi: 'Add X mana … where X is its power'): yield `power` wildcard mana
+    # of the source's dynamic colors, read live. Computed once (the power query) only if such a source exists.
+    dyn_power = {t for (t,) in state.get("source_dyn_power", set())}
+    dyn_colors: dict = {}
+    for (t, col) in state.get("source_dyn_color", set()):
+        dyn_colors.setdefault(t, set()).add(col)
+    live_power = {c: int(n) for (c, n) in run(state, ["power"])["power"]} if dyn_power else {}
     rest = sorted(c for (c,) in bf if (ap, c) in ctrl and (c,) not in tapped and c not in special_tids
                   and (c, "land") not in state.get("printed_type", set())
                   and not ((c, "creature") in is_creature and (c,) in sick)
-                  and (c in precise or (c,) in state.get("mana_source", set())))
+                  and (c in precise or c in dyn_power or (c,) in state.get("mana_source", set())))
     for c in rest:
-        if c in precise:
+        if c in dyn_power:                                   # §106 X = the source's power, in its dynamic colors
+            n = live_power.get(c, 0)
+            cols = frozenset(dyn_colors.get(c)) if dyn_colors.get(c) else ANY
+            yield (c, [cols] * n, _source_cost_generic(c, s_cost), _source_taps(c, s_cost))
+        elif c in precise:
             yield (c, _source_unit_list(c, s_fixed, s_wild), _source_cost_generic(c, s_cost), _source_taps(c, s_cost))
         else:                                                # legacy un-lexed dork: one colorless mana (§605)
             yield (c, ["colorless"], 0, True)
@@ -1104,8 +1115,24 @@ def _add_floating(state: dict, p: str, by_color: dict) -> None:
 
 def _empty_mana_pool(state: dict) -> None:
     """§500.4 — at the end of each step and phase, every player's mana pool empties. Called on every step
-    transition so floating mana never leaks across steps."""
-    state["floating_mana"] = set()
+    transition so floating mana never leaks across steps. EXCEPTION: mana flagged RETAINED 'until end of turn'
+    (Birgi) survives — but only up to what's actually still in the pool, so spent retained mana doesn't return."""
+    retained = state.get("_retained_mana", set())
+    if not retained:
+        state["floating_mana"] = set()
+        return
+    survivors = set()
+    new_retained = set()
+    for p in {pp for (pp, _c, _n) in retained}:
+        cur = _floating(state, p)
+        for (pp, c, k) in retained:
+            if pp != p:
+                continue
+            keep = min(int(k), cur.get(c, 0))                  # retained mana still present survives; spent is gone
+            if keep > 0:
+                survivors.add((p, c, keep)); new_retained.add((p, c, keep))
+    state["floating_mana"] = survivors
+    state["_retained_mana"] = new_retained
 
 
 def _resolve_pool(state: dict, ap: str):
@@ -2408,6 +2435,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         nxt_p = _next_active_player(state, ap, players)          # pass the turn (§500.6) — or take an extra one
         state["active_player"] = {(nxt_p,)}
         state["current_step"] = {("untap",)}
+        state["_retained_mana"] = set()                          # §500.4 retained mana lasts only 'until end of turn'
         _empty_mana_pool(state)                                  # §500.4 — pool empties across the turn boundary too
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
