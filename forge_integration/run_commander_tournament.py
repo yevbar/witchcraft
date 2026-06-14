@@ -32,9 +32,15 @@ FATJAR = f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-ja
 OUT = "/tmp/forge_tournament_out"
 DECK_DIR = "/tmp/cedh_decks"
 LOG_DIR = "/tmp/cedh_tournament_logs"
+# Optional Forge JVM heap cap, e.g. JVM_HEAP=4g -> -Xmx4g. Empty (default) = let the JVM self-size to ~25% of
+# RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
+JVM_HEAP = os.environ.get("JVM_HEAP", "")
+_XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "1800"))    # 4-player cEDH vs Forge AI is grindy -> 30 min/game
 # §903 Commander is 40 life; keep witch decisions fast (a small lookahead — Forge owns the rules, the engine
 # just drives its seat where it can and falls back to Forge AI otherwise) so a 4-player game still finishes.
+# NB: each witch seat ALSO gets a per-deck MTG_DECK_AXIS + MTG_SYNERGY (see axis_synergy() / run_game) so the
+# develop search has a win condition to advance toward — without it the seat only ever plays lands and passes.
 BOT_ENV = {"MTG_POLICY": os.environ.get("MTG_POLICY", "engine"), "MTG_START_LIFE": "40",
            "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": os.environ.get("MTG_SEARCH_BUDGET", "3000")}
 
@@ -42,6 +48,34 @@ BOT_ENV = {"MTG_POLICY": os.environ.get("MTG_POLICY", "engine"), "MTG_START_LIFE
 DECKS = {"ral": "Ral Turbo Storm", "stella": "Stella Lee Wild Card",
          "bluefarm": "Blue Farm", "kinnan": "Kinnan, Bonder Prodigy"}
 SUBST = {"________ Goblin": "Island"}                          # the un-set sticker Goblin -> a basic (keeps it legal)
+
+
+def _deck_card_names(key: str) -> list:
+    """The distinct card names of deck `key` — commander front-faces + main — as the deck evaluators want them."""
+    from cedh_decklists import DECKS as CEDH
+    d = CEDH[DECKS[key]]
+    cmd = d["commander"] if isinstance(d["commander"], list) else [d["commander"]]
+    return [c.split(" // ")[0] for c in cmd] + list(d["cards"].keys())
+
+
+_AXIS_CACHE: dict = {}
+
+
+def axis_synergy(key: str) -> dict:
+    """The win PLAN a witch seat flying deck `key` develops toward, as bot-env vars: the deck's primary §104 win
+    axis (deck_evaluator.deck_axis — the evaluator that identifies the deck's winning mechanic) and its primary
+    synergy/combo cluster (interaction_evaluator.synergy_cluster). FFA -> opponent-passive find_progress (no
+    MTG_MINIMAX). Computed once per deck and cached. This is what makes the seat cast its deck instead of
+    playing a land and passing every turn."""
+    if key not in _AXIS_CACHE:
+        import deck_evaluator
+        import interaction_evaluator
+        names = _deck_card_names(key)
+        syn = interaction_evaluator.synergy_cluster(names, commander=True)
+        _AXIS_CACHE[key] = {"MTG_DECK_AXIS": deck_evaluator.deck_axis(names, commander=True),
+                            "MTG_SYNERGY": ",".join(sorted(syn["slugs"])),
+                            "MTG_SYNERGY_SIZE": str(syn["size"])}
+    return _AXIS_CACHE[key]
 
 
 def sh(cmd, **kw):
@@ -96,9 +130,12 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     os.makedirs(LOG_DIR, exist_ok=True)
     bots = []
     for i in (0, 1):
+        plan = axis_synergy(seat_decks[i])                     # this seat's deck-specific win axis + synergy combo
+        print(f"  seat {i} Witch[{seat_decks[i]}] develops toward axis={plan['MTG_DECK_AXIS']} "
+              f"synergy_size={plan['MTG_SYNERGY_SIZE']}", flush=True)
         b = subprocess.Popen([sys.executable, f"{HERE}/run_bot.py", str(ports[i])],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             env=dict(os.environ, **BOT_ENV))
+                             env=dict(os.environ, **BOT_ENV, **plan))
         bots.append(b)
     time.sleep(1.5)
     props = []
@@ -107,7 +144,7 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
                   f"-Dtype{i}={seat_type[i]}", f"-Dport{i}={ports[i]}"]
     env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
     log = f"{LOG_DIR}/game_p{port_base}.log"                   # stream Forge's live move record to a per-game log
-    cmd = (f'timeout {timeout} "{JDK}/bin/java" -Djava.awt.headless=true '
+    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}-Djava.awt.headless=true '
            f'{" ".join(props)} -cp "{FATJAR}:{OUT}" ForgeCommanderFFA > "{log}" 2>&1')
     r = sh(cmd, env=env)
     try:

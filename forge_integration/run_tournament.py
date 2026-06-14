@@ -32,6 +32,10 @@ JDK = os.environ.get("JDK", "/home/zucc/opt/jdk-17.0.13+11")
 FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
 FATJAR = f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar"
 OUT = "/tmp/forge_tournament_out"
+# Optional Forge JVM heap cap, e.g. JVM_HEAP=4g -> -Xmx4g. Empty (default) = let the JVM self-size to ~25% of
+# RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
+JVM_HEAP = os.environ.get("JVM_HEAP", "")
+_XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "300"))
 
 
@@ -68,7 +72,7 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
     time.sleep(1.2)
     props = " ".join(f"-D{k}={v}" for k, v in jprops.items())
     env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
-    cmd = (f'timeout {timeout} "{JDK}/bin/java" -Djava.awt.headless=true '
+    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}-Djava.awt.headless=true '
            f'-DbotHost=127.0.0.1 -DbotPort={port} {props} -cp "{FATJAR}:{OUT}" {main_class}')
     r = sh(cmd, env=env)
     try:
