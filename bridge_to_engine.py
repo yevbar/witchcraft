@@ -38,6 +38,9 @@ _EVENT = {
     # §603 'whenever a creature deals combat damage to YOU' (The Cabbage Merchant) — fires for the player who
     # was dealt the combat damage (the source's controller), by ANY creature.
     "a_creature_deals_combat_damage_to_you": "creature_combat_damage_to_you",
+    # §701.18 'whenever an opponent searches their library' (Wan Shi Tong) — fired by the driver whenever a
+    # player searches their library; the engine fires it for that player's OPPONENTS' watchers.
+    "an_opponent_searches_their_library": "opponent_searches_library",
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles) — fires once
     # per combat for the controller (set semantics dedupe the per-creature ev_combat_dmg_player).
     "one_or_more_creatures_you_control_deal_combat_damage_to_a_player": "your_creatures_combat_damage",
@@ -1125,6 +1128,24 @@ def _fold_valakut(effs: list, emit) -> set:
     return {put_i, draw_i}
 
 
+def _fold_xcounter_draw(effs: list, emit) -> set:
+    """§122/§107.3 'put X +1/+1 counters on this. Then draw half X cards, rounded down.' (Wan Shi Tong's ETB,
+    X = the {X} paid for the spell). Fold the [put_counter X on self] + [draw half_x] pair into one
+    xcounter_half_draw row; the driver reads the spell's X (driver._spell_x) to add X +1/+1 counters and draw
+    X//2. A non-X count or a non-half draw falls through (this is specifically the X-counter / half-X shape)."""
+    put_i = next((i for i, (_s, v, a, t, x, _c) in enumerate(effs)
+                  if v == "put_counter" and str(t) in ("self", "it", "him", "her", "itself") and str(a).lower() == "x"
+                  and str(x) in ("+1/+1", "p1p1")), None)
+    if put_i is None:
+        return set()
+    draw_i = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs)
+                   if v == "draw" and "half" in str(a) and "x" in str(a)), None)
+    if draw_i is None:
+        return set()
+    emit("xcounter_half_draw", 0, "p1p1")
+    return {put_i, draw_i}
+
+
 def _fold_counter_draw(effs: list, emit) -> set:
     """§122 'put a <counter> on this, then draw a card for each <counter> on this' (The One Ring's
     {T} ability). Fold the [put_counter <kind> on self] + [draw N per <kind> counter] pair into one
@@ -1582,6 +1603,27 @@ def _threshold_ritual(f: dict):
     return (min(n1, n2), max(n1, n2), c1, set(amts.keys()))
 
 
+def _name_aliases(name: str) -> frozenset:
+    """The slug forms a card uses to refer to ITSELF by name — the full name and the part before the first
+    comma ('Wan Shi Tong, Librarian' -> {'wan_shi_tong_librarian', 'wan_shi_tong'}). An effect target matching
+    one of these is the source itself, normalized to 'self' so the self-counter / self-effect paths fire."""
+    return frozenset({ground.slug(name), ground.slug(name.split(",")[0])})
+
+
+def _norm_self(effs: list, aliases: frozenset) -> list:
+    """Rewrite each parse-effect's TARGET to 'self' when it names the source by name (Wan Shi Tong's
+    'put a +1/+1 counter on Wan Shi Tong'). Leaves every other clause untouched — a pure target normalization
+    so the self-targeting encoders (counters, pumps) fire instead of abstaining on the card's own name."""
+    if not aliases:
+        return list(effs)
+    out = []
+    for e in effs:
+        if len(e) >= 4 and str(e[3]) in aliases:
+            e = (e[0], e[1], e[2], "self", *e[4:])
+        out.append(e)
+    return out
+
+
 def _modal_count(f: dict, n_offered: int) -> tuple[int, int]:
     """§700.2 — (base, commander_more): how many modes a modal spell's controller chooses by DEFAULT, and the
     count if a Commander-precon 'you may choose both/another instead' rider applies. `base` from the modal slug
@@ -1730,6 +1772,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # facts are card-level (shared across instances, set-deduped).
     add("instance_of", (tid, facts))
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
+    self_aliases = _name_aliases(name)                        # §201 the card's own-name slugs -> normalized to 'self'
     modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as
     # §700.2 a modal card whose MODES belong to a TRIGGERED ability rather than the spell itself (Hullbreaker
     # Horror: 'Whenever you cast a spell, choose up to one —'). Signal: a non-instant/sorcery modal card with a
@@ -1910,7 +1953,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue
             a = f"{tid}_{aid}"
             emitted = False
-            effs = list(ab.get("effects", []))
+            effs = _norm_self(ab.get("effects", []), self_aliases)
             # §701.18 SEARCH-PLACEMENT on a TRIGGERED ability (Ranger-Captain of Eos' ETB tutor): fold the
             # search + its following destination clause ('search …, put it into your hand') into one atomic
             # search_to_<dest> trigger_effect — same as the spell/activated paths (the relations carry no
@@ -1935,8 +1978,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                        if event == "postcombat_main" else set())
             # §603 'that player may pay {N}; if they don't, you create a <token>' (Smothering Tithe).
             poc_skip = _fold_pay_or_create(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §107.3 'put X +1/+1 counters on this, then draw half X cards' (Wan Shi Tong's ETB).
+            xcd_skip = _fold_xcounter_draw(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2060,7 +2105,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # bridge no longer emits or suppresses it. event is still gated above to drive the trigger_* payloads.
             _ = emitted
         elif kind == "spell":                                # §608 — an instant/sorcery's on-resolution effects
-            effs = list(ab.get("effects", []))
+            effs = _norm_self(ab.get("effects", []), self_aliases)
             # §701.18 SEARCH-PLACEMENT (tutors/fetch): spell_effect carries NO clause order, so a search and
             # its following destination clause can't resolve as two ordered rows. Fold each `search` together
             # with the destination clause that immediately follows it ('search …, put it into your hand/onto
@@ -2292,7 +2337,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if len(paid) > 2 and paid[2]:                     # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
                 add("ability_sac_cost", (a,))                 # the driver sacrifices the source when activated
             emitted = False
-            act_effs = list(ab.get("effects", []))
+            act_effs = _norm_self(ab.get("effects", []), self_aliases)
             # §701.18 SEARCH-PLACEMENT on an ACTIVATED ability (fetchlands: '{T},…,Sac ~: search for a basic
             # land, put it onto the battlefield, then shuffle'): fold search + placement (+ shuffle) into ONE
             # atomic search_to_<dest> activated_ability row, so the whole fetch resolves through the driver's

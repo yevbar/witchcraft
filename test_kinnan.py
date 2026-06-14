@@ -317,6 +317,48 @@ def run() -> None:
           any(s == "cab" for (s, _u, _c, _t) in units)
           and len([c for (c,) in fm.get("tapped", set())]) == 2)
 
+    # Wan Shi Tong, Librarian — an ETB 'put X +1/+1 counters, draw half X' + an 'whenever an opponent
+    # searches their library, put a +1/+1 counter on him and draw' trigger (a new search event + self-name).
+    check("Wan Shi Tong, Librarian is CLEAN", dropped("Wan Shi Tong, Librarian") == [])
+    wf, _ = B.card_facts("Wan Shi Tong, Librarian", "p", "wan", db, corpus)
+    check("Wan Shi Tong's ETB folds to xcounter_half_draw; its opp-search trigger adds a +1/+1 counter",
+          ("wan_a2", "xcounter_half_draw", 0, "p1p1") in wf.get("trigger_effect", set())
+          and ("wan_a3", "add_counter", 1, "p1p1") in wf.get("trigger_effect", set()))
+    # ETB: X=6 -> 6 +1/+1 counters and draw 3 (half of X).
+    we = {"is_player": {("p",)}, "on_battlefield": {("wan",)}, "printed_control": {("p", "wan")},
+          "printed_type": {("wan", "creature")},
+          "in_library": {("p", "c1"), ("p", "c2"), ("p", "c3"), ("p", "c4")}, "_lib_order": {"p": ["c1", "c2", "c3", "c4"]},
+          "_spell_x": {"wan": 6}}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["xcounter_half_draw"](driver, we, "wan_a2", 0, "p1p1", "wan", "p")
+    check("Wan Shi Tong's ETB: X=6 -> 6 +1/+1 counters and draws 3 (half of X)",
+          ("wan", "p1p1", 6) in we.get("counter", set())
+          and len([c for (pp, c) in we.get("in_hand", set()) if pp == "p"]) == 3)
+    # opp-search trigger: when an OPPONENT searches their library, Wan Shi Tong gets a counter + you draw;
+    # the controller's OWN search does NOT trigger it.
+    ws = {}
+    for rel, rows in wf.items():
+        ws.setdefault(rel, set()).update(rows)
+    for (rel, row) in [("on_battlefield", ("wan",)), ("printed_control", ("p", "wan")), ("printed_type", ("wan", "creature")),
+                       ("printed_power", ("wan", 1)), ("printed_toughness", ("wan", 1)),
+                       ("is_player", ("p",)), ("is_player", ("q",)),
+                       ("in_library", ("q", "qc")), ("in_library", ("p", "pc"))]:
+        ws.setdefault(rel, set()).add(row)
+    ws["_lib_order"] = {"q": ["qc"], "p": ["pc"]}
+    from effect_handlers import library as _LIB
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        _LIB._select_card(ws, "q", "any")                    # OPPONENT q searches -> triggers
+    counter_after_opp = next((n for (o, k, n) in ws.get("counter", set()) if o == "wan" and k == "p1p1"), 0)
+    drew_after_opp = ("p", "pc") in ws.get("in_hand", set())
+    with contextlib.redirect_stdout(io.StringIO()):
+        ws["in_library"].add(("p", "pc2")); ws["_lib_order"]["p"] = ["pc2"]
+        _LIB._select_card(ws, "p", "any")                    # the CONTROLLER's own search -> no trigger
+    counter_after_own = next((n for (o, k, n) in ws.get("counter", set()) if o == "wan" and k == "p1p1"), 0)
+    check("Wan Shi Tong triggers once on an OPPONENT's search (counter+draw), not on its controller's own search",
+          counter_after_opp == 1 and drew_after_opp and counter_after_own == 1)
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

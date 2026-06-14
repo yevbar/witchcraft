@@ -239,6 +239,7 @@ INPUTS = [
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
+    ("ev_search_library", [("p", "symbol")]),                    # §701.18 a player who just searched their library (Wan Shi Tong)
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -999,6 +1000,10 @@ def _rules(p: Program) -> None:
     # attackers hitting P collapse to one firing of S.
     p.rule("fires(A, S)", ['has_trigger(A, S, "creature_combat_damage_to_you")',
                            "ev_combat_dmg_player(_, P)", "controls(P, S)"])
+    # §701.18 'whenever an OPPONENT searches their library' (Wan Shi Tong): fires for a watcher S controlled
+    # by P when a DIFFERENT player Q searched their library (driver-fed ev_search_library).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_searches_library")',
+                           "ev_search_library(Q)", "controls(P, S)", "P != Q"])
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles): the SOURCE S
     # fires when a creature C its controller P also controls dealt combat damage — fires(A,S) is a SET, so the
     # several damaging creatures collapse to ONE firing of S.

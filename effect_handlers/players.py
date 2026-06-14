@@ -131,6 +131,22 @@ def apply_sacrifice_subtype(D, state, a, n, tgt, src, ctrl):
         print(f"    {a}: {ctrl} has no {sub} to sacrifice")
 
 
+@applier("xcounter_half_draw")
+def apply_xcounter_half_draw(D, state, a, n, tgt, src, ctrl):
+    """§107.3/§122 Wan Shi Tong's ETB: 'put X +1/+1 counters on him, then draw half X cards, rounded down.'
+    X = the {X} paid for the spell (driver._spell_x, keyed by the spell id = this permanent's id). Put X
+    counters of the given kind (p1p1) on the source, then draw X//2. X=0 is a faithful no-op."""
+    x = int(state.get("_spell_x", {}).get(src, 0))
+    if x <= 0:
+        return
+    D._bump_counter(state, src, str(tgt), x)
+    print(f"    {a}: {src} enters with {x} {tgt} counter(s) (X={x})")
+    for _ in range(x // 2):
+        D._draw(state, ctrl)
+    if x // 2:
+        print(f"    {a}: {ctrl} draws {x // 2} (half of X={x})")
+
+
 @applier("may_pay")
 def apply_may_pay(D, state, a, n, tgt, src, ctrl):
     """§118 a recurring OPTIONAL payment 'you may pay {n}. If you do, untap this' (Mana Vault). The driver

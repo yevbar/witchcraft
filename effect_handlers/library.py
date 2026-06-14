@@ -405,17 +405,21 @@ def _matches(state: dict, card: str, pred: str) -> bool:
     return False
 
 
-def _select_card(state: dict, ctrl: str, pred: str) -> str | None:
+def _select_card(state: dict, ctrl: str, pred: str, fire: bool = True) -> str | None:
     """§701.18 — pick the canonical-first library card that matches `pred`, pull it OUT of the library, and
-    return it (or None for a faithful 'fail to find', legal under §701.18c)."""
+    return it (or None for a faithful 'fail to find', legal under §701.18c). `fire` (default True) signals
+    the §701.18 'you searched your library' event so an OPPONENT's watcher (Wan Shi Tong) triggers — fired
+    even on a fail-to-find. A multi-card search instruction passes fire=False per card and fires ONCE itself."""
     lib = sorted(c for (pp, c) in state.get("in_library", set()) if pp == ctrl)
     card = next((c for c in lib if _matches(state, c, pred)), None)
-    if card is None:
-        return None
-    state.setdefault("in_library", set()).discard((ctrl, card))
-    order = state.get("_lib_order", {}).get(ctrl)
-    if order is not None and card in order:
-        order.remove(card)
+    if card is not None:
+        state.setdefault("in_library", set()).discard((ctrl, card))
+        order = state.get("_lib_order", {}).get(ctrl)
+        if order is not None and card in order:
+            order.remove(card)
+    if fire:
+        import driver as _D
+        _D._fire_search_triggers(state, ctrl)                 # §701.18 'an opponent searches their library'
     return card
 
 
@@ -447,12 +451,13 @@ def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
     pred = str(tgt)
     moved = []
     for _ in range(int(n)):
-        card = _select_card(state, ctrl, pred)               # pulls one matching card OUT of the library
+        card = _select_card(state, ctrl, pred, fire=False)   # pulls one matching card OUT (one search instruction)
         if card is None:
             break
         state.setdefault("graveyard", set()).add((card,))
         moved.append(card)
     D._shuffle_library(state, ctrl)                           # §701.18 'then shuffle'
+    D._fire_search_triggers(state, ctrl)                      # §701.18 ONE search event (a multi-card 'up to N' search)
     print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
 
 

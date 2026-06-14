@@ -881,6 +881,27 @@ def _fire_draw_triggers(state: dict, p: str) -> None:
         state["_in_draw_trigger"] -= 1
 
 
+def _fire_search_triggers(state: dict, searcher: str) -> None:
+    """§701.18 fire 'whenever an opponent searches their library' triggers (Wan Shi Tong) for a library
+    search just performed by `searcher`. Driver-fed ev_search_library opens the window; the engine fires the
+    watchers controlled by the searcher's OPPONENTS. Apply only the NEW pending the window produces (diff vs.
+    pre-window), so unrelated standing triggers aren't re-applied; a re-entrancy guard caps the chain (a
+    search trigger that itself searches). Fired once per `search your library` instruction (a multi-card
+    search counts once — see callers)."""
+    if state.get("_in_search_trigger", 0) >= 8:
+        return
+    before = run(state, ["pending"])["pending"]
+    state["_in_search_trigger"] = state.get("_in_search_trigger", 0) + 1
+    try:
+        state["ev_search_library"] = {(searcher,)}
+        new = run(state, ["pending"])["pending"] - before
+        state["ev_search_library"] = set()                   # CLOSE the window before applying — the trigger's own
+        _apply_effects(state, new)                            # draw re-runs pending and would otherwise re-fire it
+    finally:
+        state["ev_search_library"] = set()
+        state["_in_search_trigger"] -= 1
+
+
 def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     """Apply everything the engine derived for this step, in order; return a loser if
     one is decided this step (else None). This is the whole 'driver acts on engine
