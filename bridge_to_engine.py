@@ -727,6 +727,25 @@ def _fold_search_face_down_hand(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_dig_battlefield(effs: list, emit) -> set:
+    """§701 'Look at the top N cards of your library. You may put a [non-Human] CREATURE card from among them
+    onto the battlefield. Put the rest on the bottom' (Kinnan, Bonder Prodigy) -> one dig_to_battlefield effect
+    (N; the driver puts the strongest matching creature among the top N onto the battlefield, the rest on the
+    bottom)."""
+    li = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs) if v == "look" and _int(a) is not None), None)
+    ri = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "return_to_battlefield" and "from_among" in str(t)), None)
+    if li is None or ri is None:
+        return set()
+    nonhuman = "non_human" in str(effs[ri][3])
+    consumed = {li, ri}
+    for i, (_s, v, _a, _t, _x, _c) in enumerate(effs):       # the 'rest on the bottom' is part of the same dig
+        if i not in consumed and v == "put_on_bottom":
+            consumed.add(i)
+    emit("dig_to_battlefield", _int(effs[li][2]), "non_human_creature" if nonhuman else "creature")
+    return consumed
+
+
 def _fold_necro_dig(effs: list, emit) -> set:
     """§601 Necropotence 'Exile the top card of your library face down. Put that card into your hand at the
     beginning of your next end step' -> one necro_dig effect (the driver exiles the top card into a pending
@@ -2010,6 +2029,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             act_skip |= _fold_counter_draw(act_effs, _emit_act)
             # §601 Necropotence 'exile the top card face down; put it into your hand at your next end step'.
             act_skip |= _fold_necro_dig(act_effs, _emit_act)
+            # §701 Kinnan 'look at the top N, put a non-Human creature onto the battlefield, rest on the bottom'.
+            act_skip |= _fold_dig_battlefield(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT
@@ -2105,6 +2126,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             for _seq, verb, amt, tgt, extra, cond in ab.get("effects", []):
                 if verb == "skip" and "draw" in str(extra):  # §504 'Skip your draw step' (Necropotence)
                     add("skip_draw_source", (tid,))          # the driver skips the controller's draw while this is out
+                    continue
+                if verb == "untap" and "each_other_player" in str(tgt):   # §502 Seedborn Muse: untap your
+                    add("seedborn_untap_source", (tid,))     # permanents during EACH other player's untap step
                     continue
                 # §613 'you control enchanted creature' (Control Magic, Persuasion): a control-stealing Aura.
                 # The driver feeds eff_gain_control when it attaches — flag the Aura so it targets an enemy.

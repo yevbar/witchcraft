@@ -882,6 +882,8 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         state["tapped"].discard((c,)); print(f"    {ap} untaps {c}")
+    if ("untap",) in state.get("current_step", set()):           # §502 Seedborn Muse untaps off-turn
+        _seedborn_untap(state, ap)
     for (p,) in sorted(out["to_draw"]):                          # §504.1 draw
         if not _draw(state, p):
             # §104.3c — drawing from an empty library is a LOSS, UNLESS a §614 "you win when your library
@@ -2556,6 +2558,22 @@ def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
         _tap(state, sid)                                      # §701.20 tap a source for ability mana (just_tapped)
         paid += net
     _refresh_mana_pool(state, ap)                             # recompute pool/count from sources still untapped (0 if all tapped)
+
+
+def _seedborn_untap(state: dict, ap: str) -> None:
+    """§502 Seedborn Muse — each player who controls an 'untap all permanents you control during each OTHER
+    player's untap step' source untaps their permanents during ap's untap step (ap != the source's owner; on
+    their own untap step they already untapped normally)."""
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    ctrl = state.get("printed_control", set())
+    owner_of = {c: p for (p, c) in ctrl}
+    for (s,) in state.get("seedborn_untap_source", set()):
+        owner = owner_of.get(s)
+        if owner is None or owner == ap or s not in bf:
+            continue
+        for c in sorted(c for (p, c) in ctrl if p == owner):
+            if (c,) in state.get("tapped", set()):
+                state["tapped"].discard((c,)); print(f"    {owner} untaps {c} (Seedborn Muse)")
 
 
 def _skips_draw(state: dict, ap: str) -> bool:

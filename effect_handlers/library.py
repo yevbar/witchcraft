@@ -277,10 +277,13 @@ def _type_predicate(tgt) -> str | None:
     t = str(tgt)
     # peel an optional trailing mana-value bound 'with_mana_value_N_or_less' (the only numeric restriction we
     # can test from the surfaced mana_cost). Any OTHER 'with …' clause (power/color/keyword) -> abstain.
-    mv_cap: int | None = None
+    mv_cap = mv_eq = None
     m = re.search(r"_with_mana_value_(\d+)_or_less$", t)
     if m:
         mv_cap = int(m.group(1))
+        t = t[: m.start()]
+    elif (m := re.search(r"_with_mana_value_(\d+)$", t)):     # 'mana value 3' EXACTLY (Trophy Mage / Tribute Mage)
+        mv_eq = int(m.group(1))
         t = t[: m.start()]
     elif "_with_" in t:
         return None                                          # an unmodellable restriction (power/color/named)
@@ -303,7 +306,11 @@ def _type_predicate(tgt) -> str | None:
     if not parts or not all(p in _CARD_TYPES for p in parts):
         return None                                          # a token isn't a confirmable card type -> abstain
     pred = "type:" + "|".join(parts)
-    return pred + (f"&mv<={mv_cap}" if mv_cap is not None else "")
+    if mv_cap is not None:
+        return pred + f"&mv<={mv_cap}"
+    if mv_eq is not None:
+        return pred + f"&mv={mv_eq}"
+    return pred
 
 
 def _land_predicate(tgt) -> str | None:
@@ -379,10 +386,13 @@ def _matches(state: dict, card: str, pred: str) -> bool:
         types = {t for (c, t) in ptype if c == card}
         if not (types & wanted):
             return False
-        if mv_clause.startswith("mv<="):
-            cap = int(mv_clause[len("mv<="):])
+        if mv_clause.startswith("mv<=") or mv_clause.startswith("mv="):
+            exact = mv_clause.startswith("mv=")
+            cap = int(mv_clause[len("mv=" if exact else "mv<="):])
             mv = next((v for (c, v) in state.get("mana_cost", set()) if c == card), None)
-            return mv is not None and mv <= cap                # no surfaced mana value -> can't confirm -> no match
+            if mv is None:
+                return False                                   # no surfaced mana value -> can't confirm -> no match
+            return mv == cap if exact else mv <= cap
         return True
     return False
 
@@ -436,6 +446,61 @@ def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
         moved.append(card)
     D._shuffle_library(state, ctrl)                           # §701.18 'then shuffle'
     print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
+
+
+@applier("dig_to_battlefield")
+def _apply_dig_to_battlefield(D, state, a, n, tgt, src, ctrl):
+    """§701 Kinnan-style dig — look at the top N cards of the controller's library; put the STRONGEST matching
+    card (a creature, optionally non-Human) onto the battlefield under their control; put the rest on the
+    bottom. Opaque ids -> pick the highest mana value match; a creature enters summoning sick. A no match is a
+    faithful no-op (the 'may' put), with the rest still going to the bottom."""
+    order = _order(state, ctrl)
+    inlib = state.setdefault("in_library", set())
+    top = order[:int(n)] if order else sorted(c for (p, c) in inlib if p == ctrl)[:int(n)]
+    ptype = state.get("printed_type", set())
+    subs = state.get("printed_subtype", set())
+    mv = {c: v for (c, v) in state.get("mana_cost", set())}
+    nonhuman = str(tgt).startswith("non_human")
+    cands = [c for c in top if (c, "creature") in ptype and not (nonhuman and (c, "human") in subs)]
+    pick = max(cands, key=lambda c: (mv.get(c, 0), c)) if cands else None
+    for c in top:                                             # remove the looked-at cards from the library
+        inlib.discard((ctrl, c))
+        if c in order:
+            order.remove(c)
+    if pick is not None:
+        state.setdefault("on_battlefield", set()).add((pick,))
+        state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
+        state.setdefault("_sick", set()).add((pick,))
+    for c in top:                                             # the rest go to the bottom (in canonical order)
+        if c != pick:
+            inlib.add((ctrl, c)); order.append(c)
+    print(f"    {a}: {ctrl} digs {len(top)} -> "
+          + (f"puts {pick} (mv {mv.get(pick, 0)}) onto the battlefield" if pick else "finds no creature")
+          + ", rest on the bottom")
+
+
+@applier("graveyard_to_library")
+def _apply_graveyard_to_library(D, state, a, n, tgt, src, ctrl):
+    """§701 'up to one target player puts all the cards from their graveyard on the bottom of their library'
+    (Endurance) — graveyard hate. Target the OPPONENT with the most graveyard cards (the disruptive use); with
+    no opponent graveyard, declining the 'up to one' target is a legal no-op. Move that player's graveyard
+    cards to the bottom of their library."""
+    owner = {c: p for (p, c) in state.get("printed_control", set())}
+    by_player: dict = {}
+    for (c,) in state.get("graveyard", set()):
+        if owner.get(c) is not None:
+            by_player.setdefault(owner[c], []).append(c)
+    opps = set(D._others(state, ctrl))
+    target = max((p for p in by_player if p in opps), key=lambda p: len(by_player[p]), default=None)
+    if target is None:
+        print(f"    {a}: no opponent graveyard to bottom (no target chosen)")
+        return
+    order = state.setdefault("_lib_order", {}).setdefault(target, [])
+    for c in sorted(by_player[target]):
+        state["graveyard"].discard((c,))
+        state.setdefault("in_library", set()).add((target, c))
+        order.append(c)                                       # to the bottom
+    print(f"    {a}: {target} puts {len(by_player[target])} graveyard card(s) on the bottom of their library")
 
 
 @applier("steal_graveyards")
@@ -640,6 +705,8 @@ def _encode_put_on_bottom(verb, amt, tgt, extra):
     t = str(tgt)
     if t in _SEARCHED_OBJ:
         return ("place_searched", 0, "bottom")
+    if "graveyard" in t and "all" in t:                     # §701 'put ALL the cards from their graveyard on the
+        return ("graveyard_to_library", 0, "-")             # bottom of their library' (Endurance — graveyard hate)
     if t in _REORDER_OBJ:                                    # 'put the rest on the bottom in any order' -> no-op-ish
         return ("reorder_noop", 0, "-")
     if t == "library" and "them" in str(extra):             # §701 'put up to one OF THEM on top and the rest on
