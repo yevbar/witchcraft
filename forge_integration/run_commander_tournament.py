@@ -36,6 +36,12 @@ LOG_DIR = "/tmp/cedh_tournament_logs"
 # RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
 JVM_HEAP = os.environ.get("JVM_HEAP", "")
 _XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
+# Forge's GuiDesktop static init calls getDefaultScreenDevice(), which throws HeadlessException under
+# -Djava.awt.headless=true. A headless Linux server tolerates it differently; a desktop host (e.g. macOS
+# with a real display) must run NON-headless so the screen device is found. Default headless (server);
+# set FORGE_HEADLESS=false on a machine that has a display. See forge_integration/RUNNING.md.
+_HEADLESS = os.environ.get("FORGE_HEADLESS", "true").lower() not in ("0", "false", "no")
+_HEADLESS_ARG = "-Djava.awt.headless=true " if _HEADLESS else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "1800"))    # 4-player cEDH vs Forge AI is grindy -> 30 min/game
 # §903 Commander is 40 life; keep witch decisions fast (a small lookahead — Forge owns the rules, the engine
 # just drives its seat where it can and falls back to Forge AI otherwise) so a 4-player game still finishes.
@@ -144,7 +150,7 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
                   f"-Dtype{i}={seat_type[i]}", f"-Dport{i}={ports[i]}"]
     env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
     log = f"{LOG_DIR}/game_p{port_base}.log"                   # stream Forge's live move record to a per-game log
-    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}-Djava.awt.headless=true '
+    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'{" ".join(props)} -cp "{FATJAR}:{OUT}" ForgeCommanderFFA > "{log}" 2>&1')
     r = sh(cmd, env=env)
     try:
