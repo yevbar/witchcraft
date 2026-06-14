@@ -702,6 +702,7 @@ _PERM_FILTER = {
     "acep": ("artifact", "creature", "enchantment", "planeswalker"),   # Otawara: artifact/creature/ench/pw
     "acl": ("artifact", "creature", "land"),                           # Twitch: artifact/creature/land tapper
     "land": ("land",),                                                 # Sundering Eruption: destroy target land
+    "aenl": ("artifact", "enchantment", "nonbasic_land"),              # Boseiju: artifact/ench/NONBASIC land
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 _PERM_COLORS = {"white", "blue", "black", "red", "green"}    # §105 a COLOR target class (Pyroblast/REB: a blue permanent)
@@ -724,6 +725,7 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
     on_bf = sorted(c for (c,) in state.get("on_battlefield", set()))
     ptype = state.get("printed_type", set())
     pcolor = state.get("printed_color", set())
+    basic = {o for (o, sup) in state.get("has_supertype", set()) if sup == "basic"}   # §205.4 basic-land split
     mine = {c for (p, c) in state.get("printed_control", set()) if p == ctrl}
 
     def matches(c: str) -> bool:
@@ -742,7 +744,10 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
             return "land" not in types
         if want == ("noncreature",):
             return "creature" not in types
-        return any(t in types for t in want)
+        # §205.4 a NONBASIC land matches the 'nonbasic_land' token when it's a land without the Basic supertype.
+        if "land" in types and "nonbasic_land" in want and c not in basic:
+            return True
+        return any(t in types for t in want if t != "nonbasic_land")
 
     return [c for c in on_bf if matches(c)]
 
@@ -2010,6 +2015,51 @@ def _resolve_modal_trigger(state: dict, a: str, count: int, spec: str, src: str,
                 _apply_effects(state, {(a, eff, int(amt), str(tgt), src, ctrl)})
 
 
+def _ramp_basic(state: dict, label: str, p: str) -> None:
+    """§701.18 'that player may search their library for a land card with a basic land type, put it onto the
+    battlefield, then shuffle' (Boseiju's channel consolation, given to the player whose permanent was
+    destroyed). The player MAY decline (the choice is on the seam); greedy default = take the land."""
+    basic = {o for (o, sup) in state.get("has_supertype", set()) if sup == "basic"}
+    ptype = state.get("printed_type", set())
+    lib = [c for (pp, c) in state.get("in_library", set()) if pp == p]
+    basics = sorted(c for c in lib if (c, "land") in ptype and c in basic)
+    take = _choose(state, "channel_ramp", basics + [None], basics[0] if basics else None)
+    if take is None:
+        if basics:
+            print(f"    channel {label}: {p} declines to search a basic land")
+        else:
+            print(f"    channel {label}: {p} has no basic land to search")
+        _shuffle_library(state, p)                            # §701.18 'then shuffle' happens even on a failed/declined search
+        return
+    state["in_library"].discard((p, take))
+    if p in state.get("_lib_order", {}):
+        state["_lib_order"][p][:] = [x for x in state["_lib_order"][p] if x != take]
+    state.setdefault("on_battlefield", set()).add((take,))    # untapped (Boseiju doesn't say tapped)
+    print(f"    channel {label}: {p} searches up basic land {take} -> battlefield")
+    _shuffle_library(state, p)                                # §701.18 'then shuffle'
+
+
+def _resolve_channel(state: dict, label: str, ctrl: str, payload: str) -> None:
+    """§702.x resolve a CHANNEL ability: pick a legal target of the class, apply the verb (destroy / bounce),
+    then run the optional consolation (Boseiju: the targeted permanent's controller may ramp a basic land).
+    `payload` = 'verb|verb_payload|class|consolation'."""
+    verb, vpayload, cls, consol = str(payload).split("|")
+    out = run(state, ["controls", "power", "creature", "cant_be_destroyed"])
+    indestructible = {c for (c,) in out["cant_be_destroyed"]}
+    controls = {(p, c) for (p, c) in out["controls"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
+    creatures = {c for (c,) in out["creature"]}
+    owner_of = {c: p for (p, c) in controls}
+    tgt = _pick_target(state, ctrl, cls, verb, vpayload, controls, powers, creatures)
+    if tgt is None:
+        print(f"    channel {label}: no legal target")
+        return
+    victim_ctrl = owner_of.get(tgt)
+    _apply_target_verb(state, label, "channel", verb, vpayload, tgt, ctrl, indestructible, owner_of)
+    if consol == "ramp_basic" and victim_ctrl is not None:    # §701.18 the consolation goes to THAT player
+        _ramp_basic(state, label, victim_ctrl)
+
+
 def _resolve_one_target(state: dict, label: str, kind: str, ctrl: str, verb: str, payload: str, cls: str) -> None:
     """§601.2c pick a legal target of `cls` and apply one creature verb — shared by spell resolution and
     activated-ability resolution. Re-reads the board each call so the choice reflects current state."""
@@ -2266,6 +2316,8 @@ def _resolve_top(state: dict) -> None:
         if eff == "ctarget":                                 # §115 single-target creature verb -> driver picks
             verb, payload, cls = tgt.split("|")
             _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
+        elif eff == "channel":                               # §702.x channel: a single-target verb + an opt. consolation
+            _resolve_channel(state, top, actrl, tgt)
         elif eff == "cdamage":                               # §120 direct damage -> driver picks the target
             _apply_damage(state, top, amt, tgt, actrl)
         elif eff == "equip":                                 # §301.5 attach the Equipment to a creature
@@ -2521,10 +2573,33 @@ def _is_commander(state: dict, obj: str) -> bool:
     return any(c == obj for (_p, c) in state.get("_commander_owner", set()))
 
 
+def _legendary_count(state: dict, p: str) -> int:
+    """§205.4 how many LEGENDARY CREATURES player p controls — for the channel '{1} less per legendary
+    creature you control' cost reduction (Boseiju). Reads the engine's legendary classification (derived
+    from has_supertype) intersected with p's creatures."""
+    out = run(state, ["controls", "creature"])
+    legendary = {o for (o, sup) in state.get("has_supertype", set()) if sup == "legendary"}
+    creatures = {c for (c,) in out["creature"]}
+    return len({c for (pp, c) in out["controls"] if pp == p and c in creatures and c in legendary})
+
+
+def _ability_eff_cost(state: dict, a: str, cost, p: str) -> int:
+    """The effective mana cost of activated ability `a` after §118 cost reductions (the channel
+    '{1} less per legendary creature you control' rider). The reduction lowers only the GENERIC mana, so
+    the cost floors at the colored-pip portion the bridge recorded (e.g. Boseiju's {1}{G} floors at {G}=1)."""
+    n = int(cost)
+    red = next((r for r in state.get("ability_cost_reduction", set()) if r[0] == a and r[1] == "legendary_creature"), None)
+    if red is not None:
+        floor = int(red[2]) if len(red) > 2 else 0
+        n = max(floor, n - _legendary_count(state, p))
+    return n
+
+
 def _activatable(state: dict, p: str) -> list:
     """§602.5 — the activated abilities player p can pay for right now: source on the battlefield and
     controlled by p, its {T} part untappable (source untapped & not summoning-sick), enough mana for the
-    mana part. Returns (ability_id, source, mana_cost, taps_self, eff, amount, target) rows."""
+    mana part. A §702.x CHANNEL ability (ability_from_hand) is instead gated on the source being in p's
+    HAND. Returns (ability_id, source, mana_cost, taps_self, eff, amount, target) rows."""
     bf = state.get("on_battlefield", set())
     ctrl = state.get("printed_control", set())
     tapped = state.get("tapped", set())
@@ -2533,9 +2608,13 @@ def _activatable(state: dict, p: str) -> list:
     out = []
     for row in state.get("activated_ability", set()):
         a, src, cost, taps, eff, amt, tgt = row
-        if (src,) not in bf or (p, src) not in ctrl:
+        from_hand = (a,) in state.get("ability_from_hand", set())
+        if from_hand:                                        # §702.x channel — activated from HAND, not the battlefield
+            if (p, src) not in state.get("in_hand", set()):
+                continue
+        elif (src,) not in bf or (p, src) not in ctrl:
             continue
-        if int(cost) > mana:
+        if _ability_eff_cost(state, a, cost, p) > mana:
             continue
         if taps == "T" and ((src,) in tapped or (src,) in sick):
             continue                                         # can't pay {T}: already tapped or summoning sick
@@ -2561,6 +2640,14 @@ def _activatable(state: dict, p: str) -> list:
         if eff == "level_up":                                # §717 a Class advances ONE level at a time (N from N-1)
             if state.get("_class_level", {}).get(src, 1) != int(amt) - 1:
                 continue
+        if eff == "channel":                                 # §702.x don't discard the card unless a legal target exists
+            verb, vpayload, cls, _consol = str(tgt).split("|")
+            o = run(state, ["controls", "power", "creature"])
+            controls = {(pp, cc) for (pp, cc) in o["controls"]}
+            powers = {cc: int(nn) for (cc, nn) in o["power"]}
+            creatures = {cc for (cc,) in o["creature"]}
+            if _pick_target(state, p, cls, verb, vpayload, controls, powers, creatures) is None:
+                continue
         out.append(row)
     return sorted(out)
 
@@ -2578,8 +2665,13 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     if chosen is None:
         return
     a, src, cost, taps, eff, amt, tgt = chosen
-    if int(cost):                                            # pay the mana part via the mana model
-        _spend_ability_mana(state, ap, int(cost))
+    eff_cost = _ability_eff_cost(state, a, cost, ap)         # §118 after the channel '{1} less per legendary' reduction
+    if eff_cost:                                             # pay the mana part via the mana model
+        _spend_ability_mana(state, ap, eff_cost)
+    if (a,) in state.get("ability_discard_self", set()):     # §702.x channel — 'Discard this card' is part of the cost
+        state["in_hand"].discard((ap, src))
+        state.setdefault(_discard_zone(state, ap), set()).add((src,))
+        print(f"    {ap} discards {src} (channel cost)")
     life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
     if life_cost:                                            # §118 'Pay N life' (Necropotence, Griselbrand)
         print(f"    {ap} pays {life_cost} life -> {_adjust_life(state, ap, -life_cost)}")

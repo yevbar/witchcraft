@@ -294,6 +294,9 @@ _TARGET_CLASS = {
     # option, never a wrong action — faithful-or-abstain).
     "target_spell_or_nonland_permanent_an_opponent_controls": "perm_opp_nonland",
     "target_artifact_creature_enchantment_or_planeswalker": "perm_opp_acep",          # Otawara (channel)
+    # §115 Boseiju's channel: 'artifact, enchantment, or NONBASIC LAND an opponent controls' — a type union
+    # plus a basic/nonbasic land split (the driver reads has_supertype 'basic' to exclude basic lands).
+    "target_artifact_enchantment_or_nonbasic_land_an_opponent_controls": "perm_opp_aenl",
     # §115 'target artifact, creature, or land' (Twitch, Icy-style tappers) — a type union over ANY controller.
     "target_artifact_creature_or_land": "perm_acl",
 }
@@ -1608,6 +1611,68 @@ def _resolve_modes(f: dict, key: str, dropped: list) -> tuple[list, list]:
     return offered, rows
 
 
+def _fold_channel(c: dict, f: dict, tid: str, add, dropped: list) -> set:
+    """§702.x CHANNEL — a from-HAND activated ability ('{cost}, Discard this card: <effect>'). The Kamigawa
+    'channel' lands discard themselves from hand to do a removal/utility effect (Boseiju destroys an
+    artifact/enchantment/nonbasic land; Otawara bounces a noncreature permanent). The parser splits the
+    card into an `activated` ability (the channel cost + primary effect) and — for Boseiju — a `static`
+    ability holding the consolation rider ('that player may search for a basic land …'). Emit ONE from-hand
+    channel activated_ability (with discard-self + the legendary cost reduction) and return the ability ids
+    consumed, so the normal loops skip them. Not a channel card -> empty set (nothing consumed).
+
+    The primary effect must be a single-target permanent verb whose class the driver can pick (else abstain —
+    the whole channel stays on the normal paths, where it drops faithfully)."""
+    text = str(c.get("text") or "")
+    # match THE channel ability by the cost printed after 'Channel —' (a card can have OTHER activated
+    # abilities — Ghost-Lit Drifter's '{2}{U}: …' battlefield ability is NOT its '{X}{U}' channel). Compare
+    # mana symbols so the parser's normalized cost lines up; a variable {X} channel cost abstains below.
+    m = re.search(r"channel\s*[—–-]\s*(.+?),?\s*discard this card", text, re.I | re.S)
+    if m is None:
+        return set()
+    chan_syms = tuple(_MV_SYM.findall(m.group(1)))
+    abilities = f.get("abilities", {})
+    chan_aid = next((aid for aid, ab in abilities.items()
+                     if ab.get("kind") == "activated"
+                     and tuple(_MV_SYM.findall(str(ab.get("cost") or ""))) == chan_syms
+                     and _activated_cost(ab.get("cost")) is not None), None)
+    if chan_aid is None:
+        return set()
+    ab = abilities[chan_aid]
+    paid = _activated_cost(ab.get("cost"))
+    prim = next((e for e in ab.get("effects", []) if e[1] in _CREATURE_VERBS), None)
+    if prim is None:
+        return set()
+    _seq, verb, amt, tgt, extra, _cond = prim
+    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+    if ev is None:
+        return set()
+    # the consolation rider (Boseiju): a separate ability that lets THAT PLAYER (the one whose permanent was
+    # destroyed) search their library for a basic land, put it onto the battlefield, then shuffle.
+    consol = "none"
+    consumed = {chan_aid}
+    for aid2, ab2 in abilities.items():
+        if aid2 == chan_aid:
+            continue
+        effs2 = ab2.get("effects", [])
+        if any(e[1] == "search" and "basic_land_type" in str(e[3]) for e in effs2) \
+                and any(e[1] in ("return_to_battlefield", "put_in_play") for e in effs2):
+            consol = "ramp_basic"
+            consumed.add(aid2)
+    a = f"{tid}_{chan_aid}"
+    add("activated_ability", (a, tid, paid[0], "-", "channel", 0, f"{ev}|{payload}|{cls}|{consol}"))
+    add("ability_from_hand", (a,))                            # §602 the source is activated from HAND, not the battlefield
+    add("ability_discard_self", (a,))                        # §118 'Discard this card' is part of the cost
+    for e in ab.get("effects", []):                          # §608 a SECONDARY channel clause we don't model (Favor of
+        if e is not prim:                                    # Jukai's '… and has reach') stays faithful by abstaining —
+            dropped.append(("effect", e[1]))                # record it dropped rather than silently under-modeling.
+    if "for each legendary creature you control" in text.lower():
+        # §118 '{1} less to activate for each legendary creature you control' — reduces only the GENERIC mana;
+        # the colored pips ({G}) can't be reduced, so the driver floors the cost at (total - generic).
+        generic = sum(int(s) for s in _MV_SYM.findall(str(ab.get("cost") or "")) if s.isdigit())
+        add("ability_cost_reduction", (a, "legendary_creature", paid[0] - generic))
+    return consumed
+
+
 def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[dict, list]:
     """The (relation -> rows) an instance `tid` of card `name` controlled by `ctrl` contributes to a
     driver state, plus a list of (kind, detail) for the clauses that abstained. Pure data — no rules."""
@@ -1665,6 +1730,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_type", (facts, t.lower()))
     for st in c.get("subtypes") or []:                       # §205.3 subtypes (Goblin, Sliver, …) for lords
         add("card_subtype", (facts, st.lower()))
+    for sup in c.get("supertypes") or []:                    # §205.4 supertypes (Legendary, Basic, …) — fed per
+        add("has_supertype", (tid, sup.lower()))             # instance (the legend rule / basic-vs-nonbasic split)
     for ci in c.get("colorIdentity") or []:                  # §105 color (approx. via color identity) for color lords
         if ci in _COLOR_NAME:
             add("card_color", (facts, _COLOR_NAME[ci]))
@@ -1732,8 +1799,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("spell_effect", (tid, "threshold_mana", base, f"{threshold}|{color}"))
         modes = modes | thr_abilities                        # skip the two add_mana abilities (one threshold_mana instead)
     is_instant_sorcery = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
+    channel_skip = _fold_channel(c, f, tid, add, dropped)     # §702.x CHANNEL — fold the from-hand ability (+ rider)
     for aid, ab in f.get("abilities", {}).items():
-        if aid in modes:                                     # a modal mode (or a threshold ritual's add_mana abilities)
+        if aid in modes or aid in channel_skip:              # a modal mode, or an ability folded into the channel
             continue
         kind = ab.get("kind")
         if kind == "static" and is_instant_sorcery:

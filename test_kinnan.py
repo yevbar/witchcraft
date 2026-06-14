@@ -216,6 +216,45 @@ def run() -> None:
           ("q", "opp_sp") in h3.get("in_hand", set()) and ("opp_sp", 0) not in h3["on_stack"]
           and ("my_sp", 1) in h3["on_stack"])
 
+    # Boseiju, Who Endures — the CHANNEL mechanic: a from-HAND activated ability ('{1}{G}, Discard this card:
+    # Destroy target artifact/enchantment/nonbasic land an opponent controls. That player may search for a
+    # basic land …. Costs {1} less per legendary creature you control.').
+    check("Boseiju, Who Endures is CLEAN", dropped("Boseiju, Who Endures") == [])
+    bf, _ = B.card_facts("Boseiju, Who Endures", "p", "bo", db, corpus)
+    check("Boseiju emits a from-hand, discard-self channel ability (destroy aenl + ramp consolation)",
+          ("bo_a1_0", "bo", 2, "-", "channel", 0, "destroy|-|perm_opp_aenl|ramp_basic") in bf.get("activated_ability", set())
+          and ("bo_a1_0",) in bf.get("ability_from_hand", set())
+          and ("bo_a1_0",) in bf.get("ability_discard_self", set()))
+    check("Boseiju records the legendary cost reduction (floored at the {G} pip = 1)",
+          ("bo_a1_0", "legendary_creature", 1) in bf.get("ability_cost_reduction", set())
+          and ("bo", "legendary") in bf.get("has_supertype", set()))
+
+    # the channel cost floors at {G}: 0 legends -> 2, 1+ legend -> 1 (never below the colored pip).
+    leg = {"is_player": {("p",)}, "on_battlefield": {("l1",), ("l2",)},
+           "printed_control": {("p", "l1"), ("p", "l2")}, "printed_type": {("l1", "creature"), ("l2", "creature")},
+           "has_supertype": {("l1", "legendary"), ("l2", "legendary")},
+           "ability_cost_reduction": {("bo_a1_0", "legendary_creature", 1)}}
+    driver.clear_cache()
+    check("Boseiju channel cost: 2 with no legends, 1 with two legends (floored at {G})",
+          driver._ability_eff_cost({**leg, "has_supertype": set()}, "bo_a1_0", 2, "p") == 2
+          and driver._ability_eff_cost(leg, "bo_a1_0", 2, "p") == 1)
+
+    # full resolution: destroy the opponent's nonbasic land (NOT their basic), then that player ramps a basic.
+    ch = {"is_player": {("p",), ("q",)}, "on_battlefield": {("nb",), ("qbasic_bf",)},
+          "printed_control": {("q", "nb"), ("q", "qbasic_bf")},
+          "printed_type": {("nb", "land"), ("qbasic_bf", "land")},
+          "has_supertype": {("qbasic_bf", "basic")},          # the on-board basic is NOT a legal channel target
+          "in_library": {("q", "qfetch")}, "_lib_order": {"q": ["qfetch"]},
+          "life": {("p", 40), ("q", 40)}, "_seed": 1}
+    ch["printed_type"] |= {("qfetch", "land")}
+    ch["has_supertype"] |= {("qfetch", "basic")}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._resolve_channel(ch, "bo_a1_0", "p", "destroy|-|perm_opp_aenl|ramp_basic")
+    check("Boseiju channel destroys the opponent's NONBASIC land (sparing their basic), then they ramp a basic",
+          ("nb",) in ch.get("graveyard", set()) and ("qbasic_bf",) not in ch.get("graveyard", set())
+          and ("qfetch",) in ch["on_battlefield"] and ("q", "qfetch") not in ch.get("in_library", set()))
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)
