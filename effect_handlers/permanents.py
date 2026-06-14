@@ -278,6 +278,41 @@ def _encode_cant_block(verb, amt, tgt, extra):
     return ("cant_block", 0, "without_flying")
 
 
+@applier("become_copy")
+def _apply_become_copy(D, state, a, n, tgt, src, ctrl):
+    """§707.2 Mirage Mirror '{2}: becomes a copy of target artifact, creature, enchantment, or land until end
+    of turn'. The driver targets the controller's most valuable OTHER permanent (highest mana value — a
+    deterministic, beneficial self-copy, e.g. doubling a mana rock or a bomb). eff_copy(eid, src, target, ts)
+    makes the engine derive the copied type/P-T/abilities; cleared at end of turn (the latest ts wins)."""
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    mv = {c: v for (c, v) in state.get("mana_cost", set())}
+    mine = [c for (p, c) in state.get("printed_control", set()) if p == ctrl and c != src and c in bf]
+    if not mine:
+        print(f"    {a}: {src} has no permanent to copy")
+        return
+    target = max(mine, key=lambda c: (mv.get(c, 0), c))
+    ts = state.get("_copy_ts", 0) + 1
+    state["_copy_ts"] = ts
+    eid = f"mirage__{src}"
+    state["eff_copy"] = {r for r in state.get("eff_copy", set()) if r[1] != src} | {(eid, src, target, ts)}
+    state.setdefault("until_eot", set()).add((eid,))
+    print(f"    {a}: {src} becomes a copy of {target} until end of turn")
+
+
+@applier("protect_team")
+def _apply_protect_team(D, state, a, n, tgt, src, ctrl):
+    """§702 Veil of Summer — the controller's permanents gain hexproof until end of turn (the 'from blue and
+    from black' colour restriction is approximated as general hexproof, a superset that still dodges blue/black
+    targeted removal). 'You' (player hexproof) is recorded as _player_hexproof."""
+    mine = sorted(c for (p, c) in D.run(state, ["controls"])["controls"] if p == ctrl)
+    for c in mine:
+        eid = f"veil__{c}"
+        state.setdefault("eff_grant_keyword", set()).add((eid, c, "hexproof"))
+        state.setdefault("until_eot", set()).add((eid,))
+    state.setdefault("_player_hexproof", set()).add((ctrl,))
+    print(f"    {a}: {ctrl} and {len(mine)} permanent(s) gain hexproof until end of turn")
+
+
 @applier("return_as_enchantment")
 def _apply_return_as_enchantment(D, state, a, n, tgt, src, ctrl):
     """§603 the ENDURING mechanic (Enduring Vitality) — when the source dies it returns from the graveyard to

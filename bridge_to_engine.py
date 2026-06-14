@@ -752,6 +752,19 @@ def _fold_blink_self(effs: list, emit) -> set:
     return {ri, xi}
 
 
+def _fold_veil_protect(effs: list, emit) -> set:
+    """§702 Veil of Summer 'You and permanents you control gain hexproof from blue and from black until end of
+    turn' -> one protect_team effect: the controller's permanents gain hexproof until EOT (the from-blue/black
+    colour restriction is approximated as general hexproof — a superset that still dodges the relevant removal)."""
+    gs = [i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+          if v == "grant_keyword" and ("hexproof" in str(x) or "hexproof" in str(_a))
+          and str(t) in ("you", "permanents_you_control")]
+    if not gs:
+        return set()
+    emit("protect_team", 0, "-")
+    return set(gs)
+
+
 def _fold_thrasios_dig(effs: list, emit) -> set:
     """§701 Thrasios, Triton Hero '{4}: Scry 1, then reveal the top card of your library. If it's a land card,
     put it onto the battlefield tapped. Otherwise, draw a card' -> one thrasios_dig effect (the scry is an
@@ -1890,6 +1903,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             s2fd_skip = _fold_search_face_down_hand(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §107.3 Finale of Devastation 'if X >= 10, creatures you control get +X/+X and gain haste'.
             fin_skip = _fold_finale_pump(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §702 Veil of Summer 'you and permanents you control gain hexproof from blue and from black'.
+            veil_skip = _fold_veil_protect(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §701 reanimate a PERMANENT card with mana value N or less from your graveyard (Sevinne's Reclamation).
             rp_skip = _fold_reanimate_permanent(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
@@ -1900,7 +1915,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -2178,6 +2193,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("activated_ability", (a, tid, paid[0], taps, "animate", 0, pt))
                         emitted = True
                         continue
+                if verb == "becomes" and "copy_of_target" in str(extra):   # §707 Mirage Mirror '{2}: becomes a
+                    add("activated_ability", (a, tid, paid[0], taps, "become_copy", 0, "-"))   # copy of target perm'
+                    emitted = True
+                    continue
                 if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
                     if str(tgt) in ("self", "it"):
                         add("activated_ability", (a, tid, paid[0], taps, "switchpt", 0, "-"))

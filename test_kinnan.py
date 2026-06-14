@@ -156,6 +156,26 @@ def run() -> None:
           ("ev",) in ev["on_battlefield"] and ("enduring__ev", "ev", "enchantment") in ev["eff_add_type"]
           and ("enduring__ev", "ev", "creature") in ev["eff_remove_type"])
 
+    # ── Veil of Summer (protection grant) + Mirage Mirror (becomes a copy) ───────────────────────────────
+    check("Veil of Summer is CLEAN", dropped("Veil of Summer") == [])
+    vs = {"is_player": {("p",), ("q",)}, "on_battlefield": {("bear",), ("rock",)},
+          "printed_control": {("p", "bear"), ("p", "rock")}, "printed_type": {("bear", "creature"), ("rock", "artifact")},
+          "eff_grant_keyword": set(), "until_eot": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["protect_team"](driver, vs, "veil", 0, "-", "veil", "p")
+    check("Veil of Summer gives the controller's permanents hexproof",
+          {c for (e, c, k) in vs["eff_grant_keyword"] if k == "hexproof"} == {"bear", "rock"}
+          and ("p",) in vs.get("_player_hexproof", set()))
+
+    check("Mirage Mirror is CLEAN", dropped("Mirage Mirror") == [])
+    ms = {"is_player": {("p",)}, "on_battlefield": {("mir",), ("rock",), ("bomb",)},
+          "printed_control": {("p", "mir"), ("p", "rock"), ("p", "bomb")}, "mana_cost": {("rock", 2), ("bomb", 6)},
+          "eff_copy": set(), "until_eot": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["become_copy"](driver, ms, "mir", 0, "-", "mir", "p")
+    check("Mirage Mirror becomes a copy of the controller's most valuable permanent (the mv-6 bomb)",
+          any(o == "mir" and t == "bomb" for (e, o, t, ts) in ms["eff_copy"]))
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)
