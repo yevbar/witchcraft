@@ -176,6 +176,46 @@ def run() -> None:
     check("Mirage Mirror becomes a copy of the controller's most valuable permanent (the mv-6 bomb)",
           any(o == "mir" and t == "bomb" for (e, o, t, ts) in ms["eff_copy"]))
 
+    # Hullbreaker Horror — a MODAL TRIGGERED ability ('whenever you cast a spell, choose up to one — bounce
+    # target spell you don't control / bounce target nonland permanent'). The modal infra was spell-only; the
+    # modes route to the trigger (modal_trigger) instead of the creature instance being treated as a modal spell.
+    check("Hullbreaker Horror is CLEAN", dropped("Hullbreaker Horror") == [])
+    hf, _ = B.card_facts("Hullbreaker Horror", "p", "hull", db, corpus)
+    check("Hullbreaker's modal trigger is routed to the trigger (not a spell_mode on the creature)",
+          hf.get("spell_mode", set()) == set()
+          and ("hull_a2", "modal_trigger", 1, "mode3|mode4|opt") in hf.get("trigger_effect", set()))
+    check("Hullbreaker offers a bounce-spell soft counter (mode3) + a bounce-nonland-permanent (mode4)",
+          {(e, t) for (_a, _m, e, _n, t) in hf.get("trigger_mode_effect", set())}
+          == {("bounce_spell", "opp"), ("ctarget", "return_to_hand|-|perm_nonland")})
+
+    # mode4: a cast trigger fires and bounces an opponent's nonland permanent to its owner's hand.
+    h4 = {"is_player": {("p",), ("q",)}, "on_battlefield": {("hull",), ("rock",)},
+          "printed_control": {("p", "hull"), ("q", "rock")},
+          "printed_type": {("hull", "creature"), ("rock", "artifact")},
+          "life": {("p", 40), ("q", 40)},
+          "trigger_mode_effect": {("hull_a2", "mode3", "bounce_spell", 0, "opp"),
+                                  ("hull_a2", "mode4", "ctarget", 0, "return_to_hand|-|perm_nonland")}}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._resolve_modal_trigger(h4, "hull_a2", 1, "mode3|mode4|opt", "hull", "p")
+    check("Hullbreaker mode4 bounces the opponent's nonland permanent to their hand",
+          ("q", "rock") in h4.get("in_hand", set()) and ("rock",) not in h4["on_battlefield"])
+
+    # mode3: with an opponent's spell on the stack, the soft counter returns it to its owner's hand (and
+    # leaves the controller's own topmost spell alone — 'a spell you DON'T control').
+    h3 = {"is_player": {("p",), ("q",)}, "on_battlefield": {("hull",)},
+          "printed_control": {("p", "hull"), ("q", "opp_sp"), ("p", "my_sp")},
+          "printed_type": {("hull", "creature")}, "life": {("p", 40), ("q", 40)},
+          "on_stack": {("opp_sp", 0), ("my_sp", 1)}, "_stack_info": {"opp_sp": "q", "my_sp": "p"},
+          "trigger_mode_effect": {("hull_a2", "mode3", "bounce_spell", 0, "opp"),
+                                  ("hull_a2", "mode4", "ctarget", 0, "return_to_hand|-|perm_nonland")}}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._resolve_modal_trigger(h3, "hull_a2", 1, "mode3|mode4|opt", "hull", "p")
+    check("Hullbreaker mode3 soft-counters the opponent's spell (to its owner's hand), sparing your own",
+          ("q", "opp_sp") in h3.get("in_hand", set()) and ("opp_sp", 0) not in h3["on_stack"]
+          and ("my_sp", 1) in h3["on_stack"])
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

@@ -502,6 +502,8 @@ def _apply_effects(state: dict, pending: set) -> None:
             state.setdefault("eff_add_type", set()).add((eid, src, "creature"))
             state.setdefault("until_eot", set()).add((eid,))  # §611.2 wears off at cleanup (still a land/etc.)
             print(f"    {a}: {src} becomes a {tgt} creature until end of turn")
+        elif eff == "modal_trigger":                         # §700.2 a MODAL triggered ability (Hullbreaker Horror)
+            _resolve_modal_trigger(state, a, n, tgt, src, ctrl)
         else:                                                # pluggable verbs (effect_handlers/*.py)
             h = effect_handlers.APPLY.get(eff)
             if h:
@@ -1918,6 +1920,94 @@ def _run_spell_targets(state: dict, spell: str, ctrl: str) -> None:
     rows = sorted(r for r in run(state, ["spell_target"])["spell_target"] if r[0] == spell)
     for (_s, verb, payload, cls) in rows:
         _resolve_one_target(state, spell, "spell", ctrl, verb, payload, cls)
+
+
+def _bounce_spell_target(state: dict, ctrl: str, scope: str) -> str | None:
+    """§701.5 the SPELL a 'return target spell to its owner's hand' mode bounces: the topmost OTHER object on
+    the stack (scope='opp' restricts to one the resolving controller doesn't control — Hullbreaker's 'a spell
+    you don't control'). Returns None when no legal spell is on the stack (the mode then does nothing)."""
+    owner = {o: p for (p, o) in state.get("printed_control", set())}
+    below = sorted(((p, o) for (o, p) in state.get("on_stack", set())), reverse=True)
+    for (_pos, o) in below:
+        if scope == "opp" and owner.get(o) == ctrl:           # §115.4 'you don't control' — skip own spells
+            continue
+        return o
+    return None
+
+
+def _bounce_spell(state: dict, label: str, ctrl: str, scope: str) -> None:
+    """§701.5 return a SPELL on the stack to its owner's hand — a SOFT COUNTER (the spell leaves the stack
+    without resolving, §608.2k-style). Hullbreaker Horror's 'return target spell you don't control to its
+    owner's hand' mode. A copy ceases to exist instead (§707.10a); a real spell goes to its owner's hand."""
+    victim = _bounce_spell_target(state, ctrl, scope)
+    if victim is None:
+        print(f"    trigger {label}: no spell to return to hand")
+        return
+    owner = next((p for (p, o) in state.get("printed_control", set()) if o == victim), ctrl)
+    _stack_remove(state, victim)
+    if (victim,) in state.get("_is_copy", set()):             # §707.10a a copy ceases to exist
+        _discard_copy(state, victim)
+        print(f"    trigger {label}: returns the copy {victim} to nowhere (it ceases to exist)")
+        return
+    state.setdefault("in_hand", set()).add((owner, victim))
+    print(f"    trigger {label}: returns spell {victim} to {owner}'s hand (soft counter)")
+
+
+def _mode_applicable(state: dict, ctrl: str, mode: str, rows: list) -> bool:
+    """Whether a modal trigger's `mode` currently does something — used for the greedy default so an
+    'up to one' modal picks a mode that has a legal target instead of fizzling. A ctarget needs a legal
+    target of its class; a bounce_spell needs a spell on the stack; any other effect is assumed applicable."""
+    for (_a, _m, eff, _amt, tgt) in rows:
+        if _m != mode:
+            continue
+        if eff == "ctarget":
+            verb, payload, cls = str(tgt).split("|")
+            out = run(state, ["controls", "power", "creature"])
+            controls = {(p, c) for (p, c) in out["controls"]}
+            powers = {c: int(n) for (c, n) in out["power"]}
+            creatures = {c for (c,) in out["creature"]}
+            if _pick_target(state, ctrl, cls, verb, payload, controls, powers, creatures) is None:
+                return False
+        elif eff == "bounce_spell":
+            if _bounce_spell_target(state, ctrl, str(tgt)) is None:
+                return False
+    return True
+
+
+def _resolve_modal_trigger(state: dict, a: str, count: int, spec: str, src: str, ctrl: str) -> None:
+    """§700.2 + §603 — a MODAL triggered ability resolves: its controller chooses up to `count` of the
+    offered modes (optional — 0..count — when the printed line was 'choose up to N'), then each chosen
+    mode's effects resolve. The offered modes + their per-mode effects came from the bridge as
+    trigger_mode_effect (keyed by this ability id, read directly — pure shim). The mode choice is exposed
+    on the _choose seam (SET-valued); the greedy default prefers modes that currently DO something."""
+    parts = str(spec).split("|")
+    optional = "opt" in parts
+    modes = [p for p in parts if p != "opt"]
+    if not modes:
+        return
+    rows = [r for r in state.get("trigger_mode_effect", set()) if r[0] == a]
+    applicable = [m for m in sorted(modes) if _mode_applicable(state, ctrl, m, rows)]
+    if applicable:
+        default = frozenset(applicable[:count])
+    else:
+        default = frozenset() if optional else frozenset(sorted(modes)[:count])
+    chosen = _choose(state, "trigger_modes", None, default)
+    picked = sorted(m for m in (chosen if isinstance(chosen, (set, frozenset)) else {chosen}) if m in modes)[:count]
+    if not picked:
+        print(f"    trigger {a}: chooses no mode")
+        return
+    print(f"    trigger {a}: chooses mode(s) {', '.join(picked)}")
+    for m in picked:
+        for (_a, _m, eff, amt, tgt) in sorted(r for r in rows if r[1] == m):
+            if eff == "ctarget":                             # §601.2c the mode's single-target zone move
+                verb, payload, cls = str(tgt).split("|")
+                _resolve_one_target(state, a, "trigger", ctrl, verb, payload, cls)
+            elif eff == "cdamage":                           # §120 the mode's direct damage
+                _apply_damage(state, a, int(amt), str(tgt), ctrl)
+            elif eff == "bounce_spell":                      # §701.5 soft counter (return a spell to hand)
+                _bounce_spell(state, a, ctrl, str(tgt))
+            else:                                            # shared effect resolver (§603 -> §608 vocabulary)
+                _apply_effects(state, {(a, eff, int(amt), str(tgt), src, ctrl)})
 
 
 def _resolve_one_target(state: dict, label: str, kind: str, ctrl: str, verb: str, payload: str, cls: str) -> None:

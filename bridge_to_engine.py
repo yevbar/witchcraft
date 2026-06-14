@@ -1556,6 +1556,58 @@ def _modal_count(f: dict, n_offered: int) -> tuple[int, int]:
     return base, cmore
 
 
+def _resolve_modes(f: dict, key: str, dropped: list) -> tuple[list, list]:
+    """§700.2 — resolve a modal card's offered modes into (offered_modes, rows). Each row is
+    (key, mode, eff, amt, tgt): the mode-gated effects the driver resolves ONLY for the chosen modes.
+    Shared by modal SPELLS (key = the spell tid -> spell_effect_mode) and modal TRIGGERED abilities
+    (key = the ability id -> trigger_mode_effect, e.g. Hullbreaker Horror's cast trigger). A mode with no
+    resolvable effect is not offered (its drops are recorded). The single-target / direct-damage / variable-
+    mana cases pack the same ctarget / cdamage / dyn_mana sentinels the driver resolves per chosen mode; a
+    'return target spell you don't control' mode becomes a bounce_spell (a soft counter on the stack)."""
+    offered, rows = [], []
+    for mode in f.get("modes", []):
+        mab = f.get("abilities", {}).get(mode, {})
+        mode_effs: list = []
+        m_effs = list(mab.get("effects", []))
+        _emit_mode = lambda e, n, t: mode_effs.append((key, mode, e, n, t))
+        imp_skip = _fold_impulse(m_effs, _emit_mode)
+        mode_skip = imp_skip | _fold_discard_draw(m_effs, _emit_mode) | _fold_flashback(m_effs, _emit_mode)
+        for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(m_effs):
+            if _idx in mode_skip:
+                continue
+            # §701.5 'return target SPELL you don't control to its owner's hand' (Hullbreaker mode) — a soft
+            # counter: the spell leaves the stack to its owner's hand. 'you don't control' restricts to an
+            # opponent's spell; a bare 'target spell' is any spell. Not a permanent target -> bounce_spell.
+            if verb == "return_to_hand" and str(tgt).startswith("target_spell"):
+                scope = "opp" if "don_t_control" in str(tgt) else "any"
+                mode_effs.append((key, mode, "bounce_spell", 0, scope))
+                continue
+            if verb in _CREATURE_VERBS and _scope(tgt) is None:
+                ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                if ev is not None:
+                    mode_effs.append((key, mode, "ctarget", 0, f"{ev}|{payload}|{cls}"))
+                    continue
+            if verb == "deal_damage" and _int(amt) is not None and _damage_target(tgt) is not None:
+                mode_effs.append((key, mode, "cdamage", _int(amt), _damage_target(tgt)))
+                continue
+            if verb == "add_mana":
+                mq = _mana_qty(amt)
+                color = str(extra)
+                if mq is not None and color in _MANA_QTY_COLORS and str(tgt) in _MANA_QTY_SELF:
+                    mult, qtag = mq
+                    mode_effs.append((key, mode, "dyn_mana", mult, f"{qtag}|{color}"))
+                    continue
+            r = _resolved_effect(verb, amt, tgt, extra)
+            if r is None:
+                dropped.append(("effect", verb))
+                continue
+            mode_effs.append((key, mode, r[0], r[1], r[2]))
+        if mode_effs:                                        # offer a mode only if at least one effect resolves
+            offered.append(mode)
+            rows.extend(mode_effs)
+    return offered, rows
+
+
 def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[dict, list]:
     """The (relation -> rows) an instance `tid` of card `name` controlled by `ctrl` contributes to a
     driver state, plus a list of (kind, detail) for the clauses that abstained. Pure data — no rules."""
@@ -1575,6 +1627,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     add("instance_of", (tid, facts))
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as
+    # §700.2 a modal card whose MODES belong to a TRIGGERED ability rather than the spell itself (Hullbreaker
+    # Horror: 'Whenever you cast a spell, choose up to one —'). Signal: a non-instant/sorcery modal card with a
+    # mapped-event triggered ability that has NO direct effects (the modes ARE its effects). The modes then
+    # route to that trigger (modal_trigger), NOT to the spell-modal block below.
+    modal_trigger_aid = None
+    if f.get("modal") and not is_is_card:
+        for _aid, _ab in (f.get("abilities") or {}).items():
+            if _aid in modal_modes:
+                continue
+            if _ab.get("kind") == "triggered" and not _ab.get("effects") and _EVENT.get(_ab.get("trigger")):
+                modal_trigger_aid = _aid
+                break
     for aid, ab in (f.get("abilities") or {}).items():        # card_ability/card_effect — that would MERGE every mode
         if aid in modal_modes:                               # into the flat spell_* relations (a mode-choice leak).
             continue                                         # modes resolve ONLY via the mode-gated spell_effect_mode
@@ -1694,6 +1758,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             continue
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
             trig = str(ab.get("trigger"))
+            if aid == modal_trigger_aid:
+                # §700.2 MODAL triggered ability (Hullbreaker Horror): the trigger fires (has_trigger derives from
+                # card_ability + ability_trigger), surfacing ONE modal_trigger pending row; the driver chooses
+                # up to `count` modes and resolves each chosen mode's effects (trigger_mode_effect, read directly
+                # — pure shim, not engine-derived). `up_to_*` makes the choice optional (0..count modes).
+                a = f"{tid}_{aid}"
+                offered, mode_rows = _resolve_modes(f, a, dropped)
+                if offered:
+                    base, _cmore = _modal_count(f, len(offered))
+                    optional = str(f.get("modal") or "").startswith("up_to")
+                    spec = "|".join(offered) + ("|opt" if optional else "")
+                    add("trigger_effect", (a, "modal_trigger", base, spec))
+                    for row in mode_rows:
+                        add("trigger_mode_effect", row)
+                continue
             if trig == "the_beginning_of_the_next_end_step" and any(e[1] == "put_in_graveyard" for e in ab.get("effects", [])):
                 # §603.7c Mnemonic Betrayal's delayed 'at the next end step, return the exiled cards to their
                 # owners' graveyards' — handled by the steal_graveyards effect + driver._return_stolen at the
@@ -2300,55 +2379,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             continue
         add("activated_ability", (f"{tid}_lvl{level}", tid, paid[0], "-", "level_up", int(level), "-"))
 
-    if f.get("modal"):                                       # §700.2 — a modal spell: offer each mode + its effects
-        offered = []
-        for mode in f.get("modes", []):
-            mab = f.get("abilities", {}).get(mode, {})
-            mode_effs = []
-            m_effs = list(mab.get("effects", []))
-            # §608 IMPULSE in a MODE (Opera Love Song: '• exile the top two cards, you may play those cards') ->
-            # one impulse_play spell_effect_mode row, resolved only for the chosen mode.
-            _emit_mode = lambda e, n, t: mode_effs.append((tid, mode, e, n, t))
-            imp_skip = _fold_impulse(m_effs, _emit_mode)
-            # §700.2 a mode that is 'each player may discard their hand and draw N' (Will of the Jeskai mode1) ->
-            # one atomic discard_draw; 'grant flashback to each i/s in your graveyard' (mode2) reuses the shared
-            # §702.34 _fold_flashback -> grant_flashback (Past in Flames machinery).
-            mode_skip = imp_skip | _fold_discard_draw(m_effs, _emit_mode) | _fold_flashback(m_effs, _emit_mode)
-            for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(m_effs):
-                if _idx in mode_skip:
-                    continue
-                # §601.2c a mode's SINGLE-TARGET zone-move (Prismari Charm 'return target nonland permanent',
-                # Get Out 'return one/two creatures you own') or direct DAMAGE rides the same target machinery
-                # as a non-modal spell, but mode-gated: pack a ctarget/cdamage sentinel the driver resolves
-                # only for the CHOSEN mode (spell_effect_mode carries no spell_target row of its own).
-                if verb in _CREATURE_VERBS and _scope(tgt) is None:
-                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
-                    if ev is not None:
-                        mode_effs.append((tid, mode, "ctarget", 0, f"{ev}|{payload}|{cls}"))
-                        continue
-                if verb == "deal_damage" and _int(amt) is not None and _damage_target(tgt) is not None:
-                    mode_effs.append((tid, mode, "cdamage", _int(amt), _damage_target(tgt)))
-                    continue
-                if verb == "add_mana":
-                    # §106 a mode's VARIABLE ritual ('• Add R for each card in target opponent's hand' —
-                    # Jeska's Will mode1) -> a dyn_mana mode effect the driver sizes at resolution, mirroring
-                    # the non-modal spell path. The fixed-amount/fixed-color case still flows through below.
-                    mq = _mana_qty(amt)
-                    color = str(extra)
-                    if mq is not None and color in _MANA_QTY_COLORS and str(tgt) in _MANA_QTY_SELF:
-                        mult, qtag = mq
-                        mode_effs.append((tid, mode, "dyn_mana", mult, f"{qtag}|{color}"))
-                        continue
-                r = _resolved_effect(verb, amt, tgt, extra)
-                if r is None:
-                    dropped.append(("effect", verb))
-                    continue
-                mode_effs.append((tid, mode, r[0], r[1], r[2]))
-            if mode_effs:                                    # offer a mode only if at least one of its effects resolves
-                offered.append(mode)
-                add("spell_mode", (tid, mode))               # engine input -> active_mode(s,m) :- spell_mode, chose_mode
-                for row in mode_effs:
-                    add("spell_effect_mode", row)            # driver-side: resolved only for the chosen mode
+    if f.get("modal") and modal_trigger_aid is None:        # §700.2 — a modal SPELL: offer each mode + its effects
+        # (a modal card whose modes belong to a TRIGGERED ability was routed to modal_trigger above, not here).
+        offered, mode_rows = _resolve_modes(f, tid, dropped)
+        for mode in offered:
+            add("spell_mode", (tid, mode))                   # engine input -> active_mode(s,m) :- spell_mode, chose_mode
+        for row in mode_rows:
+            add("spell_effect_mode", row)                    # driver-side: resolved only for the chosen mode
         if offered:                                          # §700.2 HOW MANY modes to choose (the driver's _choose_mode
             base, cmore = _modal_count(f, len(offered))      # picks `base`, or `cmore` if the controller controls a
             add("spell_mode_count", (tid, base))             # commander — the 'choose both if commander' precon rider).
