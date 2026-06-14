@@ -184,6 +184,20 @@ def apply_coin_flip(D, state, a, n, tgt, src, ctrl):
             D._transform(state, src, ctrl)
 
 
+@applier("blink_self_tapped")
+def apply_blink_self_tapped(D, state, a, n, tgt, src, ctrl):
+    """§603 Nezahal's self-blink — 'Exile ~. Return it to the battlefield tapped under its owner's control': the
+    source briefly leaves and returns as a NEW object, tapped and summoning sick (its counters/until-EOT
+    effects reset). A no-op if it's no longer on the battlefield. (The removal-dodge timing — blinking in
+    RESPONSE to a kill spell — isn't modeled; the blink itself resolves.)"""
+    if (src,) not in state.get("on_battlefield", set()):
+        return
+    state.setdefault("tapped", set()).add((src,))
+    state.setdefault("_sick", set()).add((src,))
+    state["counter"] = {(o, k, c) for (o, k, c) in state.get("counter", set()) if o != src}   # a new object
+    print(f"    {a}: {src} is exiled and returns to the battlefield tapped (blink)")
+
+
 @applier("sacrifice_self")
 def apply_sacrifice_self(D, state, a, n, tgt, src, ctrl):
     """§701.16 'Sacrifice this permanent' — the SOURCE sacrifices itself (City of Traitors on a land drop,

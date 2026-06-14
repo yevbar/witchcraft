@@ -278,6 +278,22 @@ def _encode_cant_block(verb, amt, tgt, extra):
     return ("cant_block", 0, "without_flying")
 
 
+@applier("return_as_enchantment")
+def _apply_return_as_enchantment(D, state, a, n, tgt, src, ctrl):
+    """§603 the ENDURING mechanic (Enduring Vitality) — when the source dies it returns from the graveyard to
+    the battlefield under its owner's control as a NONcreature ENCHANTMENT (§613: remove the creature type, add
+    enchantment, PERMANENTLY — no until_eot), keeping its static ability. A no-op if it isn't in the graveyard."""
+    if (src,) not in state.get("graveyard", set()):
+        return
+    state["graveyard"].discard((src,))
+    state.setdefault("on_battlefield", set()).add((src,))
+    state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != src} | {(ctrl, src)}
+    eid = f"enduring__{src}"
+    state.setdefault("eff_remove_type", set()).add((eid, src, "creature"))
+    state.setdefault("eff_add_type", set()).add((eid, src, "enchantment"))
+    print(f"    {a}: {src} returns to the battlefield as a noncreature enchantment (Enduring)")
+
+
 @applier("cant_block")
 def _apply_cant_block(D, state, a, n, tgt, src, ctrl):
     """§509.1b set a turn-scoped block restriction. tgt is the filter tag the driver's declare_blockers

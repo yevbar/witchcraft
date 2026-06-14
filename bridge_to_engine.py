@@ -727,6 +727,46 @@ def _fold_search_face_down_hand(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_enduring(effs: list, emit) -> set:
+    """§603 the ENDURING mechanic — 'When ~ dies, if it was a creature, return it to the battlefield under its
+    owner's control. It's an enchantment' (Enduring Vitality) -> one return_as_enchantment effect: the source
+    returns from the graveyard as a NONcreature enchantment (keeping its static ability)."""
+    ri = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "return_to_battlefield" and str(t) in ("it", "self", "him")), None)
+    bi = next((i for i, (_s, v, _a, _t, x, _c) in enumerate(effs) if v == "becomes" and "enchantment" in str(x)), None)
+    if ri is None or bi is None:
+        return set()
+    emit("return_as_enchantment", 0, "-")
+    return {ri, bi}
+
+
+def _fold_blink_self(effs: list, emit) -> set:
+    """§603 'Exile ~. Return it to the battlefield tapped under its owner's control' (Nezahal's self-blink to
+    dodge removal) -> one blink_self_tapped effect (the source leaves and returns tapped as a new object)."""
+    ri = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+               if v == "return_to_battlefield" and str(t) in ("it", "him", "self") and "tapped" in str(x)), None)
+    xi = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "exile"), None)
+    if ri is None or xi is None:
+        return set()
+    emit("blink_self_tapped", 0, "-")
+    return {ri, xi}
+
+
+def _fold_thrasios_dig(effs: list, emit) -> set:
+    """§701 Thrasios, Triton Hero '{4}: Scry 1, then reveal the top card of your library. If it's a land card,
+    put it onto the battlefield tapped. Otherwise, draw a card' -> one thrasios_dig effect (the scry is an
+    opaque-id no-op; the reveal + land-to-battlefield-tapped + else-draw resolve together)."""
+    ri = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs) if v == "reveal" and "top_of_library" in str(t)), None)
+    if ri is None:
+        return set()
+    consumed = {ri}
+    for i, (_s, v, _a, _t, _x, c) in enumerate(effs):
+        if i not in consumed and (v == "scry" or (v == "return_to_battlefield" and "land" in str(c)) or v == "draw"):
+            consumed.add(i)
+    emit("thrasios_dig", 0, "-")
+    return consumed
+
+
 def _fold_finale_pump(effs: list, emit) -> set:
     """§107.3 Finale of Devastation 'If X is 10 or more, creatures you control get +X/+X and gain haste until
     end of turn' -> one finale_pump effect (the driver applies +X/+X + haste to the controller's creatures
@@ -1349,6 +1389,12 @@ def _life_cost(cost) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _discard_cost(cost) -> int | None:
+    """§118 a 'Discard N cards' activation cost on a non-mana ability (Nezahal's self-blink) -> N, else None."""
+    m = re.match(r"^Discard (\w+) cards?$", str(cost or "").strip(), re.I)
+    return _NUMWORD_BIG.get(m.group(1).lower()) if m and not m.group(1).isdigit() else (int(m.group(1)) if m else None)
+
+
 def _alt_mana_cost(cost) -> tuple | None:
     s = str(cost or "").strip()
     m = re.match(r"^Pay (\d+) life$", s, re.I)
@@ -1683,13 +1729,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             flip_skip = _fold_coinflip(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §118 RECURRING optional payment on a TRIGGERED ability (Mana Vault's 'pay {4} to untap').
             pay_skip = _fold_optional_pay(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §603 the ENDURING dies-return ('return it as an enchantment' — Enduring Vitality).
+            end_skip = _fold_enduring(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §510 Tymna's postcombat-main 'pay X life, draw X' (X = opponents dealt combat damage this turn).
             cd_skip = (_fold_combat_draw(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
                        if event == "postcombat_main" else set())
             # §603 'that player may pay {N}; if they don't, you create a <token>' (Smothering Tithe).
             poc_skip = _fold_pay_or_create(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2003,7 +2051,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
             paid = _activated_cost(ab.get("cost"))
-            life_n = None
+            life_n = discard_n = None
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
@@ -2018,13 +2066,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # §118 a 'Pay N life' activation cost on a NON-mana ability (Necropotence 'Pay 1 life: …',
                 # Griselbrand 'Pay 7 life: Draw seven') -> a life-cost activated ability the driver can use.
                 life_n = _life_cost(ab.get("cost"))
-                if life_n is None:
+                discard_n = _discard_cost(ab.get("cost"))     # §118 'Discard N cards' cost (Nezahal's self-blink)
+                if life_n is None and discard_n is None:
                     dropped.append(("activated_cost", ab.get("cost")))
                     continue
-                paid = (0, False, False)                      # the mana/tap part is empty; the life cost rides below
+                paid = (0, False, False)                      # the mana/tap part is empty; the life/discard rides below
             a = f"{tid}_{aid}"
             if life_n is not None:
                 add("ability_life_cost", (a, life_n))         # the driver pays N life to activate (Necropotence)
+            if discard_n is not None:
+                add("ability_discard_cost", (a, discard_n))   # the driver discards N cards to activate (Nezahal)
             taps = "T" if paid[1] else "-"
             if len(paid) > 2 and paid[2]:                     # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
                 add("ability_sac_cost", (a,))                 # the driver sacrifices the source when activated
@@ -2048,6 +2099,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             act_skip |= _fold_necro_dig(act_effs, _emit_act)
             # §701 Kinnan 'look at the top N, put a non-Human creature onto the battlefield, rest on the bottom'.
             act_skip |= _fold_dig_battlefield(act_effs, _emit_act)
+            # §701 Thrasios '{4}: scry 1, reveal the top; a land enters tapped, otherwise draw it'.
+            act_skip |= _fold_thrasios_dig(act_effs, _emit_act)
+            # §603 Nezahal 'Discard three cards: Exile ~, return it tapped' — a self-blink (removal dodge).
+            act_skip |= _fold_blink_self(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT

@@ -456,6 +456,27 @@ def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
 
 
+@applier("thrasios_dig")
+def _apply_thrasios_dig(D, state, a, n, tgt, src, ctrl):
+    """§701 Thrasios — scry 1 (an opaque-id no-op reorder), then reveal the top card of the controller's
+    library: a LAND goes onto the battlefield tapped; anything else is drawn."""
+    order = _order(state, ctrl)
+    top = order[0] if order else next((c for (p, c) in sorted(state.get("in_library", set())) if p == ctrl), None)
+    if top is None:
+        print(f"    {a}: {ctrl}'s library is empty")
+        return
+    if (top, "land") in state.get("printed_type", set()):
+        state.get("in_library", set()).discard((ctrl, top))
+        if top in order:
+            order.remove(top)
+        state.setdefault("on_battlefield", set()).add((top,))
+        state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != top} | {(ctrl, top)}
+        state.setdefault("tapped", set()).add((top,))
+        print(f"    {a}: {ctrl} reveals {top} (land) -> the battlefield tapped")
+    else:
+        D._draw(state, ctrl)
+
+
 @applier("finale_pump")
 def _apply_finale_pump(D, state, a, n, tgt, src, ctrl):
     """§107.3 Finale of Devastation — if the spell's X is 10 or more, the controller's creatures get +X/+X and

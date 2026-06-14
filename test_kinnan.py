@@ -119,6 +119,43 @@ def run() -> None:
         check(f"Finale pump at X={x} -> creatures buffed: {pumped}",
               (("finale__bear", "bear", x) in fs["eff_mod_power"]) == pumped)
 
+    # ── wave 3 (tractable): Thrasios reveal-dig, Nezahal discard-cost self-blink, Enduring Vitality ────────
+    check("Thrasios, Triton Hero is CLEAN", dropped("Thrasios, Triton Hero") == [])
+    # reveal a LAND -> battlefield tapped
+    tl = {"is_player": {("p",)}, "_lib_order": {"p": ["land", "spell"]}, "in_library": {("p", "land"), ("p", "spell")},
+          "printed_type": {("land", "land"), ("spell", "instant")}, "on_battlefield": set(), "printed_control": set(),
+          "tapped": set(), "in_hand": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["thrasios_dig"](driver, tl, "thr", 0, "-", "thr", "p")
+    check("Thrasios puts a revealed land onto the battlefield tapped",
+          ("land",) in tl["on_battlefield"] and ("land",) in tl["tapped"])
+    # reveal a NONland -> draw it
+    tn = {"is_player": {("p",)}, "_lib_order": {"p": ["spell", "x"]}, "in_library": {("p", "spell"), ("p", "x")},
+          "printed_type": {("spell", "instant")}, "on_battlefield": set(), "printed_control": set(), "tapped": set(), "in_hand": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["thrasios_dig"](driver, tn, "thr", 0, "-", "thr", "p")
+    check("Thrasios draws a revealed nonland", ("p", "spell") in tn["in_hand"])
+
+    check("Nezahal, Primal Tide is CLEAN (Discard three cards: self-blink)", dropped("Nezahal, Primal Tide") == [])
+    nf, _ = B.card_facts("Nezahal, Primal Tide", "p", "t", db, corpus)
+    check("Nezahal emits a discard-3 cost + a blink_self_tapped ability",
+          ("t_a3", 3) in nf.get("ability_discard_cost", set())
+          and any(r[4] == "blink_self_tapped" for r in nf.get("activated_ability", set())))
+    bs = {"on_battlefield": {("nez",)}, "tapped": set(), "_sick": set(), "counter": {("nez", "p1p1", 2)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["blink_self_tapped"](driver, bs, "t_a3", 0, "-", "nez", "p")
+    check("Nezahal's blink returns it tapped + summoning sick (counters reset)",
+          ("nez",) in bs["tapped"] and ("nez",) in bs["_sick"] and not any(o == "nez" for (o, _k, _c) in bs["counter"]))
+
+    check("Enduring Vitality is CLEAN (dies -> returns as an enchantment)", dropped("Enduring Vitality") == [])
+    ev = {"graveyard": {("ev",)}, "on_battlefield": set(), "printed_control": set(),
+          "eff_remove_type": set(), "eff_add_type": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["return_as_enchantment"](driver, ev, "ev_a2", 0, "-", "ev", "p")
+    check("Enduring Vitality returns from the graveyard as a noncreature enchantment",
+          ("ev",) in ev["on_battlefield"] and ("enduring__ev", "ev", "enchantment") in ev["eff_add_type"]
+          and ("enduring__ev", "ev", "creature") in ev["eff_remove_type"])
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

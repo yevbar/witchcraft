@@ -2452,6 +2452,9 @@ def _activatable(state: dict, p: str) -> list:
         life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
         if life_cost and next((v for (q, v) in state.get("life", set()) if q == p), 0) <= life_cost:
             continue                                         # §118.4 'Pay N life': can't pay if it wouldn't leave you ≥1
+        disc_cost = next((int(dn) for (aa, dn) in state.get("ability_discard_cost", set()) if aa == a), 0)
+        if disc_cost and len([c for (pp, c) in state.get("in_hand", set()) if pp == p]) < disc_cost:
+            continue                                         # §118 'Discard N cards': need N cards in hand (Nezahal)
         if eff == "equip":                                   # §301.5 only worth equipping if currently
             if any(a2 == src for (a2, _c) in state.get("attached_to", set())):
                 continue                                     # unattached (no re-equip churn) and ...
@@ -2490,6 +2493,9 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
     if life_cost:                                            # §118 'Pay N life' (Necropotence, Griselbrand)
         print(f"    {ap} pays {life_cost} life -> {_adjust_life(state, ap, -life_cost)}")
+    disc_cost = next((int(dn) for (aa, dn) in state.get("ability_discard_cost", set()) if aa == a), 0)
+    if disc_cost:                                            # §118 'Discard N cards' (Nezahal) — discard the cheapest
+        _apply_effects(state, {(a, "discard", disc_cost, "-", src, ap)})
     if taps == "T":
         _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
