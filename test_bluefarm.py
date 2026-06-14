@@ -151,6 +151,63 @@ def run() -> None:
             _eh.APPLY["win_if"](driver, ws, "fel", 0, "life:40", "fel", "p")
         check(f"Felidar Sovereign at {life} life -> wins: {wins}", (("p",) in ws.get("eff_win_game", set())) == wins)
 
+    # ── the hard tail (now the deck is 100% CLEAN) ──────────────────────────────────────────────────────
+    # Beseech the Mirror: the Bargain tutor's guaranteed line is a tutor to hand.
+    _b, bf, bdr = facts("Beseech the Mirror", "bes")
+    check("Beseech the Mirror is CLEAN", bdr == [])
+    check("Beseech tutors a card to hand", ("bes", "search_to_shuffle_hand", 0, "any") in bf.get("spell_effect", set()))
+
+    # Sevinne's Reclamation: reanimate the strongest permanent within the mana-value cap (3), not a bigger one.
+    svf, svfacts, svdr = facts("Sevinne's Reclamation", "sev")
+    check("Sevinne's Reclamation is CLEAN", svdr == [])
+    check("Sevinne's emits reanimate_permanent (cap 3)", ("sev", "reanimate_permanent", 3, "graveyard") in svfacts.get("spell_effect", set()))
+    svst = {"is_player": {("p",), ("q",)}, "graveyard": {("sigil",), ("bear",), ("drag",)},
+            "printed_type": {("sigil", "artifact"), ("bear", "creature"), ("drag", "creature")},
+            "printed_control": {("p", "sigil"), ("p", "bear"), ("p", "drag")},
+            "mana_cost": {("sigil", 2), ("bear", 3), ("drag", 5)}, "on_battlefield": set(), "_sick": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        _eh.APPLY["reanimate_permanent"](driver, svst, "sev", 3, "graveyard", "sev", "p")
+    check("Sevinne's returns the MV-3 creature (the MV-5 is over the cap)",
+          ("bear",) in svst["on_battlefield"] and ("drag",) not in svst["on_battlefield"])
+
+    # Necropotence: Pay 1 life -> exile top -> delivered to hand at end step; skip draw; discards -> exile.
+    nst, nf, ndr = facts("Necropotence", "necro")
+    check("Necropotence is CLEAN", ndr == [])
+    check("Necropotence: pay-1-life dig + skip-draw + discard-exile facts emitted",
+          ("necro_a2", 1) in nf.get("ability_life_cost", set())
+          and ("necro",) in nf.get("skip_draw_source", set())
+          and ("necro",) in nf.get("discard_exile_source", set()))
+    nst.setdefault("on_battlefield", set()).add(("necro",))
+    nst.setdefault("printed_control", set()).add(("p", "necro"))
+    nst["printed_type"] = driver.run(nst, ["printed_type"])["printed_type"]
+    check("Necropotence makes its controller skip their draw step", driver._skips_draw(nst, "p"))
+    check("Necropotence routes the controller's discards to exile", driver._discard_zone(nst, "p") == "exile")
+    nst.update({"life": {("p", 40), ("q", 40)}, "in_library": {("p", "top")}, "_lib_order": {"p": ["top"]},
+                "in_hand": set(), "exile": set(), "_necro_pending": set()})
+    with contextlib.redirect_stdout(io.StringIO()):
+        _eh.APPLY["necro_dig"](driver, nst, "necro_a2", 0, "-", "necro", "p")
+    check("Necropotence exiles the top card to a pending set (not yet in hand)",
+          ("top",) in nst["exile"] and ("p", "top") in nst["_necro_pending"] and ("p", "top") not in nst["in_hand"])
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._deliver_necro(nst, "p")
+    check("Necropotence delivers the exiled card to hand at the end step", ("p", "top") in nst["in_hand"])
+
+    # Mnemonic Betrayal: exile opponents' graveyards (not your own), may-cast this turn, return at end step.
+    mst, mf, mdr = facts("Mnemonic Betrayal", "mb")
+    check("Mnemonic Betrayal is CLEAN", mdr == [])
+    mst.update({"is_player": {("p",), ("q",)}, "graveyard": {("qc1",), ("qc2",), ("pc1",)},
+                "printed_control": {("q", "qc1"), ("q", "qc2"), ("p", "pc1")}, "exile": set(), "may_play": set()})
+    with contextlib.redirect_stdout(io.StringIO()):
+        _eh.APPLY["steal_graveyards"](driver, mst, "mb", 0, "-", "mb", "p")
+    check("Mnemonic Betrayal exiles opponents' graveyards but not your own",
+          ("qc1",) in mst["exile"] and ("qc2",) in mst["exile"] and ("pc1",) in mst["graveyard"])
+    check("Mnemonic Betrayal grants the controller may_play on the stolen cards",
+          ("p", "qc1") in mst["may_play"] and ("p", "qc2") in mst["may_play"])
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._return_stolen(mst, "p")
+    check("Mnemonic Betrayal returns the uncast stolen cards at the end step",
+          ("qc1",) in mst["graveyard"] and ("qc2",) in mst["graveyard"])
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

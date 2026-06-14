@@ -432,6 +432,14 @@ def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
     state["counter"].add((obj, kind, cur + n))
 
 
+def _discard_zone(state: dict, p: str) -> str:
+    """§701.8 where p's discarded cards go: the graveyard, OR 'exile' if p controls a 'whenever you discard a
+    card, exile that card from your graveyard' source (Necropotence) — modeled as a discard-to-exile replacement."""
+    mine = {c for (pp, c) in state.get("printed_control", set()) if pp == p}
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    return "exile" if any(s in mine and s in bf for (s,) in state.get("discard_exile_source", set())) else "graveyard"
+
+
 def _apply_effects(state: dict, pending: set) -> None:
     """Apply the effects of triggered abilities the engine fired (§603 -> §608 resolution).
     Player targets: each_opponent -> all other players; controller/self -> the controller."""
@@ -470,7 +478,7 @@ def _apply_effects(state: dict, pending: set) -> None:
                             else _choose(state, "discard", hand, hand[0]))
                     hand.remove(card)
                     state["in_hand"].discard((p, card))
-                    state.setdefault("graveyard", set()).add((card,))
+                    state.setdefault(_discard_zone(state, p), set()).add((card,))
                 if k:
                     print(f"    trigger {a}: {p} discards {k}{' at random' if at_random else ''}")
         elif eff == "add_counter":                           # tgt = counter kind (p1p1/m1m1), on the source
@@ -2425,6 +2433,9 @@ def _activatable(state: dict, p: str) -> list:
             continue
         if taps == "T" and ((src,) in tapped or (src,) in sick):
             continue                                         # can't pay {T}: already tapped or summoning sick
+        life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
+        if life_cost and next((v for (q, v) in state.get("life", set()) if q == p), 0) <= life_cost:
+            continue                                         # §118.4 'Pay N life': can't pay if it wouldn't leave you ≥1
         if eff == "equip":                                   # §301.5 only worth equipping if currently
             if any(a2 == src for (a2, _c) in state.get("attached_to", set())):
                 continue                                     # unattached (no re-equip churn) and ...
@@ -2460,6 +2471,9 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     a, src, cost, taps, eff, amt, tgt = chosen
     if int(cost):                                            # pay the mana part via the mana model
         _spend_ability_mana(state, ap, int(cost))
+    life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
+    if life_cost:                                            # §118 'Pay N life' (Necropotence, Griselbrand)
+        print(f"    {ap} pays {life_cost} life -> {_adjust_life(state, ap, -life_cost)}")
     if taps == "T":
         _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
@@ -2544,6 +2558,42 @@ def _spend_ability_mana(state: dict, ap: str, cost: int) -> None:
     _refresh_mana_pool(state, ap)                             # recompute pool/count from sources still untapped (0 if all tapped)
 
 
+def _skips_draw(state: dict, ap: str) -> bool:
+    """§504 — does ap skip their draw step? (controls a 'Skip your draw step' source: Necropotence.)"""
+    mine = {c for (p, c) in state.get("printed_control", set()) if p == ap}
+    bf = {c for (c,) in state.get("on_battlefield", set())}
+    return any(s in mine and s in bf for (s,) in state.get("skip_draw_source", set()))
+
+
+def _deliver_necro(state: dict, ap: str) -> None:
+    """§601 deliver the cards Necropotence exiled face down (state['_necro_pending']) into ap's hand at the
+    beginning of ap's end step — the §513 delayed draw."""
+    pend = sorted(c for (p, c) in state.get("_necro_pending", set()) if p == ap)
+    for c in pend:
+        state["_necro_pending"].discard((ap, c))
+        state.get("exile", set()).discard((c,))
+        state.setdefault("in_hand", set()).add((ap, c))
+    if pend:
+        print(f"    {ap} puts {len(pend)} card(s) exiled by Necropotence into hand (end step)")
+
+
+def _return_stolen(state: dict, ap: str) -> None:
+    """§608 Mnemonic Betrayal — at ap's end step, return the still-exiled stolen cards (state['_stolen_cards'])
+    to their owners' graveyards; a card ap actually cast this turn already left exile and isn't returned. The
+    cast permission (may_play) is cleared either way."""
+    stolen = state.get("_stolen_cards", set())
+    returned = 0
+    for (c, _o) in sorted(stolen):
+        state.get("may_play", set()).discard((ap, c))
+        if (c,) in state.get("exile", set()):                # still exiled (wasn't cast) -> back to graveyard
+            state["exile"].discard((c,))
+            state.setdefault("graveyard", set()).add((c,))
+            returned += 1
+    if stolen:
+        state["_stolen_cards"] = set()
+        print(f"    {ap}: {returned} stolen card(s) return to their owners' graveyards (end step)")
+
+
 def _end_of_turn(state: dict) -> None:
     """§514.2 cleanup — until-end-of-turn continuous effects end (the driver removes them)."""
     ending = {e for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]}
@@ -2583,11 +2633,14 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if step in GRANTS_PRIORITY:              # §5 priority window — the active player may cast
                 _cast_phase(state, ap)
             _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
+            if step == "end":                        # §513 'at the beginning of your next end step' deliveries
+                _deliver_necro(state, ap)            # §601 Necropotence: exiled cards come to hand at end step
+                _return_stolen(state, ap)            # §608 Mnemonic Betrayal: stolen cards return to graveyards
             if step == "cleanup":                    # §514.2 cleanup
                 _end_of_turn(state)
             out = run(state, OUTPUTS)
-            if skip_draw and step == "draw":         # §103.8a — the player who plays first skips it
-                out["to_draw"] = set(); print(f"    {ap} skips their first-turn draw (§103.8a)")
+            if step == "draw" and (skip_draw or _skips_draw(state, ap)):   # §103.8a first-turn / §504 Necropotence
+                out["to_draw"] = set(); print(f"    {ap} skips their draw step")
             loser = _apply_outputs(state, out, ap)
             if loser:
                 return loser

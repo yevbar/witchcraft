@@ -438,6 +438,76 @@ def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
 
 
+@applier("steal_graveyards")
+def _apply_steal_graveyards(D, state, a, n, tgt, src, ctrl):
+    """§608 Mnemonic Betrayal — exile every OPPONENT's graveyard; the controller MAY cast those cards this turn
+    (may_play, the graveyard-cast permission), and they are tracked in _stolen_cards so the still-exiled ones
+    return to their owners' graveyards at the controller's next end step (driver._return_stolen). The 'spend
+    mana of any type' rider is a simplification (the controller pays from its own pool)."""
+    owner = {c: p for (p, c) in state.get("printed_control", set())}
+    opps = set(D._others(state, ctrl))
+    stolen = state.setdefault("_stolen_cards", set())
+    n_stolen = 0
+    for (c,) in sorted(state.get("graveyard", set())):
+        if owner.get(c) in opps:
+            state["graveyard"].discard((c,))
+            state.setdefault("exile", set()).add((c,))
+            state.setdefault("may_play", set()).add((ctrl, c))
+            stolen.add((c, owner.get(c)))
+            n_stolen += 1
+    print(f"    {a}: {ctrl} exiles {n_stolen} card(s) from opponents' graveyards (may cast them this turn)")
+
+
+@applier("self_exile")
+def _apply_self_exile(D, state, a, n, tgt, src, ctrl):
+    """§608 a spell that EXILES ITSELF on resolution instead of going to the graveyard (Mnemonic Betrayal's
+    'Exile ~') — flag it for the §608.2m exile-instead-of-graveyard via the shared _flashback set."""
+    state.setdefault("_flashback", set()).add((src,))
+    print(f"    {a}: {src} will be exiled instead of going to the graveyard")
+
+
+@applier("necro_dig")
+def _apply_necro_dig(D, state, a, n, tgt, src, ctrl):
+    """§601 Necropotence — exile the top card of the controller's library FACE DOWN; it is delivered to their
+    hand at the beginning of their next end step (state['_necro_pending']; driver._deliver_necro). A faithful
+    DELAYED draw — the card isn't usable until the end step."""
+    order = state.get("_lib_order", {}).get(ctrl)
+    card = order.pop(0) if order else next((c for (p, c) in sorted(state.get("in_library", set())) if p == ctrl), None)
+    if card is None:
+        print(f"    {a}: {ctrl}'s library is empty")
+        return
+    state.get("in_library", set()).discard((ctrl, card))
+    state.setdefault("exile", set()).add((card,))
+    state.setdefault("_necro_pending", set()).add((ctrl, card))
+    print(f"    {a}: {ctrl} exiles the top card face down (Necropotence -> hand at end step)")
+
+
+_PERM_CARD_TYPES = ("creature", "artifact", "enchantment", "planeswalker", "land", "battle")
+
+
+@applier("reanimate_permanent")
+def _apply_reanimate_permanent(D, state, a, n, tgt, src, ctrl):
+    """§701 'Return target PERMANENT card with mana value <= n from your graveyard to the battlefield'
+    (Sevinne's Reclamation). Pick the controller's strongest such card (highest mana value within the cap, a
+    deterministic id tie-break) and put it onto the battlefield under their control. A creature enters
+    summoning sick (§302.6). A fail (no eligible card) is a faithful no-op."""
+    ptype = state.get("printed_type", set())
+    mv = {c: v for (c, v) in state.get("mana_cost", set())}
+    owner = {c: p for (p, c) in state.get("printed_control", set())}
+    cands = [c for (c,) in state.get("graveyard", set())
+             if owner.get(c) == ctrl and any((c, t) in ptype for t in _PERM_CARD_TYPES) and mv.get(c, 0) <= int(n)]
+    if not cands:
+        print(f"    {a}: {ctrl} has no permanent card (mana value <= {n}) to return")
+        return
+    pick = max(cands, key=lambda c: (mv.get(c, 0), c))
+    state["graveyard"].discard((pick,))
+    state.setdefault("on_battlefield", set()).add((pick,))
+    state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
+    if (pick, "creature") in ptype:
+        state.setdefault("_sick", set()).add((pick,))
+    print(f"    {a}: {ctrl} returns {pick} (mana value {mv.get(pick, 0)}) from the graveyard to the battlefield")
+
+
 def _take_searched(state: dict, ctrl: str) -> str | None:
     """Pop the card the preceding §701.18 search selected (consumed by the destination clause), or None."""
     return state.setdefault("_searched", {}).pop(ctrl, None)

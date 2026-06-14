@@ -705,6 +705,61 @@ def _fold_search_to_graveyard(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_search_face_down_hand(effs: list, emit) -> set:
+    """§701.18 'Search your library for a card, exile it FACE DOWN, then shuffle. [If bargained, you may cast
+    it for free.] Put the exiled card into your hand if it wasn't cast this way' (Beseech the Mirror). The
+    GUARANTEED line is a tutor TO HAND — fold search + face-down exile + shuffle + return-to-hand into one
+    search_to_shuffle_hand. The optional Bargain free-CAST (it needs sacrificing an artifact/enchantment/token)
+    is a conservative omission: you still tutor the card to hand."""
+    from effect_handlers import library as _lib
+    si = next((i for i, (_s, v, _a, _t, _x, _c) in enumerate(effs) if v == "search"), None)
+    xi = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs) if v == "exile" and "face_down" in str(t)), None)
+    ri = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "return_to_hand" and "exiled_card" in str(t)), None)
+    if si is None or xi is None or ri is None:
+        return set()
+    pred = _lib.search_predicate(effs[si][3]) or "any"       # 'a_card' -> 'any' (a generic tutor)
+    consumed = {si, xi, ri}
+    for i, (_s, v, _a, t, _x, _c) in enumerate(effs):         # absorb the shuffle + the bargain free-cast upside
+        if i not in consumed and (v == "shuffle" or (v == "cast" and "exiled_card" in str(t))):
+            consumed.add(i)
+    emit("search_to_shuffle_hand", 0, pred)
+    return consumed
+
+
+def _fold_necro_dig(effs: list, emit) -> set:
+    """§601 Necropotence 'Exile the top card of your library face down. Put that card into your hand at the
+    beginning of your next end step' -> one necro_dig effect (the driver exiles the top card into a pending
+    set and delivers it to hand at the controller's next end step — a faithful DELAYED draw, not immediate)."""
+    xi = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs) if v == "exile" and "top_card" in str(t)), None)
+    ri = next((i for i, (_s, v, _a, t, _x, c) in enumerate(effs)
+               if v == "return_to_hand" and ("delayed" in str(c) or "end_step" in str(c))), None)
+    if xi is None or ri is None:
+        return set()
+    emit("necro_dig", 0, "-")
+    return {xi, ri}
+
+
+def _fold_reanimate_permanent(effs: list, emit) -> set:
+    """§701 'Return target PERMANENT card with mana value N or less from your graveyard to the battlefield'
+    (Sevinne's Reclamation). The shared reanimate path is creature-only; this reanimates ANY permanent type
+    capped at mana value N. The 'if this spell was cast from a graveyard, you may copy it (choosing a new
+    target)' upside — a second reanimation on flashback — is a conservative omission (the copy clauses are
+    consumed so they don't drop; you still get the primary reanimation)."""
+    ri = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+               if v == "return_to_battlefield" and "permanent_card" in str(t) and "graveyard" in str(x)), None)
+    if ri is None:
+        return set()
+    m = re.search(r"mana_value_(\d+)_or_less", str(effs[ri][3]))
+    cap = int(m.group(1)) if m else 99
+    consumed = {ri}
+    for i, (_s, v, _a, _t, _x, _c) in enumerate(effs):        # consume the conditional flashback self-copy upside
+        if i not in consumed and v in ("copy", "choose_new_targets"):
+            consumed.add(i)
+    emit("reanimate_permanent", cap, "graveyard")
+    return consumed
+
+
 def _fold_name_exile(effs: list, emit) -> set:
     """§701.18 'choose a card name' + 'reveal from the top of YOUR library until …' — fold the whole
     Demonic-Consultation / Divining-Witch / Spoils-of-the-Vault self-mill sequence into ONE atomic
@@ -1254,6 +1309,12 @@ def _pact_cost(amt) -> int | None:
     return total if total > 0 else None
 
 
+def _life_cost(cost) -> int | None:
+    """§118 a 'Pay N life' activation cost on a non-mana ability (Necropotence, Griselbrand) -> N, else None."""
+    m = re.match(r"^Pay (\d+) life$", str(cost or "").strip(), re.I)
+    return int(m.group(1)) if m else None
+
+
 def _alt_mana_cost(cost) -> tuple | None:
     s = str(cost or "").strip()
     m = re.match(r"^Pay (\d+) life$", s, re.I)
@@ -1540,6 +1601,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             continue
         if kind == "triggered":                              # §603 triggered ability -> has_trigger/trigger_effect
             trig = str(ab.get("trigger"))
+            if trig == "the_beginning_of_the_next_end_step" and any(e[1] == "put_in_graveyard" for e in ab.get("effects", [])):
+                # §603.7c Mnemonic Betrayal's delayed 'at the next end step, return the exiled cards to their
+                # owners' graveyards' — handled by the steal_graveyards effect + driver._return_stolen at the
+                # end step (a one-shot delayed trigger, not a standing one), so consume it here.
+                continue
+            if trig == "you_discard_a_card" and any(e[1] == "exile" and "graveyard" in str(e[3])
+                                                    for e in ab.get("effects", [])):
+                # §603 'whenever you discard a card, exile that card from your graveyard' (Necropotence) — model
+                # as a REPLACEMENT: the controller's discards go to EXILE instead of the graveyard (no event
+                # window needed). The driver's discard routes to exile while a discard_exile_source is out.
+                add("discard_exile_source", (tid,))
+                continue
             if trig.startswith("becomes_level_") and trig.rsplit("_", 1)[1].isdigit():
                 # §717 a Class's 'when this becomes level N' ability — fired by the driver's level-up
                 # resolution (not the engine event system). Emit each effect as a class_level_effect row the
@@ -1731,6 +1804,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701.18 SEARCH-TO-GRAVEYARD: 'search for up to N cards with flashback, put into the graveyard,
             # then shuffle' (Quiet Speculation) -> one atomic search_to_graveyard effect.
             s2gy_skip = _fold_search_to_graveyard(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701.18 SEARCH -> exile face down -> hand (Beseech the Mirror's Bargain tutor) -> tutor to hand.
+            s2fd_skip = _fold_search_face_down_hand(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 reanimate a PERMANENT card with mana value N or less from your graveyard (Sevinne's Reclamation).
+            rp_skip = _fold_reanimate_permanent(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
             wheel = _wheel_of(effs)
             wheel_skip = set()
@@ -1739,7 +1816,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -1811,6 +1888,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # spell_damage/spell_reanimate. The bridge only feeds the parse facts; it skips its own
                 # emission for the migrated rows (the `continue`s below). modify_pt (a P/T payload, lexed via
                 # the pt_value foundation table) and switch_pt are now DATALOG-derived too — no python add().
+                if verb == "exile" and str(tgt) == "all_opponents_graveyards":
+                    # §608 Mnemonic Betrayal — exile every opponent's graveyard; the controller may cast those
+                    # cards this turn (the cards return to their owners' graveyards at the next end step).
+                    add("spell_effect", (tid, "steal_graveyards", 0, "-")); continue
+                if verb == "exile" and str(tgt) in ("self", "it"):
+                    # §608 a sorcery that EXILES ITSELF instead of going to the graveyard (Mnemonic Betrayal's
+                    # 'Exile ~') -> flag it for exile-on-resolution (the same _flashback machinery).
+                    add("spell_effect", (tid, "self_exile", 0, "-")); continue
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in _BOARD_SCOPES:
@@ -1882,6 +1967,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
             paid = _activated_cost(ab.get("cost"))
+            life_n = None
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
@@ -1893,9 +1979,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if "sacrifice" in str(c.get("text", "")).lower():   # LED-style one-shot (Sacrifice ~)
                         add("source_sacrifice", (tid,))
                     continue
-                dropped.append(("activated_cost", ab.get("cost")))
-                continue
+                # §118 a 'Pay N life' activation cost on a NON-mana ability (Necropotence 'Pay 1 life: …',
+                # Griselbrand 'Pay 7 life: Draw seven') -> a life-cost activated ability the driver can use.
+                life_n = _life_cost(ab.get("cost"))
+                if life_n is None:
+                    dropped.append(("activated_cost", ab.get("cost")))
+                    continue
+                paid = (0, False, False)                      # the mana/tap part is empty; the life cost rides below
             a = f"{tid}_{aid}"
+            if life_n is not None:
+                add("ability_life_cost", (a, life_n))         # the driver pays N life to activate (Necropotence)
             taps = "T" if paid[1] else "-"
             if len(paid) > 2 and paid[2]:                     # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
                 add("ability_sac_cost", (a,))                 # the driver sacrifices the source when activated
@@ -1915,6 +2008,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §122 'put a <counter> on ~, then draw a card for each <counter> on ~' (The One Ring) -> one
             # dyn_counter_draw row (add the counter, then draw = the live counter count).
             act_skip |= _fold_counter_draw(act_effs, _emit_act)
+            # §601 Necropotence 'exile the top card face down; put it into your hand at your next end step'.
+            act_skip |= _fold_necro_dig(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT
@@ -2008,6 +2103,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 continue
         elif kind == "static":                               # §611.2 — a continuous anthem/lord ability
             for _seq, verb, amt, tgt, extra, cond in ab.get("effects", []):
+                if verb == "skip" and "draw" in str(extra):  # §504 'Skip your draw step' (Necropotence)
+                    add("skip_draw_source", (tid,))          # the driver skips the controller's draw while this is out
+                    continue
                 # §613 'you control enchanted creature' (Control Magic, Persuasion): a control-stealing Aura.
                 # The driver feeds eff_gain_control when it attaches — flag the Aura so it targets an enemy.
                 if verb == "gain_control" and str(tgt) in ("enchanted_creature", "enchanted_permanent"):
