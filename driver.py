@@ -1512,6 +1512,20 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     if not pips and generic == 0 and (spell, generic) not in state.get("mana_generic", set()):
         generic = next((int(c) for (s, c) in state.get("mana_cost", set()) if s == spell), 0)  # legacy fallback
 
+    # §107.3 an X SPELL: the controller chooses X and pays {X} (×k) in addition to the fixed cost. Greedy
+    # default — spend ALL remaining mana into X (commit to the X-spell: a big tutor / Walking Ballista); the
+    # _choose seam lets a policy pick a smaller X. Record _spell_x so the resolution (a 'mana value X or less'
+    # tutor, X damage, etc.) reads the value back.
+    xk = next((int(k) for (s, k) in state.get("x_count", set()) if s == spell), 0)
+    if xk and not escaping:
+        avail = next((m for (q, m) in state.get("mana_available", set()) if q == ap), 0)
+        fixed = generic + sum(pips.values())
+        x = _choose(state, "x_value", None, max(0, (avail - fixed) // xk))
+        generic += xk * int(x)
+        state.setdefault("_spell_x", {})[spell] = int(x)
+        if x:
+            print(f"    {ap} chooses X={x} for {spell} (pays {xk * int(x)} more)")
+
     # §106.4 spend FLOATING mana FIRST (it's already in the pool): colored pips from matching floating, then
     # generic from leftover floating (colorless preferred, to keep colored mana for colored pips). Only the
     # REMAINDER taps sources. This is what lets a ritual's mana carry across spells.

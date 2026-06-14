@@ -80,6 +80,45 @@ def run() -> None:
     check("Kinnan leaves the rest on the bottom (drag off the library, lands remain)",
           ("p", "drag") not in kst["in_library"] and ("p", "land1") in kst["in_library"])
 
+    # ── wave 2: the green X-spell tutors (search a creature/artifact with mana value X or less -> battlefield) ──
+    for nm, pred in [("Green Sun's Zenith", "type:creature&mv<=X"), ("Chord of Calling", "type:creature&mv<=X"),
+                     ("Whir of Invention", "type:artifact&mv<=X"), ("Nature's Rhythm", "type:creature&mv<=X")]:
+        gf, gdr = B.card_facts(nm, "p", "t", db, corpus)
+        check(f"{nm} is CLEAN", gdr == [])
+        check(f"{nm} folds to a search_to_<battlefield> with the X cap",
+              ("t", "search_to_shuffle_battlefield", 0, pred) in gf.get("spell_effect", set()))
+    check("Finale of Devastation is CLEAN", dropped("Finale of Devastation") == [])
+    check("Invasion of Ikoria is CLEAN (non-Human creature tutor)", dropped("Invasion of Ikoria // Zilortha, Apex of Ikoria") == [])
+
+    # an X spell chooses X at cast (greedy: all-in) and records it; the tutor caps at that X.
+    cst = {"is_player": {("p",)}, "mana_available": {("p", 6)}, "mana_pip": {("gsz", "green", 1)},
+           "mana_generic": {("gsz", 0)}, "mana_cost": set(), "x_count": {("gsz", 1)}, "floating_mana": set(),
+           "mana_pool": set(), "tapped": set(), "on_battlefield": set(), "printed_control": set(), "may_play": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._spend_mana(cst, "p", "gsz")
+    check("an X spell with 6 mana available chooses X = 5 ({G} fixed, all-in)", cst.get("_spell_x", {}).get("gsz") == 5)
+
+    # the tutor fetches a creature within the X cap (an above-cap creature is excluded).
+    ts = {"is_player": {("p",)}, "_spell_x": {"gsz": 4},
+          "in_library": {("p", "c1"), ("p", "c3"), ("p", "c6")}, "_lib_order": {"p": ["c1", "c3", "c6"]},
+          "printed_type": {("c1", "creature"), ("c3", "creature"), ("c6", "creature")},
+          "mana_cost": {("c1", 1), ("c3", 3), ("c6", 6)}, "on_battlefield": set(), "printed_control": set(), "_sick": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["search_to_shuffle_battlefield"](driver, ts, "gsz", 0, "type:creature&mv<=X", "gsz", "p")
+    check("the tutor excludes a creature above the X cap (mv 6 > X 4)", ("c6",) not in ts["on_battlefield"]
+          and any((c,) in ts["on_battlefield"] for c in ("c1", "c3")))
+
+    # Finale of Devastation: with X >= 10, the controller's creatures get +X/+X and haste (else a no-op).
+    for x, pumped in ((5, False), (10, True)):
+        fs = {"is_player": {("p",), ("q",)}, "_spell_x": {"fin": x}, "on_battlefield": {("bear",)},
+              "printed_control": {("p", "bear")}, "printed_type": {("bear", "creature")},
+              "printed_power": {("bear", 2)}, "printed_toughness": {("bear", 2)},
+              "eff_mod_power": set(), "eff_mod_toughness": set(), "eff_grant_keyword": set(), "until_eot": set()}
+        with contextlib.redirect_stdout(io.StringIO()):
+            EH.APPLY["finale_pump"](driver, fs, "fin", 0, "-", "fin", "p")
+        check(f"Finale pump at X={x} -> creatures buffed: {pumped}",
+              (("finale__bear", "bear", x) in fs["eff_mod_power"]) == pumped)
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

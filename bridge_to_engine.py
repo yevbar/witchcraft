@@ -727,6 +727,21 @@ def _fold_search_face_down_hand(effs: list, emit) -> set:
     return consumed
 
 
+def _fold_finale_pump(effs: list, emit) -> set:
+    """§107.3 Finale of Devastation 'If X is 10 or more, creatures you control get +X/+X and gain haste until
+    end of turn' -> one finale_pump effect (the driver applies +X/+X + haste to the controller's creatures
+    when the spell's X >= 10). The +X/+X and the haste grant fold together."""
+    pi = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs) if v == "modify_pt" and str(a) == "+X/+X"), None)
+    if pi is None:
+        return set()
+    consumed = {pi}
+    for i, (_s, v, _a, _t, x, _c) in enumerate(effs):        # the 'and gain haste' rider folds in
+        if i not in consumed and v == "grant_keyword" and str(x) == "haste":
+            consumed.add(i)
+    emit("finale_pump", 0, "-")
+    return consumed
+
+
 def _fold_dig_battlefield(effs: list, emit) -> set:
     """§701 'Look at the top N cards of your library. You may put a [non-Human] CREATURE card from among them
     onto the battlefield. Put the rest on the bottom' (Kinnan, Bonder Prodigy) -> one dig_to_battlefield effect
@@ -1825,6 +1840,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             s2gy_skip = _fold_search_to_graveyard(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §701.18 SEARCH -> exile face down -> hand (Beseech the Mirror's Bargain tutor) -> tutor to hand.
             s2fd_skip = _fold_search_face_down_hand(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §107.3 Finale of Devastation 'if X >= 10, creatures you control get +X/+X and gain haste'.
+            fin_skip = _fold_finale_pump(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §701 reanimate a PERMANENT card with mana value N or less from your graveyard (Sevinne's Reclamation).
             rp_skip = _fold_reanimate_permanent(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §103.2 WHEEL (Timetwister / Echo: shuffle hand+graveyard into library, then draw N) -> one effect.
@@ -1835,7 +1852,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -2293,6 +2310,9 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
     state.setdefault("mana_generic", set()).add((tid, generic))
     for col, k in pips.items():
         state.setdefault("mana_pip", set()).add((tid, col, k))
+    xk = str(c.get("manaCost") or "").count("{X}")           # §107.3 an X spell: how many {X} in the cost (Walking
+    if xk:                                                    # Ballista = 2). The driver chooses + pays X at cast.
+        state.setdefault("x_count", set()).add((tid, xk))
     if "Land" in (c.get("types") or []):
         for col in _land_colors(c):
             state.setdefault("land_produces", set()).add((tid, col))

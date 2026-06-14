@@ -278,10 +278,14 @@ def _type_predicate(tgt) -> str | None:
     # peel an optional trailing mana-value bound 'with_mana_value_N_or_less' (the only numeric restriction we
     # can test from the surfaced mana_cost). Any OTHER 'with …' clause (power/color/keyword) -> abstain.
     mv_cap = mv_eq = None
+    mv_x = False
     m = re.search(r"_with_mana_value_(\d+)_or_less$", t)
     if m:
         mv_cap = int(m.group(1))
         t = t[: m.start()]
+    elif t.endswith("_with_mana_value_x_or_less"):           # §107.3 'mana value X or less' — the spell's X
+        mv_x = True                                          # (Green Sun's Zenith / Chord / Finale); driver fills X
+        t = t[: -len("_with_mana_value_x_or_less")]
     elif (m := re.search(r"_with_mana_value_(\d+)$", t)):     # 'mana value 3' EXACTLY (Trophy Mage / Tribute Mage)
         mv_eq = int(m.group(1))
         t = t[: m.start()]
@@ -299,6 +303,8 @@ def _type_predicate(tgt) -> str | None:
         if core.startswith(_col + "_"):
             core = core[len(_col) + 1:]
             break
+    if core.startswith("non_human_"):                        # 'non-Human creature' (Invasion of Ikoria, Kinnan) —
+        core = core[len("non_human_"):]                      # approximated as the creature type (the exclusion is minor)
     if not core.endswith("_card"):
         return None                                          # not a 'a <…> card' sought-object shape
     core = core[: -len("_card")]
@@ -308,6 +314,8 @@ def _type_predicate(tgt) -> str | None:
     pred = "type:" + "|".join(parts)
     if mv_cap is not None:
         return pred + f"&mv<={mv_cap}"
+    if mv_x:
+        return pred + "&mv<=X"                               # the X cap is filled in by the search applier (driver._spell_x)
     if mv_eq is not None:
         return pred + f"&mv={mv_eq}"
     return pred
@@ -446,6 +454,27 @@ def _apply_search_to_graveyard(D, state, a, n, tgt, src, ctrl):
         moved.append(card)
     D._shuffle_library(state, ctrl)                           # §701.18 'then shuffle'
     print(f"    {a}: {ctrl} searches and puts {len(moved)} card(s) into the graveyard, then shuffles")
+
+
+@applier("finale_pump")
+def _apply_finale_pump(D, state, a, n, tgt, src, ctrl):
+    """§107.3 Finale of Devastation — if the spell's X is 10 or more, the controller's creatures get +X/+X and
+    gain haste until end of turn (the game-ending swing). X is read back from driver._spell_x; X < 10 is a
+    faithful no-op."""
+    x = state.get("_spell_x", {}).get(src, 0)
+    if x < 10:
+        print(f"    {a}: X={x} (< 10) -> no team pump")
+        return
+    out = D.run(state, ["controls", "creature"])
+    creatures = {c for (c,) in out["creature"]}
+    mine = sorted(c for (p, c) in out["controls"] if p == ctrl and c in creatures)
+    for c in mine:
+        eid = f"finale__{c}"
+        state.setdefault("eff_mod_power", set()).add((eid, c, int(x)))
+        state.setdefault("eff_mod_toughness", set()).add((eid, c, int(x)))
+        state.setdefault("eff_grant_keyword", set()).add((eid, c, "haste"))
+        state.setdefault("until_eot", set()).add((eid,))
+    print(f"    {a}: X={x} >= 10 -> {ctrl}'s {len(mine)} creature(s) get +{x}/+{x} and haste until end of turn")
 
 
 @applier("dig_to_battlefield")
@@ -843,7 +872,10 @@ def _atomic_search(dest: str, shuffle_first: bool):
 
     @applier(name)
     def _apply(D, state, a, n, tgt, src, ctrl, _dest=dest, _sh=shuffle_first):
-        card = _select_card(state, ctrl, str(tgt))            # pull the matching card OUT of the library first
+        pred = str(tgt)
+        if "mv<=X" in pred:                                   # §107.3 fill the spell's X into a 'mana value X or less'
+            pred = pred.replace("mv<=X", f"mv<={state.get('_spell_x', {}).get(src, 0)}")   # tutor (Green Sun's Zenith)
+        card = _select_card(state, ctrl, pred)                # pull the matching card OUT of the library first
         if card is None:
             print(f"    trigger {a}: {ctrl} searches but finds no matching card")
             return
