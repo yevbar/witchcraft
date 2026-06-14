@@ -600,6 +600,65 @@ def _apply_necro_dig(D, state, a, n, tgt, src, ctrl):
 _PERM_CARD_TYPES = ("creature", "artifact", "enchantment", "planeswalker", "land", "battle")
 
 
+@applier("transmute_artifact")
+def _apply_transmute_artifact(D, state, a, n, tgt, src, ctrl):
+    """§701 Transmute Artifact: sacrifice an artifact you control, then search your library for an artifact
+    card; if its mana value ≤ the sacrificed artifact's, put it onto the battlefield, else you may pay {X}
+    (the difference) to do so (otherwise it goes to its owner's graveyard). Then shuffle. Greedy default:
+    sacrifice the cheapest artifact, fetch the most expensive artifact you can actually afford to land
+    (mana value ≤ sacrificed + payable mana), pay the difference. Every choice rides the _choose seam."""
+    ptype = state.get("printed_type", set())
+    mv = {c: v for (c, v) in state.get("mana_cost", set())}
+    owner = {c: p for (p, c) in state.get("printed_control", set())}
+    arts = sorted(c for (c,) in state.get("on_battlefield", set())
+                  if owner.get(c) == ctrl and (c, "artifact") in ptype)
+    if not arts:
+        print(f"    {a}: {ctrl} controls no artifact to sacrifice (Transmute Artifact fizzles)")
+        return
+    sac = D._choose(state, "transmute_sac", arts, min(arts, key=lambda c: (mv.get(c, 0), c)))
+    sac_mv = mv.get(sac, 0)
+    D._sacrifice(state, sac)                                   # §701.17 sacrifice happens first (then search)
+    # the mana payable for the {X} difference = what the controller can still produce (after the sacrifice).
+    if D._controls_any_source(state, ctrl):
+        D._refresh_mana_pool(state, ctrl)
+    avail = next((m for (q, m) in state.get("mana_available", set()) if q == ctrl), 0)
+    lib = [c for (pp, c) in state.get("in_library", set()) if pp == ctrl and (c, "artifact") in ptype]
+    if not lib:
+        print(f"    {a}: {ctrl} finds no artifact card in their library")
+        D._shuffle_library(state, ctrl)
+        return
+    # prefer the strongest artifact actually LANDABLE (mv ≤ sac_mv + payable mana); if none is, still fetch
+    # the best (it will go to the graveyard — a faithful whiff the player can avoid via the _choose seam).
+    landable = [c for c in lib if mv.get(c, 0) <= sac_mv + avail]
+    pool = landable or lib
+    pick = D._choose(state, "transmute_pick", sorted(pool), max(pool, key=lambda c: (mv.get(c, 0), c)))
+    pick_mv = mv.get(pick, 0)
+    state["in_library"].discard((ctrl, pick))
+    if ctrl in state.get("_lib_order", {}):
+        state["_lib_order"][ctrl][:] = [x for x in state["_lib_order"][ctrl] if x != pick]
+
+    def _to_battlefield():
+        state.setdefault("on_battlefield", set()).add((pick,))
+        state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
+        if (pick, "creature") in ptype:                       # §302.6 an artifact creature enters summoning sick
+            state.setdefault("_sick", set()).add((pick,))
+
+    if pick_mv <= sac_mv:
+        _to_battlefield()
+        print(f"    {a}: {ctrl} sacrifices {sac} (mv {sac_mv}), puts {pick} (mv {pick_mv}) onto the battlefield")
+        D._shuffle_library(state, ctrl)
+        return
+    diff = pick_mv - sac_mv
+    if diff <= avail and D._choose(state, "transmute_pay", [True, False], True):
+        D._spend_ability_mana(state, ctrl, diff)              # §107.3 pay {X} = the mana-value difference
+        _to_battlefield()
+        print(f"    {a}: {ctrl} sacrifices {sac} (mv {sac_mv}), pays {{{diff}}}, puts {pick} (mv {pick_mv}) onto the battlefield")
+    else:
+        state.setdefault("graveyard", set()).add((pick,))     # §608 unpaid -> its owner's graveyard
+        print(f"    {a}: {ctrl} can't/won't pay {{{diff}}} for {pick} (mv {pick_mv}) -> graveyard")
+    D._shuffle_library(state, ctrl)
+
+
 @applier("reanimate_permanent")
 def _apply_reanimate_permanent(D, state, a, n, tgt, src, ctrl):
     """§701 'Return target PERMANENT card with mana value <= n from your graveyard to the battlefield'

@@ -255,6 +255,68 @@ def run() -> None:
           ("nb",) in ch.get("graveyard", set()) and ("qbasic_bf",) not in ch.get("graveyard", set())
           and ("qfetch",) in ch["on_battlefield"] and ("q", "qfetch") not in ch.get("in_library", set()))
 
+    # Transmute Artifact — sacrifice an artifact, tutor an artifact onto the battlefield (paying the
+    # mana-value difference if the fetched card is bigger), else its owner's graveyard. Then shuffle.
+    check("Transmute Artifact is CLEAN", dropped("Transmute Artifact") == [])
+    taf, _ = B.card_facts("Transmute Artifact", "p", "t", db, corpus)
+    check("Transmute Artifact folds to ONE transmute_artifact effect (no stray search_to_battlefield)",
+          ("t", "transmute_artifact", 0, "-") in taf.get("spell_effect", set())
+          and not any("search" in str(r) for r in taf.get("spell_effect", set())))
+    # sac a 0-mv Mox, fetch a 4-mv artifact, pay {4} difference -> battlefield.
+    tx = {"is_player": {("p",)}, "on_battlefield": {("mox",)}, "printed_control": {("p", "mox")},
+          "printed_type": {("mox", "artifact"), ("big", "artifact"), ("small", "artifact")},
+          "mana_cost": {("mox", 0), ("big", 4), ("small", 1)},
+          "in_library": {("p", "big"), ("p", "small")}, "_lib_order": {"p": ["big", "small"]},
+          "mana_available": {("p", 5)}, "_seed": 1}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        EH.APPLY["transmute_artifact"](driver, tx, "tx", 0, "-", "tx", "p")
+    check("Transmute Artifact sacrifices the Mox, pays the difference, lands the bigger artifact",
+          ("mox",) in tx.get("graveyard", set()) and ("big",) in tx["on_battlefield"]
+          and next(m for (q, m) in tx["mana_available"] if q == "p") == 1)
+
+    # The Cabbage Merchant — a combat-damage-to-you trigger (sac a Food) + a 'tap two Foods: add any color'
+    # mana ability (a typed-permanent tap cost).
+    check("The Cabbage Merchant is CLEAN", dropped("The Cabbage Merchant") == [])
+    cm, _ = B.card_facts("The Cabbage Merchant", "p", "cab", db, corpus)
+    check("Cabbage's combat-damage-to-you trigger sacrifices a Food (sacrifice_subtype)",
+          ("cab_a1", "sacrifice_subtype", 1, "food") in cm.get("trigger_effect", set()))
+    check("Cabbage's 'tap two Foods: add any color' is a wildcard mana source w/ a tap_perms cost",
+          ("cab", "any_color", 1) in cm.get("source_wildcard", set())
+          and ("cab", "tap_perms:food", 2) in cm.get("source_special_cost", set())
+          and cm.get("source_sacrifice", set()) == set())
+    # the combat trigger fires through real combat (an opponent's creature deals combat damage to p).
+    cab = {}
+    for rel, rows in cm.items():
+        cab.setdefault(rel, set()).update(rows)
+    for (rel, row) in [("on_battlefield", ("cab",)), ("printed_control", ("p", "cab")), ("printed_type", ("cab", "creature")),
+                       ("is_player", ("p",)), ("is_player", ("q",)), ("life", ("p", 40)), ("life", ("q", 40)),
+                       ("on_battlefield", ("food1",)), ("printed_control", ("p", "food1")), ("printed_subtype", ("food1", "food")), ("printed_type", ("food1", "artifact")),
+                       ("on_battlefield", ("ogre",)), ("printed_control", ("q", "ogre")), ("printed_type", ("ogre", "creature")),
+                       ("printed_power", ("ogre", 3)), ("printed_toughness", ("ogre", 3)),
+                       ("attacks", ("ogre", "p")), ("current_step", ("combat_damage",))]:
+        cab.setdefault(rel, set()).add(row)
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(cab, {r for r in driver.run(cab, ["pending"])["pending"] if r[0] == "cab_a1"})
+    check("Cabbage sacrifices exactly one Food when a creature deals combat damage to you (no re-fire loop)",
+          ("food1",) in cab.get("graveyard", set()))
+    # the 'tap two Foods' mana ability yields one any-color mana per pair, paid by tapping two Foods.
+    fm = {"is_player": {("p",)}, "active_player": {("p",)},
+          "on_battlefield": {("cab",), ("f1",), ("f2",), ("f3",)},
+          "printed_control": {("p", "cab"), ("p", "f1"), ("p", "f2"), ("p", "f3")},
+          "printed_type": {("cab", "creature"), ("f1", "artifact"), ("f2", "artifact"), ("f3", "artifact")},
+          "printed_subtype": {("f1", "food"), ("f2", "food"), ("f3", "food")},
+          "source_wildcard": {("cab", "any_color", 1)}, "source_special_cost": {("cab", "tap_perms:food", 2)},
+          "mana_source": {("cab",)}, "life": {("p", 40)}}
+    driver.clear_cache()
+    with contextlib.redirect_stdout(io.StringIO()):
+        units = list(driver._source_units(fm, "p"))
+        driver._pay_special_source_cost(fm, "p", "cab", ("tap_perms:food", 2))
+    check("Cabbage's Food mana: one any-color source from a pair, paid by tapping two Foods",
+          any(s == "cab" for (s, _u, _c, _t) in units)
+          and len([c for (c,) in fm.get("tapped", set())]) == 2)
+
     print(f"\n{_P[1]}/{_P[0]} checks passed")
     if _P[1] != _P[0]:
         raise SystemExit(1)

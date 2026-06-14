@@ -106,6 +106,31 @@ def apply_sacrifice(D, state, a, n, tgt, src, ctrl):
             D._sacrifice(state, c)                         # fires 'when sacrificed', then -> graveyard
 
 
+@applier("sacrifice_subtype")
+def apply_sacrifice_subtype(D, state, a, n, tgt, src, ctrl):
+    """§701.17 'sacrifice a <subtype> token' (The Cabbage Merchant 'sacrifice a Food token'): the controller
+    sacrifices n of their permanents with subtype `tgt` (e.g. food). Deterministic pick (lowest id) via the
+    _choose seam; D._sacrifice fires any 'when ~ is sacrificed' look-back. A faithful no-op if they have none."""
+    # §603 once-per-firing guard: D._sacrifice runs the 'sacrificed' look-back (re-deriving pending) while the
+    # combat-damage event still holds, which would re-fire this trigger and loop. Fire once per combat (cleared
+    # at the turn boundary, like _combat_draw_fired) — a conservative single sacrifice per damage event.
+    if (a,) in state.setdefault("_sac_subtype_fired", set()):
+        return
+    state["_sac_subtype_fired"].add((a,))
+    sub = str(tgt)
+    owned = sorted(c for (c,) in state.get("on_battlefield", set())
+                   if (ctrl, c) in state.get("printed_control", set())
+                   and (c, sub) in state.get("printed_subtype", set()))
+    for _ in range(int(n)):
+        if not owned:
+            break
+        pick = D._choose(state, "sacrifice_subtype", owned, owned[0])
+        owned.remove(pick)
+        D._sacrifice(state, pick)
+    if not owned and int(n) and not any((c, sub) in state.get("printed_subtype", set()) for (c,) in state.get("on_battlefield", set())):
+        print(f"    {a}: {ctrl} has no {sub} to sacrifice")
+
+
 @applier("may_pay")
 def apply_may_pay(D, state, a, n, tgt, src, ctrl):
     """§118 a recurring OPTIONAL payment 'you may pay {n}. If you do, untap this' (Mana Vault). The driver

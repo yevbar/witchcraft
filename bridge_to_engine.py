@@ -35,6 +35,9 @@ _EVENT = {
     "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
     "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
+    # §603 'whenever a creature deals combat damage to YOU' (The Cabbage Merchant) — fires for the player who
+    # was dealt the combat damage (the source's controller), by ANY creature.
+    "a_creature_deals_combat_damage_to_you": "creature_combat_damage_to_you",
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles) — fires once
     # per combat for the controller (set semantics dedupe the per-creature ev_combat_dmg_player).
     "one_or_more_creatures_you_control_deal_combat_damage_to_a_player": "your_creatures_combat_damage",
@@ -594,13 +597,14 @@ def _datalog_owns(verb, amt, tgt, extra) -> bool:
 _SEARCH_DEST = {"return_to_hand": "hand", "put_in_hand": "hand", "put_on_top": "top", "put_on_bottom": "bottom"}
 
 
-def _fold_search_placements(effs: list, emit) -> set:
+def _fold_search_placements(effs: list, emit, skip: set | None = None) -> set:
     """§701.18 + §701 — fold each `search` clause together with its destination clause into ONE atomic
     search_to_<dest> effect (the on-resolution relations carry no clause order, so a search and its
     placement can't resolve as separate rows). For each fold, calls emit(eff, amount, target) once. Returns
     the set of clause INDICES consumed (the search, its destination, and any §701.20 shuffle folded with
     them), so the caller skips them. Folds a search whose §701.18 predicate AND whose destination clause we
-    can resolve; everything else is left to the normal per-clause paths.
+    can resolve; everything else is left to the normal per-clause paths. `skip` names clause indices a PRIOR
+    fold already owns (e.g. Transmute Artifact's search) so this pass leaves them alone.
 
     The fold absorbs:
       • the destination clause naming the searched card ('it'/'that card') — to hand / top / bottom /
@@ -610,7 +614,7 @@ def _fold_search_placements(effs: list, emit) -> set:
         The atomic effect performs the shuffle itself, so the shuffle isn't emitted as a separate row that,
         being unordered, could scramble a just-placed card."""
     from effect_handlers import library as _lib
-    consumed: set = set()
+    consumed: set = set(skip or ())
     for i, (_seq, verb, _amt, tgt, _extra, _cond) in enumerate(effs):
         if verb != "search" or i in consumed:
             continue
@@ -847,6 +851,26 @@ def _fold_reanimate_permanent(effs: list, emit) -> set:
         if i not in consumed and v in ("copy", "choose_new_targets"):
             consumed.add(i)
     emit("reanimate_permanent", cap, "graveyard")
+    return consumed
+
+
+def _fold_transmute_artifact(effs: list, emit) -> set:
+    """§701 Transmute Artifact: 'Sacrifice an artifact. If you do, search your library for an artifact card.
+    If that card's mana value ≤ the sacrificed artifact's mana value, put it onto the battlefield. If greater,
+    you may pay {X} (X = the difference); if you do, battlefield; if you don't, its owner's graveyard. Then
+    shuffle.' One atomic transmute_artifact effect (sacrifice + MV-gated tutor-to-battlefield + difference
+    payment, all driver-resolved). Signature: a sacrifice of an artifact plus a search for an artifact card."""
+    si = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "sacrifice" and "artifact" in str(t)), None)
+    qi = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+               if v == "search" and "artifact_card" in str(t)), None)
+    if si is None or qi is None:
+        return set()
+    consumed = {si, qi}                                       # + the placement / pay / graveyard / shuffle clauses
+    for i, (_s, v, _a, _t, _x, _c) in enumerate(effs):
+        if v in ("return_to_battlefield", "pay", "put_in_graveyard", "shuffle"):
+            consumed.add(i)
+    emit("transmute_artifact", 0, "-")
     return consumed
 
 
@@ -1411,6 +1435,17 @@ def _discard_cost(cost) -> int | None:
     return _NUMWORD_BIG.get(m.group(1).lower()) if m and not m.group(1).isdigit() else (int(m.group(1)) if m else None)
 
 
+def _sacrifice_subtype(verb, tgt) -> str | None:
+    """§701.17 a 'sacrifice a <subtype> TOKEN' clause (The Cabbage Merchant 'sacrifice a Food token') ->
+    the token subtype to sacrifice, or None. Restricted to the '…_token' shape so a generic typed sacrifice
+    ('sacrifice a creature') still abstains (it's a TYPE, not a token subtype — routing it here would no-op
+    against printed_subtype). The driver picks one of the controller's permanents with that subtype."""
+    if verb != "sacrifice":
+        return None
+    m = re.match(r"^(?:a|an|another)_(\w+)_token$", str(tgt))
+    return m.group(1) if m else None
+
+
 def _alt_mana_cost(cost) -> tuple | None:
     s = str(cost or "").strip()
     m = re.match(r"^Pay (\d+) life$", s, re.I)
@@ -1424,6 +1459,10 @@ def _alt_mana_cost(cost) -> tuple | None:
     if rc and rc.group(1).lower() in _NUMWORD:                # §605 Runaway Steam-Kin counter-removal mana cost
         ckind = "p1p1" if rc.group(2).startswith("+") else "m1m1"
         return (f"remove_counter:{ckind}", _NUMWORD[rc.group(1).lower()])
+    tp = re.match(r"^Tap (\w+) untapped (\w+?)s? you control$", s, re.I)
+    if tp and (tp.group(1).lower() in _NUMWORD or tp.group(1).isdigit()):   # §605 'Tap two untapped Foods you control'
+        n = int(tp.group(1)) if tp.group(1).isdigit() else _NUMWORD[tp.group(1).lower()]
+        return (f"tap_perms:{tp.group(2).lower()}", n)        # tap N untapped <subtype> permanents you control (Cabbage)
     return None
 
 
@@ -1913,6 +1952,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     emitted = True; continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
+                st = _sacrifice_subtype(verb, tgt)            # §701.17 'sacrifice a <subtype> [token]' (Cabbage's Food)
+                if st is not None:
+                    add("trigger_effect", (a, "sacrifice_subtype", _int(amt) or 1, st))
+                    emitted = True; continue
                 # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
                 # exile / tap / untap / return_to_hand): payload + a board scope the engine resolves to
                 # concrete creatures, NOT a player-target amount. Single 'target creature' abstains
@@ -2024,7 +2067,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # the battlefield/on top') into ONE atomic search_to_<dest> effect; mark the consumed destination
             # clause to skip. A search whose predicate or destination we can't confirm is left to the normal
             # paths (the bare-search handler still SELECTS faithfully; an unhandled destination just abstains).
-            search_skip = _fold_search_placements(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 Transmute Artifact: sacrifice an artifact, tutor an artifact onto the battlefield (paying the
+            # mana-value difference) -> one atomic transmute_artifact effect. Folded BEFORE search-placement so
+            # its own search isn't ALSO folded into a generic (unconditional) search_to_battlefield.
+            ta_skip = _fold_transmute_artifact(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            search_skip = _fold_search_placements(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)), ta_skip)
             # §701.18 'choose a card name' + reveal-until self-mill (Demonic Consultation / Spoils of the
             # Vault): fold the whole sequence into one name_exile_lib spell_effect (unordered relations).
             name_skip = _fold_name_exile(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
@@ -2062,7 +2109,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -2222,7 +2269,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 alt = _alt_mana_cost(ab.get("cost")) if any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
                 if alt is not None and _add_mana_source(add, tid, False, 0, False, ab.get("effects", [])):
                     add("source_special_cost", (tid, alt[0], alt[1]))
-                    if "sacrifice" in str(c.get("text", "")).lower():   # LED-style one-shot (Sacrifice ~)
+                    # the LED-style self-sacrifice rider belongs ONLY to the discard-hand cost (its 'Sacrifice ~'
+                    # rides the card text); don't fire it for OTHER alt costs (Cabbage's text mentions 'sacrifice
+                    # a Food', which must NOT make the Cabbage itself a one-shot sacrifice source).
+                    if alt[0] == "discard_hand" and "sacrifice" in str(c.get("text", "")).lower():
                         add("source_sacrifice", (tid,))
                     continue
                 # §118 a 'Pay N life' activation cost on a NON-mana ability (Necropotence 'Pay 1 life: …',

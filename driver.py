@@ -1071,6 +1071,14 @@ def _source_units(state: dict, ap: str):
         if kind == "exile_hand":
             if (ap, t) not in in_hand:
                 continue                                     # the card must be in the active player's hand
+        elif kind.startswith("tap_perms:"):                  # §605 Cabbage: tap N untapped <subtype> you control
+            if (t,) not in bf or (ap, t) not in ctrl:
+                continue                                     # the source permanent itself need NOT be untapped
+            sub = kind.split(":", 1)[1]
+            foods = [c for (c,) in bf if (ap, c) in ctrl
+                     and (c, sub) in state.get("printed_subtype", set()) and (c,) not in tapped]
+            if len(foods) < int(_amt):
+                continue                                     # not enough untapped <subtype> permanents to pay
         else:
             if (t,) not in bf or (ap, t) not in ctrl or (t,) in tapped:
                 continue                                     # a battlefield alt-cost source, untapped & controlled
@@ -1319,6 +1327,14 @@ def _pay_special_source_cost(state: dict, ap: str, sid: str, cost: tuple) -> Non
         ckind = kind.split(":", 1)[1]
         _bump_counter(state, sid, ckind, -int(amount))
         print(f"    {ap} removes {amount} {ckind} counter(s) from {sid} for mana")
+    elif kind.startswith("tap_perms:"):                      # §605 Cabbage: tap N untapped <subtype> you control
+        sub = kind.split(":", 1)[1]
+        foods = sorted(c for (c,) in state.get("on_battlefield", set())
+                       if (ap, c) in state.get("printed_control", set())
+                       and (c, sub) in state.get("printed_subtype", set()) and (c,) not in state.get("tapped", set()))
+        for c in foods[:int(amount)]:
+            _tap(state, c)
+        print(f"    {ap} taps {amount} {sub}(s) to activate {sid} for mana")
     elif kind == "pay_life":
         _adjust_life(state, ap, -int(amount))
         print(f"    {ap} pays {amount} life to activate {sid}")
@@ -2827,6 +2843,7 @@ def _end_of_turn(state: dict) -> None:
     state["_reanimated"] = set()
     state["_counter_applied"] = set()
     state["_combat_draw_fired"] = set()                      # §510 Tymna's postcombat-main draw fires once/turn
+    state["_sac_subtype_fired"] = set()                      # §603 Cabbage's 'sac a Food on combat damage' once/turn
     state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
     state["_cant_block"] = set()                             # §509.1b 'can't block this turn' restriction
 
