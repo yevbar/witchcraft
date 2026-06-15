@@ -116,3 +116,45 @@ Make DEVELOP commit to incremental win-progress (deploy threats, assemble/advanc
 "win-now-or-fall-back." Target metric: **raise endorsed/modeled from ~0.02 toward modeled (~1.0)** — i.e.
 get the engine to actually act on the boards it already models. Host + integration + observability are
 done; this is the lone remaining gap.
+
+---
+
+## CORRECTION — re-reading the above against the code (`forge_bridge.py`)
+
+The run is real and the *direction* (win_search rarely pilots its seat; Forge AI wins) holds, but three
+claims above need correcting before they steer the engine work:
+
+1. **`endorsed_frac` is the wrong lens for "drove its seat ~1–4%."** It is `endorsed_options / offered_options`
+   (`coverage()`, `forge_bridge.py:425`). For a *play* decision `_pick_action` sets `endorsed = 1` (one action
+   chosen) against `offered = len(spells)+len(lands)` (the whole menu) — so it is structurally bounded by
+   ~`1/menu_size` and stays tiny *even when the engine acts on every decision*. The "how often did the engine
+   pick the move (vs the Forge fallback)" number is **`engine_decided / decisions`** — both are recorded
+   (`:423`) but the writeup didn't report them. So "drove ~1–4%" is **not established** by `0.01–0.04`; we need
+   `engine_decided/decisions`, which the run already logged.
+
+2. **DEVELOP is not "win-now-or-fall-back" — the develop search is already on and inert.** With `MTG_DECK_AXIS`
+   set (it is — `axis_synergy()` injects it; `self.axis`, `:214`) and minimax off (`:227`), `_pick_action`
+   step 3 runs `find_progress` toward the axis/synergy on every no-win decision. So "make DEVELOP commit to
+   incremental progress" describes **code that already exists and isn't lifting endorsement**. The real
+   question is *why `find_progress` endorses almost nothing* — most likely it rarely returns a **currently
+   affordable, offered** cast (it reasons from current mana with the land drop marked used, and cEDH pieces are
+   expensive), so `_cast_from_path` → `None` → fallback. That's a sharper, different fix than "add develop."
+
+3. **The fallback IS Forge AI, which reframes the 0–3.** `greedy_policy` returns Forge's `default`, which
+   "defers to Forge's own AI heuristic" (`:75`); the Java side logs these as "FORGE-AI fallbacks taken by
+   witchcraft seats." So the witch seats were **~Forge-AI-piloted** wherever they didn't endorse — the
+   scoreboard is closer to *Forge-AI-on-our-decklists vs Forge-AI-on-stock-decks*, and the deck-win skew
+   (kinnan 2, bluefarm 1) partly reflects **Forge AI's affinity for those decks** (it pilots combo/storm lists
+   like Ral/Stella poorly), not a witchcraft verdict.
+
+**What localizes the real gap (data already in the logs):** `coverage()` also returns `by_kind`
+(`{kind: {offered, modeled, endorsed, engine}}`, `:426`) and `engine_decided`/`decisions`. Slicing the
+**`action` kind** alone — `engine/decisions` for plays, and how many endorsed plays were *lands* vs *casts* —
+shows whether the durdle is "lays a land, casts nothing" or "Forge AI piloting it." The aggregate `0.02`
+conflates all decision kinds (targets/blocks/mana/yes-no) with the few that are about casting the deck.
+`run_commander_tournament.py` now surfaces `by_kind` + the `engine_decided/decisions` drive-rate per seat so
+the next run reports these directly instead of only the aggregate fractions.
+
+**Revised target metric:** raise **`engine_decided/decisions` for the `action` kind** (the rate at which
+win_search/​`find_progress` actually casts the deck's spells), not the aggregate `endorsed_frac` — which the
+metric's option-ratio shape keeps low regardless.

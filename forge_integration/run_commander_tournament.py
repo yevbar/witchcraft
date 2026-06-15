@@ -16,6 +16,7 @@ Run:
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import socket
@@ -158,17 +159,23 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     except OSError:
         out0 = ""
     r = subprocess.CompletedProcess(cmd, r.returncode, stdout=out0, stderr="")
-    # Collect each witchcraft seat's coverage (run_bot.py prints it on socket close). Previously the bot output
-    # was communicated and discarded — so the FFA never surfaced how much of its seat the engine actually drove.
+    # Collect each witchcraft seat's full coverage dict (run_bot.py prints it on socket close). Previously the
+    # bot output was communicated and discarded — so the FFA never surfaced how much of its seat the engine
+    # actually drove. We keep the whole dict (not just the modeled/endorsed fractions) so the per-game readout
+    # can show engine_decided/decisions (the real drive-rate) and the by_kind breakdown — see SMOKE_FINDINGS.md
+    # "CORRECTION": endorsed_frac is an option-coverage ratio, NOT how often the engine picked the move.
     cov = {}
     for i, b in enumerate(bots):
         try:
             bot_out, _ = b.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             b.kill(); bot_out = ""
-        cm = re.search(r"'modeled_frac': ([0-9.]+).*?'endorsed_frac': ([0-9.]+)", bot_out or "")
-        if cm:
-            cov[seat_name[i]] = (float(cm.group(1)), float(cm.group(2)))
+        cl = re.search(r"COVERAGE:\s*(\{.*\})", bot_out or "")
+        if cl:
+            try:
+                cov[seat_name[i]] = ast.literal_eval(cl.group(1))
+            except (ValueError, SyntaxError):
+                pass
     out = r.stdout + "\n" + r.stderr
     res = {"winner": "TIMEOUT/ERR", "turns": "?", "wall": "?", "seat_name": seat_name, "seat_type": seat_type,
            "seat_decks": list(seat_decks), "coverage": cov, "raw": out}
@@ -207,9 +214,16 @@ def main() -> None:
         games.append(res)
         print(f"  -> winner={res['winner']} turns={res['turns']} wall={res['wall']}ms", flush=True)
         cov = res.get("coverage") or {}
-        if cov:
-            print("     witch coverage: " + "  ".join(f"{n}:modeled={c[0]:.2f}/endorsed={c[1]:.2f}"
-                                                       for n, c in cov.items()), flush=True)
+        for n, c in cov.items():
+            dec, eng = c.get("decisions") or 0, c.get("engine_decided") or 0
+            drive = eng / dec if dec else 0.0
+            print(f"     {n}: modeled={c.get('modeled_frac')} endorsed={c.get('endorsed_frac')} "
+                  f"drove(engine/decisions)={eng}/{dec}={drive:.2f}", flush=True)
+            bk = c.get("by_kind") or {}
+            if bk:
+                print("        by_kind: " + "  ".join(
+                    f"{k}(off={v.get('offered')},mod={v.get('modeled')},end={v.get('endorsed')},eng={v.get('engine')})"
+                    for k, v in bk.items()), flush=True)
         if res.get("standing"):
             print("     life standing: " + "  ".join(f"{n}={ll}" for n, ll in res["standing"]), flush=True)
 
