@@ -877,6 +877,21 @@ class _TfBody(str):       # the flat 'transform …' object run (guarded + slugg
     pass
 
 
+_DET = re.compile(r"(?:each|every|all|any|another|target|the|a|an)\b")
+
+
+def _pure_target_conj(tgt: str) -> bool:
+    """True iff `tgt` is a conjunction of TARGET phrases ('each creature and each player') — every
+    'and'-separated conjunct is a determiner-led noun phrase with no second ' to ' clause. Such a target
+    grounds to a single slug byte-identical to the regex, so deal()/etc. may keep it. Anything else (a new
+    effect or a second damage instance — 'and you gain N life', 'and N damage to you') is bucket B: NOT a
+    pure target, so the caller abstains rather than copy the regex's lossy single-effect grounding."""
+    parts = re.split(r"\s+and\s+", tgt)
+    if len(parts) < 2:
+        return False
+    return all(_DET.match(p.strip()) and " to " not in p for p in parts)
+
+
 @v_args(inline=True)
 class _ToEffect(Transformer):
     def quant(self, tok):
@@ -1006,8 +1021,10 @@ class _ToEffect(Transformer):
         if n is None:
             return None                        # non-numeric amount ('that much' etc) -> regex variant
         tgt = tgt.strip().lower()
-        if re.search(r"\b(?:and|then|gains?|draws?|loses?|deals?)\b", tgt) or "," in tgt:
-            return None                        # coordinated/multi-clause target -> regex chain owns it
+        if "," in tgt or re.search(r"\b(?:then|gains?|draws?|loses?|deals?)\b", tgt):
+            return None                        # comma list / new-effect verb -> compound splitter (bucket B)
+        if " and " in tgt and not _pure_target_conj(tgt):
+            return None                        # an 'and' that isn't a pure target conjunction -> bucket B
         return Effect("deal_damage", n, _target(tgt))
 
     # --- deal_damage VARIANTS -------------------------------------------------
@@ -1043,6 +1060,9 @@ class _ToEffect(Transformer):
             return None
         if re.search(r"\b(?:to|into|onto)\b", amt):
             return None                 # deqamt swallowed a 'to' as a WORD -> the split is wrong -> abstain
+        if " to " in tgt and "up to" not in tgt:
+            return None                 # the target swallowed a 'to' ('… equal to <amt> to it to any target')
+                                        # -> ambiguous multi-'to' split -> defer to the regex's non-greedy parse
         return Effect("deal_damage", "equal_to_" + ground.slug(amt), _target(tgt))
 
     def deal_teq(self, *args):          # 'deals damage to <tgt> equal to <amt>'
@@ -1055,6 +1075,8 @@ class _ToEffect(Transformer):
             return None                 # 'X deals damage to itself equal to Y' is _damage_self (source-as-target); abstain
         if not amt or not tgt or self._coord(amt) or self._coord(tgt) or self._tgt_wrapped(tgt):
             return None
+        if " to " in tgt and "up to" not in tgt:
+            return None                 # target swallowed a stray 'to' -> ambiguous split -> defer to regex
         return Effect("deal_damage", "equal_to_" + ground.slug(amt), _target(tgt))
 
     def deal_tm(self, *args):           # 'deals that much damage to <tgt>'
@@ -1819,6 +1841,10 @@ def parse_clause_lark(clause: str):
     imperative core + zone-moves so far. MEMOIZED on the clause string (the Earley parse is the per-clause
     hot spot, and many clauses recur across cards) — pure, result consumed read-only."""
     s = clause.strip().rstrip(".").lower()
+    if s[:1] == "•":                            # a leading modal/choice bullet ('• ~ deals N damage …') is
+        s = s[1:].strip()                       # structural noise — strip it so the option body parses (the
+        if not s:                               # regex leaf eats it via its '.+?' source; this matches that)
+            return None
     if s.startswith("return ") and _ret_ambiguous(s):
         return None                            # ambiguous from/to split — defer to regex
     try:
