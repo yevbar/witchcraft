@@ -1894,28 +1894,67 @@ def _doesnt_untap(unit, ctx):
     return None
 
 
+# §118.9 cost-modification VOCABULARY — the grounded anchor that justifies a `cost_modifier`
+# relation. The relation is emitted because a line carries the §118.9 'costs {N} <dir> to <kind>'
+# verb phrase, NOT because a particular English template matched. `dir` is a grounded direction
+# token; `kind` is the grounded action whose cost is modified (casting §601 vs activating §602),
+# which also fixes the default scope of the self/ability form.
+_COST_MOD_DIRECTIONS = frozenset({"less", "more"})
+_COST_MOD_KINDS = frozenset({"cast", "activate"})
+_KIND_DEFAULT_SCOPE = {"cast": "self", "activate": "activated_ability"}
+
+# Each anchor is purely STRUCTURAL: it locates the §118.9 phrase and the span slots around it.
+# `scope_grp`/`cond_grp` name which capture (if any) holds the affected-set NP and the condition NP;
+# `lead_cond_grp` is a leading 'If <cond>,' rider. None of these select the predicate — the predicate
+# is `cost_modifier`, justified by the matched §118.9 anchor (kind ∈ _COST_MOD_KINDS).
+_COST_MOD_ANCHORS = [
+    # SELF form: '[If <cond>, ]~ costs {N} <dir> to cast[ <rider/for each …>]' — scope defaults to self.
+    (re.compile(r"^(?:If (?P<lead>.+?), )?~ costs (?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) "
+                r"to (?P<kind>cast)(?:,? (?P<cond>.+?))?\.?$", re.I),
+     "self", None, "cond", "lead"),
+    # SET form: '<spell-class> spells you cast cost {N} <dir> to cast' — scope is the matched NP.
+    (re.compile(r"^(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? (?P<amt>(?:\{[^}]+\})+|\d+) "
+                r"(?P<dir>less|more) to (?P<kind>cast)\.?$", re.I),
+     None, "scope", None, None),
+    # ABILITY form: "~'s abilities / this ability / abilities you activate cost {N} <dir> to activate
+    # [<for each …>]" — scope defaults to activated_ability.
+    # the leading NP ('~'s abilities' / 'this ability' / …) is matched only to anchor the phrase; the
+    # scope is the §602 default 'activated_ability' (default_scope=None -> _KIND_DEFAULT_SCOPE[kind]).
+    (re.compile(r"^(?:~'s abilities?|this ability|abilities you activate) costs? "
+                r"(?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) to (?P<kind>activate)(?: (?P<cond>.+?))?\.?$", re.I),
+     None, None, "cond", None),
+]
+
+
 def _cost_modifier(unit, ctx):
     """Cost-reduction / -increase statics (§118.9): '~ costs {S} less to cast [if <cond>]',
-    '<X> spells you cast cost {S} less to cast', '~ costs {S} more to cast for each …'."""
+    '<X> spells you cast cost {S} less to cast', '~ costs {S} more to cast for each …'.
+
+    GROUNDED-PREDICATE form (see _COST_MOD_ANCHORS): the `cost_modifier` relation is justified by
+    the §118.9 'costs {N} <dir> to <kind>' anchor — the regexes only EXTRACT the four spans
+    (direction, amount, affected-set scope, condition); they no longer select the predicate."""
     cid = ctx["id"]
-    # leading 'If <cond>, ' or 'where X is …' / 'for each …' riders are kept in the scope/cond slot.
-    m = re.match(r"^(?:If (?P<cond>.+?), )?~ costs ((?:\{[^}]+\})+|\d+) (less|more) to cast(?:,? (.+?))?\.?$",
-                 unit.raw, re.I)
-    if m:
-        sc = ground.slug(m.group(4)) if m.group(4) else \
-            ("if_" + ground.slug(m.group("cond")) if m.group("cond") else "-")
-        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", "self", "{sc}")'],
-                       "cost_modifier")
-    m = re.match(r"^([\w'~ ]*?spells?[\w'~ ]*?) costs? ((?:\{[^}]+\})+|\d+) (less|more) to cast\.?$", unit.raw, re.I)
-    if m:
-        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(3)}", "{ground.slug(m.group(2))}", '
-                            f'"{ground.slug(m.group(1))}", "-")'], "cost_modifier")
-    # '~'s/this ability costs {S} less to activate [for each …]' — activated-ability cost reduction
-    m = re.match(r"^(?:~'s abilities?|this ability|abilities you activate) costs? ((?:\{[^}]+\})+|\d+) (less|more) to activate(?: (.+?))?\.?$", unit.raw, re.I)
-    if m:
-        sc = ground.slug(m.group(3)) if m.group(3) else "-"
-        return CardOut(cid, [f'cost_modifier("{cid}", "{m.group(2)}", "{ground.slug(m.group(1))}", "activated_ability", "{sc}")'],
-                       "cost_modifier")
+    for pat, default_scope, scope_grp, cond_grp, lead_grp in _COST_MOD_ANCHORS:
+        m = pat.match(unit.raw)
+        if not m:
+            continue
+        gd = m.groupdict()
+        direction = gd["dir"].lower()
+        kind = gd["kind"].lower()
+        # the anchor is grounded against §118.9 vocabulary — abstain rather than emit an
+        # un-grounded predicate (defensive: the regexes already constrain dir/kind to these).
+        if direction not in _COST_MOD_DIRECTIONS or kind not in _COST_MOD_KINDS:
+            return None
+        scope = ground.slug(gd[scope_grp]) if scope_grp else (default_scope or _KIND_DEFAULT_SCOPE[kind])
+        cond_raw = gd.get(cond_grp) if cond_grp else None
+        if cond_raw:
+            cond = ground.slug(cond_raw)
+        elif lead_grp and gd.get(lead_grp):
+            cond = "if_" + ground.slug(gd[lead_grp])
+        else:
+            cond = "-"
+        return CardOut(cid, [f'cost_modifier("{cid}", "{direction}", "{ground.slug(gd["amt"])}", '
+                            f'"{scope}", "{cond}")'], "cost_modifier")
     return None
 
 
