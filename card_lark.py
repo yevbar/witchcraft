@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause | fgclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -166,6 +166,14 @@ atclause: AT_ATTACH atsrc TOPREP atdest      -> atattach
 // faithful first-viable-' to ' split (the rejoined 'atsrc to atdest' run, exactly the regex's body).
 atsrc: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+  -> atsrc
 atdest: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+ -> atdest
+
+// FIGHT (§701.12) — '<A> fights <B>' -> fight(-, _target(A), _target(B)=EXTRA). TRUE grammar: the distinctive
+// FG_FIGHTS terminal splits the clause into two operand SPANS; the transformer reads them off the tree and
+// validates each as a clean `_TGT` (no whole-clause re-parse). Reciprocal '<A> fight each other' rides the
+// same fgo span with the FG_EACHOTHER terminal as the object. ('have <A> fight <B>' and the bare 'fight'
+// imperative collide with the grant 'have' verb / object-verb leaf at the lexer — left to the regex for now.)
+fgclause: fgo FG_FIGHTS fgo            -> fight
+fgo: (WORD | QUANT | NUM)+             -> fgo
 
 // TRANSFORM (§701.28) — 'transform <object>' -> transform(-, slug(<object>)), the exact mirror of the
 // DOUBLE family: grounded by the generic object-verb leaf (`_verb_target` then `_generic_object_verb`).
@@ -332,6 +340,7 @@ AM_ADD.3: /\badds?\b/                 // 'add'/'adds' — the §106 mana-product
 AM_ADDL.4: /\b(?:an additional|additional)\b/  // the optional 'additional' modifier after 'add' (consumed grammar-side; the old frame's `(?:an additional |additional )?` group, so amrest never carries it)
 AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUNDED — never a greedy .*; '{' '}' aren't in WORD)
 AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword action (attach family; namespaced; imperative only)
+FG_FIGHTS.5: /\bfights\b/             // '<A> fights <B>' separator (§701.12 fight; the 's' form, distinct from the rarer bare 'fight')
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -957,6 +966,10 @@ class _AtSrc(str):        # the moved-object span (atsrc) — the _attach templa
 
 
 class _AtDest(str):       # the destination span (atdest) — the _attach template's group 2 (TARGET)
+    pass
+
+
+class _FgO(str):          # a fight operand span (fgo) — validated as _TGT in the fight transformer
     pass
 
 
@@ -1692,6 +1705,23 @@ class _ToEffect(Transformer):
             if _AT_TGT.match(obj) and _AT_TGT.match(to):
                 return (obj, to)
             i = j + 1
+
+    # --- FIGHT (§701.12) ------------------------------------------------------
+    def fgo(self, *toks):
+        return _FgO(" ".join(str(t) for t in toks))
+
+    def fight(self, *args):
+        # '<A> fights <B>' -> fight(-, _target(A), _target(B)) — the EXACT `_fight` template (A->TARGET,
+        # B->EXTRA). TRUE grammar: FG_FIGHTS already split the clause into two operand spans; we only read
+        # them off the tree and validate each as a clean `_TGT` (`_AT_TGT`, the shared `^_TGT$` validator).
+        # No whole-clause re-parse. A span outside `_TGT` -> abstain (the regex's other forms own it).
+        spans = [str(a).strip() for a in args if isinstance(a, _FgO)]
+        if len(spans) != 2:
+            return None
+        a, b = spans
+        if not _AT_TGT.match(a) or not _AT_TGT.match(b):
+            return None
+        return Effect("fight", "-", _target(a), _target(b))
 
     # --- TRANSFORM (mirror of DOUBLE) -----------------------------------------
     def tfbody(self, *toks):
