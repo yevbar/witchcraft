@@ -1428,7 +1428,18 @@ def _as_long_as(unit, ctx):
     rebuilt = f"{eff[0].upper()}{eff[1:]} as long as {m.group('cond')}"
     return _try_patterns(dataclasses.replace(unit, raw=rebuilt), ctx)
 
-_STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?:an additional )?(?P<pt>[+-]\d+/[+-]\d+)"
+# §613 continuous P/T-modification VOCABULARY — the grounded anchor that justifies a `modify_pt`
+# (anthem) relation. The relation is emitted because a line carries BOTH the §613 layer-7c P/T-delta
+# (`±N/±N`, captured structurally below) AND the §613 continuous-effect verb `get(s)` — NOT because a
+# particular English template matched. `_PT_GET_VERB` is the grounded copula set; a line that names a
+# `±N/±N` value with any OTHER verb ('deals ±N/±N', 'has ±N/+N') has no anthem anchor and abstains.
+_PT_GET_VERB = frozenset({"get", "gets"})
+# The grounded §613 condition connectives that scope a continuous P/T modification (`as long as` →
+# §611 conditional duration; `for each` → §613 variable amount). Selected from this closed set, not
+# from free prose; the connective is preserved in the emitted condition slug.
+_PT_COND_CONN = frozenset({"as long as", "for each"})
+
+_STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) (?P<verb>gets?) (?:an additional )?(?P<pt>[+-]\d+/[+-]\d+)"
                         rf"(?: and (?:has|gains?) (?P<kw>[\w,{{}} ]+?))?"
                         rf"(?: (?P<conn>as long as|for each) (?P<cond>.+?))?\.?$", re.I)
 
@@ -1436,9 +1447,23 @@ _STATIC_PT = re.compile(rf"^(?:during your turn, )?(?P<who>{_SUBJ}) gets? (?:an 
 def _static_pt(unit, ctx):
     """A static P/T grant with no duration — '<subject> get(s) +N/+N[ and has <keywords>].' (§613:
     layer 7c P/T, layer 6 ability-adding). The absent 'until end of turn' is what makes it static;
-    one-shot 'until end of turn' pumps go to _spell/_activated via the effect engine instead."""
+    one-shot 'until end of turn' pumps go to _spell/_activated via the effect engine instead.
+
+    GROUNDED-PREDICATE form: the `modify_pt` relation is justified by the §613 anthem ANCHOR — the
+    structural `±N/±N` P/T-delta JOINED to the grounded continuous-effect verb `get(s)` (_PT_GET_VERB).
+    The regex only EXTRACTS the spans (subject NP, the P/T delta, the keyword tail, the condition NP +
+    its grounded connective); it abstains unless the `get(s)` anchor grounds — so a `±N/±N` value
+    reached by any other verb mints no anthem fact. The keyword tail grounds via _ground_kw (§702)."""
     m = _STATIC_PT.match(unit.raw)
     if not m:
+        return None
+    # ground the §613 anthem verb — abstain rather than emit a `modify_pt` for a non-`get(s)` line
+    # (defensive: the regex already constrains `verb` to this set, but the predicate is justified by
+    # vocabulary membership, not by the surface template having matched).
+    if m.group("verb").lower() not in _PT_GET_VERB:
+        return None
+    # ground the condition connective against the closed §611/§613 set (defensive; regex-constrained).
+    if m.group("conn") and m.group("conn").lower() not in _PT_COND_CONN:
         return None
     who = _target_slug(m.group("who"))
     cond = ground.slug(m.group("conn")) + "_" + ground.slug(m.group("cond")) if m.group("cond") else \
@@ -1484,9 +1509,16 @@ def _anthem_conjunct(unit, ctx):
     static — a keyword grant ('has flying'), restriction ('can't block'), 'doesn't untap …', a type/
     color set ('is a black Zombie'), or a quoted ability. Emits the P/T plus every conjunct interpreted
     by re-dispatching '<subject> <conjunct>'. Runs AFTER _static_pt (which owns the plain 'and has
-    <keyword>' form); abstains if ANY conjunct doesn't ground (prime directive — no partial grant)."""
-    m = re.match(rf"^(?P<subj>{_SUBJ}) gets? (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", unit.raw, re.I)
+    <keyword>' form); abstains if ANY conjunct doesn't ground (prime directive — no partial grant).
+
+    GROUNDED-PREDICATE form: the own `modify_pt` head is justified by the SAME §613 anthem anchor as
+    _static_pt — the structural `±N/±N` delta JOINED to the grounded continuous-effect verb `get(s)`
+    (_PT_GET_VERB). The regex EXTRACTS the subject NP, the P/T delta, and the conjunct rest; each
+    conjunct is grounded by re-dispatch. Abstains unless the `get(s)` anchor grounds."""
+    m = re.match(rf"^(?P<subj>{_SUBJ}) (?P<verb>gets?) (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", unit.raw, re.I)
     if not m:
+        return None
+    if m.group("verb").lower() not in _PT_GET_VERB:        # §613 anthem verb anchor (see _static_pt)
         return None
     subj = m.group("subj")
     extra = []
