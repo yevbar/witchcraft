@@ -205,27 +205,30 @@ pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA
 //   '[<subject> ]look[s] at [the top N cards of ]<owner> hand/library'   (_look_at)
 //   'look at the top N cards of your library'                            (_look_top)
 //   'look at that many cards from the top of your library'              (_look_that_many)
-// We capture the clause as a flat token run and re-apply the SAME fixed-frame regexes the templates use
-// (in TEMPLATE PRECEDENCE ORDER) to the lowercased source in the transformer, so the grounded tuple is
-// byte-identical to parse_effect or — on any clause outside those frames (the open-ended 'look at <obj>'
-// shapes the regex doesn't have, or a swallowed wrapper) — abstain (faithful-or-abstain). The whole
-// clause is sliced from self._src, so the slug never depends on token re-joining. A subject before the
-// verb is allowed (the regex's optional leading '(<TGT>) '). NEGATIVE rule priority so a sentence ALSO
-// parseable as another family yields to that parse; a pure 'look at …' clause has no competitor.
+// TRUE grammar production: the LK_LOOK ('look[s]') verb is the structural anchor that carves the clause
+// into a SUBJECT span (`lksubj`, the templates' optional leading `_TGT`) and a BODY span (`lkbody`, the
+// templates' post-verb 'at …' portion). The transformer READS the two spans off the tree and applies the
+// three templates as anchored per-operand validators (in TEMPLATE PRECEDENCE ORDER), so the grounded
+// tuple is byte-identical to parse_effect or — on any clause outside those frames (an open-ended 'look at
+// <obj>' shape the templates don't have, or a swallowed wrapper) — abstain (faithful-or-abstain). A
+// subject before the verb is allowed (the templates' optional leading '(<TGT>) '). NEGATIVE rule priority
+// so a sentence ALSO parseable as another family yields to that parse; a pure 'look at …' has no rival.
 lkclause.-2: lksubj? LK_LOOK lkbody       -> look
-lksubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'look[s]' (the regex's optional <TGT>)
+lksubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'look[s]' (the templates' optional <TGT>)
 lkbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
 
 // SHUFFLE family (§103.2/§701.19) — the two templates the regex grounds:
 //   '[<subject> ]shuffle[s] [their library | <obj> into <owner> library]'   (_shuffle: extra='-')
 //   '<player> shuffles <source> into his or her library'                    (_shuffle_subj: from_<src>)
-// _shuffle is registered FIRST and its '… into <your|their|its owner's|their owner's> library' branch
-// already swallows most subject-source clauses (extra='-'); _shuffle_subj fires ONLY for a 'his or her
-// library' destination it doesn't list. We reproduce that precedence by applying BOTH frame regexes in
-// registration order to self._src in the transformer (faithful-by-construction). A subject before the
-// verb is allowed. NEGATIVE rule priority defers to any competing family parse.
+// TRUE grammar production: the SH_SHUFFLE ('shuffle[s]') verb is the structural anchor that carves the
+// clause into a SUBJECT span (`shsubj`) and a BODY span (`shbody`). The transformer READS the two spans
+// off the tree and applies the two templates as anchored per-operand validators in REGISTRATION ORDER.
+// _shuffle is registered FIRST and its '… into <your|their|its owner's|their owner's> library' BODY
+// branch already swallows most subject-source clauses (extra='-'); _shuffle_subj fires ONLY for a 'his or
+// her library' destination its body doesn't list (so `_SH_BODY` leaves it unconsumed and falls through).
+// A subject before the verb is allowed. NEGATIVE rule priority defers to any competing family parse.
 shclause.-2: shsubj? SH_SHUFFLE shbody?   -> shuffle
-shsubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'shuffle[s]' (the regex's optional <TGT>)
+shsubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'shuffle[s]' (the templates' optional <TGT>)
 shbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO)+
 
 // NEGATIVE STATICS (namespaced `ns`) — the §509/§508 combat prohibitions and the §502 no-untap static:
@@ -653,62 +656,83 @@ def _pz_frame(full: str):
     return None
 
 
-# LOOK frame regexes — the EXACT fixed frames of the three regex templates this family replaces
-# (`card_effects._look_at`/`_look_top`/`_look_that_many`). The lark rule only certifies the clause is a
-# 'look[s] …' run; the faithful body parse is these frames applied IN TEMPLATE PRECEDENCE ORDER to the
-# lowercased source, so the grounded tuple is byte-identical to parse_effect. Anything outside these
-# frames (an open-ended 'look at <object>' shape the regex has no template for, or a swallowed wrapper)
-# fails all three and abstains -> the regex fallback owns it (faithful-or-abstain).
-_LK_AT = re.compile(
-    r"^(?:(" + _TGT + r") )?looks? at (?:the top (?:(\w+) )?cards? of )?"
-    r"(" + _TGT + r"|their|his or her)(?:'s)? (?:hand|library)$", re.I)        # _look_at
-_LK_TOP = re.compile(r"^look at the top (?:(\w+) )?cards? of your library$", re.I)            # _look_top
-_LK_THATMANY = re.compile(r"^look at that many cards from the top of your library$", re.I)     # _look_that_many
+# LOOK operand validators — the `_look_at`/`_look_top`/`_look_that_many` templates split at the structural
+# LK_LOOK ('look[s]') terminal the GRAMMAR owns (`lksubj? LK_LOOK lkbody`) into a SUBJECT span (`lksubj`,
+# the templates' optional leading `_TGT`) and a BODY span (`lkbody`, the templates' post-verb 'at …'
+# portion). Each template becomes anchored per-operand certifiers: an optional SUBJECT validator (`_TGT`)
+# and a BODY validator that captures the top-count and the owner. The transformer reads the spans off the
+# tree and applies the three in TEMPLATE PRECEDENCE ORDER (`_look_at` FIRST, then `_look_top`, then
+# `_look_that_many`) — byte-identical to parse_effect, or abstain (an open-ended 'look at <object>' shape
+# the templates have no frame for fails all three -> the regex fallback owns it). `_look_at`'s owner is a
+# clean `_TGT` (or the literals 'their'/'his or her'), so 'your library' fails it and falls to `_look_top`
+# (whose owner is fixed 'your'), exactly the template precedence. No whole-clause frame regex.
+_LK_AT_BODY = re.compile(                                                       # _look_at post-"look[s]" portion
+    r"^at (?:the top (?:(\w+) )?cards? of )?"
+    r"(" + _TGT + r"|their|his or her)(?:'s)? (?:hand|library)$", re.I)
+_LK_TOP_BODY = re.compile(r"^at the top (?:(\w+) )?cards? of your library$", re.I)            # _look_top
+_LK_THATMANY_BODY = re.compile(r"^at that many cards from the top of your library$", re.I)     # _look_that_many
+_LK_SUBJ_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)                         # _look_at `_TGT` subject (g1)
 
 
-def _lk_frame(full: str):
-    """Apply the look frames in TEMPLATE PRECEDENCE ORDER to a full (lowercased) clause, returning the
-    first grounded Effect (byte-identical to parse_effect) or None (abstain)."""
-    m = _LK_AT.match(full)                            # 1. _look_at (subject? + optional top-N + owner hand/library)
-    if m:
-        n = _amount(m.group(2)) if m.group(2) else 1
-        owner = "their" if m.group(3).lower() in ("their", "his or her") else _target(m.group(3))
-        return Effect("look", n if n is not None else 1, owner,
-                      "by_" + _target(m.group(1)) if m.group(1) else "-")
-    m = _LK_TOP.match(full)                           # 2. _look_top ('look at the top N cards of your library')
-    if m:
-        n = _amount(m.group(1)) if m.group(1) else 1
-        return Effect("look", n, "top_of_library") if n is not None else None
-    if _LK_THATMANY.match(full):                      # 3. _look_that_many
-        return Effect("look", "that_amount", "top_of_library")
+def _lk_frame(subj, body):
+    """Apply the look templates in PRECEDENCE ORDER to the SUBJECT and BODY spans read off the parse tree,
+    returning the first grounded Effect (byte-identical to parse_effect) or None (abstain). `subj` is the
+    optional leading `_TGT` (None if absent); `body` is the post-verb 'at …' span."""
+    if body is None:
+        return None
+    if subj is None or _LK_SUBJ_TGT.match(subj):     # 1. _look_at (subject? + optional top-N + owner hand/library)
+        m = _LK_AT_BODY.match(body)
+        if m:
+            n = _amount(m.group(1)) if m.group(1) else 1
+            owner = "their" if m.group(2).lower() in ("their", "his or her") else _target(m.group(2))
+            return Effect("look", n if n is not None else 1, owner,
+                          "by_" + _target(subj) if subj else "-")
+    if subj is None:                                  # 2./3. _look_top / _look_that_many (no subject form)
+        m = _LK_TOP_BODY.match(body)                  # 2. _look_top ('look at the top N cards of your library')
+        if m:
+            n = _amount(m.group(1)) if m.group(1) else 1
+            return Effect("look", n, "top_of_library") if n is not None else None
+        if _LK_THATMANY_BODY.match(body):             # 3. _look_that_many
+            return Effect("look", "that_amount", "top_of_library")
     return None
 
 
-# SHUFFLE frame regexes — the EXACT fixed frames of the two regex templates this family replaces
-# (`card_effects._shuffle`/`_shuffle_subj`). `_shuffle` is registered FIRST and its '… into <your|their|
-# its owner's|their owner's> library' branch already swallows most subject-source clauses (extra='-');
-# `_shuffle_subj` (extra='from_<source>') fires ONLY for the 'his or her library' destination `_shuffle`
-# doesn't list. Applying both IN REGISTRATION ORDER to the lowercased source reproduces that precedence
-# byte-for-byte; a clause outside both frames abstains (faithful-or-abstain).
-_SH_SHUFFLE = re.compile(
-    rf"^(?:({_TGT}) )?shuffles?(?: (?:your|their|his or her) library"
-    r"| (it|them|.+?) into (?:your|their|its owner's|their owner's) library)?$", re.I)         # _shuffle
-_SH_SUBJ = re.compile(
-    rf"^({_TGT}) shuffles? (?:their|its owner's|his or her) ([\w ]+?) "
-    r"into (?:their|its owner's|his or her) library$", re.I)                                    # _shuffle_subj
+# SHUFFLE operand validators — the `_shuffle`/`_shuffle_subj` templates split at the structural
+# SH_SHUFFLE ('shuffle[s]') terminal the GRAMMAR owns (`shsubj? SH_SHUFFLE shbody?`) into a SUBJECT span
+# (`shsubj`, the templates' optional leading `_TGT`) and a BODY span (`shbody`, the templates' post-verb
+# portion). Each template becomes anchored per-operand certifiers: a SUBJECT validator (`_TGT`) and a
+# BODY validator that captures the source object. The transformer reads the spans off the tree and
+# applies the pair in REGISTRATION ORDER (`_shuffle` FIRST, then `_shuffle_subj`) — byte-identical to
+# parse_effect, or abstain. `_shuffle` is registered FIRST and its '… into <your|their|its owner's|their
+# owner's> library' BODY branch swallows most subject-source clauses (extra='-'); `_shuffle_subj`
+# (extra='from_<source>') fires ONLY for the 'his or her library' destination `_shuffle`'s body doesn't
+# list (so its body branch leaves text unconsumed -> `_SH_BODY` fails -> fall through). No whole-clause
+# frame regex — only anchored single-span certifiers.
+_SH_BODY = re.compile(                                                          # _shuffle post-"shuffle" portion
+    r"^(?:(?:your|their|his or her) library"
+    r"|(it|them|.+?) into (?:your|their|its owner's|their owner's) library)$", re.I)
+_SH_SUBJ_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)                         # _shuffle / _shuffle_subj `_TGT` subject
+_SH_SUBJ_BODY = re.compile(                                                     # _shuffle_subj post-"shuffles" portion
+    r"^(?:their|its owner's|his or her) ([\w ]+?) "
+    r"into (?:their|its owner's|his or her) library$", re.I)
 
 
-def _sh_frame(full: str):
-    """Apply the shuffle frames in TEMPLATE PRECEDENCE ORDER to a full (lowercased) clause, returning the
-    first grounded Effect (byte-identical to parse_effect) or None (abstain)."""
-    m = _SH_SHUFFLE.match(full)                       # 1. _shuffle (extra='-', or 'from_<zones>' for a wheel)
-    if m:
-        obj = re.sub(r"^(?:your|their|his or her)\s+", "", (m.group(2) or "").strip(), flags=re.I)
-        extra = "from_" + ground.slug(obj) if obj and obj.lower() not in ("it", "them") else "-"
-        return Effect("shuffle", "-", _target(m.group(1) or "you"), extra)
-    m = _SH_SUBJ.match(full)                          # 2. _shuffle_subj (extra='from_<source>')
-    if m:
-        return Effect("shuffle", "-", _target(m.group(1)), "from_" + ground.slug(m.group(2)))
+def _sh_frame(subj, body):
+    """Apply the shuffle templates in REGISTRATION ORDER to the SUBJECT and BODY spans read off the parse
+    tree, returning the first grounded Effect (byte-identical to parse_effect) or None (abstain). `subj` is
+    the optional leading `_TGT` (None if absent); `body` is the post-verb span (None if a bare 'shuffle')."""
+    if subj is None or _SH_SUBJ_TGT.match(subj):                  # 1. _shuffle (subject `_TGT` or absent)
+        if body is None:                                          # bare 'shuffle' -> no source object
+            return Effect("shuffle", "-", _target(subj or "you"), "-")
+        m = _SH_BODY.match(body)
+        if m:
+            obj = re.sub(r"^(?:your|their|his or her)\s+", "", (m.group(1) or "").strip(), flags=re.I)
+            extra = "from_" + ground.slug(obj) if obj and obj.lower() not in ("it", "them") else "-"
+            return Effect("shuffle", "-", _target(subj or "you"), extra)
+    if subj is not None and _SH_SUBJ_TGT.match(subj) and body is not None:   # 2. _shuffle_subj (subject required)
+        m = _SH_SUBJ_BODY.match(body)
+        if m:
+            return Effect("shuffle", "-", _target(subj), "from_" + ground.slug(m.group(1)))
     return None
 
 
@@ -848,19 +872,19 @@ class _PzBody(str):    # the reassembled put-to-zone clause body (everything aft
     pass
 
 
-class _LkSubj(str):    # a player subject before 'look[s]' (value unused; the clause is parsed from src)
+class _LkSubj(str):    # the optional `_TGT` subject span before 'look[s]' (read off the tree by `look`)
     pass
 
 
-class _LkBody(str):    # the look clause body after 'look[s]' (value unused; the clause is parsed from src)
+class _LkBody(str):    # the post-verb 'at …' span after 'look[s]' (read off the tree by `look`)
     pass
 
 
-class _ShSubj(str):    # a player subject before 'shuffle[s]' (value unused; the clause is parsed from src)
+class _ShSubj(str):    # the optional `_TGT` subject span before 'shuffle[s]' (read off the tree by `shuffle`)
     pass
 
 
-class _ShBody(str):    # the shuffle clause body after 'shuffle[s]' (value unused; the clause is parsed from src)
+class _ShBody(str):    # the post-verb source/library span after 'shuffle[s]' (read off the tree by `shuffle`)
     pass
 
 
@@ -1894,16 +1918,17 @@ class _ToEffect(Transformer):
 
     # --- LOOK -----------------------------------------------------------------
     def lksubj(self, *toks):
-        return _LkSubj(" ".join(str(t) for t in toks))   # value unused; the clause is parsed from src
+        return _LkSubj(" ".join(str(t) for t in toks))   # the optional `_TGT` subject span (read by `look`)
 
     def lkbody(self, *toks):
-        return _LkBody(" ".join(str(t) for t in toks))   # value unused; the clause is parsed from src
+        return _LkBody(" ".join(str(t) for t in toks))   # the post-verb 'at …' span (read by `look`)
 
     def look(self, *args):
-        # The rule only certifies the clause is a 'look[s] …' run; the faithful parse is the EXACT look
-        # frames applied to the whole lowercased source (so the grounded tuple is byte-identical to the
-        # regex templates, or — on any clause outside those frames — abstain). Parsing from self._src (the
-        # full clause) keeps every slug byte-identical (no token re-joining).
+        # TRUE grammar production: the LK_LOOK verb is the structural anchor that carves the clause into a
+        # SUBJECT span (`lksubj`, optional) and a BODY span (`lkbody`, the 'at …' portion). The transformer
+        # READS the two spans off the tree and applies the `_look_at`/`_look_top`/`_look_that_many`
+        # templates as anchored per-operand validators (`_lk_frame`), byte-identical to parse_effect — no
+        # whole-clause re-parse.
         #
         # SUBJECT GATE: the greedy `lksubj` can swallow a WHOLE preceding clause whose final word happens
         # to be 'look[s]' ('destroy target creature that looks …'), and the `_look_at` frame's leading
@@ -1912,24 +1937,24 @@ class _ToEffect(Transformer):
         # subject before the verb to be a clean closed `_PLAYER` phrase (a real player is the only thing
         # that 'looks'); anything else means the subject over-matched -> abstain (the regex chain owns it).
         subj = next((str(a) for a in args if isinstance(a, _LkSubj)), None)
+        body = next((str(a) for a in args if isinstance(a, _LkBody)), None)
         if subj is not None and not _PLAYER.match(subj.strip().lower()):
             return None
-        src = getattr(self, "_src", None)
-        if src is None:
-            return None
-        return _lk_frame(src.strip())
+        return _lk_frame(subj.strip() if subj is not None else None,
+                         body.strip() if body is not None else None)
 
     # --- SHUFFLE --------------------------------------------------------------
     def shsubj(self, *toks):
-        return _ShSubj(" ".join(str(t) for t in toks))   # value unused; the clause is parsed from src
+        return _ShSubj(" ".join(str(t) for t in toks))   # the optional `_TGT` subject span (read by `shuffle`)
 
     def shbody(self, *toks):
-        return _ShBody(" ".join(str(t) for t in toks))   # value unused; the clause is parsed from src
+        return _ShBody(" ".join(str(t) for t in toks))   # the post-verb source/library span (read by `shuffle`)
 
     def shuffle(self, *args):
-        # The rule only certifies the clause is a 'shuffle[s] …' run; the faithful parse is the EXACT
-        # shuffle frames applied (in template-precedence order) to the whole lowercased source, so the
-        # grounded tuple is byte-identical to `_shuffle`/`_shuffle_subj` (or abstain on a non-frame clause).
+        # TRUE grammar production: the SH_SHUFFLE verb is the structural anchor that carves the clause into
+        # a SUBJECT span (`shsubj`, optional) and a BODY span (`shbody`, optional). The transformer READS
+        # the two spans off the tree and applies the `_shuffle`/`_shuffle_subj` templates as anchored
+        # per-operand validators (`_sh_frame`), byte-identical to parse_effect — no whole-clause re-parse.
         #
         # SUBJECT GATE (same hazard as `look`): the greedy `shsubj` can swallow a preceding clause ending
         # in 'shuffle[s]' ('destroy target creature that shuffles'), and `_shuffle`'s leading `(<TGT>)`
@@ -1937,12 +1962,11 @@ class _ToEffect(Transformer):
         # destroy/… templates fail. Require any subject before the verb to be a clean closed `_PLAYER`
         # phrase (only a player shuffles); else the subject over-matched -> abstain (regex chain owns it).
         subj = next((str(a) for a in args if isinstance(a, _ShSubj)), None)
+        body = next((str(a) for a in args if isinstance(a, _ShBody)), None)
         if subj is not None and not _PLAYER.match(subj.strip().lower()):
             return None
-        src = getattr(self, "_src", None)
-        if src is None:
-            return None
-        return _sh_frame(src.strip())
+        return _sh_frame(subj.strip() if subj is not None else None,
+                         body.strip() if body is not None else None)
 
     # --- ADD_MANA -------------------------------------------------------------
     def amlead(self, *toks):
