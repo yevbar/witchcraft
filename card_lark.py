@@ -120,13 +120,20 @@ sfsubj: (WORD | QUANT | NUM)+                // the acting player (validated as 
 sfrest: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR | DMG | PTDELTA | COUNTER | ONPREP)+
 
 // REMOVE_COUNTER — the mirror of put_counter (cclause/putctr): 'remove <count> [<kind>] counter[s]
-// from <target>' (_remove_counter). The whole clause is captured as a flat token run and re-parsed by
-// the SAME `_remove_counter` regex frame in the transformer (faithful BY CONSTRUCTION — byte-identical
-// or abstain). Reuses the shared COUNTER/FROM/PTDELTA/TOPREP/ZONE/QUANT terminals (no new ones). The
-// 'remove … from combat' / non-counter 'remove' clauses parse here too but the frame regex (which
-// REQUIRES 'counter[s] from <_TGT>') fails on them -> the transformer abstains, leaving them to the regex.
-rcclause: RC_REMOVE rcbody                  -> rcremove
-rcbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | COUNTER | FROM | ZONE | THATMANY)+  -> rcbody
+// from <target>' (_remove_counter). This is a TRUE grammar production (like cclause): the COUNT, the
+// optional KIND, and the TARGET are captured as distinct grammar SPANS, anchored by the structural
+// COUNTER ('counter[s]') and FROM ('from') terminals — exactly the skeleton the `_remove_counter`
+// template `^remove <count> [<kind>] counter[s] from <_TGT>$` required. The transformer reads the spans
+// off the parse tree and reproduces the template's count/kind/target grounding (byte-identical). The
+// target span is certified by the anchored `_TGT` operand validator `_RC_TGT` (mirrors `_DB_TGT`): a
+// target outside `_TGT` abstains exactly as the template did. The 'remove … from combat' / non-counter
+// 'remove' clauses lack the 'counter[s] from' skeleton, so they don't match this production at all ->
+// they parse via the regex fallback (faithful-or-abstain). No structural whole-clause frame regex.
+rcclause: RC_REMOVE rccount rckind? COUNTER FROM rctarget  -> rcremove
+rccount: QUANT | NUM | WORD                  // the count token ('a'/'two'/'all'/'any number of'/x/word) — _remove_counter g1
+rckind: PTDELTA | rckwords                   // the optional counter KIND: a P/T delta (verbatim) or word(s) -> slugged
+rckwords: WORD+                              // kind words; can't cross COUNTER (own terminal) -> stops at the counter
+rctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+  -> rctarget  // the target NP (validated by _RC_TGT)
 
 // DOUBLE — the §107.16/keyword-action 'double <object>' verb, grounded (like the regex) by the generic
 // object-verb leaf as double(-, slug(<object>)). We own the clean object shape and apply the EXACT
@@ -499,14 +506,13 @@ _RV_SUBJ_HAND = re.compile(r"^their hand$", re.I)                               
 _PV_FOG = re.compile(r"^all (combat )?damage that would be dealt this turn$", re.I)                # _fog body
 _PV_NEXT = re.compile(r"^the next (\w+) damage that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent body
 
-# REMOVE_COUNTER frame — the EXACT `_remove_counter` template. The lark rule only certifies the clause
-# is a 'remove …' run; this frame (which REQUIRES 'counter[s] from <_TGT>') does the faithful parse, so
-# the grounded tuple is byte-identical to the regex (or, on a 'remove … from combat'/non-counter clause,
-# fails -> abstain). The target group is the real `_TGT` (anchored): a target that isn't a `_TGT` noun
-# phrase FAILS the frame, exactly as the regex abstains — no lossy net-new fact.
-_RC_FRAME = re.compile(
-    r"^remove (a|an|one|two|three|all|any number of|x|\w+) "
-    r"(?:([+-]\d+/[+-]\d+|[\w ]+?) )?counters? from (" + _TGT + r")$", re.I)
+# REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
+# GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
+# structural COUNTER/FROM terminals anchor it); this regex CERTIFIES the TARGET span is a clean `_TGT`
+# exactly as the `_remove_counter` template's group 3 required. A target outside `_TGT` ('… from combat',
+# a non-noun-phrase) abstains -> the regex fallback owns the whole clause (byte-identical-or-abstain). No
+# structural whole-clause frame regex.
+_RC_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 
 # DOUBLE — the generic object-verb leaf grounds 'double <object>' as double(-, slug(<object>)). The
 # regex precedence is `_verb_target` (`^(\w+) (<_TGT>)$`, slugs the WHOLE object via _target, article
@@ -693,9 +699,17 @@ _NS_CANT_FRAME = re.compile(                                                    
 _NS_CANT_SET_FRAME = re.compile(                                               # _cant_combat_set (registered after)
     r"^((?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?) can't "
     r"(be blocked|attack or block|block|attack)(?: this turn)?$", re.I)
-_NS_UNTAP_FRAME = re.compile(                                                  # _doesnt_untap
-    r"^(" + _TGT + r") (?:doesn't|don't) untap during "
-    r"(?:its controller's|their controller's|their controllers'|your|their)"
+
+# DOESNT_UNTAP operand validators — the `_doesnt_untap` template split into two anchored operand-span
+# certifiers (the GRAMMAR owns the shape `nssubj NS_DUVERB nstail`, the distinctive 'doesn't/don't untap'
+# verb is the structural anchor). `_NS_UNTAP_SUBJ` certifies the subject span is a clean `_TGT` (template
+# group 1; mirrors `_DB_TGT`/`_AT_TGT`). `_NS_UNTAP_TAIL` certifies the tail span is the template's
+# 'during <controller> [next] untap step[s] [for as long as …]' skeleton and CAPTURES the single 'next'
+# operand (group 1). A subject outside `_TGT`, or a tail that isn't this skeleton ('during this combat',
+# a 'this turn' variant), abstains exactly as the template did. No whole-clause frame regex.
+_NS_UNTAP_SUBJ = re.compile(r"^(?:" + _TGT + r")$", re.I)
+_NS_UNTAP_TAIL = re.compile(
+    r"^during (?:its controller's|their controller's|their controllers'|your|their)"
     r"( next)? untap steps?(?: for as long as .+?)?$", re.I)
 
 # the block-template verb-slot -> grounded verb; ONLY the three negative-statics verbs are ours. The same
@@ -720,14 +734,6 @@ def _ns_cant(src: str):
             return None                            # cant_attack / cant_attack_or_block -> not our family
         return Effect(verb, "-", ground.slug(m.group(1)))
     return None
-
-
-def _ns_untap(src: str):
-    m = _NS_UNTAP_FRAME.match(src)
-    if not m:
-        return None
-    # `_doesnt_untap`: extra='next' iff g1 present AND the optional ' next' matched, else '-'.
-    return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
 
 
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
@@ -846,7 +852,15 @@ class _BcmTail(str):      # the raw post-P/T span (kept only so the parse consum
     pass
 
 
-class _RcBody(str):       # the flat 'remove …' clause run (re-parsed by the _remove_counter frame)
+class _RcCount(str):      # the count span (rccount) — the _remove_counter template's group 1
+    pass
+
+
+class _RcKind(str):       # the optional kind span (rckind) — the _remove_counter template's group 2
+    pass
+
+
+class _RcTarget(str):     # the target span (rctarget) — the _remove_counter template's group 3 (TARGET)
     pass
 
 
@@ -1444,26 +1458,66 @@ class _ToEffect(Transformer):
         return Effect("put_counter", amt, _target(tgt), kind_slug)
 
     # --- REMOVE_COUNTER (mirror of putctr) ------------------------------------
-    def rcbody(self, *toks):
-        return _RcBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+    def rccount(self, tok):
+        return _RcCount(str(tok))
+
+    def rckwords(self, *toks):
+        return _RcKind(" ".join(str(t) for t in toks))
+
+    def rckind(self, tok):
+        # PTDELTA arrives as a raw Token (no rckwords reduction); rckwords arrives already wrapped.
+        return tok if isinstance(tok, _RcKind) else _RcKind(str(tok))
+
+    def rctarget(self, *toks):
+        return _RcTarget(" ".join(str(t) for t in toks))
 
     def rcremove(self, *args):
-        # The rule only certifies the clause is a 'remove …' run; the faithful parse is the EXACT
-        # `_remove_counter` frame applied to the lowercased source (so the output is byte-identical to
-        # the regex, or — on a 'remove … from combat'/non-counter clause, which the frame rejects —
-        # abstain). Mirrors `_remove_counter`'s count/kind/target logic line-for-line.
-        src = getattr(self, "_src", None)
-        if src is None:
+        # 'remove <count> [<kind>] counter[s] from <tgt>' — the EXACT `_remove_counter` template. The
+        # grammar gives us the COUNT, optional KIND, and TARGET as distinct spans (anchored by the
+        # structural COUNTER/FROM terminals); the transformer reads them off the tree and reproduces the
+        # template's count/kind/target grounding line-for-line. The target span is certified by the
+        # anchored `_TGT` operand validator `_RC_TGT` (template g3): a target outside `_TGT` abstains
+        # exactly as the template did -> the regex fallback owns the whole clause (byte-identical-or-abstain).
+        count = next((str(a) for a in args if isinstance(a, _RcCount)), None)
+        kind = next((str(a) for a in args if isinstance(a, _RcKind)), None)
+        tgt = next((str(a) for a in args if isinstance(a, _RcTarget)), None)
+        if count is None or tgt is None:
             return None
-        m = _RC_FRAME.match(src.strip())
-        if not m:
-            return None
-        n = _amount(m.group(1))
+        tgt = tgt.strip()
+        if not _RC_TGT.match(tgt):
+            return None                          # target outside `_TGT` (template g3) -> abstain to regex
+        # COUNT span vs. template g1 `(a|an|one|two|three|all|any number of|x|\w+)`: every g1 alternative
+        # is a SINGLE word EXCEPT 'any number of'. The dynamic lexer can lex a multi-word QUANT ('up to
+        # two') as ONE count token, but the template only ever took its FIRST word as g1 and folded the
+        # remainder into the kind group `[\w ]+?` ('up to two' -> g1 'up', kind prefix 'to two'). Reproduce
+        # that split so the tuple stays byte-identical (g1='up', kind='to two' -> slug 'to_two'; and 'up to
+        # N <delta>' -> kind 'to N <delta>' which carries a '/' -> the kind guard below abstains, as g1 did).
+        count = count.strip()
+        if " " in count and count.lower() != "any number of":
+            first, rest = count.split(" ", 1)
+            count = first
+            kind = _RcKind(rest + (" " + kind if kind is not None else ""))
+        # COUNT -> amount (template g1): `_amount`, else 'all'/'any'/'X' (the template's own fallback).
+        n = _amount(count)
         if n is None:
-            g1 = m.group(1).lower()
+            g1 = count.lower()
             n = "all" if g1 == "all" else ("any" if g1 == "any number of" else "X")
-        kind = "-" if not m.group(2) else (m.group(2) if "/" in m.group(2) else ground.slug(m.group(2)))
-        return Effect("remove_counter", n, _target(m.group(3)), kind)
+        # KIND -> extra (template g2): absent -> '-'; a P/T delta verbatim; else slugged. The template's
+        # kind group is `([+-]\d+/[+-]\d+|[\w ]+?)` — EITHER a pure P/T delta OR a `[\w ]+?` word run with
+        # NO '/'+'-' chars. The dynamic lexer can fold a delta into a WORD inside a multi-word `rckwords`
+        # ('that many +1/+1' -> rckwords 'many +1/+1'); that mixes a delta into a word run, which the
+        # template can't ground -> abstain (a bare PTDELTA-only kind stays its own span and is fine).
+        if kind is None:
+            kind_slug = "-"
+        else:
+            kind = kind.strip()
+            if "/" in kind:
+                if not re.fullmatch(r"[+-]\d+/[+-]\d+", kind):
+                    return None                  # delta mixed into a word run / non-numeric delta -> regex
+                kind_slug = kind
+            else:
+                kind_slug = ground.slug(kind)
+        return Effect("remove_counter", n, _target(tgt), kind_slug)
 
     # --- DOUBLE ---------------------------------------------------------------
     def dbbody(self, *toks):
@@ -1488,13 +1542,13 @@ class _ToEffect(Transformer):
 
     # --- NEGATIVE STATICS (cant_be_blocked / cant_block / doesnt_untap) -------
     def nssubj(self, *toks):
-        return _NsSubj(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+        return _NsSubj(" ".join(str(t) for t in toks))   # subject NP: nsuntap reads it (g1); nscant re-parses src
 
     def nsverb(self, *toks):
-        return _NsVerb(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+        return _NsVerb(" ".join(str(t) for t in toks))   # value unused; the nscant frame regex re-parses src
 
     def nstail(self, *toks):
-        return _NsTail(" ".join(str(t) for t in toks))   # value unused; the frame regex re-parses src
+        return _NsTail(" ".join(str(t) for t in toks))   # tail span: nsuntap reads it; nscant re-parses src
 
     def nscant(self, *args):
         # The rule only certifies this is a "<subj> can't <verb> …" clause; the faithful parse is the
@@ -1507,12 +1561,24 @@ class _ToEffect(Transformer):
         return _ns_cant(src.strip())
 
     def nsuntap(self, *args):
-        # Same construction for "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] …":
-        # the `_doesnt_untap` frame over the source yields the byte-identical tuple, or abstains.
-        src = getattr(self, "_src", None)
-        if src is None:
+        # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT
+        # `_doesnt_untap` template. The grammar gives us the SUBJECT span (template g1) and the TAIL span;
+        # the distinctive 'doesn't/don't untap' verb (NS_DUVERB) is the structural anchor. We certify the
+        # subject is a clean `_TGT` (`_NS_UNTAP_SUBJ`) and the tail is the template's 'during <controller>
+        # [next] untap step[s] …' skeleton (`_NS_UNTAP_TAIL`, whose one group is the 'next' operand), then
+        # emit doesnt_untap(-, _target(subj), 'next' if the optional ' next' matched else '-') — byte-
+        # identical to the template, or abstain (subject outside `_TGT`, a tail that isn't the skeleton).
+        subj = next((str(a) for a in args if isinstance(a, _NsSubj)), None)
+        tail = next((str(a) for a in args if isinstance(a, _NsTail)), None)
+        if subj is None or tail is None:
             return None
-        return _ns_untap(src.strip())
+        subj = subj.strip()
+        if not _NS_UNTAP_SUBJ.match(subj):
+            return None                          # subject outside `_TGT` (template g1) -> abstain to regex
+        m = _NS_UNTAP_TAIL.match(tail.strip())
+        if not m:
+            return None                          # tail isn't the 'during <ctrl> … untap step' skeleton
+        return Effect("doesnt_untap", "-", _target(subj), "next" if m.group(1) else "-")
 
     # --- ATTACH ---------------------------------------------------------------
     def atsrc(self, *toks):
