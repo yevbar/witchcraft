@@ -1710,9 +1710,25 @@ def _subject_action(m):
     return Effect(base, "-", _target(m.group(1)))
 
 
+# 'perpetually' (Alchemy §perpetual) is a pre-verb DURATION adverb, NOT part of the target NP. The greedy
+# _TGT otherwise folds it into the target slug ('…_you_control_perpetually') and a bare grant/modify template
+# matches before the lone _perpetual handler, dropping the duration — a latent leaf bug vs card_lark (which
+# the lark-first leaf already gets right). Strip it uniformly, ground the rest, and stamp cond='perpetual'.
+_PERPETUAL_ADV = re.compile(r"^(?P<tgt>.+?) perpetually (?P<verb>gains?|gets?|has|have) (?P<rest>.+)$", re.I)
+
+
 def parse_effect(sentence: str) -> "Effect | None":
     """A single effect sentence -> grounded Effect, or None (abstain). Only emits if verb is grounded."""
     s = sentence.strip().rstrip(".").strip()
+    pm = _PERPETUAL_ADV.match(s)
+    if pm and pm.group("tgt").count('"') % 2 == 0:   # only when 'perpetually' is OUTSIDE a quote — NOT inside a
+        # granted ability's text ('X gains "… it perpetually gets +1/+1 …"'), where it belongs to the inner
+        # ability, not the outer grant (card_lark keeps it inside; matching that requires the even-quote guard).
+        inner = parse_effect(f"{pm.group('tgt')} {pm.group('verb')} {pm.group('rest')}")
+        if inner and inner.verb in ("grant_keyword", "modify_pt", "grant_ability") and inner.cond == "-":
+            return Effect(inner.verb, inner.amount, inner.target, inner.extra, "perpetual")
+        # else fall through: 'perpetually' + an existing duration (or a non-grant/modify verb) is ambiguous
+        # — card_lark abstains there too, so leave it to the templates rather than over-claim a perpetual.
     for pat, fn in _TEMPLATES:
         m = pat.match(s)
         if m:
