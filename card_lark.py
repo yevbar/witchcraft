@@ -254,16 +254,19 @@ NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static ver
 // almost ENTIRELY a formal symbol-sublanguage: the clause STRUCTURE is trivial (optional subject,
 // the 'add' verb, an optional 'additional' modifier), and ALL the substance is the <mana-spec>, which
 // is the mana-symbol/colour formal language parsed by card_effects._mana_production (reused verbatim —
-// NOT re-implemented here). So the grammar's only job is to RECOGNIZE the clause (consume its tokens,
-// including the bounded mana-symbol terminal AM_MANASYM) so the transformer fires; the grounding is the
-// EXACT `_add_mana` regex frame (`_AM_FRAME` + `_mana_production`) applied to the source — byte-identical
-// or abstain. NEGATIVE rule priority defers to any competing family parse (Earley ambiguity); on a real
-// 'add <mana>' clause there is no competitor, so this still wins. amlead consumes an optional subject
-// phrase before 'add'; amrest consumes the spec to end (its value is unused — the span is re-parsed from
-// `_src` by the frame, so the slug is byte-identical to the regex, never a re-joined approximation).
-amclause.-2: amlead? AM_ADD amrest          -> amadd
-amlead: (WORD | QUANT | NUM)+               // optional player phrase before 'add[s]' (validated by the frame)
-amrest: (WORD | QUANT | NUM | AM_MANASYM)+  // the mana-spec span (re-parsed from source by _AM_FRAME)
+// NOT re-implemented here). The structure is now a TRUE GRAMMAR PRODUCTION (no whole-clause re-parse
+// regex): an optional subject span `amlead`, the 'add' verb, an optional `AM_ADDL` modifier
+// ('an additional'/'additional'), and the mana-spec span `amrest`. The transformer VALIDATES `amlead`
+// with the anchored `_TGT` operand regex `_AM_TGT` (mirrors `_DB_TGT`/`_AT_TGT`/`_TF_TGT`) and feeds the
+// `amrest` span (token-rejoined, mana glyphs re-uppercased) to `_mana_production` (reused verbatim).
+// Because `_mana_production` parses {…} symbols by findall and English phrases by fullmatch, the grounded
+// `prod` (hence amount=len(prod) + extra=dedup-join) is INDEPENDENT of inter-token spacing, so the tuple
+// is byte-identical to the old `_add_mana`/`_AM_FRAME` output — or None (abstain) when `_mana_production`
+// rejects the spec or `amlead` isn't a clean `_TGT`. NEGATIVE rule priority defers to any competing
+// family parse (Earley ambiguity); on a real 'add <mana>' clause there is no competitor, so this wins.
+amclause.-2: amlead? AM_ADD AM_ADDL? amrest -> amadd
+amlead: (WORD | QUANT | NUM)+               // optional player subject before 'add[s]' (validated by _AM_TGT)
+amrest: (WORD | QUANT | NUM | AM_MANASYM)+  // the mana-spec span (fed to _mana_production, spacing-independent)
 
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
@@ -316,6 +319,7 @@ DB_DOUBLE.3: /\bdouble\b/             // 'double' — the §107.16 doubling verb
 LK_LOOK.3: /\blooks?\b/               // 'look'/'looks' — the §701.x 'look at' verb (look family; namespaced)
 SH_SHUFFLE.3: /\bshuffles?\b/         // 'shuffle'/'shuffles' — the §701.19 shuffle verb (shuffle family; namespaced)
 AM_ADD.3: /\badds?\b/                 // 'add'/'adds' — the §106 mana-production verb (add_mana family; namespaced)
+AM_ADDL.4: /\b(?:an additional|additional)\b/  // the optional 'additional' modifier after 'add' (consumed grammar-side; the old frame's `(?:an additional |additional )?` group, so amrest never carries it)
 AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUNDED — never a greedy .*; '{' '}' aren't in WORD)
 AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword action (attach family; namespaced; imperative only)
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
@@ -523,15 +527,17 @@ _RC_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 _DB_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
 _DB_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 
-# ADD_MANA — the EXACT `_add_mana` template frame: an optional `_TGT` subject, the 'add[s]' verb, an
-# optional 'an additional'/'additional' modifier, then the mana-spec `(.+)`. The spec is parsed by
-# card_effects._mana_production (reused verbatim). `parse_clause_lark` LOWERCASES the clause, but
-# `_mana_production` looks up mana symbols in the §107.4 colour table by their UPPERCASE glyph ('{G}',
-# not '{g}') — so `_am_upper_syms` re-uppercases ONLY the inside of each '{…}' (English phrases stay
-# lowercase, which `_mana_production` matches case-insensitively). The grounded tuple is then byte-
-# identical to `_add_mana` (amount = len(prod), target = _target(subj or 'you'), extra = dedup-joined
-# colours) — or None (abstain) when `_mana_production` rejects the spec.
-_AM_FRAME = re.compile(rf"^(?:({_TGT}) )?adds? (?:an additional |additional )?(.+)$", re.I)
+# ADD_MANA operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`/`_TF_TGT`).
+# The GRAMMAR owns the shape (`amlead? AM_ADD AM_ADDL? amrest`); the transformer validates the optional
+# subject span `amlead` with this regex (exactly the old `_AM_FRAME`'s `(_TGT)?` subject group — a clean
+# `_TGT` or abstain) and feeds the `amrest` mana-spec span to `_mana_production`. `parse_clause_lark`
+# LOWERCASES the clause, but `_mana_production` looks up mana symbols in the §107.4 colour table by their
+# UPPERCASE glyph ('{G}', not '{g}') — so `_am_upper_syms` re-uppercases ONLY the inside of each '{…}'
+# (English phrases stay lowercase, which `_mana_production` matches case-insensitively). The grounded
+# tuple is byte-identical to the old `_add_mana`/`_AM_FRAME` output (amount = len(prod), target =
+# _target(subj or 'you'), extra = dedup-joined colours) — or None (abstain) when `_mana_production`
+# rejects the spec or `amlead` isn't a clean `_TGT`. No whole-clause re-parse regex.
+_AM_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 _AM_SYM = re.compile(r"\{[^}]*\}")
 
 
@@ -880,11 +886,11 @@ class _NsTail(str):       # the post-verb tail of a negative-static clause (valu
     pass
 
 
-class _AmLead(str):       # an optional player phrase before 'add[s]' (value unused; subject re-parsed by frame)
+class _AmLead(str):       # the optional player subject before 'add[s]' (validated by _AM_TGT, slugged by _target)
     pass
 
 
-class _AmRest(str):       # the mana-spec span after 'add[s]' (value unused; re-parsed from _src by the frame)
+class _AmRest(str):       # the mana-spec span after 'add[s]' (fed to _mana_production; spacing-independent)
     pass
 
 
@@ -1886,27 +1892,30 @@ class _ToEffect(Transformer):
 
     # --- ADD_MANA -------------------------------------------------------------
     def amlead(self, *toks):
-        return _AmLead(" ".join(str(t) for t in toks))    # value unused; presence consumes the subject
+        return _AmLead(" ".join(str(t) for t in toks))    # the optional subject (validated/slugged below)
 
     def amrest(self, *toks):
-        return _AmRest(" ".join(str(t) for t in toks))    # value unused; presence consumes the spec
+        return _AmRest(" ".join(str(t) for t in toks))    # the mana-spec span (fed to _mana_production)
 
     def amadd(self, *args):
-        # The rule only certifies the clause is an 'add …' run; the faithful grounding is the EXACT
-        # `_add_mana` frame applied to the lowercased source — an optional `_TGT` subject + 'add[s]' +
-        # optional 'additional' + a mana-spec parsed by `_mana_production` (reused verbatim, with the
-        # mana-symbol glyphs re-uppercased so the §107.4 colour lookup matches). Byte-identical to the
-        # regex leaf, or abstain when `_mana_production` rejects the spec.
-        src = getattr(self, "_src", None)
-        if src is None:
+        # GRAMMAR-OWNED shape (`amlead? AM_ADD AM_ADDL? amrest`); the old whole-clause `_AM_FRAME` re-parse
+        # is gone. The optional subject span `amlead` is VALIDATED with the anchored `_TGT` regex `_AM_TGT`
+        # (exactly the frame's `(_TGT)?` subject group — a clean `_TGT` or abstain). The mana-spec span
+        # `amrest` is fed to `_mana_production` (reused verbatim), with the mana-symbol glyphs re-uppercased
+        # so the §107.4 colour lookup matches the lowercased source. `_mana_production` parses {…} symbols by
+        # findall and English phrases by fullmatch, so the grounded `prod` (hence amount + extra) is
+        # INDEPENDENT of the span's inter-token spacing — the tuple is byte-identical to the old
+        # `_add_mana`/`_AM_FRAME` output, or abstain when the spec is rejected or the subject isn't `_TGT`.
+        lead = next((str(a) for a in args if isinstance(a, _AmLead)), None)
+        rest = next((str(a) for a in args if isinstance(a, _AmRest)), None)
+        if rest is None:
             return None
-        m = _AM_FRAME.match(src.strip())
-        if not m:
+        if lead is not None and not _AM_TGT.match(lead.strip()):
             return None
-        prod = _mana_production(_am_upper_syms(m.group(2)))
+        prod = _mana_production(_am_upper_syms(rest.strip()))
         if not prod:
             return None
-        return Effect("add_mana", len(prod), _target(m.group(1) or "you"),
+        return Effect("add_mana", len(prod), _target((lead or "you").strip()),
                       "_".join(dict.fromkeys(prod)))
 
 

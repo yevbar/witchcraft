@@ -466,13 +466,10 @@ def _get_acorn(m):
     return Effect("put_counter", m.group(1).count("{"), "you", "acorn")
 
 
-@_t(rf"^(?:({_TGT}) )?adds? (?:an additional |additional )?(.+)$")
-def _add_mana(m):
-    """'Add {G}' / '<player> adds {G}' / 'add an additional {C}' as an EFFECT (§106)."""
-    prod = _mana_production(m.group(2))
-    if not prod:
-        return None
-    return Effect("add_mana", len(prod), _target(m.group(1) or "you"), "_".join(dict.fromkeys(prod)))
+# ADD_MANA (§106) — fully owned by the lark grammar (the `amclause` production + `_mana_production`,
+# reused verbatim in the transformer). The old `_add_mana` regex template here was a dead duplicate
+# (lark-first: parse_clause = `_lark_leaf(s) or parse_effect(s)`); removed. `_mana_production` is still
+# exported for the lark transformer and transpile_card.
 
 
 @_t(rf"^({_TGT}) perpetually gets ([+-]\d+/[+-]\d+)$")
