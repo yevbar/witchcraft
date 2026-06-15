@@ -102,9 +102,16 @@ rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
 
 // PREVENT_DAMAGE — the two clean dominant frames: 'prevent the next N damage that would be dealt
 // [this turn] to <target> [this turn]' (_prevent) and 'prevent all [combat] damage that would be dealt
-// this turn' (_fog). Body captured flat and parsed by the same frame regexes in the transformer.
-pvclause.-2: PVPREVENT pvbody               -> prevent
-pvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | DMG | EQUALTO | THATMANY | MDUR)+
+// this turn' (_fog). This is a TRUE grammar production: the body is carved at the structural DMG
+// ('damage') terminal — which BOTH frames require exactly once — into a leading span (`pvpre`: 'all
+// [combat]' or 'the next <count>') and a trailing span (`pvtail`: 'that would be dealt [this turn] [to
+// <target>] [this turn]'). The transformer reads the two spans off the tree and certifies each with an
+// anchored per-operand validator (`_PV_PRE_*` / `_PV_TAIL_*`) that captures the operands, exactly the
+// `_fog`/`_prevent` skeletons — byte-identical, or abstain (the `_prevent_all_scoped`/`_prevent_that`/
+// shield clauses lack this skeleton -> the regex fallback owns them). No whole-clause frame regex.
+pvclause.-2: PVPREVENT pvpre DMG pvtail      -> prevent
+pvpre:  (WORD | QUANT | NUM)+                                                // 'all [combat]' / 'the next <count>'
+pvtail: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR)+  // 'that would be dealt [this turn] [to <tgt>] [this turn]'
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -504,11 +511,20 @@ _RV_TOP = re.compile(r"^the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$
 _RV_SUBJ_TOP = re.compile(r"^the top (?:(\w+) )?cards? of (?:their|its owner's|your) library$", re.I)  # _subject_reveal_top body
 _RV_SUBJ_HAND = re.compile(r"^their hand$", re.I)                                                  # _reveal_hand body
 
-# PREVENT_DAMAGE frame regexes — the clean dominant frames (`_prevent`, `_fog`). The variable-scope
-# `_prevent_all_scoped`, the consequent `_prevent_that`, and the `_prevent_next_source` shield carry
-# open-ended `.+?` slugs; they stay with the regex (abstain).
-_PV_FOG = re.compile(r"^all (combat )?damage that would be dealt this turn$", re.I)                # _fog body
-_PV_NEXT = re.compile(r"^the next (\w+) damage that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent body
+# PREVENT_DAMAGE operand validators — the `_fog`/`_prevent` templates split at the structural DMG
+# ('damage') terminal the GRAMMAR now owns into a leading `pvpre` span and a trailing `pvtail` span, each
+# certified by an anchored per-operand validator. `_PV_FOG_PRE`/`_PV_FOG_TAIL` are the `_fog` skeleton
+# ('all [combat]' + 'that would be dealt this turn'); `_PV_FOG_PRE`'s group is the optional 'combat'.
+# `_PV_NEXT_PRE`/`_PV_NEXT_TAIL` are the `_prevent` skeleton ('the next <count>' + 'that would be dealt
+# [this turn] to <target> [this turn]'); `_PV_NEXT_PRE`'s group is the count, `_PV_NEXT_TAIL`'s group is
+# the target span (the template's `(.+)`, with the leading/trailing 'this turn' handling preserved in the
+# transformer). The variable-scope `_prevent_all_scoped`, the consequent `_prevent_that`, and the
+# `_prevent_next_source` shield don't fit these skeletons -> abstain (the regex fallback owns them). No
+# whole-clause frame regex; the FOG-vs-NEXT precedence is the disjoint pre validators ('all' vs 'the next').
+_PV_FOG_PRE = re.compile(r"^all( combat)?$", re.I)                          # _fog pre: 'all [combat]'
+_PV_FOG_TAIL = re.compile(r"^that would be dealt this turn$", re.I)         # _fog tail
+_PV_NEXT_PRE = re.compile(r"^the next (\w+)$", re.I)                        # _prevent pre: 'the next <count>'
+_PV_NEXT_TAIL = re.compile(r"^that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent tail: '… to <target>'
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
@@ -696,15 +712,23 @@ def _sh_frame(full: str):
     return None
 
 
-# NEGATIVE-STATICS frames — the EXACT card_effects templates (`_cant_combat`, `_cant_combat_set`,
-# `_doesnt_untap`), recompiled here over the shared `_TGT`, applied to the lowercased source so the
-# grounded tuple is byte-identical to parse_effect (or abstain when the frame rejects the clause).
-_NS_CANT_FRAME = re.compile(                                                    # _cant_combat (registered FIRST)
-    r"^(" + _TGT + r") can't (be blocked|block or be blocked|attack or block|block|attack)"
+# NEGATIVE-STATICS (cant_combat / cant_combat_set) operand validators — the `_cant_combat` and
+# `_cant_combat_set` templates split at the structural NS_CANT ("can't") terminal the GRAMMAR owns
+# (`nssubj NS_CANT nsverb nstail?`) into a SUBJECT span (`nssubj`, the template's group 1) and a REST
+# span (the rejoined `nsverb`+`nstail`, the template's post-"can't" portion). Each frame becomes two
+# anchored per-operand certifiers: a SUBJECT validator and a REST validator that captures the verb (and,
+# for `_cant_combat`, the optional object `_TGT`). The transformer reads the spans off the tree and
+# applies the pair in template ORDER (`_cant_combat` FIRST, then `_cant_combat_set`) — byte-identical to
+# parse_effect, or abstain (an 'except by …'/'this combat'/non-skeleton rest, a subject outside the
+# template's group 1, or a verb that isn't ours). No whole-clause frame regex.
+_NS_CANT_SUBJ = re.compile(r"^(?:" + _TGT + r")$", re.I)                        # _cant_combat g1 (the `_TGT` subject)
+_NS_CANT_REST = re.compile(                                                     # _cant_combat post-"can't" portion
+    r"^(be blocked|block or be blocked|attack or block|block|attack)"
     r"(?: (" + _TGT + r"))? this turn$", re.I)
-_NS_CANT_SET_FRAME = re.compile(                                               # _cant_combat_set (registered after)
-    r"^((?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?) can't "
-    r"(be blocked|attack or block|block|attack)(?: this turn)?$", re.I)
+_NS_CANT_SET_SUBJ = re.compile(                                                 # _cant_combat_set g1 (creatures set)
+    r"^(?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?$", re.I)
+_NS_CANT_SET_REST = re.compile(                                                 # _cant_combat_set post-"can't" portion
+    r"^(be blocked|attack or block|block|attack)(?: this turn)?$", re.I)
 
 # DOESNT_UNTAP operand validators — the `_doesnt_untap` template split into two anchored operand-span
 # certifiers (the GRAMMAR owns the shape `nssubj NS_DUVERB nstail`, the distinctive 'doesn't/don't untap'
@@ -724,21 +748,27 @@ _NS_UNTAP_TAIL = re.compile(
 _NS_OURS = {"be blocked": "cant_be_blocked", "block": "cant_block"}
 
 
-def _ns_cant(src: str):
-    # reproduce parse_effect's template ORDER: _cant_combat (FIRST), then _cant_combat_set.
-    m = _NS_CANT_FRAME.match(src)
-    if m:
-        verb = _NS_OURS.get(m.group(2))
+def _ns_cant(subj: str, rest: str):
+    # The grammar split the clause at the structural "can't" terminal into a SUBJECT span and a REST span
+    # (the rejoined verb+tail). Reproduce parse_effect's template ORDER over those spans: _cant_combat
+    # (FIRST, subject is a `_TGT`, rest carries the trailing 'this turn' and an optional `_TGT` object),
+    # then _cant_combat_set (subject is a 'creatures' set, no object, optional 'this turn'). Byte-identical
+    # to the whole-source templates (the `can't` delimiter is unique, so the subject is unambiguous).
+    ms = _NS_CANT_SUBJ.match(subj)
+    mr = _NS_CANT_REST.match(rest)
+    if ms and mr:                                  # _cant_combat
+        verb = _NS_OURS.get(mr.group(1))
         if verb is None:
             return None                            # cant_attack / cant_attack_or_block / … -> not our family
-        extra = _target(m.group(3)) if m.group(3) else "-"
-        return Effect(verb, "-", _target(m.group(1)), extra)
-    m = _NS_CANT_SET_FRAME.match(src)
-    if m:
-        verb = _NS_OURS.get(m.group(2))
+        extra = _target(mr.group(2)) if mr.group(2) else "-"
+        return Effect(verb, "-", _target(subj), extra)
+    ms = _NS_CANT_SET_SUBJ.match(subj)
+    mr = _NS_CANT_SET_REST.match(rest)
+    if ms and mr:                                  # _cant_combat_set
+        verb = _NS_OURS.get(mr.group(1))
         if verb is None:
             return None                            # cant_attack / cant_attack_or_block -> not our family
-        return Effect(verb, "-", ground.slug(m.group(1)))
+        return Effect(verb, "-", ground.slug(subj))
     return None
 
 
@@ -798,7 +828,11 @@ class _RvBody(str):    # the reassembled reveal clause body (everything after 'r
     pass
 
 
-class _PvBody(str):    # the reassembled prevent clause body (everything after 'prevent')
+class _PvPre(str):     # the prevent pre-DMG span (pvpre) — 'all [combat]' / 'the next <count>'
+    pass
+
+
+class _PvTail(str):    # the prevent post-DMG span (pvtail) — 'that would be dealt … [to <tgt>] …'
     pass
 
 
@@ -1548,23 +1582,29 @@ class _ToEffect(Transformer):
 
     # --- NEGATIVE STATICS (cant_be_blocked / cant_block / doesnt_untap) -------
     def nssubj(self, *toks):
-        return _NsSubj(" ".join(str(t) for t in toks))   # subject NP: nsuntap reads it (g1); nscant re-parses src
+        return _NsSubj(" ".join(str(t) for t in toks))   # subject NP (template g1): nscant + nsuntap read it
 
     def nsverb(self, *toks):
-        return _NsVerb(" ".join(str(t) for t in toks))   # value unused; the nscant frame regex re-parses src
+        return _NsVerb(" ".join(str(t) for t in toks))   # verb phrase: nscant rejoins it with nstail as the REST span
 
     def nstail(self, *toks):
-        return _NsTail(" ".join(str(t) for t in toks))   # tail span: nsuntap reads it; nscant re-parses src
+        return _NsTail(" ".join(str(t) for t in toks))   # tail span: nscant rejoins it onto nsverb; nsuntap reads it
 
     def nscant(self, *args):
-        # The rule only certifies this is a "<subj> can't <verb> …" clause; the faithful parse is the
-        # EXACT `_cant_combat`-then-`_cant_combat_set` frame applied to the lowercased source (so the
-        # tuple is byte-identical to parse_effect, or — on an 'except by …'/'this combat'/non-_TGT
-        # subject the frames reject, or a cant_attack/-or-block verb that isn't ours — abstain).
-        src = getattr(self, "_src", None)
-        if src is None:
+        # "<subj> can't <verb> [<obj>] [this turn]" — the EXACT `_cant_combat`-then-`_cant_combat_set`
+        # templates. The grammar split the clause at the structural "can't" terminal into a SUBJECT span
+        # (`nssubj`, template g1) and the verb/tail; we read the subject and REJOIN the verb+tail into the
+        # REST span (the template's post-"can't" portion). `_ns_cant` applies the two frames in template
+        # ORDER over those spans (each as an anchored subject validator + a rest validator that captures the
+        # verb and the optional `_TGT` object) — byte-identical to parse_effect, or abstain (an 'except by
+        # …'/'this combat'/non-skeleton rest, a non-template subject, or a verb that isn't ours).
+        subj = next((str(a) for a in args if isinstance(a, _NsSubj)), None)
+        verb = next((str(a) for a in args if isinstance(a, _NsVerb)), None)
+        tail = next((str(a) for a in args if isinstance(a, _NsTail)), None)
+        if subj is None or verb is None:
             return None
-        return _ns_cant(src.strip())
+        rest = verb.strip() + (" " + tail.strip() if tail is not None else "")
+        return _ns_cant(subj.strip().lower(), rest.strip().lower())
 
     def nsuntap(self, *args):
         # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT
@@ -1723,29 +1763,43 @@ class _ToEffect(Transformer):
         return None                                # any other subject-reveal slug -> regex (_subject_obj_verb)
 
     # --- PREVENT_DAMAGE -------------------------------------------------------
-    def pvbody(self, *toks):
-        return _PvBody(" ".join(str(t) for t in toks))
+    def pvpre(self, *toks):
+        return _PvPre(" ".join(str(t) for t in toks))
+
+    def pvtail(self, *toks):
+        return _PvTail(" ".join(str(t) for t in toks))
 
     def prevent(self, *args):
-        body = next((str(a) for a in args if isinstance(a, _PvBody)), None)
-        if body is None:
+        # 'prevent <pre> damage <tail>' — the EXACT `_fog`/`_prevent` templates. The grammar carved the
+        # body at the structural DMG terminal into a leading span (`pvpre`) and a trailing span (`pvtail`);
+        # we read them off the tree and certify each with an anchored per-operand validator that captures
+        # the operands. FOG ('all [combat]' / 'that would be dealt this turn') is tried first (disjoint
+        # 'all' pre), then NEXT ('the next <count>' / 'that would be dealt [this turn] to <span>'). A clause
+        # outside both skeletons abstains -> the regex fallback (_prevent_all_scoped/_prevent_that/shield).
+        pre = next((str(a) for a in args if isinstance(a, _PvPre)), None)
+        tail = next((str(a) for a in args if isinstance(a, _PvTail)), None)
+        if pre is None or tail is None:
             return None
-        body = body.strip().lower()
-        if _PV_FOG.match(body):                    # 'all [combat] damage that would be dealt this turn' (_fog)
-            m = _PV_FOG.match(body)
-            return Effect("prevent_damage", "all", "combat" if m.group(1) else "all")
-        m = _PV_NEXT.match(body)                   # 'the next N damage that would be dealt [this turn] to <span>'
+        pre = pre.strip().lower()
+        tail = tail.strip().lower()
+        mp = _PV_FOG_PRE.match(pre)                 # 'all [combat] damage that would be dealt this turn' (_fog)
+        if mp and _PV_FOG_TAIL.match(tail):
+            return Effect("prevent_damage", "all", "combat" if mp.group(1) else "all")
+        mp = _PV_NEXT_PRE.match(pre)               # 'the next N damage that would be dealt [this turn] to <span>'
+        if not mp:
+            return None                            # _prevent_all_scoped / _prevent_that / shield -> regex
+        m = _PV_NEXT_TAIL.match(tail)
         if not m:
             return None                            # _prevent_all_scoped / _prevent_that / shield -> regex
-        n = _amount(m.group(1))
+        n = _amount(mp.group(1))
         amt = n if n is not None else "X"
-        span = m.group(2).strip()
+        span = m.group(1).strip()
         # Mirror the regex's optional trailing ' this turn': the template's `(?:this turn )?to … (?: this
         # turn)?` consumes a LEADING 'this turn' (when the body reads 'dealt this turn to <span>') and then
         # <span> has no trailing 'this turn'; otherwise the trailing ' this turn' is the optional suffix and
         # is stripped off <span>. (When neither holds — junk after 'this turn' — span keeps it, matching the
         # regex's greedy `_TGT` swallow, e.g. 'any target this turn by a source of your choice'.)
-        lead_this_turn = "dealt this turn to " in body
+        lead_this_turn = "dealt this turn to " in tail
         if not lead_this_turn and span.endswith(" this turn"):
             span = span[:-len(" this turn")].strip()
         # The regex's `_prevent` target is `(any number of targets|{_TGT})` — a clean NP that the `_TGT`
