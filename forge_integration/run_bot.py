@@ -9,6 +9,7 @@ deck's win axis via MTG_DECK_AXIS); `random` = the uniform-random BASELINE. The 
 alongside the JVM; see forge_integration/README.md for the full setup (JDK 17 + a built Forge tree)."""
 import sys
 import os
+import signal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import forge_bridge as fb
@@ -17,7 +18,26 @@ port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 which = os.environ.get("MTG_POLICY", "engine").lower()
 policy = fb.RandomPolicy() if which == "random" else fb.EnginePolicy()
 player = fb.ForgePlayer(policy=policy, name=f"witchcraft-{which}")
+
+_dumped = [False]
+
+
+def _dump_stats():
+    """Print decisions + coverage exactly once. Run from BOTH the normal socket-close path and a finally/SIGTERM
+    path so a game that's torn down early (e.g. the JVM hits its `timeout`, closing our socket) still surfaces
+    this seat's coverage instead of silently losing it."""
+    if _dumped[0]:
+        return
+    _dumped[0] = True
+    print(f"[bot] game socket closed. decisions handled: {len(player.history)}", flush=True)
+    print("[bot] COVERAGE:", policy.coverage(), flush=True)
+
+
+# `timeout` SIGTERMs the JVM, not us, but the runner may SIGTERM the bot too; convert it to a clean exit so the
+# finally below still runs. (A SIGKILL can't be caught — but the normal close path already covers the common case.)
+signal.signal(signal.SIGTERM, lambda *_a: sys.exit(0))
 print(f"[bot] listening on {port} (policy={which})", flush=True)
-bound, winner = fb.serve(player, port=port, once=True)
-print(f"[bot] game socket closed. decisions handled: {len(player.history)}", flush=True)
-print("[bot] COVERAGE:", policy.coverage(), flush=True)
+try:
+    bound, winner = fb.serve(player, port=port, once=True)
+finally:
+    _dump_stats()

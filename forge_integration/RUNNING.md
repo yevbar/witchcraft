@@ -69,7 +69,9 @@ python3 -c "import deck_evaluator, interaction_evaluator, forge_bridge; print('e
 
 ## How to run
 
-All knobs are env vars; defaults match the laptop. `JVM_HEAP` is new (see below).
+All knobs are env vars; defaults match the laptop. `JVM_HEAP` and `FORGE_HEADLESS` are documented under
+[Knobs](#knobs). **On a desktop host with a display (e.g. macOS), prepend `FORGE_HEADLESS=false`** to every
+command below — otherwise Forge throws `HeadlessException` at startup. A headless Linux server uses the default.
 
 ### Smoke first (1 game, ~20 min)
 
@@ -111,7 +113,8 @@ python3 forge_integration/run_tournament.py           # full 1v1 tournament
 | `GAME_TIMEOUT`     | `1800` (FFA) / `300` (1v1) | per-game seconds before `timeout` kills the JVM |
 | `MTG_POLICY`       | `engine`           | witch seat policy (`engine` = win_search; `random` = baseline) |
 | `MTG_SEARCH_BUDGET`| `3000`             | per-decision search budget (raise for stronger/slower bots) |
-| `JVM_HEAP`         | *(unset)*          | **new.** e.g. `JVM_HEAP=4g` → `-Xmx4g` on the Forge JVM. Leave unset on a beefy box (JVM self-sizes to ~25% RAM). Set it to cap Forge on constrained hosts. |
+| `JVM_HEAP`         | *(unset)*          | e.g. `JVM_HEAP=4g` → `-Xmx4g` on the Forge JVM. Leave unset on a beefy box (JVM self-sizes to ~25% RAM). Set it to cap Forge on constrained hosts. |
+| `FORGE_HEADLESS`   | `true`             | `true` = run Forge with `-Djava.awt.headless=true` (correct for a headless Linux **server**). Set `FORGE_HEADLESS=false` on a **desktop host with a display** (e.g. macOS) — `GuiDesktop` init calls `getDefaultScreenDevice()`, which throws `HeadlessException` under headless on such hosts. Applies to both runners. |
 
 ## Optional: never let a blowup kill the session again
 
@@ -132,6 +135,10 @@ makes a run *safe* to attempt, but the box is still too small to *finish* the 4-
 
 - Run `journalctl -k | grep -i oom` after a crash. No OOM line ⇒ it's something else (timeout, Forge error,
   port conflict) — read the per-game log under `/tmp/cedh_tournament_logs/`.
-- Bots stuck "playing lands and passing" ⇒ the per-deck `axis_synergy()` plan isn't reaching them; confirm the
-  `seat N Witch[…] develops toward axis=…` lines print at game start.
+- Bots stuck "playing lands and passing" ⇒ first confirm the `seat N Witch[…] develops toward axis=…` lines
+  print at game start (the per-deck `axis_synergy()` plan is reaching them). If they print but the seats still
+  durdle to a timeout, that's the **known open engine item** documented in `SMOKE_FINDINGS.md` §2
+  (`forge_bridge._pick_action` deploys only a *complete* win line, otherwise just develops mana) — not a setup
+  problem. Each game now prints a per-seat `witch coverage:` line and, on a timeout, a provisional `life
+  standing:` so a non-decisive game is still informative.
 - JVM heap pressure ⇒ set/raise `JVM_HEAP`; bot pressure ⇒ lower `MTG_SEARCH_BUDGET` (less search = less RAM).

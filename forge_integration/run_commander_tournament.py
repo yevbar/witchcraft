@@ -158,17 +158,35 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     except OSError:
         out0 = ""
     r = subprocess.CompletedProcess(cmd, r.returncode, stdout=out0, stderr="")
-    for b in bots:
+    # Collect each witchcraft seat's coverage (run_bot.py prints it on socket close). Previously the bot output
+    # was communicated and discarded — so the FFA never surfaced how much of its seat the engine actually drove.
+    cov = {}
+    for i, b in enumerate(bots):
         try:
-            b.communicate(timeout=30)
+            bot_out, _ = b.communicate(timeout=30)
         except subprocess.TimeoutExpired:
-            b.kill()
+            b.kill(); bot_out = ""
+        cm = re.search(r"'modeled_frac': ([0-9.]+).*?'endorsed_frac': ([0-9.]+)", bot_out or "")
+        if cm:
+            cov[seat_name[i]] = (float(cm.group(1)), float(cm.group(2)))
     out = r.stdout + "\n" + r.stderr
     res = {"winner": "TIMEOUT/ERR", "turns": "?", "wall": "?", "seat_name": seat_name, "seat_type": seat_type,
-           "seat_decks": list(seat_decks), "raw": out}
+           "seat_decks": list(seat_decks), "coverage": cov, "raw": out}
     m = re.search(r"RESULT winner=(\S+) turns=(\d+) wall=(\d+)ms", out)
     if m:
         res.update(winner=m.group(1), turns=m.group(2), wall=m.group(3))
+    # Provisional standing: a game killed by `timeout` prints no RESULT line. Score it by each seat's LAST known
+    # life from the [move] log so a non-decisive (durdled-out) game is still informative. This is NOT a win —
+    # Forge stays the source of truth for real outcomes — just a readout of where the game stood.
+    last_life = {}
+    for nm in seat_name:
+        hits = re.findall(re.escape(nm) + r" life -?\d+ -> (-?\d+)", out)
+        if hits:
+            last_life[nm] = int(hits[-1])
+    if last_life:
+        res["standing"] = sorted(((seat_name[s], last_life[seat_name[s]])
+                                  for s in range(4) if seat_name[s] in last_life),
+                                 key=lambda kv: kv[1], reverse=True)
     return res
 
 
@@ -188,6 +206,12 @@ def main() -> None:
         res = run_game(seat_decks, deck_paths, 9300 + g * 100)
         games.append(res)
         print(f"  -> winner={res['winner']} turns={res['turns']} wall={res['wall']}ms", flush=True)
+        cov = res.get("coverage") or {}
+        if cov:
+            print("     witch coverage: " + "  ".join(f"{n}:modeled={c[0]:.2f}/endorsed={c[1]:.2f}"
+                                                       for n, c in cov.items()), flush=True)
+        if res.get("standing"):
+            print("     life standing: " + "  ".join(f"{n}={ll}" for n, ll in res["standing"]), flush=True)
 
     print("\n" + "=" * 80)
     print("COMMANDER FFA TOURNAMENT SUMMARY  (Forge = referee/source-of-truth; 2 witchcraft + 2 Forge-AI)")
@@ -208,6 +232,9 @@ def main() -> None:
             deck_wins[deck_won] += 1
         print(f"  game {i + 1}: winner={win:24} side={side_won:11} deck={deck_won:9} "
               f"turns={m['turns']} wall={m['wall']}ms")
+        if win == "TIMEOUT/ERR" and m.get("standing"):
+            print("           provisional life standing: "
+                  + "  ".join(f"{n}={ll}" for n, ll in m["standing"]))
     print(f"\n  side tally:  witchcraft={side['witchcraft']}  forge-ai={side['forge-ai']}  "
           f"draw/none={side.get('draw/none', 0)}")
     print(f"  deck wins:   " + "  ".join(f"{k}={v}" for k, v in deck_wins.items()))

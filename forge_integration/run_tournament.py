@@ -36,6 +36,12 @@ OUT = "/tmp/forge_tournament_out"
 # RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
 JVM_HEAP = os.environ.get("JVM_HEAP", "")
 _XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
+# Forge's GuiDesktop static init calls getDefaultScreenDevice(), which throws HeadlessException under
+# -Djava.awt.headless=true. A headless Linux server tolerates it; a desktop host (e.g. macOS with a display)
+# must run NON-headless so the screen device is found. Default headless (server); set FORGE_HEADLESS=false on a
+# machine that has a display. See forge_integration/RUNNING.md. (Kept in sync with run_commander_tournament.py.)
+_HEADLESS = os.environ.get("FORGE_HEADLESS", "true").lower() not in ("0", "false", "no")
+_HEADLESS_ARG = "-Djava.awt.headless=true " if _HEADLESS else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "300"))
 
 
@@ -72,7 +78,7 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
     time.sleep(1.2)
     props = " ".join(f"-D{k}={v}" for k, v in jprops.items())
     env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
-    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}-Djava.awt.headless=true '
+    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'-DbotHost=127.0.0.1 -DbotPort={port} {props} -cp "{FATJAR}:{OUT}" {main_class}')
     r = sh(cmd, env=env)
     try:
