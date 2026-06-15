@@ -718,6 +718,11 @@ def _spell(unit, ctx):
                    + _effect_facts(ctx["id"], aid, effects), "spell")
 
 
+# §305.6 land-type VOCABULARY — the grounded roster of basic land types (plus the typeless 'Wastes',
+# which this KB normalizes alongside them). A §305.7 land-type-changing static (`land_type_set`) is
+# justified ONLY when its result set grounds ENTIRELY in this roster: the copula + a closed-roster
+# result is the anchor, NOT the English shape. 'All creatures are black' / 'Enchanted land is the
+# chosen type' have no roster-grounded result and so abstain.
 _LAND_TYPE_NORM = {
     "plains": "plains", "plain": "plains",
     "island": "island", "islands": "island",
@@ -726,9 +731,21 @@ _LAND_TYPE_NORM = {
     "forest": "forest", "forests": "forest",
     "wastes": "wastes", "waste": "wastes",
 }
+# The §305.7 copula that joins a land scope to its new type(s). Grounding the relation requires BOTH
+# this copula AND a fully roster-grounded result — neither alone, and never the surface template.
+_LAND_TYPE_COPULA = frozenset({"is", "are", "becomes", "become"})
+# Closed scope roster: each recognized land SCOPE NP maps to its grounded scope token. ('all <X>' is
+# handled separately because <X> must itself ground as a land type to be an all-of-a-type scope.)
+_LAND_SCOPE_NORM = {
+    "each land": "each_land",
+    "lands you control": "lands_you_control",
+    "enchanted land": "enchanted_land",
+    "~": "self",
+    "lands": "all_lands",
+}
 _LANDTYPE_SET = re.compile(
     r"^(?P<subj>Nonbasic lands?|All [A-Za-z]+|Each land|Lands you control|Enchanted land|~|Lands)"
-    r" (?:are|is) (?P<types>.+?)"
+    r" (?P<copula>are|is) (?P<types>.+?)"
     r"(?P<add> in addition to (?:its|their) other(?: land)? types)?\.?$", re.I)
 
 
@@ -737,31 +754,31 @@ def _land_type_set(unit, ctx):
     type-changing static (Blood Moon, Conversion, Yavimaya, Celestial Dawn, Lush Growth). Emits one
     land_type_set(cid, scope, type, mode) per resulting basic type. Abstains unless the scope is
     a recognized land set AND every result is a basic land type — so 'All creatures are black' or
-    'Enchanted land is the chosen type' fall through rather than mint a bogus land-type fact."""
+    'Enchanted land is the chosen type' fall through rather than mint a bogus land-type fact.
+
+    GROUNDED-PREDICATE form: the `land_type_set` relation is justified by the §305.7 anchor — the
+    copula (_LAND_TYPE_COPULA) joining a recognized land SCOPE to a result set that grounds ENTIRELY
+    in the closed §305.6 land-type roster (_LAND_TYPE_NORM). The regex only EXTRACTS the scope/result
+    spans and the `in addition to` mode marker; it no longer selects the predicate by English shape."""
     m = _LANDTYPE_SET.match(unit.raw)
     if not m:
+        return None
+    # ground the copula against the §305.7 type-changing connective (defensive — regex constrains it).
+    if m.group("copula").lower() not in _LAND_TYPE_COPULA:
         return None
     subj = m.group("subj").lower()
     if subj.startswith("nonbasic land"):
         scope = "nonbasic_lands"
-    elif subj == "each land":
-        scope = "each_land"
-    elif subj == "lands you control":
-        scope = "lands_you_control"
-    elif subj == "enchanted land":
-        scope = "enchanted_land"
-    elif subj == "~":
-        scope = "self"
-    elif subj == "lands":
-        scope = "all_lands"
+    elif subj in _LAND_SCOPE_NORM:
+        scope = _LAND_SCOPE_NORM[subj]
     elif subj.startswith("all "):
         rest = subj[4:]
         if rest == "lands":
             scope = "all_lands"
         else:
-            t = _LAND_TYPE_NORM.get(rest)
-            if not t:
-                return None                       # 'All creatures' / 'All Slivers' — not a land set
+            t = _LAND_TYPE_NORM.get(rest)              # 'all <land type>' grounds only if <X> is a
+            if not t:                                  # closed §305.6 land type; 'All creatures' /
+                return None                            # 'All Slivers' have no roster-grounded scope.
             scope = "all_" + t
     else:
         return None
@@ -1967,18 +1984,47 @@ def _class_level(unit, ctx):
     return CardOut(cid, [f'class_level("{cid}", "{m.group(1)}", "{m.group(2)}")'], "class_level")
 
 
+# §604.3 characteristic-defining VOCABULARY — the grounded anchor that justifies a `cda` relation.
+# The relation is emitted because a line states a P/T CHARACTERISTIC (the closed §604.3 / §208 set
+# below) joined by a copula to a defining game quantity, NOT because a particular English template
+# matched. `_CDA_CHARACTERISTICS` is the closed roster of characteristics a CDA may define here;
+# `_CDA_COPULA` is the grounded §604.3 "is defined by" connective (is/are/becomes). Membership in
+# both is what licenses `cda`; the regex only EXTRACTS the characteristic token, the definition span,
+# and an optional duration rider.
+_CDA_CHARACTERISTICS = frozenset({"power", "toughness", "power and toughness"})
+_CDA_COPULA = frozenset({"is", "are", "be", "becomes", "become"})
+
+# Purely STRUCTURAL: locate the §604.3 copula and the span slots around it. `char` / `copula` are
+# matched permissively and then GROUNDED against the closed sets above (abstain otherwise); `val` is
+# the defining-quantity span; `dur` is an optional leading 'during <X>,' rider. No predicate is
+# selected here — the predicate is `cda`, justified by the matched §604.3 anchor.
+_CDA_ANCHOR = re.compile(
+    r"^(?:during (?P<dur>[\w' ]+?), )?~'s (?P<char>power and toughness|power|toughness) "
+    r"(?P<copula>is|are|becomes?) (?:each )?(?:equal to )?(?P<val>.+?)\.?$", re.I)
+
+
 def _cda(unit, ctx):
     """A characteristic-defining ability (§604.3): \"~'s power [and toughness] (is|are) [each] equal to
-    <X>\" — the P/T is defined by a game quantity, recorded as a descriptive slug."""
-    m = re.match(r"^(?:during (?P<dur>[\w' ]+?), )?~'s (power and toughness|power|toughness) "
-                 r"(?:is|are|becomes?) (?:each )?(?:equal to )?(.+?)\.?$", unit.raw, re.I)
+    <X>\" — the P/T is defined by a game quantity, recorded as a descriptive slug.
+
+    GROUNDED-PREDICATE form (see _CDA_ANCHOR): the `cda` relation is justified by the §604.3 anchor —
+    a closed P/T CHARACTERISTIC (_CDA_CHARACTERISTICS) joined by the grounded defining copula
+    (_CDA_COPULA) to a quantity. The regex only EXTRACTS the characteristic, definition, and duration
+    spans; it no longer selects the predicate. Abstains if either token isn't in its grounded set."""
+    m = _CDA_ANCHOR.match(unit.raw)
     if not m:
         return None
+    char = m.group("char").lower()
+    copula = m.group("copula").lower()
+    # the anchor is grounded against the §604.3 / §208 vocabulary — abstain rather than emit an
+    # un-grounded predicate (defensive: the regex already constrains both to these sets).
+    if char not in _CDA_CHARACTERISTICS or copula not in _CDA_COPULA:
+        return None
     cid = ctx["id"]
-    val = ground.slug(m.group(3))
+    val = ground.slug(m.group("val"))
     if m.group("dur"):
         val += "_during_" + ground.slug(m.group("dur"))
-    return CardOut(cid, [f'cda("{cid}", "{ground.slug(m.group(2))}", "{val}")'], "cda")
+    return CardOut(cid, [f'cda("{cid}", "{ground.slug(char)}", "{val}")'], "cda")
 
 
 def _painland(unit, ctx):
