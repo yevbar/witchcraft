@@ -794,18 +794,40 @@ def _land_type_set(unit, ctx):
     return CardOut(cid, facts, "land_type_set")
 
 
+# §614 REPLACEMENT-EFFECT VOCABULARY — the grounded anchor word that licenses a §614 "… would …,
+# … instead" replacement static. A replacement effect is defined (§614.1) by stating that some event
+# happens *otherwise than it normally would*, signalled by the word `instead`. Each §614 family below
+# (damage-redirect, damage-multiply, life-floor) is justified by THIS anchor joined to a grounded
+# REPLACED-QUANTITY token — not by which English template fired. `_INSTEAD` membership + the family's
+# replaced-quantity grounding is what licenses the relation.
+_INSTEAD = "instead"
+# The §614 quantity a damage-redirect replaces is the damage DESTINATION ('dealt to <A>' → 'dealt to
+# <B>'): the grounded copula that re-routes the same damage to a new recipient.
+_REDIRECT_COPULA = frozenset({"is dealt to", "are dealt to"})
+
 _DMG_REDIRECT = re.compile(
-    r"^All damage that would be dealt to (?P<from>~|[\w' ]+?) is dealt to (?P<to>~|[\w' ]+?) instead\.?$", re.I)
+    r"^All damage that would be dealt to (?P<from>~|[\w' ]+?) "
+    r"(?P<copula>is dealt to|are dealt to) (?P<to>~|[\w' ]+?) (?P<instead>instead)\.?$", re.I)
 
 
 def _damage_redirect(unit, ctx):
     """'All damage that would be dealt to <A> is dealt to <B> instead.' — a §614 damage-redirection
     replacement static (Pariah, Pariah's Shield, Treacherous Link, Empyrial Archangel). The one-shot
-    '… this turn …' version is a spell (handled by _spell); this is the permanent/static form."""
+    '… this turn …' version is a spell (handled by _spell); this is the permanent/static form.
+
+    GROUNDED-PREDICATE form: the `damage_redirect` relation is justified by the §614 anchor — the
+    `instead` replacement word (`_INSTEAD`) joining a damage event to a re-routing copula
+    (`_REDIRECT_COPULA`) that names a new DESTINATION. The regex only EXTRACTS the from/to spans and
+    the anchor tokens; it abstains unless both the copula and `instead` ground, so the predicate is
+    licensed by §614 vocabulary, not by the surface 'All damage …' template."""
     if "this turn" in unit.raw.lower():
         return None
     m = _DMG_REDIRECT.match(unit.raw)
     if not m:
+        return None
+    # ground the §614 anchor: the redirect copula + the `instead` replacement word license the
+    # predicate (defensive — the regex already constrains both; abstain rather than mint un-anchored).
+    if m.group("copula").lower() not in _REDIRECT_COPULA or m.group("instead").lower() != _INSTEAD:
         return None
     def ref(s):
         s = s.strip()
@@ -817,11 +839,16 @@ def _damage_redirect(unit, ctx):
     return CardOut(cid, [f'damage_redirect("{cid}", "{frm}", "{to}")'], "damage_redirect")
 
 
+# §616 damage-MULTIPLICATION VOCABULARY — the grounded factor roster that licenses a `damage_multiplier`
+# relation. The §614/616 replacement here replaces the AMOUNT of damage: the same source deals a
+# multiple of what it would. `_FACTOR` is the closed multiplication vocabulary; the relation is
+# justified by a factor word grounding in this roster (joined to the §614 `instead` anchor in the
+# replacement form), NOT by the 'If … would …' template. A non-{double,twice,triple} factor abstains.
 _FACTOR = {"double": "2", "twice": "2", "triple": "3"}
 _DMG_MULT_A = re.compile(
     r"^If (?P<src>.+?) would deal (?:combat |noncombat )?damage(?P<tgt> to [^,]+?)?, "
     r"(?:it|that source|that creature|that spell) deals (?P<factor>double|triple|twice) "
-    r"that (?:damage|much damage)(?: to [^,.]+?)? instead\.?$", re.I)
+    r"that (?:damage|much damage)(?: to [^,.]+?)? (?P<instead>instead)\.?$", re.I)
 _DMG_MULT_B = re.compile(r"^(?P<factor>Double|Triple) all damage (?P<src>.+?) would deal\.?$", re.I)
 
 
@@ -831,7 +858,12 @@ def _damage_multiplier(unit, ctx):
     Emancipation, Gisela, Obosh) and 'Double/Triple all damage <X> would deal' (Mjölnir, Collective
     Inferno). Emits damage_multiplier(cid, source, factor, target). Anchored at ^If/^Double/^Triple
     so the ability-word/temporary wrappers (Hellbent/Delirium —, 'until your next turn') fall through;
-    'this turn'/'until' temporary versions abstain (they're one-shots), as do non-2/3 factors."""
+    'this turn'/'until' temporary versions abstain (they're one-shots), as do non-2/3 factors.
+
+    GROUNDED-PREDICATE form: the `damage_multiplier` relation is justified by the §616 multiplication
+    FACTOR vocabulary — the captured factor word must ground in `_FACTOR` (and, in the replacement
+    form A, be joined to the §614 `instead` anchor). The regexes only EXTRACT the source/target spans
+    and the factor token; the predicate is licensed by factor membership, not by the English shape."""
     r = unit.raw
     # abstain on any temporary duration or embedded condition — a 'while/as long as' clause would be
     # swallowed into the target slug (Rollercrusher's Delirium 'while there are four or more card
@@ -841,33 +873,56 @@ def _damage_multiplier(unit, ctx):
     cid = ctx["id"]
     m = _DMG_MULT_A.match(r)
     if m:
+        factor = m.group("factor").lower()
+        # ground the §616 factor + the §614 `instead` replacement anchor — both license the predicate.
+        if factor not in _FACTOR or m.group("instead").lower() != _INSTEAD:
+            return None
         src = ground.slug(m.group("src"))
         tgt = ground.slug(m.group("tgt")[4:]) if m.group("tgt") else "-"
         if src and tgt:
-            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "{tgt}")'],
+            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[factor]}, "{tgt}")'],
                            "damage_multiplier")
         return None
     m = _DMG_MULT_B.match(r)
     if m:
+        factor = m.group("factor").lower()
+        if factor not in _FACTOR:                  # grounded factor licenses the predicate (B form has
+            return None                            # no `instead`: the leading factor IS the §616 anchor)
         src = ground.slug(m.group("src"))
         if src:
-            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[m.group("factor").lower()]}, "-")'],
+            return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[factor]}, "-")'],
                            "damage_multiplier")
     return None
 
 
+# §614 life-total-FLOOR VOCABULARY — the grounded reduction verb that, joined to the `instead`
+# replacement word, licenses a `life_floor` relation. The §614 replacement here replaces the AMOUNT of
+# a life-total reduction (it would drop below N, but is floored AT N). `_FLOOR_VERB` is the grounded
+# §119/§614 'reduce(s)' connective on the life total; the relation is justified by this verb + the
+# `instead` anchor, NOT by the surface 'Damage that would …' template.
+_FLOOR_VERB = frozenset({"reduces", "reduce"})
+
 _LIFE_FLOOR = re.compile(
     r"^(?:(?P<cond>If .+?|As long as .+?), )?damage that would reduce your life total to less than "
-    r"\d+ reduces it to (?P<floor>\d+) instead\.?$", re.I)
+    r"\d+ (?P<verb>reduces|reduce) it to (?P<floor>\d+) (?P<instead>instead)\.?$", re.I)
 
 
 def _life_floor(unit, ctx):
     """'[<cond>, ]Damage that would reduce your life total to less than N reduces it to N instead.' —
     a §614 life-total floor replacement (Ali from Cairo, Fortune Thief, Sustaining Spirit, and the
     conditional Worship / Elderscale Wurm). The 'until end of turn' / triggered forms start with
-    When/Until and don't match this static anchor."""
+    When/Until and don't match this static anchor.
+
+    GROUNDED-PREDICATE form: the `life_floor` relation is justified by the §614 anchor — the grounded
+    life-total reduction verb (`_FLOOR_VERB`) joined to the `instead` replacement word (`_INSTEAD`).
+    The regex only EXTRACTS the optional condition span and the floor amount; it abstains unless both
+    the verb and `instead` ground, so the predicate is licensed by §614 vocabulary, not the template."""
     m = _LIFE_FLOOR.match(unit.raw)
     if not m:
+        return None
+    # ground the §614 anchor: the reduction verb + the `instead` replacement word license the predicate
+    # (defensive — the regex already constrains both; abstain rather than mint an un-anchored floor).
+    if m.group("verb").lower() not in _FLOOR_VERB or m.group("instead").lower() != _INSTEAD:
         return None
     cond = ground.slug(m.group("cond")) if m.group("cond") else "-"
     if not cond:
