@@ -74,3 +74,45 @@ JDK=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \
 FORGE=/path/to/forge FORGE_HEADLESS=false \
   python3 forge_integration/run_commander_tournament.py --quick > /tmp/cedh_smoke.out 2>&1
 ```
+
+---
+
+## UPDATE — first FULL 4-game tournament (after `1712b88` surfaced stats/standings)
+
+Ran the complete rotation on the 24 GB Mac (`FORGE_HEADLESS=false`), ~67 min wall (games vary widely:
+game 1 ~3 min, game 2 a 24-min grind, game 4 ~10 min). The stats/standings surfacing from `1712b88`
+worked and turned the run into hard data.
+
+### Result: **witchcraft 0 — Forge AI 3 — 1 timeout**
+
+| game | winner | turns | witch modeled / endorsed (per seat) |
+|------|--------|------:|--------------------------------------|
+| 1 | ForgeAI-kinnan   | 48 | ral 0.95/**0.01** · stella 1.00/**0.33** |
+| 2 | ForgeAI-kinnan   | 38 | stella 0.97/**0.01** · bluefarm 1.00/**0.04** |
+| 3 | TIMEOUT          | ?  | bluefarm 0.93/**0.04** · kinnan 0.98/**0.01** — *provisional standing: Witch-kinnan led at 39 life* |
+| 4 | ForgeAI-bluefarm | 47 | kinnan 0.92/**0.01** · ral 1.00/**0.01** |
+
+deck wins: kinnan 2, bluefarm 1.
+
+### The numbers correct the smoke's read and sharpen the diagnosis
+
+- **Modeling is HIGH — 0.92–1.00** across full games. (The smoke's `ral=0.43` was an early-game
+  artifact; over a real game ral models 0.95–1.00.) So it is **not a coverage gap** — the engine
+  understands nearly every board it's shown.
+- **Endorsement is NEAR-ZERO — mostly 0.01–0.04** (peaked 0.33 once). The engine drove its own seat
+  ~1–4% of the time and **fell back to `greedy_policy` ~96–99%**.
+
+Conclusion: the witchcraft seats are **effectively just the greedy fallback playing, not win_search**.
+This is the `_pick_action` "win-this-turn-or-fall-back" policy quantified — it endorses a move only on a
+*complete* kill line, which essentially never exists in a 4-player cEDH game, so endorsement collapses to
+~0 and the seat never executes its own plan. Forge AI's real cEDH lines beat that every game.
+
+The provisional standing earned its keep once: game 3's timeout would have been a meaningless `draw/none`,
+but it shows a *witchcraft* seat actually ahead (Witch-kinnan, 39 life) — the only competitive glimpse.
+
+### So the priority for the mac mini is unchanged but now measured
+
+Make DEVELOP commit to incremental win-progress (deploy threats, assemble/advance the combo), not
+"win-now-or-fall-back." Target metric: **raise endorsed/modeled from ~0.02 toward modeled (~1.0)** — i.e.
+get the engine to actually act on the boards it already models. Host + integration + observability are
+done; this is the lone remaining gap.
