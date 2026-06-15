@@ -1247,10 +1247,14 @@ class _ToEffect(Transformer):
             if not obj or not _GC_TGT.match(obj):
                 return None                              # object isn't a clean <TGT> noun phrase -> abstain
             tt = tgt.strip().lower() if tgt else None
-            # SHAPE A ('_control'): implicit/you subject, no 'by_'. The regex's leading '(?:you )?' is a
-            # LITERAL prefix, reached only when there is no subject OR the subject is exactly 'you' and the
-            # verb is 'gain' (regex needs the literal 'gain '; 'you gains …' falls through to _control_subj).
-            if tt is None or (tt == "you" and verb == "gain"):
+            # SHAPE A ('_control'): implicit/you subject, no 'by_'. The regex's frame is
+            # '(?:~ |you )?(?:gain )?control …' — the verb token, when present, is the LITERAL 'gain' (NOT
+            # 'gains'); 'gains' only appears in _control_subj, which REQUIRES a subject. So SHAPE A is reached
+            # only when the verb is exactly 'gain' (or absent), AND either there is no subject or the subject
+            # is exactly 'you'. A no-subject 'gains control of …' matches NEITHER regex template (wrong verb
+            # for _control, no subject for _control_subj) -> abstain, instead of over-claiming as the regex
+            # would return None. ('you gains …' likewise falls through to SHAPE B / abstain.)
+            if verb in ("", "gain") and (tt is None or tt == "you"):
                 return Effect("gain_control", "-", _target(obj), dur_extra)
             # SHAPE B ('_control_subj'): '<subject> gains? control of <X> [dur]' -> extra='by_<subject>',
             # cond=duration. The gaining player must be a clean §720 controller phrase — `_PLAYER` (a
@@ -1259,8 +1263,8 @@ class _ToEffect(Transformer):
             # regex leaf would ground as a DIFFERENT verb or not at all) -> abstain. (Faithful: a couple
             # of exotic but real subjects — 'target opponent chosen at random' — also fall here; the
             # regex fallback still owns them.)
-            if not _PLAYER.match(tt):
-                return None
+            if tt is None or not _PLAYER.match(tt):
+                return None                              # _control_subj REQUIRES a subject -> none here -> abstain
             return Effect("gain_control", "-", _target(obj), "by_" + _target(tt), dur_extra)
         kw = _kw_ok(phrase.strip())
         if not kw or not _clean_kw(kw):
