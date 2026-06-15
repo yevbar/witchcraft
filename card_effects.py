@@ -308,10 +308,8 @@ def _scry(m):
     return Effect("scry", n, _target(m.group(1) or "you")) if n is not None else None
 
 
-@_t(rf"^surveil (\w+)$")
-def _surveil(m):
-    n = _amount(m.group(1))
-    return Effect("surveil", n, "you") if n is not None else None
+# surveil: migrated to card_lark (the `pverb`/pvclause GRAMMAR production owns it, lark-first) -> the
+# regex template was dead code (gate: surveil DIFFERS=0/ABSTAINS=0), removed. No regex left for surveil.
 
 
 @_t(rf"^(?:({_TGT}) )?mills? (a card|\w+) cards?$")
@@ -1225,9 +1223,9 @@ def _reveal_generic(m):
     return Effect("reveal", "-", "you", ground.slug(m.group(1)))
 
 
-@_t(rf"^({_TGT}) (?:doesn't|don't) untap during (?:its controller's|their controller's|their controllers'|your|their)( next)? untap steps?(?: for as long as .+?)?$")
-def _doesnt_untap_eff(m):
-    return Effect("doesnt_untap", "-", _target(m.group(1)), "next" if m.group(1) and m.group(2) else "-")
+# doesnt_untap: lark owns it (gate: DIFFERS=0/ABSTAINS=0), so this template was dead, removed. NOTE: lark
+# still grounds it via the _NS_UNTAP_FRAME regex inside card_lark (a Path-3 frame crutch) — converting that
+# frame to a true grammar production is the remaining de-regex step for this verb.
 
 
 @_t(rf"^({_TGT}) can ((?:attack|block)\b[\w' -]*? as though (?:it|they) (?:had|didn't have|don't have) [\w' -]+?)$")
@@ -1471,13 +1469,9 @@ def _enters_counters_eff(m):
     return Effect("put_counter", n if n is not None else 1, _target(m.group(1) or "self"), kind, "on_enter")
 
 
-@_t(rf"^remove (a|an|one|two|three|all|any number of|x|\w+) (?:([+-]\d+/[+-]\d+|[\w ]+?) )?counters? from ({_TGT})$")
-def _remove_counter(m):
-    n = _amount(m.group(1))
-    if n is None:
-        n = "all" if m.group(1).lower() == "all" else ("any" if m.group(1).lower() == "any number of" else "X")
-    kind = "-" if not m.group(2) else (m.group(2) if "/" in m.group(2) else ground.slug(m.group(2)))
-    return Effect("remove_counter", n, _target(m.group(3)), kind)
+# remove_counter: lark owns it (gate: DIFFERS=0/ABSTAINS=0), so this template was dead, removed. NOTE: lark
+# still grounds it via the _RC_FRAME regex inside card_lark (a Path-3 frame crutch) — converting that frame
+# to a true grammar production is the remaining de-regex step for this verb.
 
 
 @_t(rf"^({_TGT}) discards? that card$")
