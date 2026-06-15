@@ -1347,6 +1347,10 @@ def _becomes_type(m):
 def _becomes_not(m):
     """'<target> isn't a <type>' — a §205 type REMOVAL (devotion gods that aren't creatures below
     threshold, 'isn't a creature'); recorded as a 'not_<type>' becomes effect."""
+    if m.group(1).rstrip().endswith((" that", " which")):
+        return None    # dangling relative pronoun: _TGT over-captured into a relative clause, so this is
+        # NOT a type removal but e.g. a doesnt_untap clause ('each land … that isn't a mana ability doesn't
+        # untap …') — abstain and let the (lark-first) doesnt_untap grounding own it, matching card_lark.
     return Effect("becomes", "-", _target(m.group(1)), "not_" + ground.slug(m.group(2)))
 
 
