@@ -138,16 +138,20 @@ dbbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP 
 
 // ATTACH (§701.3) — 'attach <equipment/aura> to <creature>'. The regex `_attach`
 // (`^attach (~|it|<_TGT>) to (<_TGT>)$`) puts the MOVED object (g1) in EXTRA and the DESTINATION (g2)
-// in TARGET. We OWN that clean two-arg shape: a leading ATTACH terminal anchors a flat body run, and
-// the transformer slices 'attach <body>' from `_src` and applies the EXACT `_attach` frame regex
-// (byte-identical or abstain). Clauses where the object/destination split fails the frame (an
-// object-internal 'to', e.g. 'attach target Aura attached to a creature to another creature', or a
-// trailing-anaphor destination the frame's `<_TGT>` can't reach) fall through the frame -> abstain,
-// leaving the whole-object-slug `_generic_object_verb` form to the regex (faithful-or-abstain).
-// The body must carry the internal TOPREP ('to'), so atbody includes TOPREP; the frame regex then
-// owns the actual split (the LAST viable 'to') exactly as the regex non-greedy `_TGT` does.
-atclause: AT_ATTACH atbody                   -> atattach
-atbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+  -> atbody
+// in TARGET, splitting at the FIRST ' to ' whose two halves are each a clean `_TGT` (source non-greedy).
+// We OWN the shape with two GRAMMAR SPANS — a moved-object span (`atsrc`) and a destination span
+// (`atdest`) — joined by the splitting TOPREP. Each span carries its OWN internal 'to's as TOPREP (so
+// 'up to N target', or an object-internal 'attached to a creature', stays intact); the transformer then
+// reproduces the regex's first-viable-' to ' split over the rejoined spans and validates each half with
+// the anchored `_TGT` (`_AT_TGT`). The split TOPREP is required to be the literal 'to' (not into/onto).
+// A clause with no viable split (an internal 'to' that leaves a non-`_TGT` half, e.g. 'attach target
+// Aura attached to a creature to another creature') or a destination outside `_TGT` ('… to Sokka')
+// abstains -> the whole-object-slug `_generic_object_verb` form to the regex (byte-identical-or-abstain).
+atclause: AT_ATTACH atsrc TOPREP atdest      -> atattach
+// both spans admit TOPREP so 'up to N'/object-internal 'to' is captured as text; the transformer owns the
+// faithful first-viable-' to ' split (the rejoined 'atsrc to atdest' run, exactly the regex's body).
+atsrc: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+  -> atsrc
+atdest: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | EQUALTO | THATMANY | MDUR)+ -> atdest
 
 // TRANSFORM (§701.28) — 'transform <object>' -> transform(-, slug(<object>)), the exact mirror of the
 // DOUBLE family: grounded by the generic object-verb leaf (`_verb_target` then `_generic_object_verb`).
@@ -529,12 +533,13 @@ def _am_upper_syms(s: str) -> str:
     return _AM_SYM.sub(lambda m: m.group(0).upper(), s)
 
 
-# ATTACH frame — the EXACT `_attach` template (`^attach (~|it|<_TGT>) to (<_TGT>)$`). The lark rule only
-# certifies the clause begins with 'attach'; this frame does the faithful split, so the grounded tuple is
-# byte-identical to the regex (MOVED object g1 -> EXTRA, DESTINATION g2 -> TARGET). A clause the frame
-# rejects (object-internal 'to', a destination outside `_TGT`, e.g. '… to Sokka'/'… to Balan') falls
-# through -> abstain, leaving the whole-object-slug `_generic_object_verb` form to the regex.
-_AT_FRAME = re.compile(r"^attach (~|it|" + _TGT + r") to (" + _TGT + r")$", re.I)
+# ATTACH operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_TF_TGT`). The GRAMMAR
+# owns the split shape (`atsrc TOPREP atdest`); the transformer rejoins the body and picks the first
+# viable ' to ', and this regex CERTIFIES each half is a clean `_TGT` exactly as the `_attach` template's
+# groups required (source `(~|it|_TGT)` ⊆ `_TGT`, since `_TGT` already includes `~`/`it`; destination
+# `_TGT`). A half outside `_TGT` ('… to Sokka') or no viable split ('…attached to a creature to another
+# creature') abstains -> the whole-object `_generic_object_verb` form to the regex. No structural regex.
+_AT_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 
 # TRANSFORM — the exact mirror of DOUBLE. The generic object-verb leaf grounds 'transform <object>' as
 # transform(-, slug(<object>)); precedence is `_verb_target` (`^(\w+) (<_TGT>)$`, _target, article kept)
@@ -869,7 +874,11 @@ class _AmRest(str):       # the mana-spec span after 'add[s]' (value unused; re-
     pass
 
 
-class _AtBody(str):       # the flat 'attach …' clause run (re-parsed by the _attach frame)
+class _AtSrc(str):        # the moved-object span (atsrc) — the _attach template's group 1 (EXTRA)
+    pass
+
+
+class _AtDest(str):       # the destination span (atdest) — the _attach template's group 2 (TARGET)
     pass
 
 
@@ -1506,23 +1515,47 @@ class _ToEffect(Transformer):
         return _ns_untap(src.strip())
 
     # --- ATTACH ---------------------------------------------------------------
-    def atbody(self, *toks):
-        return _AtBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+    def atsrc(self, *toks):
+        return _AtSrc(" ".join(str(t) for t in toks))    # moved object (the _attach template's g1)
+
+    def atdest(self, *toks):
+        return _AtDest(" ".join(str(t) for t in toks))   # destination (the _attach template's g2)
 
     def atattach(self, *args):
         # 'attach <obj> to <dest>' -> attach(-, _target(dest), _target(obj)) — the EXACT `_attach`
-        # template (MOVED object g1 -> EXTRA, DESTINATION g2 -> TARGET). The rule only certifies the
-        # clause begins with 'attach'; the faithful split is the `_attach` frame applied to the
-        # lowercased source, so the tuple is byte-identical to the regex (or, on a clause the frame
-        # rejects — object-internal 'to', a non-`_TGT` destination — abstain to the regex's
-        # whole-object-slug `_generic_object_verb` form).
-        src = getattr(self, "_src", None)
-        if src is None:
+        # template (MOVED object g1 -> EXTRA, DESTINATION g2 -> TARGET). The grammar gives us the body as
+        # two spans joined by a TOPREP; because either span may carry internal 'to's ('up to N target',
+        # 'attached to a creature'), the chosen split TOPREP is ambiguous, so we REJOIN the full body
+        # ('atsrc to atdest') and reproduce the regex's own split: the FIRST ' to ' whose two halves are
+        # EACH a clean `_TGT` (`_AT_TGT`), source non-greedy. No viable split (an internal 'to' leaving a
+        # non-`_TGT` half) or a destination outside `_TGT` -> abstain to the regex's whole-object-slug
+        # `_generic_object_verb` form. Byte-identical to the `_attach` frame (verified equivalent split).
+        prep = next((str(a) for a in args if getattr(a, "type", None) == "TOPREP"), None)
+        src = next((str(a) for a in args if isinstance(a, _AtSrc)), None)
+        dest = next((str(a) for a in args if isinstance(a, _AtDest)), None)
+        if prep is None or src is None or dest is None:
             return None
-        m = _AT_FRAME.match(src.strip())
-        if not m:
+        body = src.strip() + " " + prep.strip() + " " + dest.strip()
+        split = self._at_split(body)
+        if split is None:
             return None
-        return Effect("attach", "-", _target(m.group(2)), _target(m.group(1)))
+        obj, to = split                              # moved object (g1 -> EXTRA), destination (g2 -> TARGET)
+        return Effect("attach", "-", _target(to), _target(obj))
+
+    @staticmethod
+    def _at_split(body):
+        # The regex `^(~|it|_TGT) to (_TGT)$` split, done structurally: scan ' to ' left-to-right
+        # (mirrors the non-greedy source) and take the FIRST where both halves are `_TGT`-anchored.
+        # The split prep must be the literal 'to' (the template has no into/onto), which ' to ' enforces.
+        i = 0
+        while True:
+            j = body.find(" to ", i)
+            if j < 0:
+                return None
+            obj, to = body[:j], body[j + 4:]
+            if _AT_TGT.match(obj) and _AT_TGT.match(to):
+                return (obj, to)
+            i = j + 1
 
     # --- TRANSFORM (mirror of DOUBLE) -----------------------------------------
     def tfbody(self, *toks):
