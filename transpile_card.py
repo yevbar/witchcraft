@@ -601,8 +601,12 @@ def _parse_body(text: str):
 # required second 'N damage to' is what distinguishes this from the LEGITIMATE combined target
 # '~ deals N damage to each creature and each player' (one amount, one 'damage to', a single recipient
 # set) — there the ' and ' joins recipients inside ONE segment, so this pattern does not match it.
-_MULTI_DMG = re.compile(r"^(?:instead,?\s+)?(?P<src>~|it|he|she|they|that \w+|this \w+|[A-Z][\w']+(?:,? [A-Z][\w']+)*) deals "
-                        r"(?P<segs>(?:\d+|X) damage to .+?(?:,|,? and) (?:\d+|X) damage to .+)$", re.I)
+# a damage-segment amount: a bare number/X, the same as an 'additional' instance ('an additional 1', '1
+# additional'), or 'that much' (a §120 back-reference). 'additional'/'an additional' is English glue marking
+# a SECOND damage instance and is dropped before the segment is parsed — each instance is its own deal_damage.
+_DAMT = r"(?:an additional \d+|\d+ additional|\d+|x|that much)"
+_MULTI_DMG = re.compile(rf"^(?:instead,?\s+)?(?P<src>~|it|he|she|they|that \w+|this \w+|[A-Z][\w']+(?:,? [A-Z][\w']+)*) deals "
+                        rf"(?P<segs>{_DAMT} damage to .+?(?:,|,? and) {_DAMT} damage to .+)$", re.I)
 
 
 def _multi_damage(sentence):
@@ -618,10 +622,12 @@ def _multi_damage(sentence):
     out = []
     # split before each 'N damage to' on a ',' or ' and ' boundary (keeps recipient-internal ' and '
     # such as 'target player or planeswalker' or 'each creature and each player' inside one segment).
-    for seg in re.split(r",\s+(?:and\s+)?|\s+and\s+(?=(?:\d+|X) damage to )", segs):
+    for seg in re.split(rf",\s+(?:and\s+)?|\s+and\s+(?={_DAMT} damage to )", segs):
         seg = seg.strip()
-        if not re.match(r"^(?:\d+|X) damage to ", seg, re.I):
+        if not re.match(rf"^{_DAMT} damage to ", seg, re.I):
             return None
+        seg = re.sub(r"^an additional ", "", seg, flags=re.I)          # 'an additional 1 damage to' -> '1 damage to'
+        seg = re.sub(r"^(\d+|x) additional ", r"\1 ", seg, flags=re.I)  # '1 additional damage to'   -> '1 damage to'
         e = parse_clause(f"{src} deals {seg}")
         if not e:
             return None
