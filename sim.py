@@ -66,6 +66,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("modes", []).append(a[1])
         elif rel == "static":                                # §700.2 descriptive static slugs (e.g. the modal
             db.setdefault(a[0], {}).setdefault("statics", []).append(a[1])   # 'choose both if commander' rider)
+        elif rel == "static_player":                         # §604 continuous PLAYER permission (extra lands, skip untap, …)
+            db.setdefault(a[0], {}).setdefault("static_player", set()).add(a[1])
     return db
 
 

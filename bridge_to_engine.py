@@ -1771,6 +1771,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # the operational relations itself (translate.dl). instance_of links the object to its card; the card_*
     # facts are card-level (shared across instances, set-deduped).
     add("instance_of", (tid, facts))
+    for sp in f.get("static_player", ()):                     # §604 continuous player-permissions (extra lands etc.) —
+        add("static_player", (facts, sp))                     # not a souffle relation; driver reads it (e.g. _static_extra_lands)
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     self_aliases = _name_aliases(name)                        # §201 the card's own-name slugs -> normalized to 'self'
     modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as
