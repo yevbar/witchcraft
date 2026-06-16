@@ -63,6 +63,26 @@ def first_action_policy(state: dict, key: str, options, default):
     return opts[0] if opts else default
 
 
+def hidden_info(policy):
+    """Wrap a policy so it only SEES its seat's imperfect-information view (observe.observe) when choosing —
+    the 'play exactly like a real player' mode. The referee still enumerates the LEGAL options on the true
+    state (a player is allowed to act on public legality), but the wrapped policy reasons over a redacted
+    state with opponents' hands and every library hidden, so it cannot peek. The deciding seat is the active
+    player (the common case; a defender's block decision still observes from the active seat — a known
+    approximation until the seam threads the deciding seat through)."""
+    import observe
+    def wrapped(state: dict, key: str, options, default):
+        seat = next(iter(state.get("active_player", [(None,)])))[0]
+        if seat is None:
+            return policy(state, key, options, default)
+        view = observe.observe(state, seat)
+        for k in ("_rng", "_seed", "_policy"):                 # carry the RNG + dispatch seam (NOT hidden info)
+            if k in state:                                     # by REFERENCE so the shared RNG still advances;
+                view[k] = state[k]                             # _lib_order et al. stay hidden (the whole point)
+        return policy(view, key, options, default)
+    return wrapped
+
+
 # ---- mulligan (§103.4, London) ------------------------------------------------------------------------
 
 def _return_hand(state: dict, p: str) -> None:
