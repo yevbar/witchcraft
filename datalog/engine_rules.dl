@@ -236,6 +236,26 @@ static_mod_power(S, C, DP) :- static_pt(S, DP, _, _), anthem_creature(S, C).
 dyn_mod_power(C, N) :- dyn_pt(C, Dp, _, Ty), Dp != 0, controls(P, C), Cnt = count : { controls(P, A), has_type(A, Ty) }, N = Dp * Cnt.
 .decl dyn_mod_toughness(c: symbol, dt: number)
 dyn_mod_toughness(C, N) :- dyn_pt(C, _, Dt, Ty), Dt != 0, controls(P, C), Cnt = count : { controls(P, A), has_type(A, Ty) }, N = Dt * Cnt.
+// --- §613 COUNT-SCALED self statics ('~ gets +N/+N for each X') -----------------------------------------
+// A STATIC self modify_pt whose buff scales with a COUNT, DERIVED from parse facts (one-world). The bridge's
+// dyn_pt (above) covers only '<type> you control' counts (artifact/creature/land/enchantment/planeswalker);
+// these cover the dimensions it ABSTAINS on — auras/equipment attached to it, cards in your hand, oil
+// counters on it, creature cards in your graveyard — so there is NO overlap and the two ADD into
+// dyn_mod_power/toughness without double-counting. Clean form only: amount '+dp/+dt' (signed_pt) + cond
+// 'for_each_<tag>' + self/it target; scaled/compound amounts and equipped/enchanted-creature scopes abstain.
+.decl scaled_tag(cond: symbol, tag: symbol)
+scaled_tag("for_each_equipment_attached_to_it", "equipment_attached"). scaled_tag("for_each_aura_attached_to_it", "aura_attached"). scaled_tag("for_each_aura_and_equipment_attached_to_it", "aura_equipment_attached"). scaled_tag("for_each_card_in_your_hand", "cards_in_hand"). scaled_tag("for_each_oil_counter_on_it", "oil_counters"). scaled_tag("for_each_creature_card_in_your_graveyard", "gy_creatures").
+.decl scaled_pt(s: symbol, dp: number, dt: number, tag: symbol)
+scaled_pt(S, Dp, Dt, Tag) :- instance_of(S, C), card_ability(C, A, "static"), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, Cond), self_target(Tgt), signed_pt(Amount, Dp, Dt), scaled_tag(Cond, Tag).
+.decl scaled_count(s: symbol, tag: symbol, n: number)
+scaled_count(S, "equipment_attached", N) :- scaled_pt(S, _, _, "equipment_attached"), N = count : { attached_to(X, S), subtype(X, "equipment") }.
+scaled_count(S, "aura_attached", N) :- scaled_pt(S, _, _, "aura_attached"), N = count : { attached_to(X, S), subtype(X, "aura") }.
+scaled_count(S, "aura_equipment_attached", N) :- scaled_pt(S, _, _, "aura_equipment_attached"), N = count : { attached_to(X, S) }.
+scaled_count(S, "cards_in_hand", N) :- scaled_pt(S, _, _, "cards_in_hand"), controls(P, S), N = count : { in_hand(P, _) }.
+scaled_count(S, "oil_counters", N) :- scaled_pt(S, _, _, "oil_counters"), N = sum X : { counter(S, "oil", X) }.
+scaled_count(S, "gy_creatures", N) :- scaled_pt(S, _, _, "gy_creatures"), controls(P, S), N = count : { gy_creature(P, _) }.
+dyn_mod_power(C, N) :- scaled_pt(C, Dp, _, Tag), Dp != 0, scaled_count(C, Tag, Cnt), N = Dp * Cnt.
+dyn_mod_toughness(C, N) :- scaled_pt(C, _, Dt, Tag), Dt != 0, scaled_count(C, Tag, Cnt), N = Dt * Cnt.
 .decl static_mod_toughness(source: symbol, c: symbol, dt: number)
 static_mod_toughness(S, C, DT) :- static_pt(S, _, DT, _), anthem_creature(S, C).
 .decl static_grant_kw(source: symbol, c: symbol, kw: symbol)
