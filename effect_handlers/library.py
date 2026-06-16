@@ -784,9 +784,24 @@ _REORDER_OBJ = {"them", "they", "those_cards", "the_cards", "those", "the_top_ca
 
 @encoder("look")
 def _encode_look(verb, amt, tgt, extra):
-    if str(tgt) in _LOOK_SCOPE:
-        return ("look_noop", 0, str(tgt))
+    t = str(tgt)
+    if t in ("target_player", "target_opponent", "each_player", "each_opponent", "a_player",
+             "any_player", "that_player"):                    # look at ANOTHER player's hand -> you learn it
+        return ("look_hand", 0, "each_opponent")
+    if t in _LOOK_SCOPE:
+        return ("look_noop", 0, t)
     return None
+
+
+@applier("look_hand")
+def _apply_look_hand(D, state, a, n, tgt, src, ctrl):
+    """§708 'look at target player's hand' — information ONLY (no zone change), but the controller now KNOWS
+    those cards: record (ctrl, card) in `known` so observe() keeps them visible to ctrl thereafter."""
+    known = state.setdefault("known", set())
+    for p in D._others(state, ctrl):
+        for (pp, c) in state.get("in_hand", set()):
+            if pp == p:
+                known.add((ctrl, c))
 
 
 @applier("look_noop")

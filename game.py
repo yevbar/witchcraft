@@ -63,16 +63,26 @@ def first_action_policy(state: dict, key: str, options, default):
     return opts[0] if opts else default
 
 
+def deciding_seat(state: dict, key: str) -> str | None:
+    """The player whose decision `key` is — the active player, except a 'blocks' decision which belongs to
+    the defender (mirrors _policy_dispatch). Returns None if there's no active player yet."""
+    act = state.get("active_player")
+    if not act:
+        return None
+    ap = next(iter(act))[0]
+    others = driver._others(state, ap)
+    return others[0] if key == "blocks" and others else ap
+
+
 def hidden_info(policy):
     """Wrap a policy so it only SEES its seat's imperfect-information view (observe.observe) when choosing —
     the 'play exactly like a real player' mode. The referee still enumerates the LEGAL options on the true
-    state (a player is allowed to act on public legality), but the wrapped policy reasons over a redacted
-    state with opponents' hands and every library hidden, so it cannot peek. The deciding seat is the active
-    player (the common case; a defender's block decision still observes from the active seat — a known
-    approximation until the seam threads the deciding seat through)."""
+    state (a player acts on public legality), but the wrapped policy reasons over a redacted state with
+    opponents' hands/libraries hidden, so it cannot peek. The deciding seat is threaded per decision (a
+    'blocks' decision observes from the DEFENDER's seat, not the attacker's)."""
     import observe
     def wrapped(state: dict, key: str, options, default):
-        seat = next(iter(state.get("active_player", [(None,)])))[0]
+        seat = deciding_seat(state, key)
         if seat is None:
             return policy(state, key, options, default)
         view = observe.observe(state, seat)
