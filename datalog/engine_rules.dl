@@ -1067,9 +1067,19 @@ creature_scope("self", "self"). creature_scope("it", "self"). creature_scope("cr
 signed_pt(Amt, Dp, Dt) :- pt_value(Amt, Dp, Dt), match("[+-][0-9]+/[+-][0-9]+", Amt).
 .decl bare_pt(amt: symbol, dp: number, dt: number)
 bare_pt(Amt, Dp, Dt) :- pt_value(Amt, Dp, Dt), match("[0-9]+/[0-9]+", Amt).
+// A TEMPORARY P/T pump is an until-end-of-turn continuous effect no matter how the clause spells its
+// duration: the transpiler leaves a single-clause 'gets +N/+N until end of turn' with cond '-' (the
+// implicit EOT) but keeps an EXPLICIT 'until end of turn' (compound clauses, leading-duration phrasing)
+// in the cond column. The driver applies EVERY modify_pt pump via eff_mod_power + until_eot (wears off at
+// cleanup) regardless, so both conds resolve identically — accept either for the four PUMP rules below
+// (trigger_effect_pt / trigger_target / spell_target / spell_scope). The STATIC anthem rules keep the
+// strict cond=='-' (a static ability never carries until_end_of_turn). Scaling amounts (+X, per-*) still
+// abstain via signed_pt/pt_value, so this only unlocks the FIXED-amount pumps that were being dropped.
+.decl transient_pt_cond(c: symbol)
+transient_pt_cond("-"). transient_pt_cond("until_end_of_turn").
 // DERIVE trigger_effect_pt for a creature-scoped modify_pt: dp/dt via signed_pt (the bridge's
 // _parse_pt only matches a SIGNED P/T), scope via creature_scope (was the bridge's trigger_effect_pt).
-trigger_effect_pt(IA, Dp, Dt, Scope) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, "-"), signed_pt(Amount, Dp, Dt), creature_scope(Tgt, Scope).
+trigger_effect_pt(IA, Dp, Dt, Scope) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, Cond), transient_pt_cond(Cond), signed_pt(Amount, Dp, Dt), creature_scope(Tgt, Scope).
 // DERIVE trigger_effect_grant for a creature-scoped grant_keyword: the granted keyword is in the
 // EXTRA column (engine_keyword filter, else it'd no-op), scope via creature_scope.
 trigger_effect_grant(IA, Kw, Scope) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "grant_keyword", _, Tgt, Kw, "-"), engine_keyword(Kw), creature_scope(Tgt, Scope).
@@ -1084,7 +1094,7 @@ trigger_effect_return(IA, Scope) :- trig_ability(IA, S, C, A), card_effect(C, A,
 // DERIVE the SINGLE-TARGET modify_pt case of trigger_target: a clean 'target creature' (no creature_
 // scope) modify_pt -> trigger_target(modify_pt, 'dp/dt', class). Payload is the REFORMATTED signed P/T
 // f'{dp}/{dt}' the driver splits on '/' (e.g. '+3/+3' -> '3/3', '-3/-3' -> '-3/-3'), built via to_string.
-trigger_target(IA, "modify_pt", Payload, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, "-"), signed_pt(Amount, Dp, Dt), target_class(Tgt, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
+trigger_target(IA, "modify_pt", Payload, Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, Cond), transient_pt_cond(Cond), signed_pt(Amount, Dp, Dt), target_class(Tgt, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
 // DERIVE the §613 self-ANIMATION: 'becomes a P/T creature' on self/it -> trigger_effect(animate, 0, pt)
 // where pt is the BARE 'N/M' (bare_pt). The payload reformats dp/dt via to_string (bare ints reprint
 // identically: '4/4' -> 4,4 -> '4/4'), matching the bridge's _animation_pt output.
@@ -1120,7 +1130,7 @@ spell_target(S, "grant", Kw, Cls) :- resolves_ability(S, Card, A), card_effect(C
 spell_target(S, "counter", Payload, Cls) :- spell_put_counter(S, Target, Payload), target_class(Target, Cls).
 // modify_pt single-target P/T pump/shrink (Giant Growth): payload 'dp/dt' lexed via pt_value
 // (REUSED foundation table — souffle can't parse '+1/+1'). Matches the bridge's f'{dp}/{dt}'.
-spell_target(S, "modify_pt", Payload, Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, Dp, Dt), target_class(Target, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
+spell_target(S, "modify_pt", Payload, Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), transient_pt_cond(Cond), pt_value(Amount, Dp, Dt), target_class(Target, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
 // switch_pt single-target §613 layer-7d P/T switch (no payload — the verb says it all).
 spell_target(S, "switchpt", "-", Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "switch_pt", _, Target, _, "-"), target_class(Target, Cls).
 // DERIVE spell_scope — a board-wide creature verb the driver expands to every creature in scope.
@@ -1131,7 +1141,7 @@ spell_scope(S, "grant", Kw, Scope) :- resolves_ability(S, Card, A), card_effect(
 spell_scope(S, "counter", Payload, Scope) :- spell_put_counter(S, Target, Payload), board_scope(Target, Scope).
 // modify_pt board-scope P/T anthem-on-resolution (Overrun): payload 'dp/dt' via pt_value, same
 // as the single-target modify_pt rule but a board_scope target instead of a target_class.
-spell_scope(S, "modify_pt", Payload, Scope) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, Dp, Dt), board_scope(Target, Scope), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
+spell_scope(S, "modify_pt", Payload, Scope) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), transient_pt_cond(Cond), pt_value(Amount, Dp, Dt), board_scope(Target, Scope), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
 // DERIVE spell_damage — §120 direct damage from a burn instant/sorcery. n = the numeric amount,
 // kind = damage_kind(target) (creature lethality / face life loss / sweeper). Variable/restricted abstain.
 spell_damage(S, N, Kind) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "deal_damage", Amount, Target, _, "-"), match("[0-9]+", Amount), N = to_number(Amount), damage_kind(Target, Kind).
