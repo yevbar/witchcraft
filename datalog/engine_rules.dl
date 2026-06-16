@@ -256,6 +256,33 @@ scaled_count(S, "oil_counters", N) :- scaled_pt(S, _, _, "oil_counters"), N = su
 scaled_count(S, "gy_creatures", N) :- scaled_pt(S, _, _, "gy_creatures"), controls(P, S), N = count : { gy_creature(P, _) }.
 dyn_mod_power(C, N) :- scaled_pt(C, Dp, _, Tag), Dp != 0, scaled_count(C, Tag, Cnt), N = Dp * Cnt.
 dyn_mod_toughness(C, N) :- scaled_pt(C, _, Dt, Tag), Dt != 0, scaled_count(C, Tag, Cnt), N = Dt * Cnt.
+// --- ATTACHMENT-scoped count-scaled buffs ('equipped/enchanted creature gets +N/+N for each X') --------
+// Like scaled_pt but the buff lands on the ATTACHED creature X (attached_to(S, X)), not the source S — S is
+// the Aura/Equipment. The count is relative to S's CONTROLLER ('you control'), or over what's attached to X
+// ('attached to it'). Source S is a static modify_pt with an equipped/enchanted-creature target + for_each
+// cond. Disjoint from scaled_pt (self target) and from the bridge's dyn_pt (self+type only) -> no overlap.
+// Clean single-dimension tags only; compound riders ('...and has ward 2'), ambiguous counter locations,
+// of_its_colors and domain-style distinct counts abstain. Folds into the SAME dyn_mod_power/toughness.
+.decl attached_scope(t: symbol)
+attached_scope("equipped_creature"). attached_scope("enchanted_creature").
+.decl attached_tag(cond: symbol, tag: symbol)
+attached_tag("for_each_creature_you_control", "creature_yc"). attached_tag("for_each_other_creature_you_control", "other_creature_yc"). attached_tag("for_each_artifact_you_control", "artifact_yc"). attached_tag("for_each_land_you_control", "land_yc"). attached_tag("for_each_swamp_you_control", "swamp_yc"). attached_tag("for_each_forest_you_control", "forest_yc"). attached_tag("for_each_mountain_you_control", "mountain_yc"). attached_tag("for_each_plains_you_control", "plains_yc"). attached_tag("for_each_island_you_control", "island_yc"). attached_tag("for_each_aura_and_equipment_attached_to_it", "ae_attached"). attached_tag("for_each_equipment_attached_to_it", "eq_attached").
+.decl attached_scaled_pt(s: symbol, dp: number, dt: number, tag: symbol)
+attached_scaled_pt(S, Dp, Dt, Tag) :- instance_of(S, C), card_ability(C, A, "static"), card_effect(C, A, _, "modify_pt", Amount, Tgt, _, Cond), attached_scope(Tgt), signed_pt(Amount, Dp, Dt), attached_tag(Cond, Tag).
+.decl attached_scaled_count(s: symbol, tag: symbol, n: number)
+attached_scaled_count(S, "creature_yc", N) :- attached_scaled_pt(S, _, _, "creature_yc"), controls(P, S), N = count : { controls(P, A), creature(A) }.
+attached_scaled_count(S, "other_creature_yc", N) :- attached_scaled_pt(S, _, _, "other_creature_yc"), attached_to(S, X), controls(P, S), N = count : { controls(P, A), creature(A), A != X }.
+attached_scaled_count(S, "artifact_yc", N) :- attached_scaled_pt(S, _, _, "artifact_yc"), controls(P, S), N = count : { controls(P, A), has_type(A, "artifact") }.
+attached_scaled_count(S, "land_yc", N) :- attached_scaled_pt(S, _, _, "land_yc"), controls(P, S), N = count : { controls(P, A), has_type(A, "land") }.
+attached_scaled_count(S, "swamp_yc", N) :- attached_scaled_pt(S, _, _, "swamp_yc"), controls(P, S), N = count : { controls(P, A), subtype(A, "swamp") }.
+attached_scaled_count(S, "forest_yc", N) :- attached_scaled_pt(S, _, _, "forest_yc"), controls(P, S), N = count : { controls(P, A), subtype(A, "forest") }.
+attached_scaled_count(S, "mountain_yc", N) :- attached_scaled_pt(S, _, _, "mountain_yc"), controls(P, S), N = count : { controls(P, A), subtype(A, "mountain") }.
+attached_scaled_count(S, "plains_yc", N) :- attached_scaled_pt(S, _, _, "plains_yc"), controls(P, S), N = count : { controls(P, A), subtype(A, "plains") }.
+attached_scaled_count(S, "island_yc", N) :- attached_scaled_pt(S, _, _, "island_yc"), controls(P, S), N = count : { controls(P, A), subtype(A, "island") }.
+attached_scaled_count(S, "ae_attached", N) :- attached_scaled_pt(S, _, _, "ae_attached"), attached_to(S, X), N = count : { attached_to(Y, X) }.
+attached_scaled_count(S, "eq_attached", N) :- attached_scaled_pt(S, _, _, "eq_attached"), attached_to(S, X), N = count : { attached_to(Y, X), subtype(Y, "equipment") }.
+dyn_mod_power(X, N) :- attached_scaled_pt(S, Dp, _, Tag), Dp != 0, attached_to(S, X), attached_scaled_count(S, Tag, Cnt), N = Dp * Cnt.
+dyn_mod_toughness(X, N) :- attached_scaled_pt(S, _, Dt, Tag), Dt != 0, attached_to(S, X), attached_scaled_count(S, Tag, Cnt), N = Dt * Cnt.
 .decl static_mod_toughness(source: symbol, c: symbol, dt: number)
 static_mod_toughness(S, C, DT) :- static_pt(S, _, DT, _), anthem_creature(S, C).
 .decl static_grant_kw(source: symbol, c: symbol, kw: symbol)
