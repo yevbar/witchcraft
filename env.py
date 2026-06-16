@@ -315,6 +315,7 @@ def _advance_one(state: dict) -> None:
         driver._empty_mana_pool(state)                          # §500.4 — pool empties across the turn boundary too
         state["attacks"], state["blocks"] = set(), set()
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
+        state["_extra_lands_used"] = {}; state["_extra_land_grants"] = {}   # extra-land allowance resets too
         state["_cast_count"] = 0                                # §608/§702.40 storm count resets each turn
         state["_is_cast_count"] = 0                             # §712 instant/sorcery-cast tally is per-turn (Ral)
         state["_loyalty_used"] = set()                         # §606.3 loyalty ability once-per-turn per planeswalker

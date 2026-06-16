@@ -1229,22 +1229,61 @@ def _develop_mana(state: dict, ap: str) -> None:
     engine authors casting legality (can_cast/can_afford over mana_pool); this only stocks the pool. A
     flat mana_available count is kept in sync for the legacy fallback / cache continuity."""
     played = state.setdefault("_land_played", set())          # driver bookkeeping; not a souffle relation
-    if (ap,) not in played:
+
+    def _play_one() -> bool:                                   # play one land from hand; False if none left
         land = next((s for (p, s) in sorted(state.get("in_hand", set()))
                      if p == ap and (s, "land") in state.get("spell_type", set())), None)
-        if land:
-            state["in_hand"].discard((ap, land))
-            state["on_battlefield"].add((land,))
-            state.setdefault("printed_control", set()).add((ap, land))
+        if not land:
+            return False
+        state["in_hand"].discard((ap, land))
+        state["on_battlefield"].add((land,))
+        state.setdefault("printed_control", set()).add((ap, land))
+        print(f"    {ap} plays land {land}")
+        # §603 LANDFALL — a played land enters without using the stack, so signal just_entered(land) so the
+        # engine fires 'whenever a land you control enters' triggers, apply them, then clear the signal.
+        state.setdefault("just_entered", set()).add((land,))
+        _apply_effects(state, run(state, ["pending"])["pending"])
+        state["just_entered"].discard((land,))
+        return True
+
+    if (ap,) not in played:                                    # §305.2 the one base land drop
+        if _play_one():
             played.add((ap,))
-            print(f"    {ap} plays land {land}")
-            # §603 LANDFALL — a played land enters the battlefield without using the stack, so signal
-            # just_entered(land) so the engine fires 'whenever a land you control enters' triggers, apply
-            # their effects, then clear the one-step signal (it must not persist past this land drop).
-            state.setdefault("just_entered", set()).add((land,))
-            _apply_effects(state, run(state, ["pending"])["pending"])
-            state["just_entered"].discard((land,))
+    # §305.2 EXTRA land drops: Exploration/Azusa (static, +1/+2) + one-shot 'play an additional land this
+    # turn' grants (effect_handlers/lands.py). Play up to the remaining allowance from what's still in hand.
+    allow = _static_extra_lands(state, ap) + state.get("_extra_land_grants", {}).get(ap, 0)
+    used = state.setdefault("_extra_lands_used", {})
+    while used.get(ap, 0) < allow and _play_one():
+        used[ap] = used.get(ap, 0) + 1
     _refresh_mana_pool(state, ap)
+
+
+def _static_extra_lands(state: dict, ap: str) -> int:
+    """§305.2 extra land drops from CONTINUOUS abilities (static_player facts, when present in state):
+    'extra_land_per_turn' = +1 each (Exploration), 'extra_lands_per_turn_two' = +2 (Azusa), and an
+    'each_player_extra_land_per_turn' from ANY permanent = +1 for everyone. 0 if static_player isn't loaded."""
+    sp = state.get("static_player", set())
+    if not sp:
+        return 0
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    ctrl = state.get("printed_control", set())
+    extra = 0
+    for (c,) in state.get("on_battlefield", set()):
+        slug = io.get(c)
+        if (ap, c) in ctrl:
+            if (slug, "extra_land_per_turn") in sp:
+                extra += 1
+            elif (slug, "extra_lands_per_turn_two") in sp:
+                extra += 2
+        if (slug, "each_player_extra_land_per_turn") in sp:
+            extra += 1
+    return extra
+
+
+def _grant_extra_land(state: dict, ap: str, n: int = 1) -> None:
+    """One-shot 'play an additional land this turn' (§116.2a): bump ap's extra-land grant for this turn."""
+    g = state.setdefault("_extra_land_grants", {})
+    g[ap] = g.get(ap, 0) + n
 
 
 def _controls_any_source(state: dict, ap: str) -> bool:
@@ -2997,6 +3036,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         _empty_mana_pool(state)                                  # §500.4 — pool empties across the turn boundary too
         state["attacks"], state["blocks"] = set(), set()        # combat declarations don't carry over
         state["_land_played"] = set()                           # §305.2 — a fresh land drop next turn
+        state["_extra_lands_used"] = {}; state["_extra_land_grants"] = {}   # extra-land allowance resets too
         state["_cast_count"] = 0                                 # §608/§702.40 storm count is per-turn
         state["_is_cast_count"] = 0                              # §712 instant/sorcery-cast tally is per-turn (Ral)
         state["_loyalty_used"] = set()                          # §606.3 loyalty ability is once-per-turn per planeswalker
