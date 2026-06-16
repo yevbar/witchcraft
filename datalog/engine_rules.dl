@@ -866,6 +866,14 @@ cond_met(S, "as_long_as_you_have_one_or_fewer_cards_in_hand") :- controls(P, S),
 .decl multicolored(c: symbol)
 multicolored(C) :- color(C, _), 2 <= count : { color(C, _) }.
 cond_met(S, "as_long_as_you_control_another_multicolored_permanent") :- controls(P, S), controls(P, X), X != S, multicolored(X).
+// counter-presence on the source (counter is keyed p1p1 for +1/+1).
+cond_met(S, "as_long_as_it_has_a_1_1_counter_on_it") :- counter(S, "p1p1", N), N >= 1.
+cond_met(S, "as_long_as_it_has_a_divinity_counter_on_it") :- counter(S, "divinity", N), N >= 1.
+// equipped/enchanted creature subtype (Human is the frequent one) + tapped state of the source.
+cond_met(S, "as_long_as_equipped_creature_is_a_human") :- attached_to(S, X), subtype(X, "human").
+cond_met(S, "as_long_as_enchanted_creature_is_a_human") :- attached_to(S, X), subtype(X, "human").
+cond_met(S, "as_long_as_is_tapped") :- tapped(S).
+cond_met(S, "as_long_as_is_untapped") :- on_battlefield(S), !tapped(S).
 static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), Cond != "-", cond_met(S, Cond), pt_value(Amount, Dp, Dt), anthem_scope(Target, Scope).
 static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond), Cond != "-", cond_met(S, Cond), engine_keyword(Kw), anthem_scope(Target, Scope).
 // SELF scope: '~ gets +N/+N' / '~ has X' — the source buffs ITSELF (Lieutenant et al.). Maps 'self' -> 'self'
