@@ -398,6 +398,19 @@ def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
         print(f"    {controller} creates a {spec} token ({tid})")
 
 
+def turn_face_up(state: dict, card: str) -> bool:
+    """§708.5 turn a face-down permanent FACE UP: drop face_down(card) so the engine resolves its REAL
+    characteristics again, and make it public (everyone now sees its identity — drop any face-up secrecy by
+    removing it from `known`-only status; observe shows an on-battlefield, non-face_down card to all). Returns
+    False if `card` isn't face down. The CALLER enforces legality (it must be a creature card, cost paid)."""
+    if (card,) not in state.get("face_down", set()):
+        return False
+    state["face_down"].discard((card,))
+    state.setdefault("revealed", set()).add((card,))         # §708 it is now public to every player
+    print(f"    {card} is turned face up")
+    return True
+
+
 def _transform(state: dict, obj: str, ctrl: str) -> None:
     """§712 transform `obj` into its back face: flip instance_of(obj) to the back slug the bridge linked via
     transform_target, re-materialize its printed identity from the back's card_* facts (the engine then derives
