@@ -1982,8 +1982,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             poc_skip = _fold_pay_or_create(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §107.3 'put X +1/+1 counters on this, then draw half X cards' (Wan Shi Tong's ETB).
             xcd_skip = _fold_xcounter_draw(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §701 the LOOK-AND-BIN dig on a TRIGGERED ability ('look at the top N, put M into your hand, the
+            # rest into your graveyard') -> one dig_to_hand, the same fold the spell/activated paths use.
+            dig_skip = _fold_dig(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
