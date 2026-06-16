@@ -874,6 +874,10 @@ cond_met(S, "as_long_as_equipped_creature_is_a_human") :- attached_to(S, X), sub
 cond_met(S, "as_long_as_enchanted_creature_is_a_human") :- attached_to(S, X), subtype(X, "human").
 cond_met(S, "as_long_as_is_tapped") :- tapped(S).
 cond_met(S, "as_long_as_is_untapped") :- on_battlefield(S), !tapped(S).
+// 'during your turn' — the source's controller is the active player. Unlike the graveyard conditions
+// this fires in self-play too (active_player is always fed), which is correct: the buff genuinely
+// applies only on your turn. Largest remaining genuinely-static continuous condition (82 rows).
+cond_met(S, "during_your_turn") :- controls(P, S), active_player(P).
 // --- GRAVEYARD-count conditions (threshold / delirium / type counts) ----------------------------------
 // in_graveyard(owner, card): a per-player graveyard membership, fed ONLY by forge_bridge from Forge's
 // per-player graveyards (the owner-less arity-1 `graveyard` zone stays the self-play model — it carries
