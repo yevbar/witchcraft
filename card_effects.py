@@ -2055,7 +2055,12 @@ def parse_clause(sentence: str) -> "Effect | None":
     if mw:
         inner = parse_clause(mw.group(1))
         if not inner:
-            return None
+            # the head alone doesn't ground. For the variable-amount mana ability 'add X mana of any
+            # [one] color, where X is <expr>' (shape 2 — the head 'add X mana …' has no standalone
+            # grounding), the lark leaf owns the WHOLE clause, grounding the amount as
+            # 'equal_to_<slug(expr)>'. Scoped to add-mana clauses (re.match anchors 'add') so this can't
+            # perturb other where-X families. Purely additive: previously this returned None.
+            return _lark_leaf(s) if re.match(r"add x mana of any", s, re.I) else None
         var = mw.group(2).upper()
         if str(inner.amount).upper() == var:
             return _dc.replace(inner, amount=var + "_" + ground.slug(mw.group(3)))

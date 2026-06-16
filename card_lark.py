@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause | mfclause | fgclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -288,8 +288,22 @@ NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static ver
 // rejects the spec or `amlead` isn't a clean `_TGT`. NEGATIVE rule priority defers to any competing
 // family parse (Earley ambiguity); on a real 'add <mana>' clause there is no competitor, so this wins.
 amclause.-2: amlead? AM_ADD AM_ADDL? amrest -> amadd
+// CONDITIONAL/VARIABLE mana (§106.3, state-derived amounts) — three sibling productions, each a TRUE
+// grammar shape whose conditional tail is captured as a SPAN read off the parse tree (no whole-clause
+// re-parse, no self._src). They are NEGATIVE-priority like `amadd` so any competing family parse wins;
+// the dedicated markers (AM_AMOUNTOF / EQUALTO / FOREACH / AM_WHEREX) keep them disjoint from the
+// fixed-mana `amadd` (which has no such marker, so its `amrest` never reaches one — fixed mana is
+// byte-identical, unchanged). The amount becomes the repo-standard state-derived slug:
+//   shape 1 'add an amount of <sym> equal to <expr>'        -> add_mana("equal_to_<slug(expr)>",  you, <color of sym>)
+//   shape 2 'add X mana of any [one] color, where X is <expr>' -> add_mana("equal_to_<slug(expr)>", you, any[_one]_color)
+//   shape 3 'add <mana-spec> for each <thing>'              -> add_mana("1_per_<slug(thing)>",      you, <color(s)>)
+amceqclause.-2: amlead? AM_ADD AM_ADDL? AM_AMOUNTOF AM_MANASYM EQUALTO amexpr -> amadd_eq    // shape 1
+amcxclause.-2:  amlead? AM_ADD AM_ADDL? amxmana AM_WHEREX amexpr               -> amadd_wherex // shape 2
+amcfeclause.-2: amlead? AM_ADD AM_ADDL? amrest FOREACH amexpr                  -> amadd_foreach // shape 3
 amlead: (WORD | QUANT | NUM)+               // optional player subject before 'add[s]' (validated by _AM_TGT)
 amrest: (WORD | QUANT | NUM | AM_MANASYM)+  // the mana-spec span (fed to _mana_production, spacing-independent)
+amxmana: (WORD | QUANT | NUM)+              // the 'X mana of any [one] color' span (validated/colored below)
+amexpr: (WORD | QUANT | NUM | AM_MANASYM | TOPREP | FROM | ZONE | EQUALTO | COUNTER | ONPREP)+  // the state-derived <expr>/<thing> span (slugged)
 
 ccreator: (WORD | QUANT)+               // optional creator player phrase ('target opponent creates …')
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
@@ -344,6 +358,8 @@ SH_SHUFFLE.3: /\bshuffles?\b/         // 'shuffle'/'shuffles' — the §701.19 s
 AM_ADD.3: /\badds?\b/                 // 'add'/'adds' — the §106 mana-production verb (add_mana family; namespaced)
 AM_ADDL.4: /\b(?:an additional|additional)\b/  // the optional 'additional' modifier after 'add' (consumed grammar-side; the old frame's `(?:an additional |additional )?` group, so amrest never carries it)
 AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUNDED — never a greedy .*; '{' '}' aren't in WORD)
+AM_AMOUNTOF.5: /\ban amount of\b/     // §106.3 'add an amount of <sym> equal to …' lead-in (outranks QUANT's 'an' + WORD; appears ONLY in conditional shape 1, so fixed-mana amrest is untouched)
+AM_WHEREX.5: /\bwhere x (?:is|equals)\b/  // §106.3 'add X mana of any [one] color, where X is <expr>' connective (outranks WORD; conditional shape 2 only)
 AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword action (attach family; namespaced; imperative only)
 FG_FIGHTS.5: /\bfights\b/             // '<A> fights <B>' separator (§701.12 fight; the 's' form, distinct from the rarer bare 'fight')
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
@@ -964,6 +980,18 @@ class _AmLead(str):       # the optional player subject before 'add[s]' (validat
 
 
 class _AmRest(str):       # the mana-spec span after 'add[s]' (fed to _mana_production; spacing-independent)
+    pass
+
+
+class _AmExpr(str):       # the state-derived <expr>/<thing> span of a conditional add (slugged by ground.slug)
+    pass
+
+
+class _AmSym(str):        # the single mana symbol of 'add an amount of <sym> equal to …' (color via _mana_production)
+    pass
+
+
+class _AmXMana(str):      # the 'X mana of any [one] color' span of shape 2 (validated/colored below)
     pass
 
 
@@ -2050,6 +2078,75 @@ class _ToEffect(Transformer):
             return None
         return Effect("add_mana", len(prod), _target((lead or "you").strip()),
                       "_".join(dict.fromkeys(prod)))
+
+    # --- CONDITIONAL/VARIABLE ADD_MANA (state-derived amounts, §106.3) ---------
+    def amexpr(self, *toks):
+        return _AmExpr(" ".join(str(t) for t in toks))    # the <expr>/<thing> span (slugged by ground.slug)
+
+    def amxmana(self, *toks):
+        return _AmXMana(" ".join(str(t) for t in toks))   # the 'X mana of any [one] color' span (validated below)
+
+    def amadd_eq(self, *args):
+        # SHAPE 1 'add an amount of <sym> equal to <expr>' (§106.3). Grammar owns the structure
+        # (`amlead? AM_ADD AM_ADDL? AM_AMOUNTOF AM_MANASYM EQUALTO amexpr`); we read the single mana
+        # symbol token + the <expr> SPAN off the tree. The color is taken from `_mana_production` (reused
+        # — same §107.4 lookup as fixed mana), the amount is the repo-standard `equal_to_<slug(expr)>`
+        # (IDENTICAL to deal_damage/gain_life/put_counter conditional amounts), target via _target.
+        lead = next((str(a) for a in args if isinstance(a, _AmLead)), None)
+        sym = next((str(a) for a in args
+                    if not isinstance(a, (_AmLead, _AmExpr)) and str(a).startswith("{")), None)
+        expr = next((str(a) for a in args if isinstance(a, _AmExpr)), None)
+        if sym is None or not expr or not expr.strip():
+            return None
+        if lead is not None and not _AM_TGT.match(lead.strip()):
+            return None
+        prod = _mana_production(_am_upper_syms(sym.strip()))
+        if not prod or len(prod) != 1:                     # exactly one mana type ('an amount of {G}')
+            return None
+        return Effect("add_mana", "equal_to_" + ground.slug(expr.strip()),
+                      _target((lead or "you").strip()), prod[0])
+
+    def amadd_wherex(self, *args):
+        # SHAPE 2 'add X mana of any [one] color, where X is <expr>' (§106.3). Grammar owns the structure
+        # (`amlead? AM_ADD AM_ADDL? amxmana AM_WHEREX amexpr`); the `amxmana` span must be exactly the
+        # 'X mana of any color' / 'X mana of any one color' formal phrase (else abstain), and the <expr>
+        # SPAN slugs to the amount `equal_to_<slug(expr)>`. Color slug mirrors _mana_production's
+        # 'any_color' / 'any_one_color'.
+        lead = next((str(a) for a in args if isinstance(a, _AmLead)), None)
+        xmana = next((str(a) for a in args if isinstance(a, _AmXMana)), None)
+        expr = next((str(a) for a in args if isinstance(a, _AmExpr)), None)
+        if xmana is None or not expr or not expr.strip():
+            return None
+        if lead is not None and not _AM_TGT.match(lead.strip()):
+            return None
+        xs = xmana.strip().rstrip(",").strip()
+        if re.fullmatch(r"x mana of any one color", xs, re.I):
+            color = "any_one_color"
+        elif re.fullmatch(r"x mana of any color", xs, re.I):
+            color = "any_color"
+        else:
+            return None                                    # unrecognized X-mana phrase -> abstain
+        return Effect("add_mana", "equal_to_" + ground.slug(expr.strip()),
+                      _target((lead or "you").strip()), color)
+
+    def amadd_foreach(self, *args):
+        # SHAPE 3 'add <mana-spec> for each <thing>' (§106.3, e.g. 'Add {G} for each creature you control').
+        # Grammar owns the structure (`amlead? AM_ADD AM_ADDL? amrest FOREACH amexpr`); the mana-spec
+        # `amrest` is grounded by `_mana_production` (reused — colors byte-identical to fixed mana) and the
+        # <thing> SPAN slugs to the count-scaled amount `<N>_per_<slug(thing)>` (N = symbol count, so a
+        # single '{G}' -> '1_per_…', mirroring the create/draw/gain_life '_per_' convention exactly).
+        lead = next((str(a) for a in args if isinstance(a, _AmLead)), None)
+        rest = next((str(a) for a in args if isinstance(a, _AmRest)), None)
+        thing = next((str(a) for a in args if isinstance(a, _AmExpr)), None)
+        if rest is None or not thing or not thing.strip():
+            return None
+        if lead is not None and not _AM_TGT.match(lead.strip()):
+            return None
+        prod = _mana_production(_am_upper_syms(rest.strip()))
+        if not prod:
+            return None
+        return Effect("add_mana", f"{len(prod)}_per_" + ground.slug(thing.strip()),
+                      _target((lead or "you").strip()), "_".join(dict.fromkeys(prod)))
 
 
 class _Zone:
