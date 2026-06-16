@@ -133,6 +133,15 @@ _EVENT = {
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) + §707 magecraft 'cast or copy an instant or
     # sorcery' (Storm-Kiln Artist) — the driver fires won_flip / copied_spell windows.
     "you_win_a_coin_flip": "won_coin_flip",
+    # each-player phase triggers, attacks-or-blocks, your-second-draw, 'dies' = put-into-graveyard alias
+    # (kept in sync with the datalog event_map; the engine derives has_trigger from its copy).
+    "the_beginning_of_each_upkeep": "each_upkeep",
+    "the_beginning_of_each_player_s_upkeep": "each_upkeep",
+    "the_beginning_of_each_opponent_s_upkeep": "each_opponent_upkeep",
+    "the_beginning_of_each_end_step": "any_end_step",
+    "attacks_or_blocks": "attacks_or_blocks",
+    "you_draw_your_second_card_each_turn": "you_draw_second",
+    "is_put_into_a_graveyard_from_the_battlefield": "dies_self",
     "you_cast_or_copy_an_instant_or_sorcery_spell": "cast_or_copy_is",
     # §603 composite self-triggers ('enters or attacks', 'enters or dies') — two firing conditions, both
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
