@@ -874,6 +874,56 @@ cond_met(S, "as_long_as_equipped_creature_is_a_human") :- attached_to(S, X), sub
 cond_met(S, "as_long_as_enchanted_creature_is_a_human") :- attached_to(S, X), subtype(X, "human").
 cond_met(S, "as_long_as_is_tapped") :- tapped(S).
 cond_met(S, "as_long_as_is_untapped") :- on_battlefield(S), !tapped(S).
+// --- GRAVEYARD-count conditions (threshold / delirium / type counts) ----------------------------------
+// in_graveyard(owner, card): a per-player graveyard membership, fed ONLY by forge_bridge from Forge's
+// per-player graveyards (the owner-less arity-1 `graveyard` zone stays the self-play model — it carries
+// no owner so it can't drive per-player counts). Self-play never populates in_graveyard, so EVERY rule
+// below is inert outside a Forge-refereed game: this unlock helps play vs/with Forge without changing
+// witchcraft self-play behavior. As with all cond_met, a loose rule only ENABLES an otherwise-inert
+// conditional static — it can over-apply but never regresses unconditional behavior.
+.decl in_graveyard(p: symbol, c: symbol)
+// raw card counts in the controller's OWN graveyard (threshold = 7).
+cond_met(S, "as_long_as_there_are_seven_or_more_cards_in_your_graveyard") :- controls(P, S), 7 <= count : { in_graveyard(P, _) }.
+cond_met(S, "as_long_as_seven_or_more_cards_are_in_your_graveyard") :- controls(P, S), 7 <= count : { in_graveyard(P, _) }.
+cond_met(S, "as_long_as_there_are_no_cards_in_your_graveyard") :- controls(P, S), 0 = count : { in_graveyard(P, _) }.
+cond_met(S, "as_long_as_there_are_fewer_than_eight_cards_in_your_graveyard") :- controls(P, S), N = count : { in_graveyard(P, _) }, N < 8.
+// an OPPONENT's graveyard count (any player who is not the source's controller).
+cond_met(S, "as_long_as_an_opponent_has_eight_or_more_cards_in_their_graveyard") :- controls(P, S), is_player(O), O != P, 8 <= count : { in_graveyard(O, _) }.
+cond_met(S, "as_long_as_an_opponent_has_ten_or_more_cards_in_their_graveyard") :- controls(P, S), is_player(O), O != P, 10 <= count : { in_graveyard(O, _) }.
+// 'a single graveyard' = ANY one player's graveyard (yours or an opponent's).
+cond_met(S, "as_long_as_there_are_ten_or_more_cards_in_a_single_graveyard") :- controls(_, S), is_player(O), 10 <= count : { in_graveyard(O, _) }.
+// per-card-type views of the controller's graveyard (each dedups per card via the relation set, so the
+// downstream count is a DISTINCT-card count, not a witness-tuple count).
+.decl gy_type(p: symbol, t: symbol)
+gy_type(P, T) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, T).
+.decl gy_creature(p: symbol, c: symbol)
+gy_creature(P, C) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, "creature").
+.decl gy_land(p: symbol, c: symbol)
+gy_land(P, C) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, "land").
+.decl permanent_card_type(t: symbol)
+permanent_card_type("artifact"). permanent_card_type("creature"). permanent_card_type("enchantment"). permanent_card_type("land"). permanent_card_type("planeswalker"). permanent_card_type("battle").
+.decl gy_permanent(p: symbol, c: symbol)
+gy_permanent(P, C) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, T), permanent_card_type(T).
+.decl gy_inst_sorc(p: symbol, c: symbol)
+gy_inst_sorc(P, C) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, "instant").
+gy_inst_sorc(P, C) :- in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, "sorcery").
+.decl gy_mv(p: symbol, mv: number)
+gy_mv(P, MV) :- in_graveyard(P, C), mana_cost(C, MV).
+// delirium (4+ card types) and the type-count thresholds.
+cond_met(S, "as_long_as_there_are_four_or_more_card_types_among_cards_in_your_graveyard") :- controls(P, S), 4 <= count : { gy_type(P, _) }.
+cond_met(S, "as_long_as_there_are_four_or_more_creature_cards_in_your_graveyard") :- controls(P, S), 4 <= count : { gy_creature(P, _) }.
+cond_met(S, "as_long_as_there_are_three_or_more_land_cards_in_your_graveyard") :- controls(P, S), 3 <= count : { gy_land(P, _) }.
+cond_met(S, "as_long_as_there_are_four_or_more_permanent_cards_in_your_graveyard") :- controls(P, S), 4 <= count : { gy_permanent(P, _) }.
+cond_met(S, "as_long_as_there_are_eight_or_more_permanent_cards_in_your_graveyard") :- controls(P, S), 8 <= count : { gy_permanent(P, _) }.
+cond_met(S, "as_long_as_there_are_two_or_more_instant_and_or_sorcery_cards_in_your_graveyard") :- controls(P, S), 2 <= count : { gy_inst_sorc(P, _) }.
+cond_met(S, "as_long_as_there_are_three_or_more_instant_and_or_sorcery_cards_in_your_graveyard") :- controls(P, S), 3 <= count : { gy_inst_sorc(P, _) }.
+cond_met(S, "as_long_as_there_are_four_or_more_instant_and_or_sorcery_cards_in_your_graveyard") :- controls(P, S), 4 <= count : { gy_inst_sorc(P, _) }.
+cond_met(S, "as_long_as_an_instant_card_and_a_sorcery_card_are_in_your_graveyard") :- controls(P, S), gy_inst_sorc(P, Ci), instance_of(Ci, Si), card_type(Si, "instant"), gy_inst_sorc(P, Cs), instance_of(Cs, Ss), card_type(Ss, "sorcery").
+cond_met(S, "as_long_as_there_are_five_or_more_mana_values_among_cards_in_your_graveyard") :- controls(P, S), 5 <= count : { gy_mv(P, _) }.
+// singletons over the graveyard (one card of a kind present).
+cond_met(S, "as_long_as_there_is_a_land_card_in_your_graveyard") :- controls(P, S), gy_land(P, _).
+cond_met(S, "as_long_as_an_artifact_card_is_in_your_graveyard") :- controls(P, S), in_graveyard(P, C), instance_of(C, Slug), card_type(Slug, "artifact").
+cond_met(S, "as_long_as_a_warrior_card_is_in_your_graveyard") :- controls(P, S), in_graveyard(P, C), instance_of(C, Slug), subtype(C, "warrior").
 static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), Cond != "-", cond_met(S, Cond), pt_value(Amount, Dp, Dt), anthem_scope(Target, Scope).
 static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond), Cond != "-", cond_met(S, Cond), engine_keyword(Kw), anthem_scope(Target, Scope).
 // SELF scope: '~ gets +N/+N' / '~ has X' — the source buffs ITSELF (Lieutenant et al.). Maps 'self' -> 'self'

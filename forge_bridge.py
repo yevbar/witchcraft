@@ -137,6 +137,12 @@ def reconstruct(obs: dict, seat: str):
             ctrl = card.get("controller", seat)
             state.setdefault(rel, set()).add((ctrl, cid) if player_scoped else (cid,))
             state.setdefault("printed_control", set()).add((ctrl, cid))
+            # GRAVEYARD CROSS-LAYER: also emit the player-scoped in_graveyard(owner, card) so the engine's
+            # graveyard-count conditions (threshold/delirium/type counts) evaluate. The arity-1 `graveyard`
+            # zone above carries no owner; in_graveyard is fed ONLY here (Forge games), leaving self-play —
+            # which never reconstructs from a Forge obs — inert. Owner is the graveyard's controller field.
+            if zone == "graveyard":
+                state.setdefault("in_graveyard", set()).add((ctrl, cid))
             if name not in corpus:                           # a card our interpreter doesn't model -> gap
                 # §111 TOKENS have no oracle/corpus entry, but Forge sends their derived characteristics
                 # (token/creature/land + P/T). Synthesize a minimal object so the seat can actually USE
