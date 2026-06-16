@@ -135,24 +135,33 @@ main_phase("postcombat_main"). main_phase("precombat_main").
 copy_ts(C, M) :- eff_copy(_, C, _, _), M = max T : { eff_copy(_, C, _, T) }.
 .decl copy_of(c: symbol, original: symbol)
 copy_of(C, O) :- eff_copy(_, C, O, Ts), copy_ts(C, Ts).
+// §708.2 FACE-DOWN (morph/manifest/disguise): a face-down permanent is a 2/2 colorless creature with NO
+// name, mana cost, types, subtypes, or abilities — its real card's characteristics are suppressed at the
+// copiable base, so EVERYTHING downstream (combat, lords/anthems by type, color/keyword checks) treats it
+// as that bare body. face_down(c) is a shim-fed EDB (empty in normal play -> zero effect; fed when the
+// engine/bridge models a face-down permanent). Later layers (counters, anthems, set-P/T) still apply ON TOP.
+.decl face_down(c: symbol)
+copiable_power(C, 2) :- face_down(C).
+copiable_toughness(C, 2) :- face_down(C).
+copiable_type(C, "creature") :- face_down(C).
 .decl copiable_type(c: symbol, v: symbol)
-copiable_type(C, V) :- copy_of(C, O), printed_type(O, V).
-copiable_type(C, V) :- printed_type(C, V), !copy_of(C, _).
+copiable_type(C, V) :- copy_of(C, O), printed_type(O, V), !face_down(C).
+copiable_type(C, V) :- printed_type(C, V), !copy_of(C, _), !face_down(C).
 .decl copiable_color(c: symbol, v: symbol)
-copiable_color(C, V) :- copy_of(C, O), printed_color(O, V).
-copiable_color(C, V) :- printed_color(C, V), !copy_of(C, _).
+copiable_color(C, V) :- copy_of(C, O), printed_color(O, V), !face_down(C).
+copiable_color(C, V) :- printed_color(C, V), !copy_of(C, _), !face_down(C).
 .decl copiable_keyword(c: symbol, v: symbol)
-copiable_keyword(C, V) :- copy_of(C, O), printed_keyword(O, V).
-copiable_keyword(C, V) :- printed_keyword(C, V), !copy_of(C, _).
+copiable_keyword(C, V) :- copy_of(C, O), printed_keyword(O, V), !face_down(C).
+copiable_keyword(C, V) :- printed_keyword(C, V), !copy_of(C, _), !face_down(C).
 .decl copiable_subtype(c: symbol, v: symbol)
-copiable_subtype(C, V) :- copy_of(C, O), printed_subtype(O, V).
-copiable_subtype(C, V) :- printed_subtype(C, V), !copy_of(C, _).
+copiable_subtype(C, V) :- copy_of(C, O), printed_subtype(O, V), !face_down(C).
+copiable_subtype(C, V) :- printed_subtype(C, V), !copy_of(C, _), !face_down(C).
 .decl copiable_power(c: symbol, v: number)
-copiable_power(C, V) :- copy_of(C, O), printed_power(O, V).
-copiable_power(C, V) :- printed_power(C, V), !copy_of(C, _).
+copiable_power(C, V) :- copy_of(C, O), printed_power(O, V), !face_down(C).
+copiable_power(C, V) :- printed_power(C, V), !copy_of(C, _), !face_down(C).
 .decl copiable_toughness(c: symbol, v: number)
-copiable_toughness(C, V) :- copy_of(C, O), printed_toughness(O, V).
-copiable_toughness(C, V) :- printed_toughness(C, V), !copy_of(C, _).
+copiable_toughness(C, V) :- copy_of(C, O), printed_toughness(O, V), !face_down(C).
+copiable_toughness(C, V) :- printed_toughness(C, V), !copy_of(C, _), !face_down(C).
 
 // §613 layer 2 — control: the latest control-changing effect overrides the printed controller.
 .decl control_ts(c: symbol, ts: number)
