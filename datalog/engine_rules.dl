@@ -826,6 +826,24 @@ static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "stati
 static_filter(S, Fk, Fv) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-"), pt_value(Amount, _, _), anthem_filter(Target, _, Fk, Fv).
 static_filter(S, Fk, Fv) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, "-"), engine_keyword(Kw), anthem_filter(Target, _, Fk, Fv).
 
+// --- CONDITIONAL static anthems (§611.2 with a continuous condition) ---------------------------------
+// A static modify_pt / grant_keyword whose card_effect carries a CONDITION (the cond column != "-") applies
+// only WHILE cond_met(S, Cond) holds. These MIRROR the unconditional anthem_scope rules above but gate on the
+// condition; everything downstream (static_pt/static_grant -> anthem_creature -> static_mod_*/static_grant_kw)
+// is reused, so a conditional anthem turns on/off with its condition exactly as an unconditional one turns
+// on/off with the source being on the battlefield. cond_met evaluates the condition for the source's controller.
+.decl cond_met(source: symbol, cond: symbol)
+// §702 Commander 'Lieutenant' ('as long as you control your commander'): the source's controller also
+// controls their commander on the battlefield. No numeric param — the cleanest first condition; more kinds
+// (life thresholds, 'control a <type>', graveyard counts) extend cond_met here.
+cond_met(S, "as_long_as_you_control_your_commander") :- controls(P, S), is_commander(Cmd), controls(P, Cmd), on_battlefield(Cmd).
+static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), Cond != "-", cond_met(S, Cond), pt_value(Amount, Dp, Dt), anthem_scope(Target, Scope).
+static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond), Cond != "-", cond_met(S, Cond), engine_keyword(Kw), anthem_scope(Target, Scope).
+// SELF scope: '~ gets +N/+N' / '~ has X' — the source buffs ITSELF (Lieutenant et al.). Maps 'self' -> 'self'
+// and resolves the anthem to the source itself; applies to unconditional self-static-buffs too.
+anthem_scope("self", "self").
+anthem_creature(S, S) :- static_src(S, "self"), on_battlefield(S), creature(S).
+
 // ONE WORLD: the PRINTED IDENTITY (§613 base characteristics) DERIVED per instance from the
 // card-level card_* facts via instance_of (was the bridge emitting printed_* per instance from
 // the MTGJSON corpus). printed_* are already shim inputs, so souffle unions the shim-fed rows
