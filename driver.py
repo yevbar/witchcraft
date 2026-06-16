@@ -398,16 +398,79 @@ def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
         print(f"    {controller} creates a {spec} token ({tid})")
 
 
+def _slug_of(state: dict, card: str) -> str | None:
+    return next((c for (i, c) in state.get("instance_of", set()) if i == card), None)
+
+
+def _cost_value(spec: str) -> int:
+    """Total mana value of a cost slug like '3_w_w' (generic 3 + 2 pips = 5); 'x' counts 0."""
+    total = 0
+    for tok in str(spec).split("_"):
+        if tok.isdigit():
+            total += int(tok)
+        elif tok and tok != "x":
+            total += 1
+    return total
+
+
+def _has_card_keyword(state: dict, card: str, kw: str) -> bool:
+    slug = _slug_of(state, card)
+    return slug is not None and (slug, kw) in state.get("card_keyword", set())
+
+
+def turn_up_cost(state: dict, card: str) -> int:
+    """The generic mana the controller pays to turn `card` face up: a morph/disguise card's keyword cost
+    (keyword_param), else (a manifested creature) its own mana value; 0 if unknown (treated as free)."""
+    slug = _slug_of(state, card)
+    for kw in ("morph", "disguise"):
+        p = next((pr for (s, k, pr) in state.get("keyword_param", set()) if s == slug and k == kw), None)
+        if p is not None:
+            return _cost_value(p)
+    mv = next((n for (i, n) in state.get("mana_cost", set()) if i == card), None)
+    return int(mv) if mv is not None else 0
+
+
 def turn_face_up(state: dict, card: str) -> bool:
     """§708.5 turn a face-down permanent FACE UP: drop face_down(card) so the engine resolves its REAL
-    characteristics again, and make it public (everyone now sees its identity — drop any face-up secrecy by
-    removing it from `known`-only status; observe shows an on-battlefield, non-face_down card to all). Returns
-    False if `card` isn't face down. The CALLER enforces legality (it must be a creature card, cost paid)."""
+    characteristics again, and make it public (everyone now sees its identity). Returns False if `card`
+    isn't face down. The CALLER enforces legality (creature card) and pays turn_up_cost."""
     if (card,) not in state.get("face_down", set()):
         return False
     state["face_down"].discard((card,))
     state.setdefault("revealed", set()).add((card,))         # §708 it is now public to every player
     print(f"    {card} is turned face up")
+    return True
+
+
+def cast_face_down(state: dict, card: str, ctrl: str) -> bool:
+    """§702.37 morph / §702.166 disguise — cast a card from hand FACE DOWN as a 2/2 creature for {3}: it
+    enters the battlefield face down, the controller KNOWS it, opponents see only the 2/2 body (observe).
+    Returns False if `card` isn't in ctrl's hand. (Disguise's ward {2} isn't mechanically modelled.)"""
+    if (ctrl, card) not in state.get("in_hand", set()):
+        return False
+    _spend_ability_mana(state, ctrl, 3)                       # §702.37e the face-down cast costs {3}
+    state["in_hand"].discard((ctrl, card))
+    state.setdefault("on_battlefield", set()).add((card,))
+    state.setdefault("printed_control", set()).add((ctrl, card))
+    state.setdefault("face_down", set()).add((card,))         # §708.2 -> engine 2/2 colorless body
+    state.setdefault("known", set()).add((ctrl, card))        # the controller knows what it cast
+    state.setdefault("_sick", set()).add((card,))
+    print(f"    {ctrl} casts {card} face down (2/2)")
+    return True
+
+
+def foretell(state: dict, card: str, ctrl: str) -> bool:
+    """§702.143 foretell — exile a card from hand FACE DOWN for {2} (cast later for its foretell cost). Its
+    identity is hidden in exile from opponents but KNOWN to its owner (observe). False if not in hand."""
+    if (ctrl, card) not in state.get("in_hand", set()):
+        return False
+    _spend_ability_mana(state, ctrl, 2)                       # §702.143a foretell costs {2}
+    state["in_hand"].discard((ctrl, card))
+    state.setdefault("exile", set()).add((card,))
+    state.setdefault("face_down", set()).add((card,))
+    state.setdefault("known", set()).add((ctrl, card))
+    state.setdefault("_foretold", set()).add((card,))        # marker: foretold (castable from exile)
+    print(f"    {ctrl} foretells {card} (face down in exile)")
     return True
 
 

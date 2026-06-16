@@ -109,5 +109,59 @@ check("turn_face_up: face_down cleared", ("drg",) not in s["face_down"])
 check("turn_face_up: now public to the opponent too",
       ("drg", "dragonslug") in observe.observe(s, "bob").get("instance_of", set()))
 
+# === MORPH / DISGUISE / FORETELL casting + turn-face-up in the ACTION SURFACE (env) =====================
+import env
+
+def _hand_state(kw, param):
+    # alice holds 'mz', really a 4/4 green Beast with `kw` (morph/disguise/foretell) costing `param`
+    return {
+        "is_player": {("alice",), ("bob",)},
+        "active_player": {("alice",)}, "current_step": {("precombat_main",)},
+        "in_hand": {("alice", "mz")}, "in_library": set(),
+        "instance_of": {("mz", "mzslug")}, "card_keyword": {("mzslug", kw)},
+        "keyword_param": {("mzslug", kw, param)},
+        "card_type": {("mzslug", "creature")}, "card_subtype": {("mzslug", "beast")},
+        "card_color": {("mzslug", "green")}, "card_power": {("mzslug", 4)}, "card_toughness": {("mzslug", 4)},
+        "mana_available": {("alice", 5)},
+        "printed_control": set(), "on_battlefield": set(), "face_down": set(), "counter": set(), "tapped": set(),
+    }
+
+# MORPH: cast face down for {3} is an action in the surface; turn up for the morph cost {3}
+s = _hand_state("morph", "3")
+check("env action surface offers cast_face_down for a morph card with mana",
+      ("cast_face_down", "alice", "mz") in env._face_down_actions(s, "alice"))
+driver.cast_face_down(s, "mz", "alice")
+check("cast_face_down: mz left hand", ("alice", "mz") not in s["in_hand"])
+check("cast_face_down: mz on battlefield face down", ("mz",) in s["on_battlefield"] and ("mz",) in s["face_down"])
+pw = next((int(v) for (c, v) in driver.run(s, ["power"])["power"] if c == "mz"), None)
+check("morph face-down is a 2/2 in the engine", pw == 2)
+check("observe(bob): morph identity hidden", not any(c == "mz" for (c, _x) in observe.observe(s, "bob").get("instance_of", set())))
+check("observe(alice): caster knows the real card", ("mz", "mzslug") in observe.observe(s, "alice").get("instance_of", set()))
+check("turn_up_cost(morph '3') == 3", driver.turn_up_cost(s, "mz") == 3)
+check("gating: turn_face_up NOT offered while alice is short on mana (2 left after the {3} cast)",
+      not any(a[0] == "turn_face_up" for a in env._face_down_actions(s, "alice")))
+s["mana_available"] = {("alice", 5)}                          # a later turn, mana available again
+check("env now offers turn_face_up for the face-down permanent (mana available)",
+      ("turn_face_up", "alice", "mz") in env._face_down_actions(s, "alice"))
+driver.turn_face_up(s, "mz")
+pw = next((int(v) for (c, v) in driver.run(s, ["power"])["power"] if c == "mz"), None)
+check("after turn_face_up: real 4/4 Beast", pw == 4)
+
+# FORETELL: exile face down for {2} is an action; the card waits face down in exile
+s = _hand_state("foretell", "4_r_r")
+check("env action surface offers foretell for a foretell card with mana",
+      ("foretell", "alice", "mz") in env._face_down_actions(s, "alice"))
+driver.foretell(s, "mz", "alice")
+check("foretell: mz left hand", ("alice", "mz") not in s["in_hand"])
+check("foretell: mz exiled face down", ("mz",) in s.get("exile", set()) and ("mz",) in s["face_down"])
+check("foretell: marked foretold (castable later)", ("mz",) in s.get("_foretold", set()))
+check("observe(bob): foretold card identity hidden in exile",
+      not any(c == "mz" for (c, _x) in observe.observe(s, "bob").get("instance_of", set())))
+check("observe(alice): owner knows the foretold card", ("mz", "mzslug") in observe.observe(s, "alice").get("instance_of", set()))
+
+# GATING: no mana -> no face-down actions offered
+s = _hand_state("morph", "3"); s["mana_available"] = {("alice", 2)}
+check("gating: <3 mana -> no cast_face_down offered", not any(a[0] == "cast_face_down" for a in env._face_down_actions(s, "alice")))
+
 print(f"\n{_ok[1]}/{_ok[0]} checks passed")
 import sys; sys.exit(0 if _ok[1] == _ok[0] else 1)

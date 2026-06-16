@@ -217,6 +217,41 @@ def _block_options(state: dict, ap: str) -> list[frozenset]:
     return opts
 
 
+def _avail_mana(state: dict, ap: str) -> int:
+    return next((m for (p, m) in state.get("mana_available", set()) if p == ap), 0)
+
+
+def _hand_with_keyword(state: dict, ap: str, kw: str) -> list:
+    """ap's hand cards whose real card has keyword `kw` (morph/disguise/foretell), via instance_of+card_keyword."""
+    inst = {i: c for (i, c) in state.get("instance_of", set())}
+    kws = state.get("card_keyword", set())
+    return sorted(card for (p, card) in state.get("in_hand", set())
+                  if p == ap and (inst.get(card), kw) in kws)
+
+
+def _face_down_controlled(state: dict, ap: str) -> list:
+    pc = state.get("printed_control", set())
+    return sorted(c for (c,) in state.get("face_down", set()) if (ap, c) in pc)
+
+
+def _face_down_actions(state: dict, ap: str) -> list[tuple]:
+    """§702 morph/disguise (cast a hand card face down for {3}), §702.143 foretell (exile a hand card face
+    down for {2}), §708.5 turn-face-up (a face-down permanent you control, for its turn-up cost) — all
+    gated on available mana. Empty unless the seat actually has such cards, so normal games are unaffected."""
+    avail = _avail_mana(state, ap)
+    acts: list[tuple] = []
+    if avail >= 3:
+        for card in _hand_with_keyword(state, ap, "morph") + _hand_with_keyword(state, ap, "disguise"):
+            acts.append(("cast_face_down", ap, card))
+    if avail >= 2:
+        for card in _hand_with_keyword(state, ap, "foretell"):
+            acts.append(("foretell", ap, card))
+    for card in _face_down_controlled(state, ap):
+        if avail >= driver.turn_up_cost(state, card):
+            acts.append(("turn_face_up", ap, card))
+    return acts
+
+
 def legal_actions(state: dict) -> list[tuple]:
     """The choices available to move now, at the current decision point (post auto-advance)."""
     if is_terminal(state):
@@ -235,6 +270,7 @@ def legal_actions(state: dict) -> list[tuple]:
         for ab in driver._activatable(state, ap):
             for ch in _activate_choices(state, ab):
                 actions.append(("activate", ap, ab, ch))
+        actions.extend(_face_down_actions(state, ap))         # §702/§708 morph/disguise/foretell/turn-face-up
         actions.append(("pass",))
         return actions
     if step == "declare_attackers":
@@ -358,6 +394,18 @@ def step(state: dict, action: tuple) -> dict:
             driver._stack_push(s, a, ap)
             driver._resolve_stack(s, ap, players)
             s["_forced"] = {}
+        elif kind == "cast_face_down":                          # §702.37/§702.166 cast a morph/disguise card face down
+            _, ap, card = action
+            driver.cast_face_down(s, card, ap)
+        elif kind == "foretell":                                # §702.143 exile a card from hand face down
+            _, ap, card = action
+            driver.foretell(s, card, ap)
+        elif kind == "turn_face_up":                            # §708.5 turn a face-down permanent face up (pay its cost)
+            _, ap, card = action
+            cost = driver.turn_up_cost(s, card)
+            if cost:
+                driver._spend_ability_mana(s, ap, cost)
+            driver.turn_face_up(s, card)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
             _advance_one(s)
