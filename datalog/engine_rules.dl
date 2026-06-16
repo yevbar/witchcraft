@@ -878,6 +878,42 @@ cond_met(S, "as_long_as_is_untapped") :- on_battlefield(S), !tapped(S).
 // this fires in self-play too (active_player is always fed), which is correct: the buff genuinely
 // applies only on your turn. Largest remaining genuinely-static continuous condition (82 rows).
 cond_met(S, "during_your_turn") :- controls(P, S), active_player(P).
+// --- more genuinely-static boolean conditions over EXISTING state -------------------------------------
+// life / poison thresholds on the source's controller or an opponent.
+cond_met(S, "as_long_as_you_have_25_or_more_life") :- controls(P, S), life(P, N), N >= 25.
+cond_met(S, "as_long_as_you_have_20_or_more_life") :- controls(P, S), life(P, N), N >= 20.
+cond_met(S, "as_long_as_you_have_40_or_more_life") :- controls(P, S), life(P, N), N >= 40.
+cond_met(S, "as_long_as_you_have_7_or_less_life") :- controls(P, S), life(P, N), N <= 7.
+cond_met(S, "as_long_as_you_have_5_or_less_life") :- controls(P, S), life(P, N), N <= 5.
+cond_met(S, "as_long_as_an_opponent_has_10_or_less_life") :- controls(P, S), is_player(O), O != P, life(O, N), N <= 10.
+cond_met(S, "as_long_as_an_opponent_has_three_or_more_poison_counters") :- controls(P, S), is_player(O), O != P, poison(O, N), N >= 3.
+// 'control a <kind>' over creature subtype / color / type (each unlocks its slug family).
+cond_met(S, "as_long_as_you_control_a_dragon") :- controls(P, S), controls(P, X), subtype(X, "dragon").
+cond_met(S, "as_long_as_you_control_another_dinosaur") :- controls(P, S), controls(P, X), X != S, subtype(X, "dinosaur").
+cond_met(S, "as_long_as_you_control_an_enchantment") :- controls(P, S), controls(P, X), has_type(X, "enchantment").
+cond_met(S, "as_long_as_you_control_a_white_creature") :- controls(P, S), controls(P, X), color(X, "white"), creature(X).
+cond_met(S, "as_long_as_you_control_a_blue_creature") :- controls(P, S), controls(P, X), color(X, "blue"), creature(X).
+cond_met(S, "as_long_as_you_control_a_black_creature") :- controls(P, S), controls(P, X), color(X, "black"), creature(X).
+cond_met(S, "as_long_as_you_control_a_red_creature") :- controls(P, S), controls(P, X), color(X, "red"), creature(X).
+cond_met(S, "as_long_as_you_control_a_green_creature") :- controls(P, S), controls(P, X), color(X, "green"), creature(X).
+cond_met(S, "as_long_as_you_control_a_white_permanent") :- controls(P, S), controls(P, X), color(X, "white").
+cond_met(S, "as_long_as_you_control_a_blue_permanent") :- controls(P, S), controls(P, X), color(X, "blue").
+cond_met(S, "as_long_as_you_control_a_black_permanent") :- controls(P, S), controls(P, X), color(X, "black").
+cond_met(S, "as_long_as_you_control_a_red_permanent") :- controls(P, S), controls(P, X), color(X, "red").
+cond_met(S, "as_long_as_you_control_a_green_permanent") :- controls(P, S), controls(P, X), color(X, "green").
+// land-count conditions.
+cond_met(S, "as_long_as_you_control_eight_or_more_lands") :- controls(P, S), 8 <= count : { controls(P, X), has_type(X, "land") }.
+cond_met(S, "as_long_as_you_control_no_untapped_lands") :- controls(P, S), 0 = count : { controls(P, X), has_type(X, "land"), !tapped(X) }.
+// hand-size (the high end; the low end was added earlier).
+cond_met(S, "as_long_as_you_have_seven_or_more_cards_in_hand") :- controls(P, S), 7 <= count : { in_hand(P, _) }.
+// attachment / enter-this-turn (attached_to(S, X): S is the Aura/Equipment on X).
+cond_met(S, "as_long_as_equipped_creature_is_legendary") :- attached_to(S, X), has_supertype(X, "legendary").
+cond_met(S, "as_long_as_enchanted_creature_is_legendary") :- attached_to(S, X), has_supertype(X, "legendary").
+cond_met(S, "as_long_as_it_entered_this_turn") :- just_entered(S).
+// city's blessing (§702.131 ascend) — APPROXIMATED as the controller having 10+ permanents (the threshold
+// that grants it). It's sticky once gained and we don't track the flag, so this can under-apply; cond_met
+// only ENABLES, so that's a safe miss, never a wrong-direction regression.
+cond_met(S, "as_long_as_you_have_the_city_s_blessing") :- controls(P, S), 10 <= count : { controls(P, _) }.
 // --- GRAVEYARD-count conditions (threshold / delirium / type counts) ----------------------------------
 // in_graveyard(owner, card): a per-player graveyard membership, fed ONLY by forge_bridge from Forge's
 // per-player graveyards (the owner-less arity-1 `graveyard` zone stays the self-play model — it carries
