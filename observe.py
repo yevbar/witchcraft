@@ -94,6 +94,13 @@ def observe(state: dict, seat: str) -> dict:
             view[rel] = kept
     view["hand_count"] = _counts(state, "in_hand", players)
     view["library_count"] = _counts(state, "in_library", players)
+    # §708 library-ORDER knowledge: the seat knows the top cards it scried / looked at (state['_known_top']),
+    # in order, as long as they're still in its library. Exposed as library_top = {(index, card)} (index 0 =
+    # the very top / next draw). Other seats' order knowledge is never exposed.
+    own_lib = {c for (p, c) in state.get("in_library", ()) if p == seat}
+    top = [c for c in state.get("_known_top", {}).get(seat, []) if c in own_lib]
+    if top:
+        view["library_top"] = {(i, c) for i, c in enumerate(top)}
     return view
 
 
@@ -108,3 +115,30 @@ def remember(state: dict, seat: str, cards) -> None:
     known = state.setdefault("known", set())
     for c in cards:
         known.add((seat, c))
+
+
+def note_visible(state: dict) -> None:
+    """§708 memory accumulation: bank currently PUBLIC (revealed) cards into EVERY player's persistent
+    `known`, so a card stays remembered after it later leaves face-up view (e.g. is shuffled away). Mutates
+    state['known']. (Public-zone cards need no banking — they're re-derived as visible every observation;
+    privately-known cards are already persisted.)"""
+    revealed = [c for (c,) in state.get("revealed", ())]
+    if not revealed:
+        return
+    players = [p for (p,) in state.get("is_player", ())]
+    known = state.setdefault("known", set())
+    for c in revealed:
+        for p in players:
+            known.add((p, c))
+
+
+def on_shuffle(state: dict, p: str) -> None:
+    """§701.20 shuffle-FORGETTING: a shuffle randomizes p's library, so p loses positional knowledge of it
+    and any face-up reveal of those cards ends — but IDENTITY memory survives (you remember a card you saw
+    is in there, just not where). So: bank what's currently known, drop p's library-ORDER knowledge
+    (_known_top), and clear those cards' face-up `revealed` status (they stay in everyone's `known`)."""
+    note_visible(state)
+    state.get("_known_top", {}).pop(p, None)
+    lib = {c for (pp, c) in state.get("in_library", ()) if pp == p}
+    if lib and state.get("revealed"):
+        state["revealed"] = {(c,) for (c,) in state["revealed"] if c not in lib}

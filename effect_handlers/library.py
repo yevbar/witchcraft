@@ -158,6 +158,7 @@ def _apply_scry(D, state, a, n, tgt, src, ctrl):
     order = _order(state, ctrl)
     k = min(n, len(order))
     order[:k] = sorted(order[:k])                            # reorder the looked-at top, keep on top
+    state.setdefault("_known_top", {})[ctrl] = list(order[:k])   # §708: you now KNOW your top k (in this order)
     print(f"    trigger {a}: {ctrl} scries {n}")
 
 
@@ -180,6 +181,7 @@ def _apply_surveil(D, state, a, n, tgt, src, ctrl):
     order = _order(state, ctrl)
     k = min(n, len(order))
     order[:k] = sorted(order[:k])                            # keep all on top (a legal 'bin nothing')
+    state.setdefault("_known_top", {})[ctrl] = list(order[:k])   # §708: you now KNOW your top k (in this order)
     print(f"    trigger {a}: {ctrl} surveils {n}")
 
 

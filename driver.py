@@ -115,6 +115,8 @@ def _shuffle_library(state: dict, p: str) -> None:
     lib = [c for (pp, c) in state.get("in_library", set()) if pp == p]
     _rng(state).shuffle(lib)
     state.setdefault("_lib_order", {})[p] = lib
+    import observe
+    observe.on_shuffle(state, p)                             # §708: forget library ORDER + end face-up reveals (keep identity memory)
 
 
 def _flip_coin(state: dict, key: str = "coin") -> str:
@@ -857,6 +859,11 @@ def _draw(state: dict, p: str) -> bool:
         return False
     state["in_library"].discard((p, card))
     state.setdefault("in_hand", set()).add((p, card))
+    kt = state.get("_known_top", {}).get(p)                  # §708: the drawn top leaves p's known-top window
+    if kt and kt[0] == card:
+        kt.pop(0)
+    elif kt and card in kt:
+        kt.remove(card)
     print(f"    {p} draws {card}")
     _fire_draw_triggers(state, p)                            # §603 'whenever a player draws a card' triggers
     return True

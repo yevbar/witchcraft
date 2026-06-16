@@ -143,5 +143,34 @@ w = game.self_play(game.DECKS, variant="two-player", seed=3,
                    policy=game.hidden_info(game.random_policy), verbose=False)
 check("hidden-info self-play reaches a decisive winner", w in ("alice", "bob"))
 
+# --- §708 item 2: per-seat library-ORDER knowledge (scry -> you know your top; draw/shuffle update it) -
+import effect_handlers as eh
+s = _state(); s["_lib_order"] = {"alice": ["a_l1", "a_l2"]}
+eh.APPLY["scry"](driver, s, "a0", 2, "controller", "src", "alice")   # alice scries 2 -> knows top 2 in order
+va = observe.observe(s, "alice")
+check("scry: alice's view exposes library_top (ordered top she scried)",
+      va.get("library_top") == {(0, "a_l1"), (1, "a_l2")})
+vb = observe.observe(s, "bob")
+check("library_top is per-seat: bob never sees alice's order", "library_top" not in vb)
+driver._draw(s, "alice")                                              # draws a_l1 (the known top)
+va = observe.observe(s, "alice")
+check("after draw: known-top shifts up (a_l2 now index 0)", va.get("library_top") == {(0, "a_l2")})
+driver._shuffle_library(s, "alice")                                  # shuffle -> forget the order
+va = observe.observe(s, "alice")
+check("after shuffle: library_top knowledge is gone", "library_top" not in va)
+
+# --- §708 item 3: memory accumulation + shuffle-forgetting -----------------------------------------
+s = _state(); s["in_library"].add(("alice", "a_l3")); s["revealed"] = {("a_l3",)}   # a_l3 revealed on top, in library
+observe.note_visible(s)
+check("note_visible: a publicly-revealed card is banked into every player's known",
+      {("alice", "a_l3"), ("bob", "a_l3")} <= s.get("known", set()))
+# now shuffle alice's library: the revealed card is no longer face-up, but everyone still KNOWS it
+driver._shuffle_library(s, "alice")
+check("after shuffle: revealed face-up status cleared for the shuffled card", ("a_l3",) not in s.get("revealed", set()))
+check("after shuffle: bob still KNOWS a_l3 is in alice's library (identity memory kept)",
+      ("bob", "a_l3") in s.get("known", set()))
+check("after shuffle: bob sees a_l3 in alice's library (via known) but not its position",
+      observe.visible_to(s, "bob", "a_l3") and "library_top" not in observe.observe(s, "bob"))
+
 print(f"\n{_ok[1]}/{_ok[0]} checks passed")
 import sys; sys.exit(0 if _ok[1] == _ok[0] else 1)
