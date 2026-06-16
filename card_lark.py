@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause | fgclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | atclause | tfclause | mfclause | fgclause
 
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
@@ -181,6 +181,11 @@ fgo: (WORD | QUANT | NUM)+             -> fgo
 // in the transformer; compound/run-on/'equal to'/'for each'/'unless'/'where'/'if' objects defer to the
 // regex. Bare 'transform' only (no 's'): a subject-form '<X> transforms' is left to the regex.
 tfclause: TF_TRANSFORM tfbody                 -> tftransform
+// MANIFEST (§701.34) — 'manifest the top card of your library' -> manifest(1, top_of_library). TRUE grammar:
+// the MF_MANIFEST verb anchors the clause; the transformer validates the fixed shape (structural slice, not
+// an interpretive frame regex) and abstains on any other manifest phrasing (anaphoric 'those cards', etc.).
+mfclause.-2: MF_MANIFEST mfbody                -> mfmanifest
+mfbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM)+  -> mfbody
 tfbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> tfbody
 
 // PUT-TO-ZONE family (§401/§400.7) — the zone-move verbs the 'return' family doesn't cover:
@@ -342,6 +347,7 @@ AM_MANASYM.4: /\{[^}]*\}/             // a single mana symbol '{G}'/'{C}' (BOUND
 AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword action (attach family; namespaced; imperative only)
 FG_FIGHTS.5: /\bfights\b/             // '<A> fights <B>' separator (§701.12 fight; the 's' form, distinct from the rarer bare 'fight')
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
+MF_MANIFEST.3: /\bmanifest\b/         // 'manifest' — the §701.34 manifest keyword action (manifest family; namespaced)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -974,6 +980,10 @@ class _FgO(str):          # a fight operand span (fgo) — validated as _TGT in 
 
 
 class _TfBody(str):       # the flat 'transform …' object run (guarded + slugged like the object-verb leaf)
+    pass
+
+
+class _MfBody(str):       # the flat 'manifest …' body run (presence consumes the span; shape validated from _src)
     pass
 
 
@@ -1743,6 +1753,21 @@ class _ToEffect(Transformer):
             return None                            # compound/run-on or structural marker -> regex
         tgt = _target(rest) if _TF_TGT.match(rest) else ground.slug(rest)
         return Effect("transform", "-", tgt)
+
+    def mfbody(self, *toks):
+        return _MfBody(" ".join(str(t) for t in toks))
+
+    def mfmanifest(self, *args):
+        # 'manifest the top card of your library' -> manifest(1, top_of_library), byte-identical to the
+        # retired `_manifest_top` leaf. The grammar anchors on the MF_MANIFEST verb; we validate the fixed
+        # shape from the raw source (structural, not an interpretive frame) and ABSTAIN on any other manifest
+        # phrasing ('manifest those cards' / 'manifest dread') so those keep their existing handling.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        if src.strip().lower() == "manifest the top card of your library":
+            return Effect("manifest", 1, "top_of_library")
+        return None
 
     def bcmtgt(self, *toks):
         return _BcmTgt(" ".join(str(t) for t in toks))

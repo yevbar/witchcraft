@@ -251,9 +251,9 @@ def _reveal_top(m):
     return Effect("reveal", n, tgt) if n is not None else None
 
 
-@_t(r"^manifest the top card of your library$")
-def _manifest_top(m):
-    return Effect("manifest", 1, "top_of_library")
+# manifest: migrated to card_lark (the `mfclause` GRAMMAR production owns 'manifest the top card of your
+# library', lark-first); the regex template was retired (gate: DIFFERS=0). Anaphoric manifest phrasings
+# ('manifest those cards') keep their existing handling.
 
 
 @_t(r"^clash with an opponent$")
