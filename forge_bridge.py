@@ -143,6 +143,8 @@ def reconstruct(obs: dict, seat: str):
             # which never reconstructs from a Forge obs — inert. Owner is the graveyard's controller field.
             if zone == "graveyard":
                 state.setdefault("in_graveyard", set()).add((ctrl, cid))
+            if card.get("token"):                            # §111 token -> 'control a token' cond_met (any zone/corpus)
+                state.setdefault("is_token", set()).add((cid,))
             if name not in corpus:                           # a card our interpreter doesn't model -> gap
                 # §111 TOKENS have no oracle/corpus entry, but Forge sends their derived characteristics
                 # (token/creature/land + P/T). Synthesize a minimal object so the seat can actually USE

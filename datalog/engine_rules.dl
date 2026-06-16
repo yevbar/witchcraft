@@ -934,6 +934,17 @@ cond_met(S, "as_long_as_it_entered_this_turn") :- just_entered(S).
 // that grants it). It's sticky once gained and we don't track the flag, so this can under-apply; cond_met
 // only ENABLES, so that's a safe miss, never a wrong-direction regression.
 cond_met(S, "as_long_as_you_have_the_city_s_blessing") :- controls(P, S), 10 <= count : { controls(P, _) }.
+// --- long-tail conditions over NEW / under-used state -------------------------------------------------
+// is_token(c): the object is a §111 TOKEN. EDB fed by the driver (_create_token, self-play) and by
+// forge_bridge (a Forge token in the obs) — so 'control a token' works in BOTH modes. A '.decl' with no
+// rule head auto-becomes a souffle .input EDB; objects with no is_token row are simply non-tokens.
+.decl is_token(c: symbol)
+cond_met(S, "as_long_as_you_control_a_token") :- controls(P, S), controls(P, X), is_token(X).
+// 'drawn 2+ cards this turn' — draw_ord(P, n) records the nth draw of the turn, so draw_ord(P, 2) holds
+// exactly when the controller has drawn at least twice this turn (fed in self-play and Forge alike).
+cond_met(S, "as_long_as_you_ve_drawn_two_or_more_cards_this_turn") :- controls(P, S), draw_ord(P, 2).
+// '2+ nonland permanents entered under your control this turn' — count this turn's just_entered nonlands.
+cond_met(S, "as_long_as_two_or_more_nonland_permanents_entered_the_battlefield_under_your_control_this_turn") :- controls(P, S), 2 <= count : { just_entered(X), controls(P, X), !has_type(X, "land") }.
 // --- GRAVEYARD-count conditions (threshold / delirium / type counts) ----------------------------------
 // in_graveyard(owner, card): a per-player graveyard membership, fed ONLY by forge_bridge from Forge's
 // per-player graveyards (the owner-less arity-1 `graveyard` zone stays the self-play model — it carries

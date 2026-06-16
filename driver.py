@@ -381,6 +381,7 @@ def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
         tid = f"{spec}#{state['_tok']}"
         state.setdefault("on_battlefield", set()).add((tid,))             # printed_* only; the engine
         state.setdefault("printed_control", set()).add((controller, tid)) # derives controls/has_type/creature
+        state.setdefault("is_token", set()).add((tid,))                   # §111 token -> 'control a token' cond_met
         for t in d["types"]:
             state.setdefault("printed_type", set()).add((tid, t))
         for st in d.get("subtypes", []):                                  # §205.3 — so tribal lords reach tokens
