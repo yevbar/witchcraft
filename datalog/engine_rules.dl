@@ -837,6 +837,21 @@ static_filter(S, Fk, Fv) :- instance_of(S, Card), card_ability(Card, A, "static"
 // controls their commander on the battlefield. No numeric param — the cleanest first condition; more kinds
 // (life thresholds, 'control a <type>', graveyard counts) extend cond_met here.
 cond_met(S, "as_long_as_you_control_your_commander") :- controls(P, S), is_commander(Cmd), controls(P, Cmd), on_battlefield(Cmd).
+// More tractable conditions over existing state predicates (each unlocks a class of the already-interpreted
+// conditional statics). cond_met only ENABLES an otherwise-inert conditional static, so a loose rule can
+// over-apply but never regresses unconditional behavior.
+cond_met(S, "as_long_as_you_control_an_artifact") :- controls(P, S), controls(P, X), has_type(X, "artifact").
+cond_met(S, "as_long_as_you_control_three_or_more_artifacts") :- controls(P, S), N = count : { controls(P, X), has_type(X, "artifact") }, N >= 3.
+cond_met(S, "as_long_as_you_control_exactly_one_creature") :- controls(P, S), 1 = count : { controls(P, C), creature(C) }.
+cond_met(S, "as_long_as_is_equipped") :- attached_to(Eq, S), subtype(Eq, "equipment").
+cond_met(S, "as_long_as_is_enchanted") :- attached_to(Au, S), has_type(Au, "enchantment").
+cond_met(S, "as_long_as_it_s_untapped") :- on_battlefield(S), !tapped(S).
+cond_met(S, "as_long_as_it_s_attacking") :- attacks(S, _).
+cond_met(S, "as_long_as_you_control_a_plains") :- controls(P, S), controls(P, L), subtype(L, "plains").
+cond_met(S, "as_long_as_you_control_an_island") :- controls(P, S), controls(P, L), subtype(L, "island").
+cond_met(S, "as_long_as_you_control_a_swamp") :- controls(P, S), controls(P, L), subtype(L, "swamp").
+cond_met(S, "as_long_as_you_control_a_mountain") :- controls(P, S), controls(P, L), subtype(L, "mountain").
+cond_met(S, "as_long_as_you_control_a_forest") :- controls(P, S), controls(P, L), subtype(L, "forest").
 static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), Cond != "-", cond_met(S, Cond), pt_value(Amount, Dp, Dt), anthem_scope(Target, Scope).
 static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond), Cond != "-", cond_met(S, Cond), engine_keyword(Kw), anthem_scope(Target, Scope).
 // SELF scope: '~ gets +N/+N' / '~ has X' — the source buffs ITSELF (Lieutenant et al.). Maps 'self' -> 'self'
