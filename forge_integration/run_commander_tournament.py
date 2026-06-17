@@ -197,7 +197,94 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     return res
 
 
+def run_duel(witch_key: str, ai_key: str, deck_paths: dict, port_base: int,
+             timeout: int = GAME_TIMEOUT) -> dict:
+    """§903.1 a 1v1 (DUEL) Commander game: seat 0 = witchcraft 'stockfish' (one bot process+port), seat 1 =
+    Forge AI. ONE bot only -> laptop-survivable (the 4-player FFA's two bots OOM small hosts; see RUNNING.md).
+    Reuses the FFA harness with -Dseats=2. Returns the parsed result + per-seat deck map."""
+    seat_decks = [witch_key, ai_key]
+    seat_type = ["witch", "ai"]
+    seat_name = [f"Witch-{witch_key}", f"ForgeAI-{ai_key}"]
+    port = free_port(port_base)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    plan = axis_synergy(witch_key)                                # the witch seat's deck-specific win axis + synergy
+    print(f"  seat 0 Witch[{witch_key}] develops toward axis={plan['MTG_DECK_AXIS']} "
+          f"synergy_size={plan['MTG_SYNERGY_SIZE']}", flush=True)
+    bot = subprocess.Popen([sys.executable, f"{HERE}/run_bot.py", str(port)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           env=dict(os.environ, **BOT_ENV, **plan))
+    time.sleep(1.5)
+    props = [f"-Dseats=2"]
+    ports = [port, 0]
+    for i in range(2):
+        props += [f"-Ddeck{i}={deck_paths[seat_decks[i]]}", f"-Dname{i}={seat_name[i]}",
+                  f"-Dtype{i}={seat_type[i]}", f"-Dport{i}={ports[i]}"]
+    env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
+    log = f"{LOG_DIR}/duel_p{port_base}.log"
+    cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
+           f'{" ".join(props)} -cp "{FATJAR}:{OUT}" ForgeCommanderFFA > "{log}" 2>&1')
+    r = sh(cmd, env=env)
+    try:
+        out0 = open(log).read()
+    except OSError:
+        out0 = ""
+    out = out0
+    cov = {}
+    try:
+        bot_out, _ = bot.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        bot.kill(); bot_out = ""
+    cl = re.search(r"COVERAGE:\s*(\{.*\})", bot_out or "")
+    if cl:
+        try:
+            cov[seat_name[0]] = ast.literal_eval(cl.group(1))
+        except (ValueError, SyntaxError):
+            pass
+    res = {"winner": "TIMEOUT/ERR", "turns": "?", "wall": "?", "seat_name": seat_name, "seat_type": seat_type,
+           "seat_decks": list(seat_decks), "coverage": cov, "raw": out, "log": log}
+    m = re.search(r"RESULT winner=(\S+) turns=(\d+) wall=(\d+)ms", out)
+    if m:
+        res.update(winner=m.group(1), turns=m.group(2), wall=m.group(3))
+    last_life = {}
+    for nm in seat_name:
+        hits = re.findall(re.escape(nm) + r" life -?\d+ -> (-?\d+)", out)
+        if hits:
+            last_life[nm] = int(hits[-1])
+    if last_life:
+        res["standing"] = sorted(((nm, last_life[nm]) for nm in seat_name if nm in last_life),
+                                 key=lambda kv: kv[1], reverse=True)
+    return res
+
+
+def main_duel() -> None:
+    """`--1v1 [witch_deck] [ai_deck]` — a single Commander DUEL: witchcraft stockfish vs Forge AI. Deck keys
+    default to ral (witch) vs kinnan (AI); override positionally (any of ral/stella/bluefarm/kinnan)."""
+    args = [a for a in sys.argv[2:] if not a.startswith("-")]
+    witch_key = args[0] if len(args) > 0 and args[0] in DECKS else "ral"
+    ai_key = args[1] if len(args) > 1 and args[1] in DECKS else "kinnan"
+    deck_paths = write_decks()
+    compile_harness()
+    print(f"\n=== 1v1 COMMANDER DUEL (Forge referees) — Witch[{witch_key}] vs ForgeAI[{ai_key}] ===", flush=True)
+    t0 = time.time()
+    res = run_duel(witch_key, ai_key, deck_paths, 9500)
+    print(f"  -> winner={res['winner']} turns={res['turns']} wall={res['wall']}ms", flush=True)
+    cov = (res.get("coverage") or {}).get(f"Witch-{witch_key}")
+    if cov:
+        dec, eng = cov.get("decisions") or 0, cov.get("engine_decided") or 0
+        drive = eng / dec if dec else 0.0
+        print(f"     witch coverage: modeled={cov.get('modeled_frac')} endorsed={cov.get('endorsed_frac')} "
+              f"drove(engine/decisions)={eng}/{dec}={drive:.2f}", flush=True)
+    if res.get("standing"):
+        print("     life standing: " + "  ".join(f"{n}={ll}" for n, ll in res["standing"]), flush=True)
+    side = "witchcraft" if res["winner"].startswith("Witch") else (
+        "forge-ai" if res["winner"].startswith("ForgeAI") else "draw/none")
+    print(f"\n  RESULT: {side}  (winner={res['winner']})   log={res.get('log')}")
+    print(f"  wall: {round(time.time() - t0)}s")
+
+
 def main() -> None:
+    if "--1v1" in sys.argv:
+        return main_duel()
     quick = "--quick" in sys.argv
     deck_paths = write_decks()
     compile_harness()

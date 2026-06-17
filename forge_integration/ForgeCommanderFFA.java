@@ -560,14 +560,16 @@ public class ForgeCommanderFFA {
 
     public static void main(String[] args) throws Exception {
         initForge();
-        // Four seats in a free-for-all Commander (§903) game. Props:
-        //   -Ddeck0..3=<file>     the deck file per seat
-        //   -Dname0..3=<name>     the seat's display name
-        //   -Dtype0..3=witch|ai   witchcraft (socket-driven) or Forge AI
-        //   -Dport0..3=<port>     the bot port for a witch seat (ignored for ai)
+        // N seats in a Commander (§903) game — a free-for-all for N>2, a DUEL (§903.1 1v1 Commander) for N=2.
+        // -Dseats=N (default 4, backward-compatible). Props (one per seat 0..N-1):
+        //   -Ddeck<i>=<file>     the deck file per seat
+        //   -Dname<i>=<name>     the seat's display name
+        //   -Dtype<i>=witch|ai   witchcraft (socket-driven) or Forge AI
+        //   -Dport<i>=<port>     the bot port for a witch seat (ignored for ai)
+        int nseats = Integer.parseInt(System.getProperty("seats", "4"));
         List<RegisteredPlayer> players = Lists.newArrayList();
         StringBuilder seats = new StringBuilder();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < nseats; i++) {
             String deckFile = System.getProperty("deck" + i);
             String name = System.getProperty("name" + i, "Seat" + i);
             String type = System.getProperty("type" + i, "ai");
@@ -577,13 +579,13 @@ public class ForgeCommanderFFA {
             players.add(RegisteredPlayer.forCommander(deck).setPlayer(lp));
             seats.append(i == 0 ? "" : ", ").append(name).append("[").append(type).append("]");
         }
-        System.out.println("Commander FFA seats: " + seats);
+        System.out.println("Commander seats (" + nseats + "): " + seats);
         GameRules rules = new GameRules(GameType.Commander);
         rules.setGamesPerMatch(1);
-        Match match = new Match(rules, players, "witchcraft-commander-ffa");
+        Match match = new Match(rules, players, "witchcraft-commander");
         Game game = new Game(players, rules, match);
         game.subscribeToEvents(new MoveLog());
-        System.out.println("Starting 4-player Commander FFA (Forge referees; witchcraft drives its seats) ...");
+        System.out.println("Starting " + nseats + "-player Commander (Forge referees; witchcraft drives its seat(s)) ...");
         long t0 = System.currentTimeMillis();
         match.startGame(game);
         String w = (game.getOutcome() != null && game.getOutcome().getWinningLobbyPlayer() != null)
