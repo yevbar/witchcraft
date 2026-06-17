@@ -83,20 +83,24 @@ def main():
     if ok:
         print("  hops: DELTA-ONLY propagation ✓  (diff_plus_twohop={(3,5)}, diff_plus_threehop={(2,5)} — only the new tuples)")
 
-    # --- recursive tc: recompute fallback must stay correct ---
+    # --- recursive tc: the seeded incremental fixpoint must propagate multi-hop paths correctly ---
+    # Bootstrap a 1->2->3 chain, then insert TWO edges (3->4, 4->5) so the new closure needs several fixpoint
+    # iterations (e.g. path(1,5) is a 4-hop derivation). The seed is path(3,4),path(4,5),path(3,5)...; the
+    # loop must close the rest.
     h = harness.Harness(TC, incremental=True)
     h.bootstrap({"edge": {("1", "2"), ("2", "3")}})
-    h.insert({"diff_plus_edge": {("3", "4")}})
+    h.insert({"diff_plus_edge": {("3", "4"), ("4", "5")}})
     h.update()
     got = h.dump(["path"])
     h.purge(["diff_plus_edge", "diff_plus_path"])
     h.close()
-    want = fresh(TC, {"edge": {("1", "2"), ("2", "3"), ("3", "4")}})
+    want = fresh(TC, {"edge": {("1", "2"), ("2", "3"), ("3", "4"), ("4", "5")}})
     if got.get("path", set()) != want.get("path", set()):
         print(f"  tc FAIL: update={sorted(got.get('path',set()))} fresh={sorted(want.get('path',set()))}")
         ok = False
     else:
-        print(f"  tc (recursive fallback): update==recompute ✓  (path has {len(got.get('path',set()))} tuples)")
+        print(f"  tc (seeded recursive fixpoint): update==recompute ✓  (path has {len(got.get('path',set()))} tuples, "
+              f"incl. multi-hop)")
 
     print("INCREMENTAL INSERTION:", "PASS ✓" if ok else "FAIL ✗")
     return 0 if ok else 1

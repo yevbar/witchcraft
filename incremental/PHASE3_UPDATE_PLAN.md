@@ -55,9 +55,15 @@ harness is part of Phase 3, not deferred to Phase 6.
   Verified: on a 2-hop/3-hop join program a one-edge insert propagates DELTA-ONLY (diff_plus holds only the
   new tuples), update == recompute, parity preserved, engine still codegens. The first AST-rewrite approach
   was abandoned (analyses keyed by qualified name throw on the synthetic relation names — see blocker below).
-  REMAINING for full 3b: recursive strata still recompute (+ conservatively publish full→diff_plus); the
-  diff-seeded recursive fixpoint is the next within-3b step. Then 3c (deletion) is what makes it sound for the
-  engine's negation.
+- **3b-2 recursive DONE (monotone)** — `generateIncrementalRecursive` seeds @delta from the cross-stratum
+  delta rules (reusing `generateDeltaRules` with head-prefix `@delta_`), merges the seed into the full
+  relation, then runs the standard semi-naive fixpoint (driven by @delta → work ∝ seed), and conservatively
+  publishes to diff_plus. Verified on tc with a two-edge insert forcing multi-iteration (4-hop) propagation:
+  update == recompute, parity both backends, engine still codegens.
+  REMAINING: (a) the recursive diff_plus publish is conservative (full relation) — precise delta publishing
+  would make downstream-of-recursive incremental too; (b) **3c (deletion)** is the big one — the engine has
+  negation so it still uses the recompute fallback; deletion + re-discovery is what makes incremental sound
+  there, and it's where 86% of moves live.
 
 ### Two runtime findings that constrain everything downstream
 1. **A subroutine can't `Call` another** (stratum C++ objects are MAIN-scoped) → the `update` body must inline
