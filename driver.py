@@ -2800,7 +2800,12 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
         if scope == "own_nonland_perms":
             # §613 Dramatic Reversal — every NONLAND permanent the controller controls (not just creatures).
             targets = sorted(c for c in mine if c in on_bf and (c, "land") not in ptype)
+        elif scope == "creatures_your_opponents_control":
+            # §611 every creature an opponent controls (the resolving controller's are excluded).
+            targets = sorted(c for c in creatures if c in on_bf and c not in mine)
         else:
+            # creatures_you_control / other_creatures_you_control (a spell has no self creature to exclude,
+            # so it expands to the controller's creatures) / all_creatures.
             targets = sorted(c for c in creatures if c in on_bf
                              and (scope == "all_creatures" or c in mine))
         for tgt in targets:

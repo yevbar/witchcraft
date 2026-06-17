@@ -246,10 +246,14 @@ def _parse_pt(amt: str) -> tuple[int, int] | None:
 def _scope(tgt: str) -> str | None:
     if tgt in ("self", "it"):
         return "self"
-    if tgt == "creatures_you_control":
+    if tgt in ("creatures_you_control", "each_creature_you_control", "all_creatures_you_control"):
         return "creatures_you_control"
-    if tgt in ("all_creatures", "all_other_creatures"):
+    if tgt == "other_creatures_you_control":
+        return "other_creatures_you_control"                  # §611 your creatures EXCEPT the source (trigger path)
+    if tgt in ("all_creatures", "all_other_creatures", "each_creature"):
         return "all_creatures"
+    if tgt == "creatures_your_opponents_control":
+        return "creatures_your_opponents_control"             # §611 every opponent's creatures
     if tgt in ("all_nonland_permanents_you_control", "nonland_permanents_you_control"):
         return "own_nonland_perms"                            # §613 Dramatic Reversal — a PERMANENT (not creature) scope
     return None
@@ -257,7 +261,8 @@ def _scope(tgt: str) -> str | None:
 
 # the board scopes whose spell_scope the driver expands on resolution: the creature scopes plus the
 # nonland-permanent scope (untap-all). Used by the bridge to know which scope tokens are DATALOG-derived.
-_BOARD_SCOPES = ("creatures_you_control", "all_creatures", "own_nonland_perms")
+_BOARD_SCOPES = ("creatures_you_control", "other_creatures_you_control", "all_creatures",
+                 "creatures_your_opponents_control", "own_nonland_perms")
 
 
 def _int(amt) -> int | None:

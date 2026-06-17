@@ -851,6 +851,9 @@ pending_dyn(A, E, Base, Tag, T, S, P) :- fires(A, S), trigger_dyn_effect(A, E, B
 scope_creature(A, S, S) :- fires(A, S), scope_of(A, "self"), creature(S).
 scope_creature(A, S, C) :- fires(A, S), scope_of(A, "creatures_you_control"), controls(P, S), controls(P, C), creature(C).
 scope_creature(A, S, C) :- fires(A, S), scope_of(A, "all_creatures"), creature(C).
+// §611 the OTHER-yours and OPPONENTS' board scopes (the unfiltered siblings of creatures_you_control).
+scope_creature(A, S, C) :- fires(A, S), scope_of(A, "other_creatures_you_control"), controls(P, S), controls(P, C), creature(C), C != S.
+scope_creature(A, S, C) :- fires(A, S), scope_of(A, "creatures_your_opponents_control"), controls(P, S), controls(Q, C), creature(C), P != Q.
 // scope_of unifies the scope column across the three creature-scoped trigger relations.
 .decl scope_of(ability: symbol, scope: symbol)
 scope_of(A, Sc) :- trigger_effect_pt(A, _, _, Sc).
@@ -1381,6 +1384,9 @@ trigger_effect(IA, "animate", 0, Payload) :- trig_ability(IA, S, C, A), card_eff
 // creatures_you_control + all_creatures + all_other_creatures->all_creatures; self is NOT a spell scope).
 .decl board_scope(tgt: symbol, scope: symbol)
 board_scope("creatures_you_control", "creatures_you_control"). board_scope("all_creatures", "all_creatures"). board_scope("all_other_creatures", "all_creatures"). board_scope("all_nonland_permanents_you_control", "own_nonland_perms"). board_scope("nonland_permanents_you_control", "own_nonland_perms").
+// §611 the unfiltered sibling scopes: aliases for creatures_you_control / all_creatures, plus the OTHER-yours
+// (a spell has no self creature, so it expands to your creatures) and OPPONENTS' board scopes.
+board_scope("each_creature_you_control", "creatures_you_control"). board_scope("all_creatures_you_control", "creatures_you_control"). board_scope("other_creatures_you_control", "other_creatures_you_control"). board_scope("each_creature", "all_creatures"). board_scope("creatures_your_opponents_control", "creatures_your_opponents_control").
 // zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —
 // destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).
 .decl zone_move_verb(verb: symbol)
