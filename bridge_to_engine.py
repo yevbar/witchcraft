@@ -1465,6 +1465,73 @@ def _discard_cost(cost) -> int | None:
     return _NUMWORD_BIG.get(m.group(1).lower()) if m and not m.group(1).isdigit() else (int(m.group(1)) if m else None)
 
 
+# §602.5/§118 the types a 'Sacrifice a <type>' activation cost can name (the driver picks a permanent you
+# control of that type to sacrifice). Subtypes (Saproling/Goblin/Food) are routed to a 'subtype:<x>' kind.
+_SAC_TYPES = {"creature", "artifact", "land", "enchantment", "planeswalker", "permanent"}
+
+
+def _nonmana_cost(cost) -> dict | None:
+    """§602.5 parse a WHOLE activation cost string into payable components, abstaining (None) if ANY
+    comma-separated part is unrecognized. Returns {mana, taps, sac_self, sac_filter, life, discard}:
+      - mana / taps: the {N}{C}/{T} part (a colored pip counts as 1 generic, §602.5 abstraction)
+      - sac_self:    True for 'Sacrifice ~/this/it' (the source itself goes to the graveyard)
+      - sac_filter:  a kind for 'Sacrifice a <X>' — a type word (creature/artifact/land/…),
+                     'another_creature' ('Sacrifice another creature'), or 'subtype:<x>' (a Saproling/Food)
+      - life:        N for 'Pay N life'
+      - discard:     N for 'Discard a/N card(s)'
+    A variable cost ({X}), an unmodeled non-mana part (remove counters, exile from hand, tap permanents,
+    'sacrifice unless …'), or any shape not in the clean list -> None (faithful abstain). This GENERALIZES
+    _activated_cost (mana + {T} + Sacrifice this) so the non-mana costs ride alongside a mana/tap part."""
+    if cost is None:
+        return None
+    r = {"mana": 0, "taps": False, "sac_self": False, "sac_filter": None, "life": 0, "discard": 0}
+    for part in (p.strip() for p in str(cost).split(",")):
+        if not part:
+            continue
+        if re.match(r"^sacrifice (this|~|it)$", part, re.I):
+            r["sac_self"] = True
+            continue
+        if re.match(r"^sacrifice another creature$", part, re.I):
+            if r["sac_filter"]:
+                return None                          # two sacrifice filters in one cost — abstain
+            r["sac_filter"] = "another_creature"
+            continue
+        m = re.match(r"^sacrifice (?:a|an) (\w+)$", part, re.I)
+        if m:
+            if r["sac_filter"]:
+                return None
+            w = m.group(1).lower()
+            r["sac_filter"] = w if w in _SAC_TYPES else f"subtype:{w}"
+            continue
+        m = re.match(r"^pay (\d+) life$", part, re.I)
+        if m:
+            r["life"] += int(m.group(1))
+            continue
+        m = re.match(r"^discard (a|an|\d+|\w+) cards?$", part, re.I)
+        if m:
+            tok = m.group(1).lower()
+            n = 1 if tok in ("a", "an") else _num(tok)
+            if n is None:
+                return None
+            r["discard"] += n
+            continue
+        # a mana part ({2}{W}/{T}): every char must belong to a known mana/tap symbol — no bare words.
+        syms = _MV_SYM.findall(part)
+        if not syms or _MV_SYM.sub("", part).strip():
+            return None                              # bare words / unrecognized non-mana part -> abstain
+        for sym in syms:
+            head = sym.split("/")[0]
+            if head == "T":
+                r["taps"] = True
+            elif head.isdigit():
+                r["mana"] += int(head)
+            elif head in ("X", "Y", "Z"):
+                return None                          # variable cost — defer
+            else:
+                r["mana"] += 1                       # a colored/hybrid pip counts as 1 (colorless abstraction)
+    return r
+
+
 def _sacrifice_subtype(verb, tgt) -> str | None:
     """§701.17 a 'sacrifice a <subtype> TOKEN' clause (The Cabbage Merchant 'sacrifice a Food token') ->
     the token subtype to sacrifice, or None. Restricted to the '…_token' shape so a generic typed sacrifice
@@ -2335,7 +2402,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
             paid = _activated_cost(ab.get("cost"))
-            life_n = discard_n = None
+            life_n = discard_n = sac_filter = None
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
@@ -2350,19 +2417,25 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if alt[0] == "discard_hand" and "sacrifice" in str(c.get("text", "")).lower():
                         add("source_sacrifice", (tid,))
                     continue
-                # §118 a 'Pay N life' activation cost on a NON-mana ability (Necropotence 'Pay 1 life: …',
-                # Griselbrand 'Pay 7 life: Draw seven') -> a life-cost activated ability the driver can use.
-                life_n = _life_cost(ab.get("cost"))
-                discard_n = _discard_cost(ab.get("cost"))     # §118 'Discard N cards' cost (Nezahal's self-blink)
-                if life_n is None and discard_n is None:
+                # §602.5/§118 a NON-MANA activation cost the generic+tap parser couldn't pay: 'Pay N life'
+                # (Necropotence/Griselbrand), 'Discard a card', 'Sacrifice a creature/an artifact/a <subtype>',
+                # optionally riding a mana/{T} part ('{T}, Pay 1 life'; '{1}, Sacrifice a creature'). One parser
+                # covers all the clean shapes; an unmodeled component (remove counters, {X}, exile from hand) -> None.
+                nm = _nonmana_cost(ab.get("cost"))
+                if nm is None:
                     dropped.append(("activated_cost", ab.get("cost")))
                     continue
-                paid = (0, False, False)                      # the mana/tap part is empty; the life/discard rides below
+                paid = (nm["mana"], nm["taps"], nm["sac_self"])
+                life_n = nm["life"] or None
+                discard_n = nm["discard"] or None
+                sac_filter = nm["sac_filter"]
             a = f"{tid}_{aid}"
             if life_n is not None:
                 add("ability_life_cost", (a, life_n))         # the driver pays N life to activate (Necropotence)
             if discard_n is not None:
                 add("ability_discard_cost", (a, discard_n))   # the driver discards N cards to activate (Nezahal)
+            if sac_filter is not None:                        # §602.5 'Sacrifice a <creature/artifact/subtype>'
+                add("ability_sac_filter", (a, sac_filter))    # the driver picks a permanent you control to sacrifice
             taps = "T" if paid[1] else "-"
             if len(paid) > 2 and paid[2]:                     # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
                 add("ability_sac_cost", (a,))                 # the driver sacrifices the source when activated

@@ -385,12 +385,27 @@ def step(state: dict, action: tuple) -> dict:
         elif kind == "activate":
             _, ap, ab, choices = action
             s["_forced"] = {"target": choices["target"]} if "target" in choices else {}
-            # mirror driver._activate_phase for a CHOSEN ability row
+            # mirror driver._activate_phase for a CHOSEN ability row, INCLUDING its §602.5 non-mana costs
+            # (Pay N life / Discard N / Sacrifice this / Sacrifice a <X>) so the surface PAYS what it offers.
             a, src, cost, taps, eff, amt, tgt = ab
             if int(cost):
                 driver._spend_ability_mana(s, ap, int(cost))
+            life_cost = next((int(ln) for (aa, ln) in s.get("ability_life_cost", set()) if aa == a), 0)
+            if life_cost:                                       # §118 'Pay N life' (Necropotence, Griselbrand)
+                driver._adjust_life(s, ap, -life_cost)
+            disc_cost = next((int(dn) for (aa, dn) in s.get("ability_discard_cost", set()) if aa == a), 0)
+            if disc_cost:                                       # §118 'Discard N cards' — choice via _choose
+                driver._apply_effects(s, {(a, "discard", disc_cost, "-", src, ap)})
             if taps == "T":
                 s.setdefault("tapped", set()).add((src,))
+            if (a,) in s.get("ability_sac_cost", set()):        # §118 'Sacrifice this'
+                driver._sacrifice(s, src)
+            sac_kind = next((k for (aa, k) in s.get("ability_sac_filter", set()) if aa == a), None)
+            if sac_kind is not None:                            # §602.5 'Sacrifice a <X>' — cost choice via _choose
+                cands = driver._sac_candidates(s, ap, sac_kind, src)
+                victim = driver._choose(s, "sacrifice", sorted(cands), cands[0]) if cands else None
+                if victim is not None:
+                    driver._sacrifice(s, victim)
             s.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
             driver._stack_push(s, a, ap)
             driver._resolve_stack(s, ap, players)

@@ -954,6 +954,39 @@ def _sacrifice(state: dict, obj: str) -> None:
     state.setdefault("graveyard", set()).add((obj,))
 
 
+def _sac_candidates(state: dict, p: str, kind: str, source: str | None = None) -> list[str]:
+    """§602.5 the permanents player p controls that satisfy a 'Sacrifice a <X>' activation cost `kind`:
+      - a type word (creature/artifact/land/enchantment/planeswalker) — controls + that type (creature
+        is the engine-DERIVED creature so animated lands/tokens count);
+      - 'another_creature'  — a creature p controls OTHER than the source ('Sacrifice another creature');
+      - 'subtype:<x>'       — a permanent p controls with that printed subtype (Saproling/Goblin/Food).
+      - 'permanent'         — any permanent p controls.
+    Returns the sorted candidate ids (empty if none — the ability is then unaffordable)."""
+    out = run(state, ["controls", "creature"])
+    mine = {c for (pp, c) in out["controls"] if pp == p}
+    creatures = {c for (c,) in out["creature"]}
+    if kind == "another_creature":
+        return sorted(c for c in mine if c in creatures and c != source)
+    if kind.startswith("subtype:"):
+        sub = kind.split(":", 1)[1]
+        psub = state.get("printed_subtype", set())
+        return sorted(c for c in mine if (c, sub) in psub)
+    if kind == "permanent":
+        return sorted(mine)
+    if kind == "creature":
+        return sorted(c for c in mine if c in creatures)
+    ptype = state.get("printed_type", set())                     # a printed type (artifact/land/enchantment/planeswalker)
+    return sorted(c for c in mine if (c, kind) in ptype)
+
+
+def _sac_default(state: dict, cands: list, source: str | None) -> str:
+    """The greedy sacrifice victim for a 'Sacrifice a <X>' cost: prefer a permanent OTHER than the ability's
+    source (don't blow up the engine of the ability unless it's the only option), then the lowest power
+    (sacrifice the least valuable body). A policy/search overrides via the _choose seam."""
+    powers = {c: int(n) for (c, n) in run(state, ["power"])["power"]}
+    return min(cands, key=lambda c: (c == source, powers.get(c, 0), c))
+
+
 def declare_attackers(state: dict, ap: str) -> None:
     """§508 — the active player's eligible creatures attack an opponent (greedy policy)."""
     opp = _others(state, ap)[0]
@@ -2865,6 +2898,9 @@ def _activatable(state: dict, p: str) -> list:
         disc_cost = next((int(dn) for (aa, dn) in state.get("ability_discard_cost", set()) if aa == a), 0)
         if disc_cost and len([c for (pp, c) in state.get("in_hand", set()) if pp == p]) < disc_cost:
             continue                                         # §118 'Discard N cards': need N cards in hand (Nezahal)
+        sac_kind = next((k for (aa, k) in state.get("ability_sac_filter", set()) if aa == a), None)
+        if sac_kind is not None and not _sac_candidates(state, p, sac_kind, src):
+            continue                                         # §602.5 'Sacrifice a <X>': need a permanent to sacrifice
         if eff == "equip":                                   # §301.5 only worth equipping if currently
             if any(a2 == src for (a2, _c) in state.get("attached_to", set())):
                 continue                                     # unattached (no re-equip churn) and ...
@@ -2924,6 +2960,13 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
     if (a,) in state.get("ability_sac_cost", set()):         # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
         _sacrifice(state, src)                               # fires 'when sacrificed', then -> graveyard
+    sac_kind = next((k for (aa, k) in state.get("ability_sac_filter", set()) if aa == a), None)
+    if sac_kind is not None:                                  # §602.5 'Sacrifice a <creature/artifact/subtype>'
+        cands = _sac_candidates(state, ap, sac_kind, src)    # the cost CHOICE (which permanent) — referee seam
+        victim = _choose(state, "sacrifice", sorted(cands), _sac_default(state, cands, src)) if cands else None
+        if victim is not None:
+            print(f"    {ap} sacrifices {victim} ({sac_kind}) to activate {a}")
+            _sacrifice(state, victim)
     state.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
     _stack_push(state, a, ap)
     print(f"    {ap} activates {a} ({src}: {eff} {amt})")
