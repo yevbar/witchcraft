@@ -102,6 +102,7 @@ class Harness:
         cdll.h_free.argtypes = [ctypes.c_void_p]
         cdll.h_bootstrap.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_insert.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        cdll.h_purge.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_subroutine.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_dump_all.restype = ctypes.c_void_p
         cdll.h_dump_all.argtypes = [ctypes.c_void_p]
@@ -117,6 +118,9 @@ class Harness:
 
     def insert(self, facts: dict):
         self._cdll.h_insert(self._h, _blob(facts.items()))
+
+    def purge(self, names):
+        self._cdll.h_purge(self._h, ("\n".join(names) + "\n").encode())
 
     def update(self):
         self._cdll.h_subroutine(self._h, b"update")

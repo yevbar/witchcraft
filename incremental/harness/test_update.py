@@ -36,22 +36,26 @@ def main():
 
     ok = True
 
-    # Case 1: insertion. Bootstrap a chain, add an edge that extends it, update.
+    # Case 1: insertion staged via diff_plus_edge. Bootstrap a chain, stage an edge that extends it, update.
     h = harness.Harness(TC, incremental=True)
     h.bootstrap({"edge": {("1", "2"), ("2", "3")}})
-    h.insert({"edge": {("3", "4")}})           # resident edge becomes {1-2, 2-3, 3-4}
+    h.insert({"diff_plus_edge": {("3", "4")}})  # stage the insertion (NOT into edge directly)
     h.update()
-    got = h.dump()
+    h.purge(["diff_plus_edge"])                   # driver owns staging cleanup
+    got = h.dump(["edge", "path"])
+    staging = h.dump(["diff_plus_edge"])
     h.close()
-    want = fresh({("1", "2"), ("2", "3"), ("3", "4")})
+    want = {k: v for k, v in fresh({("1", "2"), ("2", "3"), ("3", "4")}).items() if k in ("edge", "path")}
     for rel in set(got) | set(want):
         if got.get(rel, set()) != want.get(rel, set()):
             print(f"  insertion FAIL [{rel}]: update={sorted(got.get(rel,set()))} fresh={sorted(want.get(rel,set()))}")
             ok = False
+    if staging.get("diff_plus_edge"):
+        print(f"  insertion FAIL: diff_plus_edge not cleared = {staging['diff_plus_edge']}"); ok = False
     if ok:
-        print(f"  insertion: update==recompute ✓  (path={sorted(got.get('path',set()))})")
+        print(f"  staged insertion: update==recompute ✓  (path={sorted(got.get('path',set()))}; staging cleared)")
 
-    # Case 2: a no-op update (no EDB change) must be idempotent.
+    # Case 2: a no-op update (no staged diff) must be idempotent.
     h = harness.Harness(TC, incremental=True)
     h.bootstrap({"edge": {("1", "2"), ("2", "3")}})
     before = h.dump()

@@ -105,6 +105,23 @@ void h_bootstrap(void* h, const char* facts) {
 // Stage tuples into named relations without purging (e.g. diff_plus_* before calling update).
 void h_insert(void* h, const char* facts) { insert_blob((SouffleProgram*) h, facts); }
 
+// Purge named relations (newline-separated) — the driver owns the staging relations' lifecycle, since an
+// in-subroutine ram::Clear of a non-temporary relation is gated on pruneImdtRels (unset under a subroutine).
+void h_purge(void* h, const char* names) {
+    SouffleProgram* p = (SouffleProgram*) h;
+    std::string nb(names);
+    size_t i = 0, n = nb.size();
+    while (i < n) {
+        size_t nl = nb.find('\n', i);
+        if (nl == std::string::npos) nl = n;
+        if (nl > i) {
+            Relation* r = p->getRelation(nb.substr(i, nl - i));
+            if (r != nullptr) r->purge();
+        }
+        i = nl + 1;
+    }
+}
+
 // Invoke a subroutine (e.g. "update") with no args.
 void h_subroutine(void* h, const char* name) {
     SouffleProgram* p = (SouffleProgram*) h;
