@@ -376,7 +376,21 @@ def _parse_token_spec(spec: str) -> dict:
     return {"pt": None, "types": ["artifact"], "colors": [], "subtypes": [spec]}   # food/treasure/clue/…
 
 
+def _doubler_count(state: dict, ctrl: str, kind: str) -> int:
+    """§614 the number of replacement doublers (static 'doubles_<kind>' — Doubling Season/Parallel Lives for
+    'tokens', Primal Vigor/Doubling Season for 'counters') that the controller `ctrl` has, so a created/
+    placed quantity is multiplied by 2**count (two Doubling Seasons -> x4). Reads the driver-only `doubler`
+    facts the bridge emits, gated on what ctrl controls (printed_control). 0 -> no doubling."""
+    if not state.get("doubler"):
+        return 0
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    dset = state["doubler"]
+    return sum(1 for (p, c) in state.get("printed_control", set())
+               if p == ctrl and (io.get(c), kind) in dset)
+
+
 def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
+    n *= 2 ** _doubler_count(state, controller, "tokens")     # §614 Doubling Season / Parallel Lives / ...
     d = _parse_token_spec(spec)
     for _ in range(n):
         state["_tok"] = state.get("_tok", 0) + 1
@@ -506,6 +520,10 @@ def _transform(state: dict, obj: str, ctrl: str) -> None:
 
 
 def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
+    if n > 0 and kind == "p1p1":                              # §614 counter doublers (Doubling Season / Primal Vigor)
+        owner = next((p for (p, c) in state.get("printed_control", set()) if c == obj), None)
+        if owner:
+            n *= 2 ** _doubler_count(state, owner, "counters")
     cur = next((c for (o, k, c) in state.get("counter", set()) if o == obj and k == kind), 0)
     state.setdefault("counter", set()).discard((obj, kind, cur))
     state["counter"].add((obj, kind, cur + n))
