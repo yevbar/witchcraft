@@ -339,8 +339,10 @@ public class ForgeComboKill {
         // (hybrid/X/snow), so the game never breaks; that fallback is tallied.
         @Override public boolean payManaCost(ManaCost toPay, CostPartMana cp, SpellAbility sa, String prompt, ManaConversionMatrix mx, boolean effect) {
             try { if (enginePay(toPay, sa)) return true; } catch (Throwable t) { /* fall through */ }
-            tally("payManaCost (fallback)");
-            return super.payManaCost(toPay, cp, sa, prompt, mx, effect);
+            // NO FORGE-AI FALLBACK: a cost the engine's plan can't cover (hybrid/X/snow) is DECLINED -> false so
+            // Forge cancels the cast (legal, rolls back). We never consult Forge's strategic payer.
+            tally("payManaCost (declined, no Forge-AI)");
+            return false;
         }
 
         private static String colorName(char c) {
@@ -401,11 +403,12 @@ public class ForgeComboKill {
         // OUR combat-damage assignment: lethal-first across the blockers in order (overkill dumped on the
         // last) — replaces Forge's strategic ComputerUtilCombat.distributeAIDamage. No trample-to-player here.
         @Override public java.util.Map<Card, Integer> assignCombatDamage(Card a, CardCollectionView bl, CardCollectionView rem, int dmg, GameEntity de, boolean ord) {
+            // NO FORGE-AI: lethal-first across blockers in declared order; no blockers / error -> empty map.
+            java.util.Map<Card, Integer> out = new java.util.LinkedHashMap<>();
             try {
                 java.util.List<Card> blk = new java.util.ArrayList<>();
                 for (Card b : bl) blk.add(b);
-                if (blk.isEmpty()) { tally("assignCombatDamage (no blockers->super)"); return super.assignCombatDamage(a, bl, rem, dmg, de, ord); }
-                java.util.Map<Card, Integer> out = new java.util.LinkedHashMap<>();
+                if (blk.isEmpty()) { tally("assignCombatDamage (no blockers, non-AI empty)"); return out; }
                 int left = dmg;
                 for (int i = 0; i < blk.size(); i++) {
                     Card b = blk.get(i);
@@ -415,11 +418,13 @@ public class ForgeComboKill {
                     left -= give;
                     if (left <= 0) break;
                 }
-                return out;
             } catch (Throwable t) {
-                tally("assignCombatDamage (fallback)");
-                return super.assignCombatDamage(a, bl, rem, dmg, de, ord);
+                tally("assignCombatDamage (non-AI default)");
+                out.clear();
+                java.util.Iterator<Card> it = bl.iterator();
+                if (it.hasNext()) out.put(it.next(), dmg);
             }
+            return out;
         }
 
         // §701.18 'choose a card name' (Demonic Consultation) — forward to the engine, which names the card
@@ -432,16 +437,21 @@ public class ForgeComboKill {
         @Override public String chooseCardName(SpellAbility sa, java.util.function.Predicate<forge.card.ICardFace> cpp, String valid, String message) {
             String n = engineCardName();
             if (n != null && !n.isEmpty()) { System.out.println("[bot] engine names: " + n); return n; }
-            tally("chooseCardName"); return super.chooseCardName(sa, cpp, valid, message); }
+            tally("chooseCardName (empty, no-AI)"); return ""; }                // engine names it; else empty (no Forge-AI)
         @Override public String chooseCardName(SpellAbility sa, java.util.List<forge.card.ICardFace> faces, String message) {
             String n = engineCardName();
             if (n != null && !n.isEmpty()) { System.out.println("[bot] engine names: " + n); return n; }
-            tally("chooseCardName"); return super.chooseCardName(sa, faces, message); }
+            tally("chooseCardName (empty, no-AI)"); return ""; }
 
+        // Remaining mechanical choices: a DETERMINISTIC non-strategic legal default — NEVER super (Forge-AI).
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
-            tally("orderBlockers"); return super.orderBlockers(a, b); }
+            tally("orderBlockers (as-is, no-AI)"); return b; }
         @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
-            tally("cleanupDiscard"); return super.chooseCardsToDiscardToMaximumHandSize(n); }
+            tally("cleanupDiscard (first-n, no-AI)");
+            CardCollection hand = new CardCollection(getPlayer().getCardsIn(ZoneType.Hand));
+            CardCollection pick = new CardCollection();
+            for (int i = 0; i < hand.size() && pick.size() < n; i++) pick.add(hand.get(i));
+            return pick; }
         @Override public boolean chooseTargetsFor(SpellAbility sa) {
             // OUR engine drives targeting for the combo: a 'target player' spell (Tendrils of Agony, and
             // each of its storm copies) hits the opponent. Forge still enforces target legality (canTarget).
@@ -456,16 +466,18 @@ public class ForgeComboKill {
                         }
                     }
                 }
-            } catch (Throwable t) { /* fall through to Forge's chooser */ }
-            tally("chooseTargetsFor"); return super.chooseTargetsFor(sa); }
+            } catch (Throwable t) { /* fall through to the non-AI decline */ }
+            tally("chooseTargetsFor (declined, no-AI)"); return false; }        // decline -> cancel; never Forge-AI
         @Override public <T extends GameEntity> T chooseSingleEntityForEffect(FCollectionView<T> opts, DelayedReveal dr, SpellAbility sa, String title, boolean isOpt, Player tp, java.util.Map<String, Object> params) {
-            tally("chooseSingleEntityForEffect"); return super.chooseSingleEntityForEffect(opts, dr, sa, title, isOpt, tp, params); }
+            tally("chooseSingleEntityForEffect (first/decline, no-AI)");
+            if (isOpt || opts == null || opts.isEmpty()) return null;
+            return opts.iterator().next(); }
         @Override public boolean confirmAction(SpellAbility sa, PlayerActionConfirmMode mode, String msg, java.util.List<String> opts, Card card, java.util.Map<String, Object> params) {
-            tally("confirmAction"); return super.confirmAction(sa, mode, msg, opts, card, params); }
+            tally("confirmAction (decline, no-AI)"); return false; }
         @Override public int chooseNumber(SpellAbility sa, String t, int min, int max) {
-            tally("chooseNumber"); return super.chooseNumber(sa, t, min, max); }
+            tally("chooseNumber (min, no-AI)"); return min; }
         @Override public Integer announceRequirements(SpellAbility sa, int min, int max, String a) {
-            tally("announceRequirements (X)"); return super.announceRequirements(sa, min, max, a); }
+            tally("announceRequirements X (min, no-AI)"); return Math.max(min, 0); }
     }
 
     // ---------- a LobbyPlayer that installs the RemoteController ----------
@@ -640,7 +652,7 @@ public class ForgeComboKill {
         System.out.println("RESULT winner=" + w + " turns=" + game.getPhaseHandler().getTurn()
                 + " finalLife[" + lifeb + "]"
                 + " wall=" + (System.currentTimeMillis() - t0) + "ms");
-        System.out.println("FORGE-AI decisions still made for OUR seat (not our engine's): "
+        System.out.println("Non-AI mechanical defaults taken for OUR seat (NO Forge-AI ever): "
                 + (RemoteController.FORGE_AI.isEmpty() ? "NONE" : RemoteController.FORGE_AI));
     }
 }

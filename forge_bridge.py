@@ -73,8 +73,11 @@ _KIND_KEY = {
 
 
 def greedy_policy(state, key, options, default):
-    """Take Forge's suggested default at every decision (defers to Forge's own AI heuristic for that
-    seat's pick) — the simplest legal bot."""
+    """Take the decision's DEFAULT option when the engine doesn't pick one. NB: the connector sets `default`
+    to a safe LEGAL non-AI default for every decision it routes here — pass (action), keep (mulligan), no
+    attackers / no blockers ([] for combat) — NOT Forge's AI choice. So this is "engine, else pass", never a
+    Forge-AI fallback. (Forge's AI is never consulted on the Java side either: every PlayerControllerAi method
+    in the harnesses' RemoteController takes a deterministic non-AI default — first/min/decline.)"""
     return default
 
 

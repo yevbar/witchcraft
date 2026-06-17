@@ -302,8 +302,10 @@ public class ForgeCommanderFFA {
         // or if our plan can't cover it, so the game never breaks; that fallback is tallied.
         @Override public boolean payManaCost(ManaCost toPay, CostPartMana cp, SpellAbility sa, String prompt, ManaConversionMatrix mx, boolean effect) {
             try { if (manualPay(toPay, sa)) return true; } catch (Throwable t) { /* fall through */ }
-            tally("payManaCost (fallback)");
-            return super.payManaCost(toPay, cp, sa, prompt, mx, effect);
+            // NO FORGE-AI FALLBACK: a cost our own payer can't cover (hybrid/X/snow) is DECLINED — return false so
+            // Forge cancels the cast (legal, the spell rolls back). We never consult Forge's strategic payer.
+            tally("payManaCost (declined, no Forge-AI)");
+            return false;
         }
 
         private boolean producesColor(Card c, char col) {
@@ -354,11 +356,13 @@ public class ForgeCommanderFFA {
         // OUR combat-damage assignment: lethal-first across the blockers in order (overkill dumped on the
         // last) — replaces Forge's strategic ComputerUtilCombat.distributeAIDamage. No trample-to-player here.
         @Override public java.util.Map<Card, Integer> assignCombatDamage(Card a, CardCollectionView bl, CardCollectionView rem, int dmg, GameEntity de, boolean ord) {
+            // NO FORGE-AI: lethal-first across the blockers in declared order (overkill dumped on the last). No
+            // blockers / any error -> an empty map (the unblocked/trample case is handled by Forge mechanically).
+            java.util.Map<Card, Integer> out = new java.util.LinkedHashMap<>();
             try {
                 java.util.List<Card> blk = new java.util.ArrayList<>();
                 for (Card b : bl) blk.add(b);
-                if (blk.isEmpty()) { tally("assignCombatDamage (no blockers->super)"); return super.assignCombatDamage(a, bl, rem, dmg, de, ord); }
-                java.util.Map<Card, Integer> out = new java.util.LinkedHashMap<>();
+                if (blk.isEmpty()) { tally("assignCombatDamage (no blockers, non-AI empty)"); return out; }
                 int left = dmg;
                 for (int i = 0; i < blk.size(); i++) {
                     Card b = blk.get(i);
@@ -368,27 +372,42 @@ public class ForgeCommanderFFA {
                     left -= give;
                     if (left <= 0) break;
                 }
-                return out;
             } catch (Throwable t) {
-                tally("assignCombatDamage (fallback)");
-                return super.assignCombatDamage(a, bl, rem, dmg, de, ord);
+                tally("assignCombatDamage (non-AI default)");
+                out.clear();
+                java.util.Iterator<Card> it = bl.iterator();      // best-effort legal: all damage on the first blocker
+                if (it.hasNext()) out.put(it.next(), dmg);
             }
+            return out;
         }
 
+        // -- The remaining mechanical choices Forge asks for: each takes a DETERMINISTIC, NON-STRATEGIC legal
+        // default — NEVER super (PlayerControllerAi). The witchcraft seat thus consults Forge's AI for NOTHING;
+        // a choice our engine doesn't drive becomes the minimal legal default (first/min/decline), i.e. a "pass".
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
-            tally("orderBlockers"); return super.orderBlockers(a, b); }
+            tally("orderBlockers (as-is, no-AI)"); return b; }                  // declared order, no reordering
         @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
-            tally("cleanupDiscard"); return super.chooseCardsToDiscardToMaximumHandSize(n); }
+            tally("cleanupDiscard (first-n, no-AI)");
+            CardCollection hand = new CardCollection(getPlayer().getCardsIn(ZoneType.Hand));
+            CardCollection pick = new CardCollection();
+            for (int i = 0; i < hand.size() && pick.size() < n; i++) pick.add(hand.get(i));   // first n, not strategic
+            return pick; }
         @Override public boolean chooseTargetsFor(SpellAbility sa) {
-            tally("chooseTargetsFor"); return super.chooseTargetsFor(sa); }
+            // No Forge-AI targeter: decline (false) -> Forge cancels the spell/ability (legal, a "pass"). Our
+            // engine drives WHAT to cast (chooseSpellAbilityToPlay); a spell needing a target it can't supply
+            // simply isn't played rather than letting Forge's AI pick the target.
+            tally("chooseTargetsFor (declined, no-AI)"); return false; }
         @Override public <T extends GameEntity> T chooseSingleEntityForEffect(FCollectionView<T> opts, DelayedReveal dr, SpellAbility sa, String title, boolean isOpt, Player tp, java.util.Map<String, Object> params) {
-            tally("chooseSingleEntityForEffect"); return super.chooseSingleEntityForEffect(opts, dr, sa, title, isOpt, tp, params); }
+            // optional -> null (decline); mandatory -> the FIRST legal option (deterministic, not Forge-AI).
+            tally("chooseSingleEntityForEffect (first/decline, no-AI)");
+            if (isOpt || opts == null || opts.isEmpty()) return null;
+            return opts.iterator().next(); }
         @Override public boolean confirmAction(SpellAbility sa, PlayerActionConfirmMode mode, String msg, java.util.List<String> opts, Card card, java.util.Map<String, Object> params) {
-            tally("confirmAction"); return super.confirmAction(sa, mode, msg, opts, card, params); }
+            tally("confirmAction (decline, no-AI)"); return false; }            // decline optional confirmations
         @Override public int chooseNumber(SpellAbility sa, String t, int min, int max) {
-            tally("chooseNumber"); return super.chooseNumber(sa, t, min, max); }
+            tally("chooseNumber (min, no-AI)"); return min; }                   // the minimum legal number
         @Override public Integer announceRequirements(SpellAbility sa, int min, int max, String a) {
-            tally("announceRequirements (X)"); return super.announceRequirements(sa, min, max, a); }
+            tally("announceRequirements X (min, no-AI)"); return Math.max(min, 0); }   // X = its minimum (usually 0)
     }
 
     // ---------- a LobbyPlayer that installs the RemoteController ----------
@@ -592,7 +611,9 @@ public class ForgeCommanderFFA {
                 ? game.getOutcome().getWinningLobbyPlayer().getName() : "draw/none";
         System.out.println("RESULT winner=" + w + " turns=" + game.getPhaseHandler().getTurn()
                 + " wall=" + (System.currentTimeMillis() - t0) + "ms");
-        System.out.println("FORGE-AI fallbacks taken by witchcraft seats: "
+        // The witchcraft seats consult Forge's AI for NOTHING. This tallies the mechanical choices that took a
+        // DETERMINISTIC non-AI legal default (first/min/decline) instead of an engine decision — Forge-AI free.
+        System.out.println("Non-AI mechanical defaults taken by witchcraft seats (NO Forge-AI ever): "
                 + (RemoteController.FORGE_AI.isEmpty() ? "NONE" : RemoteController.FORGE_AI));
     }
 }
