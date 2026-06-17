@@ -1849,6 +1849,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     add("instance_of", (tid, facts))
     for sp in f.get("static_player", ()):                     # §604 continuous player-permissions (extra lands etc.) —
         add("static_player", (facts, sp))                     # not a souffle relation; driver reads it (e.g. _static_extra_lands)
+    for nu in f.get("no_untap", ()):                          # §502 continuous "doesn't untap" lock (Mana Vault, Auras) —
+        add("static_no_untap", (facts, nu))                   # driver-only; driver._locked_no_untap maps it to instances
     for st in f.get("statics", ()):                           # §614 replacement DOUBLERS (Doubling Season / Primal Vigor)
         if st == "doubles_tokens":                            # -> driver-only `doubler` fact (driver._doubler_count)
             add("doubler", (facts, "tokens"))

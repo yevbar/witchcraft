@@ -68,6 +68,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("statics", []).append(a[1])   # 'choose both if commander' rider)
         elif rel == "static_player":                         # §604 continuous PLAYER permission (extra lands, skip untap, …)
             db.setdefault(a[0], {}).setdefault("static_player", set()).add(a[1])
+        elif rel == "doesnt_untap":                          # §502 continuous "doesn't untap" lock (self / enchanted / equipped)
+            db.setdefault(a[0], {}).setdefault("no_untap", set()).add(a[1])
     return db
 
 

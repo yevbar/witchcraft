@@ -479,6 +479,34 @@ def _doubler_count(state: dict, ctrl: str, kind: str) -> int:
                if p == ctrl and (io.get(c), kind) in dset)
 
 
+def _no_untap_set(state: dict) -> set:
+    """§502 the instances that DON'T untap: the verb-set continuous lock (state['doesnt_untap'], from
+    effect_handlers/no_untap) UNION the static EDB facts (state['static_no_untap'] = {(slug, who)}, fed by
+    card_facts — Mana Vault/Basalt Monolith 'self', and Auras/Equipment whose enchanted/equipped permanent
+    is locked). 'self' -> every instance of that slug; enchanted_/equipped_ -> the permanent it's attached to.
+    Board-scope whos (e.g. 'red_creatures') abstain (faithful — needs a filtered scope we don't resolve here)."""
+    out = set(state.get("doesnt_untap", set()))
+    snu = state.get("static_no_untap")
+    if not snu:
+        return out
+    by_slug = {}
+    for (slug, who) in snu:
+        by_slug.setdefault(slug, set()).add(who)
+    inst_of = state.get("instance_of", set())
+    attached = state.get("attached_to", set())               # (aura/equip, host)
+    for (inst, slug) in inst_of:
+        whos = by_slug.get(slug)
+        if not whos:
+            continue
+        if "self" in whos:
+            out.add((inst,))
+        if whos & {"enchanted_creature", "enchanted_permanent", "equipped_creature"}:
+            for (a, host) in attached:                       # this Aura/Equipment instance locks its host
+                if a == inst:
+                    out.add((host,))
+    return out
+
+
 def _gy_replaced(state: dict, obj: str) -> bool:
     """§614 graveyard-hate replacement: would `obj` be EXILED instead of going to a graveyard? True if a
     player controls a 'a card would be put into a graveyard … exile it instead' permanent whose scope covers
@@ -1253,7 +1281,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     output' surface — every consequence the engine flags is handled here."""
     # derived relations are sets; iterate them sorted so behavior is canonical regardless of the
     # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
-    no_untap = state.get("doesnt_untap", set())                  # permanents that 'don't untap' (continuous lock)
+    no_untap = _no_untap_set(state)                              # permanents that 'don't untap' (verb lock + static EDB)
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         if (c,) in no_untap:                                      # 'doesn't untap during its controller's untap step'
             print(f"    {c} doesn't untap (stays tapped)"); continue
@@ -3232,7 +3260,7 @@ def _seedborn_untap(state: dict, ap: str) -> None:
         if owner is None or owner == ap or s not in bf:
             continue
         for c in sorted(c for (p, c) in ctrl if p == owner):
-            if (c,) in state.get("doesnt_untap", set()):         # 'doesn't untap' overrides Seedborn too
+            if (c,) in _no_untap_set(state):                     # 'doesn't untap' overrides Seedborn too
                 continue
             if (c,) in state.get("tapped", set()):
                 state["tapped"].discard((c,)); print(f"    {owner} untaps {c} (Seedborn Muse)")
