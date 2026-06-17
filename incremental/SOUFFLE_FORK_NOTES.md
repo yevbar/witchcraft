@@ -44,8 +44,29 @@ a new evaluation mode to be added. The fork→modern component map becomes:
    `TranslatorContext.cpp`; builds clean; `--incremental` shows in `--help`; output on `incremental/toy/tc.dl`
    is **byte-identical** with and without the flag (no-op parity proven). This is the seam the real Bootstrap/
    Update translators replace one factory at a time.
-2. Phase-1 proper: the `ast::transform` pass adding the `@iteration`/`@count` attributes to incrementalized
-   relations (skip aggregate-bearing strata per the Aggregate Decision — they always Bootstrap).
+2. ~~Phase-1 proper: the `ast::transform` pass adding the `@iteration`/`@count` attributes to incrementalized
+   relations (skip aggregate-bearing strata per the Aggregate Decision — they always Bootstrap).~~
+   **Phase 1 landed as a CLASSIFICATION ANALYSIS, not a mutating transform** (submodule commit `4b6ba8537`).
+   Adding `@iteration`/`@count` *columns* changes arity → would break output parity with nothing yet
+   consuming them, so the column-addition moves into Phase 2 (Bootstrap), where the counting eval consumes
+   AND strips them. Phase 1 instead delivers the reusable artifact Phase 2 needs: `ast::analysis::
+   IncrementalRelationsAnalysis` partitions every relation into **incremental** (intensional, no aggregate in
+   its stratum → maintained), **bootstrap** (intensional but its SCC bears an aggregate → always recomputed,
+   the Aggregate Decision), **extensional** (no rules → input). Observable via `--show=incremental-relations`;
+   makes no AST change → output byte-identical (parity-gated). The seam later phases query (`isIncremental`/
+   `isBootstrap`/`isExtensional`).
+
+   **Validated on the real engine** (`datalog/engine_rules.dl` reconstructed as compiled — rules + `.input`
+   per EDB, all relations forced output): **237 incremental, 25 bootstrap, 96 extensional**. Cross-checks
+   Phase 0: all **8** source aggregate-head relations land in bootstrap (matching Phase 0's independent
+   "8 aggregate heads"). New cost insight: the always-Bootstrap set is **25** relations, not 8 — the 8 heads
+   pull in **17 co-stratified** relations sharing their SCCs. That 25 (not 8) is what selective-stratum
+   evaluation (Phase 5-adjacent) must recompute when an aggregate stratum is dirtied. NOTE: run the classifier
+   on the *compiled* program shape (with `.input` directives); on the bare rules file with no inputs,
+   `RemoveEmptyRelations` deletes the EDB and cascades, collapsing the program.
+
+   Next: Phase-2 Bootstrap (counting semi-naïve + sparse σ), which is where the `@count`/`@iteration` columns
+   are introduced and stripped on emit.
 3. Then Phases 2–6 from the impl plan, each gated by `delta==full` byte-identity (Theorem 3.5 == our
    `test_engine_native.py` oracle), with `MTG_NO_INCREMENTAL` as the escape hatch.
 
