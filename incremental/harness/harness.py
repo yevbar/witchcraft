@@ -68,7 +68,10 @@ class Harness:
 
     def _build(self):
         flag = "incr" if self.incremental else "plain"
-        digest = hashlib.sha1((self.dl_text + _SHIM.read_text() + flag).encode()).hexdigest()[:12]
+        # Include the souffle binary's mtime so rebuilding the fork invalidates cached .so's (the generated
+        # code changes even when the .dl/shim do not — e.g. when the `update` subroutine is added).
+        sversion = str(_SOUFFLE.stat().st_mtime_ns) if _SOUFFLE.exists() else "0"
+        digest = hashlib.sha1((self.dl_text + _SHIM.read_text() + flag + sversion).encode()).hexdigest()[:12]
         name = f"hns_{digest}"
         self._name = name
         lib = _CACHE / f"lib{name}.so"
