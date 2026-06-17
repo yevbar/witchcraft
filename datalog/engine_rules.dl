@@ -745,6 +745,11 @@ lookback_trigger(K) :- lookback_bridge(K, P), looks_back_in_time(P).
 // pending carries the SOURCE so self-targeting effects (e.g. a +1/+1 counter on itself) resolve.
 .decl pending(ability: symbol, effect: symbol, amount: number, target: symbol, source: symbol, controller: symbol)
 pending(A, E, Amt, T, S, P) :- fires(A, S), trigger_effect(A, E, Amt, T), controls(P, S).
+// STRUCTURAL #3 — the DYNAMIC ('for each') analogue of pending: a fired trigger whose amount is a count
+// slug. Carries (Base, Tag) instead of a resolved amount; the driver evaluates Tag->count and applies
+// Base*count (driver._apply_dyn). Same fires/controls gate as pending — just the dyn effect table.
+.decl pending_dyn(ability: symbol, effect: symbol, base: number, tag: symbol, target: symbol, source: symbol, controller: symbol)
+pending_dyn(A, E, Base, Tag, T, S, P) :- fires(A, S), trigger_dyn_effect(A, E, Base, Tag, T), controls(P, S).
 
 // §603 CREATURE-SCOPED resolution — a fired trigger's scope resolved to concrete creatures.
 // scope_creature(ability, source, creature): which creatures the ability's scope picks out,
@@ -869,6 +874,23 @@ spell_effect(Spell, "fog", 0, "-") :- resolves_ability(Spell, Card, A), card_eff
 // the bridge's _int), the token SPEC rides in the EXTRA column. Empty / '-' spec abstains. match()
 // guards to_number (it aborts the binary on non-numeric input even behind a later filter).
 spell_effect(Spell, "create_token", N, Spec) :- resolves_ability(Spell, Card, A), card_effect(Card, A, _, "create", Amount, _, Spec, _), match("[0-9]+", Amount), N = to_number(Amount), Spec != "-", Spec != "".
+// STRUCTURAL #3 — DYNAMIC 'for each' AMOUNTS. A player-scoped effect (draw/gain_life/lose_life/mill)
+// whose amount is a clean count slug — 'N_per_<X>' or 'equal_to_the_number_of_<X>' — is DROPPED by the
+// numeric spell_effect/trigger_effect rules above (their match("[0-9]+") gate fails on the slug). Here
+// we derive a parallel spell_dyn_effect / trigger_dyn_effect carrying a BASE multiplier + a count TAG;
+// the driver resolves the TAG to a live count at resolution time and applies BASE*count (driver._dyn_count).
+// dyn_amount_tag maps the RECOGNIZED clean count slugs only (controller-scoped, computable from state) —
+// anything else abstains (faithful-or-abstain). 'N_per_X' -> base N; 'equal_to_the_number_of_X' -> base 1.
+.decl dyn_amount_tag(amount: symbol, base: number, tag: symbol)
+dyn_amount_tag("1_per_artifact_you_control", 1, "artifact_yc"). dyn_amount_tag("1_per_card_in_your_hand", 1, "cards_in_hand"). dyn_amount_tag("1_per_creature_card_in_your_graveyard", 1, "creature_cards_in_gy"). dyn_amount_tag("1_per_creature_you_control", 1, "creature_yc"). dyn_amount_tag("1_per_land_you_control", 1, "land_yc"). dyn_amount_tag("2_per_card_in_your_hand", 2, "cards_in_hand"). dyn_amount_tag("2_per_creature_you_control", 2, "creature_yc"). dyn_amount_tag("equal_to_the_number_of_artifacts_you_control", 1, "artifact_yc"). dyn_amount_tag("equal_to_the_number_of_cards_in_your_hand", 1, "cards_in_hand"). dyn_amount_tag("equal_to_the_number_of_creature_cards_in_your_graveyard", 1, "creature_cards_in_gy"). dyn_amount_tag("equal_to_the_number_of_creatures_you_control", 1, "creature_yc"). dyn_amount_tag("equal_to_the_number_of_lands_you_control", 1, "land_yc").
+// DERIVE trigger_dyn_effect: like trigger_effect (pscope verb, mapped event, unconditional) but the
+// amount is a recognized count slug. Carries (Base, Tag, Scope); driver multiplies by the live count.
+.decl trigger_dyn_effect(ability: symbol, effect: symbol, base: number, tag: symbol, target: symbol)
+trigger_dyn_effect(IA, Eff, Base, Tag, Scope) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, _), card_effect(C, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), dyn_amount_tag(Amount, Base, Tag), player_scope(Target, Scope).
+// DERIVE spell_dyn_effect: the instant/sorcery (or loyalty) analogue, keyed by the resolving object.
+.decl spell_dyn_effect(spell: symbol, effect: symbol, base: number, tag: symbol, target: symbol)
+spell_dyn_effect(Spell, Eff, Base, Tag, Scope) :- resolves_ability(Spell, Card, A), card_effect(Card, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), dyn_amount_tag(Amount, Base, Tag), player_scope(Target, Scope).
+
 
 // ONE WORLD: §611.2 STATIC keyword-anthem grants for the UNFILTERED board scopes -> static_grant,
 // DERIVED here from the card parse facts (was bridge's static branch / add('static_grant', ...)).
@@ -1290,6 +1312,9 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output pending_damage
 .output pending_reanimate
 .output spell_effect
+.output spell_dyn_effect
+.output trigger_dyn_effect
+.output pending_dyn
 .output spell_target
 .output spell_scope
 .output spell_damage

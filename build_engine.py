@@ -1033,6 +1033,11 @@ def _rules(p: Program) -> None:
     p.comment("pending carries the SOURCE so self-targeting effects (e.g. a +1/+1 counter on itself) resolve.")
     p.decl("pending", [("ability", "symbol"), ("effect", "symbol"), ("amount", "number"), ("target", "symbol"), ("source", "symbol"), ("controller", "symbol")])
     p.rule("pending(A, E, Amt, T, S, P)", ["fires(A, S)", "trigger_effect(A, E, Amt, T)", "controls(P, S)"])
+    p.comment("STRUCTURAL #3 — the DYNAMIC ('for each') analogue of pending: a fired trigger whose amount is a count")
+    p.comment("slug. Carries (Base, Tag) instead of a resolved amount; the driver evaluates Tag->count and applies")
+    p.comment("Base*count (driver._apply_dyn). Same fires/controls gate as pending — just the dyn effect table.")
+    p.decl("pending_dyn", [("ability", "symbol"), ("effect", "symbol"), ("base", "number"), ("tag", "symbol"), ("target", "symbol"), ("source", "symbol"), ("controller", "symbol")])
+    p.rule("pending_dyn(A, E, Base, Tag, T, S, P)", ["fires(A, S)", "trigger_dyn_effect(A, E, Base, Tag, T)", "controls(P, S)"])
     p.blank()
     p.comment("§603 CREATURE-SCOPED resolution — a fired trigger's scope resolved to concrete creatures.")
     p.comment("scope_creature(ability, source, creature): which creatures the ability's scope picks out,")
@@ -1094,6 +1099,7 @@ def _rules(p: Program) -> None:
              "pending_damage",          # §120 triggered direct damage — the driver picks the damage target
              "pending_reanimate",       # §701 triggered reanimation — the driver moves the graveyard creature
              "spell_effect",            # §608.2c — a resolving spell's player-scoped effects (datalog-derived + bridge-fed)
+             "spell_dyn_effect", "trigger_dyn_effect", "pending_dyn",  # STRUCTURAL #3 — 'for each' count amounts (base+tag; driver scales)
              "spell_target", "spell_scope", "spell_damage", "spell_reanimate",  # §115/§120/§122/§701 — a spell's
                                         # creature-scoped target / board-scope / damage / reanimate effects (datalog-derived + bridge-fed)
              "has_keyword",             # §613 layer 6 — so the driver can read granted/printed keywords back
@@ -1116,6 +1122,28 @@ def _rules(p: Program) -> None:
 # -> trigger_effect, with the same ability id the bridge used (cat(instance,"_",aid) == f"{tid}_{aid}").
 _PSCOPE_EFFECT = {"draw": "draw", "gain_life": "gain_life", "lose_life": "lose_life",
                   "mill": "mill", "discard": "discard"}
+
+# STRUCTURAL #3 — DYNAMIC 'for each' AMOUNTS: the RECOGNIZED clean count-amount slugs -> (base multiplier, tag).
+# A pscope effect (draw/gain_life/lose_life/mill) whose amount is one of these resolves to BASE * <live count of
+# the tag>, computed by the driver (_dyn_count) at resolution time. Only CONTROLLER-scoped, board/hand/graveyard
+# counts the driver can compute exactly are listed — faithful-or-abstain; every other count slug stays dropped.
+#   tag semantics (driver._dyn_count): creature_yc/artifact_yc/land_yc = count of that type you control;
+#   cards_in_hand = cards in your hand; creature_cards_in_gy = creature cards in your graveyard.
+# 'N_per_X' carries base N; 'equal_to_the_number_of_X' carries base 1. (slug, base, tag) triples:
+_DYN_AMOUNT_TAG = [
+    ("1_per_creature_you_control", 1, "creature_yc"),
+    ("2_per_creature_you_control", 2, "creature_yc"),
+    ("1_per_artifact_you_control", 1, "artifact_yc"),
+    ("1_per_land_you_control", 1, "land_yc"),
+    ("1_per_card_in_your_hand", 1, "cards_in_hand"),
+    ("2_per_card_in_your_hand", 2, "cards_in_hand"),
+    ("1_per_creature_card_in_your_graveyard", 1, "creature_cards_in_gy"),
+    ("equal_to_the_number_of_creatures_you_control", 1, "creature_yc"),
+    ("equal_to_the_number_of_artifacts_you_control", 1, "artifact_yc"),
+    ("equal_to_the_number_of_lands_you_control", 1, "land_yc"),
+    ("equal_to_the_number_of_cards_in_your_hand", 1, "cards_in_hand"),
+    ("equal_to_the_number_of_creature_cards_in_your_graveyard", 1, "creature_cards_in_gy"),
+]
 
 
 def _pt_value_facts() -> list[str]:
@@ -1279,6 +1307,32 @@ def _emit_translate(p) -> None:
            ["resolves_ability(Spell, Card, A)",
             'card_effect(Card, A, _, "create", Amount, _, Spec, _)',
             'match("[0-9]+", Amount)', "N = to_number(Amount)", 'Spec != "-"', 'Spec != ""'])
+    p.blank()
+    p.comment("STRUCTURAL #3 — DYNAMIC 'for each' AMOUNTS. A player-scoped effect (draw/gain_life/lose_life/mill)")
+    p.comment("whose amount is a clean count slug — 'N_per_<X>' or 'equal_to_the_number_of_<X>' — is DROPPED by the")
+    p.comment("numeric spell_effect/trigger_effect rules above (their match(\"[0-9]+\") gate fails on the slug). Here")
+    p.comment("we derive a parallel spell_dyn_effect / trigger_dyn_effect carrying a BASE multiplier + a count TAG;")
+    p.comment("the driver resolves the TAG to a live count at resolution time and applies BASE*count (driver._dyn_count).")
+    p.comment("dyn_amount_tag maps the RECOGNIZED clean count slugs only (controller-scoped, computable from state) —")
+    p.comment("anything else abstains (faithful-or-abstain). 'N_per_X' -> base N; 'equal_to_the_number_of_X' -> base 1.")
+    p.decl("dyn_amount_tag", [("amount", "symbol"), ("base", "number"), ("tag", "symbol")])
+    p.facts([f'dyn_amount_tag("{slug}", {base}, "{tag}")' for slug, base, tag in sorted(_DYN_AMOUNT_TAG)])
+    p.comment("DERIVE trigger_dyn_effect: like trigger_effect (pscope verb, mapped event, unconditional) but the")
+    p.comment("amount is a recognized count slug. Carries (Base, Tag, Scope); driver multiplies by the live count.")
+    p.decl("trigger_dyn_effect", [("ability", "symbol"), ("effect", "symbol"), ("base", "number"), ("tag", "symbol"), ("target", "symbol")])
+    p.rule("trigger_dyn_effect(IA, Eff, Base, Tag, Scope)",
+           ["inst_ability(IA, S, A, C)", 'card_ability(C, A, "triggered")',
+            "ability_trigger(C, A, Phrase)", "event_map(Phrase, _)",
+            'card_effect(C, A, _, Verb, Amount, Target, _, "-")',
+            "pscope_effect(Verb, Eff)", "dyn_amount_tag(Amount, Base, Tag)",
+            "player_scope(Target, Scope)"])
+    p.comment("DERIVE spell_dyn_effect: the instant/sorcery (or loyalty) analogue, keyed by the resolving object.")
+    p.decl("spell_dyn_effect", [("spell", "symbol"), ("effect", "symbol"), ("base", "number"), ("tag", "symbol"), ("target", "symbol")])
+    p.rule("spell_dyn_effect(Spell, Eff, Base, Tag, Scope)",
+           ["resolves_ability(Spell, Card, A)",
+            'card_effect(Card, A, _, Verb, Amount, Target, _, "-")',
+            "pscope_effect(Verb, Eff)", "dyn_amount_tag(Amount, Base, Tag)",
+            "player_scope(Target, Scope)"])
     p.blank()
     p.comment("ONE WORLD: §611.2 STATIC keyword-anthem grants for the UNFILTERED board scopes -> static_grant,")
     p.comment("DERIVED here from the card parse facts (was bridge's static branch / add('static_grant', ...)).")

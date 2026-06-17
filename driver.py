@@ -162,7 +162,7 @@ def _fire_tap_triggers(state: dict) -> None:
     if not just:
         return
     state["just_tapped"] = just
-    _apply_effects(state, run(state, ["pending"])["pending"])
+    _apply_effects(state, *_pending_both(state))
     state["just_tapped"] = set()
 
 
@@ -262,6 +262,57 @@ def _creatures_of(state: dict, p: str) -> list[str]:
     out = run(state, ["controls", "creature"])
     creatures = {c for (c,) in out["creature"]}
     return sorted(c for (pp, c) in out["controls"] if pp == p and c in creatures)
+
+
+def _dyn_count(state: dict, tag: str, ctrl: str) -> int:
+    """STRUCTURAL #3 — resolve a 'for each' count TAG to a live number from ctrl's perspective, at
+    resolution time. Recognized CONTROLLER-scoped dimensions only (faithful-or-abstain — the engine's
+    dyn_amount_tag table already restricts to these). Battlefield counts come from the engine's DERIVED
+    controls/creature/has_type (so casting-entered permanents and layer effects are included, like
+    _creatures_of); hand/graveyard counts come from the zone sets the driver tracks.
+      creature_yc          — creatures you control
+      artifact_yc/land_yc  — artifacts/lands you control (has_type)
+      cards_in_hand        — cards in your hand
+      creature_cards_in_gy — creature cards in your graveyard (owned by you, via printed_control + card_type)"""
+    if tag == "creature_yc":
+        return len(_creatures_of(state, ctrl))
+    if tag in ("artifact_yc", "land_yc"):
+        t = "artifact" if tag == "artifact_yc" else "land"
+        # printed_type is what the engine reliably exposes for non-creature permanents (has_type is creature-
+        # centric / §613 add-remove only); a permanent on the battlefield under ctrl's control with that type.
+        out = run(state, ["controls", "printed_type"])
+        typed = {c for (c, ty) in out["printed_type"] if ty == t}
+        return sum(1 for (p, c) in out["controls"] if p == ctrl and c in typed)
+    if tag == "cards_in_hand":
+        return sum(1 for (p, _c) in state.get("in_hand", set()) if p == ctrl)
+    if tag == "creature_cards_in_gy":
+        owner = {c: p for (p, c) in state.get("printed_control", set())}
+        io = {i: s for (i, s) in state.get("instance_of", set())}
+        cre = {s for (s, ty) in state.get("card_type", set()) if ty == "creature"}
+        return sum(1 for (c,) in state.get("graveyard", set())
+                   if owner.get(c) == ctrl and io.get(c) in cre)
+    return 0   # unrecognized tag -> abstain (no engine rule should produce one)
+
+
+def _pending_both(state: dict) -> tuple:
+    """The engine's current (pending, pending_dyn) — the fixed and the 'for each' triggered effects. The
+    trigger chokepoints fire both together (a §603 trigger may have either kind of amount)."""
+    out = run(state, ["pending", "pending_dyn"])
+    return out["pending"], out["pending_dyn"]
+
+
+def _apply_dyn(state: dict, pending_dyn: set) -> None:
+    """STRUCTURAL #3 — resolve the DYNAMIC ('for each') player-scoped effects (pending_dyn / spell_dyn_effect
+    rows the driver staged as pending_dyn tuples) by evaluating each count TAG to a number and routing the
+    resulting fixed amount through the shared _apply_effects path. A zero count -> the effect does nothing
+    (e.g. draw 0), which is correct. Rows: (ability, effect, base, tag, target, source, controller)."""
+    fixed = set()
+    for (a, eff, base, tag, tgt, src, ctrl) in sorted(pending_dyn):
+        n = int(base) * _dyn_count(state, tag, ctrl)
+        print(f"    dyn {a}: {eff} amount = {base} per {tag} = {n}")
+        fixed.add((a, eff, n, tgt, src, ctrl))
+    if fixed:
+        _apply_effects(state, fixed)
 
 
 def _set_life(state: dict, p: str, n: int) -> None:
@@ -574,7 +625,7 @@ def _transform(state: dict, obj: str, ctrl: str) -> None:
     state.setdefault("just_entered", set()).add((obj,))        # §603 enters-the-battlefield window
     print(f"    {obj} transforms into {back}"
           + (f" (planeswalker, loyalty {loy})" if "planeswalker" in bt else ""))
-    _apply_effects(state, run(state, ["pending"])["pending"])  # §603 fire 'when ~ enters' triggers
+    _apply_effects(state, *_pending_both(state))  # §603 fire 'when ~ enters' triggers
     state["just_entered"].discard((obj,))
 
 
@@ -596,9 +647,14 @@ def _discard_zone(state: dict, p: str) -> str:
     return "exile" if any(s in mine and s in bf for (s,) in state.get("discard_exile_source", set())) else "graveyard"
 
 
-def _apply_effects(state: dict, pending: set) -> None:
+def _apply_effects(state: dict, pending: set, pending_dyn: set | None = None) -> None:
     """Apply the effects of triggered abilities the engine fired (§603 -> §608 resolution).
-    Player targets: each_opponent -> all other players; controller/self -> the controller."""
+    Player targets: each_opponent -> all other players; controller/self -> the controller.
+    STRUCTURAL #3 — `pending_dyn` (optional): the DYNAMIC ('for each') trigger effects to resolve alongside
+    (rows (a,eff,base,tag,tgt,src,ctrl)); each is scaled to a live count and routed back through this path.
+    Trigger chokepoints pass the engine's current pending_dyn; diff sites pass the diff; spells pass None."""
+    if pending_dyn:
+        _apply_dyn(state, pending_dyn)
     for (a, eff, amt, tgt, src, ctrl) in sorted(pending):
         n = int(amt)
         players = _others(state, ctrl) if tgt == "each_opponent" else [ctrl]
@@ -956,7 +1012,7 @@ def _sacrifice(state: dict, obj: str) -> None:
     state.setdefault("_sacrificing", set()).add((obj,))      # re-sacrificing the SAME object would recurse forever
     print(f"    {obj} is sacrificed")
     state["sacrificed"] = {(obj,)}
-    _apply_effects(state, run(state, ["pending"])["pending"])
+    _apply_effects(state, *_pending_both(state))
     state["sacrificed"] = set()
     state["on_battlefield"].discard((obj,))
     state.setdefault("graveyard", set()).add((obj,))
@@ -1077,7 +1133,7 @@ def _fire_draw_triggers(state: dict, p: str) -> None:
     try:
         state["just_drew"] = {(p,)}
         state["draw_ord"] = {(p, n)}
-        _apply_effects(state, run(state, ["pending"])["pending"])
+        _apply_effects(state, *_pending_both(state))
     finally:
         state["just_drew"] = set()
         state["draw_ord"] = set()
@@ -1093,13 +1149,14 @@ def _fire_search_triggers(state: dict, searcher: str) -> None:
     search counts once — see callers)."""
     if state.get("_in_search_trigger", 0) >= 8:
         return
-    before = run(state, ["pending"])["pending"]
+    before, before_dyn = _pending_both(state)
     state["_in_search_trigger"] = state.get("_in_search_trigger", 0) + 1
     try:
         state["ev_search_library"] = {(searcher,)}
-        new = run(state, ["pending"])["pending"] - before
+        now, now_dyn = _pending_both(state)
+        new, new_dyn = now - before, now_dyn - before_dyn
         state["ev_search_library"] = set()                   # CLOSE the window before applying — the trigger's own
-        _apply_effects(state, new)                            # draw re-runs pending and would otherwise re-fire it
+        _apply_effects(state, new, new_dyn)                  # draw re-runs pending and would otherwise re-fire it
     finally:
         state["ev_search_library"] = set()
         state["_in_search_trigger"] -= 1
@@ -1365,7 +1422,7 @@ def _develop_mana(state: dict, ap: str) -> None:
         # §603 LANDFALL — a played land enters without using the stack, so signal just_entered(land) so the
         # engine fires 'whenever a land you control enters' triggers, apply them, then clear the signal.
         state.setdefault("just_entered", set()).add((land,))
-        _apply_effects(state, run(state, ["pending"])["pending"])
+        _apply_effects(state, *_pending_both(state))
         state["just_entered"].discard((land,))
         return True
 
@@ -1999,7 +2056,7 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
     you_cast_instant_or_sorcery / opponent_cast / any_cast — see build_engine.py), so a card whose trigger
     is one of those fires here automatically (this is what carries PROWESS-style 'whenever you cast …'
     abilities once a card supplies the trigger)."""
-    before = run(state, ["pending"])["pending"]
+    before, before_dyn = _pending_both(state)
     # §608 PER-TURN NTH-CAST ordinal: this is the caster's n-th spell this turn (and m-th noncreature). Fed
     # as cast_ord / cast_nc_ord ONLY during the window so 'first/second … spell each turn' triggers fire
     # exactly on the matching cast. The counters are per-(player, turn), reset at the turn boundary.
@@ -2013,8 +2070,9 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
         state["cast_nc_ord"] = {(caster, m)}
     else:
         state["cast_nc_ord"] = set()
-    new = run(state, ["pending"])["pending"] - before
-    _apply_effects(state, new)
+    now, now_dyn = _pending_both(state)
+    new, new_dyn = now - before, now_dyn - before_dyn
+    _apply_effects(state, new, new_dyn)
     state["cast_spell"] = set()
     state["cast_ord"] = set()
     state["cast_nc_ord"] = set()
@@ -2072,7 +2130,7 @@ def _copy_spell(state: dict, spell: str, controller: str, n: int = 1) -> list:
     if made:
         # §707 MAGECRAFT 'whenever you copy a spell' (Storm-Kiln Artist): fire the copy window for the copier.
         state["copied_spell"] = {(controller,)}
-        _apply_effects(state, run(state, ["pending"])["pending"])
+        _apply_effects(state, *_pending_both(state))
         state["copied_spell"] = set()
     return made
 
@@ -2117,7 +2175,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
             if victim is not None:
                 print(f"      {spell} counters {victim}")
                 state["countered"] = {(victim,)}             # §603.10e look-back event for 'when countered'
-                _apply_effects(state, run(state, ["pending"])["pending"])
+                _apply_effects(state, *_pending_both(state))
                 state["countered"] = set()
                 _stack_remove(state, victim)
                 if exile_countered:                          # §614 'exile it instead of … graveyard'
@@ -2132,7 +2190,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
             for v in victims:
                 print(f"      {spell} exiles {v} from the stack")
                 state["countered"] = {(v,)}
-                _apply_effects(state, run(state, ["pending"])["pending"])
+                _apply_effects(state, *_pending_both(state))
                 state["countered"] = set()
                 _stack_remove(state, v)
                 state.setdefault("_flashback", set()).add((v,))   # Mindbreak Trap EXILES them
@@ -2151,10 +2209,20 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
             _apply_damage(state, spell, int(amt), str(tgt), tctrl)
         else:                                                # shared effect resolver (§603 -> §608 vocabulary)
             _apply_effects(state, {(f"{spell}", eff, amt, tgt, spell, ctrl)})
+    _run_spell_dyn(state, spell, ctrl)                       # STRUCTURAL #3 — 'for each' count-scaled player effects
     _run_spell_targets(state, spell, tctrl)                   # §115 single-target creature effects (Murder, ...)
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
     _run_spell_damage(state, spell, tctrl)                    # §120 direct damage (Lightning Bolt, Shock, ...)
     _run_spell_reanimate(state, spell, ctrl)                  # §701 reanimation (Resurrection, Zombify, ...)
+
+
+def _run_spell_dyn(state: dict, spell: str, ctrl: str) -> None:
+    """STRUCTURAL #3 — a resolving spell's player-scoped DYNAMIC effects: draw/gain_life/lose_life/mill whose
+    amount is a recognized 'for each' count slug (spell_dyn_effect: (spell, eff, base, tag, scope)). The count
+    is evaluated NOW (at resolution) from the controller's board/hand/graveyard, and base*count is routed
+    through the shared _apply_effects path (so doublers etc. still apply). Scope rides the target column."""
+    rows = sorted(r for r in run(state, ["spell_dyn_effect"])["spell_dyn_effect"] if r[0] == spell)
+    _apply_dyn(state, {(s, eff, base, tag, scope, spell, ctrl) for (s, eff, base, tag, scope) in rows})
 
 
 def _run_spell_reanimate(state: dict, spell: str, ctrl: str) -> None:
@@ -2658,7 +2726,7 @@ def _resolve_top(state: dict) -> None:
         maxd = max([d for (_o, d) in state.get("on_stack", set())], default=-1)
         state.setdefault("on_stack", set()).add((top, maxd + 1))
         state["all_passed"] = {("yes",)}
-        _apply_effects(state, run(state, ["pending"])["pending"])
+        _apply_effects(state, *_pending_both(state))
         state["all_passed"] = set()
         _stack_remove(state, top)
         return
