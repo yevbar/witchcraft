@@ -92,8 +92,31 @@ a new evaluation mode to be added. The fork→modern component map becomes:
      rules file with no inputs is deleted by `RemoveEmptyRelations` and segfaults the interpreter for both
      strategies (a misleading "identical" of two crashes).
 
-   Next: Phase-2b — give the columns real meaning (counting semi-naïve: @count = derivation count with the
-   sparsification invariant, @iteration = the loop counter), then Phase 3 (the three-term Update).
+4. **Phase 2b (part 1) landed — `@iteration` is real** (submodule commit `7797e3f2c`). It now carries the
+   derivation depth (`max` over the body atoms' `@iteration`, plus one; facts at 0). Because relations are
+   sets, the first derivation is the one kept, so the stored depth is the depth at which the tuple first
+   appears — the sparsified "first iteration" state. `indexAtoms` binds each body atom's aux columns;
+   `getIterationNumber` computes the depth; `createInsertion` threads it. Output byte-identical in both
+   backends at engine scale. The value is internal Bootstrap state (non-key, stripped) so it isn't observable
+   through output — it becomes behaviourally verifiable in Phase 3, which consumes it.
+
+   **The `@count` decision (important — a reorder vs the original plan).** A true derivation count (how many
+   rule instantiations derive a tuple) needs MULTISET accounting, which Soufflé relations don't have: the
+   `@count` column is auxiliary, so it's excluded from the key, so re-deriving a tuple is a set no-op and the
+   count cannot accumulate by repeated inserts. Getting a real count therefore requires either a core
+   relation-representation change (multiset storage + count arithmetic in the RAM, as the 2019 fork did) or a
+   per-head count aggregation that fights the semi-naïve structure and the sparsification.
+   **Crucially, counts are NOT needed for retraction correctness.** The paper's three-term Update handles
+   multi-support retraction via the **re-discovery** term — backward evaluation to find a surviving
+   derivation — which Soufflé's provenance infrastructure already provides. The count only makes retraction
+   *faster* (if count>1 you know the tuple survives without re-discovering). So counts are the Phase-4 eager-
+   diff optimization, not a Phase-3 correctness prerequisite.
+   **Decision:** keep `@count` as reserved placeholder state for now; build Phase 3 (Update) on `@iteration` +
+   re-discovery, and add real counting later as the eager-diff optimization once the incremental loop works.
+
+   Next: Phase 3 — the three-term Update (deletion / insertion / re-discovery) and the `update` subroutine,
+   gated by `Update(Bootstrap(E),(E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)` byte-identity (Theorem 3.5 == the
+   `delta==full` oracle).
 3. Then Phases 2–6 from the impl plan, each gated by `delta==full` byte-identity (Theorem 3.5 == our
    `test_engine_native.py` oracle), with `MTG_NO_INCREMENTAL` as the escape hatch.
 
