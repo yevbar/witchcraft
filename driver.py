@@ -844,6 +844,11 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         if (tgt,) in state.get("tapped", set()):
             state["tapped"].discard((tgt,))
             print(f"    {kind} {a}: untaps target {tgt}")
+    elif verb == "cant_be_blocked":                          # §509.1b 'target creature can't be blocked' (Aqueous Form)
+        # write the engine input cant_be_blocked(tgt) -> illegal_block(B,tgt) forbids any blocker (honored by
+        # the engine combat AND env._legal_block_pairs). Turn-scoped: end-of-turn cleanup clears the relation.
+        state.setdefault("cant_be_blocked", set()).add((tgt,))
+        print(f"    {kind} {a}: {tgt} can't be blocked this turn")
 
 
 # perm[_own]_<token> class -> the printed types a candidate permanent must match (ANY of), or a special
@@ -3149,6 +3154,7 @@ def _end_of_turn(state: dict) -> None:
     state["_sac_subtype_fired"] = set()                      # §603 Cabbage's 'sac a Food on combat damage' once/turn
     state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
     state["_cant_block"] = set()                             # §509.1b 'can't block this turn' restriction
+    state["cant_be_blocked"] = set()                         # §509.1b 'can't be blocked this turn' restriction
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:

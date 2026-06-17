@@ -335,3 +335,14 @@ def _apply_cant_block(D, state, a, n, tgt, src, ctrl):
     honors ('without_flying' -> a creature with no flying keyword can't be declared as a blocker this turn)."""
     state.setdefault("_cant_block", set()).add((str(tgt),))
     print(f"    {a}: creatures ({str(tgt).replace('_', ' ')}) can't block this turn")
+
+
+@applier("cant_be_blocked")
+def _apply_cant_be_blocked(D, state, a, n, tgt, src, ctrl):
+    """§509.1b SELF-scope 'this creature can't be blocked' (a triggered/activated/spell self-effect — e.g.
+    Glassdust Hulk's combat trigger, Frilled Sea Serpent's static-style ability). Writes the engine input
+    cant_be_blocked(src); illegal_block(B,src) then forbids any blocker, honored by BOTH the engine combat
+    and env._legal_block_pairs. Turn-scoped: end-of-turn cleanup clears the relation (like prevent_all_combat).
+    A spell with a 'self' target (no battlefield creature) just writes a row that matches no attacker — inert."""
+    state.setdefault("cant_be_blocked", set()).add((str(src),))
+    print(f"    {a}: {src} can't be blocked this turn")

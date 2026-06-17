@@ -2549,6 +2549,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _target_class(tgt) is not None:
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"switchpt|-|{_target_class(tgt)}"))
                         emitted = True; continue
+                if verb == "cant_be_blocked":                 # §509.1b '{cost}: target creature / this creature can't be blocked'
+                    if str(tgt) in ("self", "it"):            # self -> a self-effect the driver applies to the source
+                        add("activated_ability", (a, tid, paid[0], taps, "cant_be_blocked", 0, "-"))
+                        emitted = True; continue
+                    if _target_class(tgt) is not None:        # target creature -> ctarget (driver picks + applies, EOT)
+                        add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"cant_be_blocked|-|{_target_class(tgt)}"))
+                        emitted = True; continue
                 r = _resolved_effect(verb, amt, tgt, extra)
                 if r is None:
                     dropped.append(("effect", verb))

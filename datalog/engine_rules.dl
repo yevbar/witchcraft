@@ -320,11 +320,19 @@ toughness(C, N) :- pt7c_power(C, N), switched(C).
 .decl cant_be_destroyed(c: symbol)
 .decl illegal_block(b: symbol, a: symbol)
 .decl n_blockers(a: symbol, n: number)
+// §509.1b 'can't be blocked' — a turn-scoped (or static) combat restriction the SHIM feeds as state.
+// Declared but never a rule head -> auto-EDB (.input). The driver's cant_be_blocked applier (resolved
+// 'target creature can't be blocked' / 'this creature can't be blocked') writes a row per creature;
+// end-of-turn cleanup clears it. A blocker paired with such an attacker is an ILLEGAL block, which both
+// the engine combat (blocked/deals below) and the referee (env._legal_block_pairs probes illegal_block)
+// already honor — so no separate combat / env change is needed.
+.decl cant_be_blocked(c: symbol)
 n_blockers(A, N) :- blocks(_, A), N = count : { blocks(_, A) }.
 cant_attack(C) :- has_keyword(C, "defender").   // 702.3b
 illegal_block(B, A) :- blocks(B, A), has_keyword(A, "flying"), !has_keyword(B, "flying"), !has_keyword(B, "reach").   // 702.9b
 cant_be_destroyed(C) :- has_keyword(C, "indestructible").   // 702.12b
 illegal_block(B, A) :- blocks(B, A), has_keyword(A, "menace"), n_blockers(A, N), N < 2.   // 702.111b
+illegal_block(B, A) :- blocks(B, A), cant_be_blocked(A).   // 702.x 'can't be blocked' — no creature may block it
 
 // §510 — combat, gated by the combat damage step (turn <-> combat).
 // Combat respects the transpiled illegal_block: an illegal block neither stops
@@ -1123,6 +1131,17 @@ trigger_reanimate(IA, Mode) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "
 // self_target = the 'this creature itself' target slugs (was the bridge's str(tgt) in (self, it)).
 .decl self_target(tgt: symbol)
 self_target("self"). self_target("it").
+
+// §509.1b 'can't be blocked' (Combat restrictions, structural #5). The interpretation already exists as a
+// `cant_be_blocked` card_effect verb (~435 instances) but was inert — surface the cleanest cases so the
+// driver applies them, writing the engine's cant_be_blocked(creature) input (illegal_block above enforces).
+//  * single 'target creature[ you control]' -> trigger_target / spell_target (driver picks + applies, EOT)
+//  * 'this creature / it' (self) -> trigger_effect / spell_effect (driver applies to the source, EOT)
+// payload/amount are unused ('-'/0). Activated-ability cases are surfaced by the python bridge (ctarget /
+// self-effect), reusing this same driver applier. NOTE: trigger_target needs the §603 fires() machinery, so
+// 'this creature can't be blocked'-on-a-trigger uses trigger_effect (self) — the dominant printed shape.
+trigger_target(IA, "cant_be_blocked", "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "cant_be_blocked", _, Tgt, _, "-"), target_class(Tgt, Cls).
+trigger_effect(IA, "cant_be_blocked", 0, "-") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "cant_be_blocked", _, Tgt, _, "-"), self_target(Tgt).
 // DERIVE the §613 layer-7d switch P/T: a SINGLE 'target creature' -> trigger_target(switchpt,-,class);
 // a SELF/it switch -> trigger_effect(switchpt, 0, -) (was the switch_pt block's two cases).
 trigger_target(IA, "switchpt", "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), target_class(Tgt, Cls).
@@ -1211,6 +1230,11 @@ spell_target(S, "counter", Payload, Cls) :- spell_put_counter(S, Target, Payload
 spell_target(S, "modify_pt", Payload, Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), transient_pt_cond(Cond), pt_value(Amount, Dp, Dt), target_class(Target, Cls), Payload = cat(to_string(Dp), cat("/", to_string(Dt))).
 // switch_pt single-target §613 layer-7d P/T switch (no payload — the verb says it all).
 spell_target(S, "switchpt", "-", Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "switch_pt", _, Target, _, "-"), target_class(Target, Cls).
+// §509.1b 'target creature[ you control] can't be blocked' (Aqueous Form, Distortion Strike) -> the driver
+// picks the target and writes cant_be_blocked(creature) until EOT. 'This creature can't be blocked' (self)
+// is a spell_effect (applied to the source). See the trigger_target / trigger_effect twins above.
+spell_target(S, "cant_be_blocked", "-", Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "cant_be_blocked", _, Target, _, "-"), target_class(Target, Cls).
+spell_effect(S, "cant_be_blocked", 0, "-") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "cant_be_blocked", _, Target, _, "-"), self_target(Target).
 // DERIVE spell_scope — a board-wide creature verb the driver expands to every creature in scope.
 // Same verb/payload vocabulary as spell_target, but a board_scope target (creatures_you_control /
 // all_creatures) instead of a single-target class.
