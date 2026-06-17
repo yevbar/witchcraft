@@ -47,7 +47,9 @@ harness is part of Phase 3, not deferred to Phase 6.
 - **3b-1 DONE** — `diff_plus_<R>` staging relations + insertion update: merge each staged `diff_plus_<R>` into
   <R>, re-run the strata (monotone append). Correct for insertions; verified `update == recompute`. The driver
   owns staging cleanup (`Harness.purge`). NOT yet incremental — it re-runs all strata.
-- **3b-2 TODO** — the incremental win (see "3b-2 design" below).
+- **3b-2 IN PROGRESS** — incremental delta evaluation. First approach (AST-rewrite) hit a blocker; see below.
+  The update stays at the correct 3b-1 recompute until the blocker is resolved; `test_incremental.py` asserts
+  correctness now and reports the delta-only goal as pending.
 
 ### Two runtime findings that constrain everything downstream
 1. **A subroutine can't `Call` another** (stratum C++ objects are MAIN-scoped) → the `update` body must inline
@@ -74,6 +76,26 @@ Replace Pass 1's "re-run every stratum" with diff-seeded evaluation, in topologi
 - **Gate:** `update == recompute` on insertion deltas, AND measurably less work than recompute (e.g. assert the
   fixpoint touches O(diff) not O(full) — observe via row counts or a profile). Until the cross-stratum delta
   translation exists, 3b-1's re-run is the correct-but-not-incremental fallback.
+
+### BLOCKER (3b-2, verified): AST-rewrite can't rename atoms to relations the analyses don't know.
+The clean way to emit a delta rule looked like an AST rewrite: clone a clause, set a body atom's qualified
+name to `diff_plus_<rel>` and the head to `diff_plus_<H>`, then `context->translateNonRecursiveClause`. The
+name resolution lines up (`getConcreteRelationName(qname) == qname.toString()`, so `"diff_plus_mid"` resolves
+to the `diff_plus_mid` RAM relation). BUT translation consults cached AST analyses keyed by qualified name
+(attribute types, etc.) built from the ORIGINAL program — which has no `diff_plus_*` relations — so it throws
+`std::out_of_range: map::at`. This breaks codegen for any program with a non-recursive intensional relation
+(i.e. the engine), so it was reverted; the update is back at the 3b-1 recompute.
+**Options to unblock (pick next):**
+1. **Make `diff_plus_*` real `ast::Relation`s** via an `ast::transform` pass (declare them with the source
+   relation's attributes) BEFORE translation, so every analysis knows them. Cleanest for reuse, but they then
+   also appear in the SCC graph / main program — must ensure they stay empty and out of MAIN (e.g. no rules,
+   not output) so parity holds.
+2. **RAM-level rewrite**: translate the clause normally (real relations), then a `ram::NodeMapper` over the
+   resulting RAM renames the chosen `Scan`/`Insert` relation strings to the `diff_plus_*` names. Avoids the AST
+   analyses entirely; the fiddly part is identifying the right Scan among nested ones.
+3. **A dedicated incremental ClauseTranslator** that emits scan/join/insert with diff_plus naming directly
+   (most control, most code).
+Option 1 or 2 is likely the least code; 1 reuses the most machinery if the empty-relation parity can be kept.
 
 ## Decomposition (each step gated by the oracle; build the harness in 3a)
 - **3a — seam + harness + recompute baseline.** Add `diff_plus_/diff_minus_` relations. Generate an `update`
