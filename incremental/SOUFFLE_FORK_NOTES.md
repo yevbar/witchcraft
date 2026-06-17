@@ -36,9 +36,14 @@ a new evaluation mode to be added. The fork→modern component map becomes:
 | `Incremental.h` runtime/REPL | `SouffleProgram::executeSubroutine` driven from `engine_inproc.mtg_run_delta` |
 
 ## Next concrete code step (Phase 1, on Linux/the souffle C++)
-1. Wire a `--incremental` flag (mirror how `--provenance` selects its `TranslationStrategy`) and stub an
+1. ~~Wire a `--incremental` flag (mirror how `--provenance` selects its `TranslationStrategy`) and stub an
    `ast2ram/incremental/` strategy that, for now, delegates to `seminaive` (no-op) so the flag builds + runs +
-   passes the existing parity oracle. Smallest possible first PR-shaped change.
+   passes the existing parity oracle. Smallest possible first PR-shaped change.~~ **DONE** — submodule branch
+   `incremental-strategy-scaffold` (yevbar/souffle commit `77afb3e3f`). `src/ast2ram/incremental/
+   TranslationStrategy.{h,cpp}` delegates to seminaive; `--incremental` selected in `MainDriver.cpp` +
+   `TranslatorContext.cpp`; builds clean; `--incremental` shows in `--help`; output on `incremental/toy/tc.dl`
+   is **byte-identical** with and without the flag (no-op parity proven). This is the seam the real Bootstrap/
+   Update translators replace one factory at a time.
 2. Phase-1 proper: the `ast::transform` pass adding the `@iteration`/`@count` attributes to incrementalized
    relations (skip aggregate-bearing strata per the Aggregate Decision — they always Bootstrap).
 3. Then Phases 2–6 from the impl plan, each gated by `delta==full` byte-identity (Theorem 3.5 == our
