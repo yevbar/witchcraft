@@ -284,10 +284,30 @@ def _life_gain_mods(state: dict, p: str) -> tuple:
     return (dbl, plus)
 
 
+def _cant_gain_life(state: dict, p: str) -> bool:
+    """§604/§614 a life-gain PREVENTION affecting p (static_player, when loaded): 'players_cant_gain_life'
+    from ANY permanent (Sulfuric Vortex/Witch Hunt) prevents EVERYONE'S gain; 'opponents_cant_gain_life'
+    (Tibalt/Erebos) prevents gain for the controller's OPPONENTS. False if static_player isn't loaded."""
+    sp = state.get("static_player")
+    if not sp:
+        return False
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    for (owner, c) in state.get("printed_control", set()):
+        slug = io.get(c)
+        if (slug, "players_cant_gain_life") in sp:
+            return True
+        if (slug, "opponents_cant_gain_life") in sp and owner != p:   # p is an OPPONENT of the controller
+            return True
+    return False
+
+
 def _adjust_life(state: dict, p: str, delta: int) -> int:
     if delta > 0:                                            # §614 a life GAIN — apply p's life-gain replacements
-        dbl, plus = _life_gain_mods(state, p)
-        delta = delta * (2 ** dbl) + plus
+        if _cant_gain_life(state, p):                        # §604 a 'can't gain life' static -> the gain is 0
+            delta = 0
+        else:
+            dbl, plus = _life_gain_mods(state, p)
+            delta = delta * (2 ** dbl) + plus
     cur = next(v for (q, v) in state["life"] if q == p)
     _set_life(state, p, cur + delta)
     return cur + delta
@@ -3035,8 +3055,43 @@ def _return_stolen(state: dict, ap: str) -> None:
         print(f"    {ap}: {returned} stolen card(s) return to their owners' graveyards (end step)")
 
 
+def _no_max_hand_size(state: dict, p: str) -> bool:
+    """§402.2 / §604 p has NO maximum hand size (static_player, when loaded): 'no_maximum_hand_size' on a
+    permanent p controls (Reliquary Tower/Thought Vessel/Venser's Journal), OR 'players_no_maximum_hand_size'
+    on ANY permanent (The Lux Foundation Library — every player). False if static_player isn't loaded."""
+    sp = state.get("static_player")
+    if not sp:
+        return False
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    ctrl = state.get("printed_control", set())
+    for (c,) in state.get("on_battlefield", set()):
+        slug = io.get(c)
+        if (slug, "players_no_maximum_hand_size") in sp:
+            return True
+        if (p, c) in ctrl and (slug, "no_maximum_hand_size") in sp:
+            return True
+    return False
+
+
+def _cleanup_discard(state: dict, ap: str, max_hand: int = 7) -> None:
+    """§514.1 cleanup — the active player discards down to their maximum hand size (normally seven, §402.2).
+    SKIPPED entirely if ap has a 'no maximum hand size' static (Reliquary Tower etc.). Each discard routes
+    through the _choose seam (the player's choice) so a policy/search sees it; the greedy default keeps the
+    lowest-sorted card (stable, deterministic). Discarded cards go to ap's discard zone (graveyard/exile)."""
+    if _no_max_hand_size(state, ap):
+        return
+    hand = sorted(c for (pp, c) in state.get("in_hand", set()) if pp == ap)
+    while len(hand) > max_hand:
+        card = _choose(state, "cleanup_discard", hand, hand[0])
+        hand.remove(card)
+        state["in_hand"].discard((ap, card))
+        state.setdefault(_discard_zone(state, ap), set()).add((card,))
+
+
 def _end_of_turn(state: dict) -> None:
     """§514.2 cleanup — until-end-of-turn continuous effects end (the driver removes them)."""
+    ap = next(iter(state["active_player"]))[0]               # §514.1 active player discards to max hand size first
+    _cleanup_discard(state, ap)
     ending = {e for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]}
     for e in ending:
         for rel in [k for k in state if k.startswith("eff_")]:
