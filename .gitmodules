@@ -1,0 +1,4 @@
+[submodule "third_party/souffle-elastic"]
+	path = third_party/souffle-elastic
+	url = https://github.com/davidwzhao/souffle.git
+	branch = incremental-with-provenance-eager-diffs
