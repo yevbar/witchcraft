@@ -59,10 +59,22 @@ So **>5 ms of every 7.3 ms is fork + file I/O**, not the rules computation.
    primitive (Forge: 244/sec copy, 67/sec eval) — witchcraft is now the faster simulator. `env.step` at
    530/sec (was 15) is the search-depth number; levers #2/#3 stack on top of this.
 
-2. **Cut the evaluate-count per `env.step` (independent multiplicative win).** `env.step` is 15/sec because it
-   makes **~9 `evaluate()` calls** per node (legal_actions + apply + the various derivations). Batch those
-   into one Soufflé program/call, or cache the invariant sub-derivations across a single step, and the
-   search-node rate climbs without touching #1.
+2. **Cut the evaluate-count per `env.step` — ✅ addressed via a bounded LRU eval cache (the win is amortization,
+   not raw count).** Instrumenting one `env.step`: it makes **38 `driver.run` calls but only 9 actual engine
+   evals** — `driver._CACHE` already dedupes 38→9 *within* a step. The 9 are genuinely distinct states (a "pass"
+   auto-advances a whole turn: untap→upkeep→draw→main→combat, and the draw step re-derives after the card is
+   drawn → fire triggers → apply creature effects). They can't be batched into one Soufflé call (they're a
+   *sequential* driver fixpoint — each derivation depends on the prior mutation), and each eval is already near
+   floor (≈40 µs Python TSV marshalling — at its limit, all variants equal — + ≈94 µs Soufflé + ≈26 µs parse).
+   The real multiplicative win is **cross-step**: in a search, sibling lines share those auto-advance phase
+   crossings, so a *persistent* cache turns node expansion from 9 fresh evals into a handful of hits. Measured
+   node-expansion (6 legal actions): **cold (cache cleared each step) ≈470/sec vs warm (shared cache) ≈3,100–
+   3,570/sec — ~6.6–7.6×**. The benchmark's per-step `driver._CACHE.clear()` is a *cold-cache artifact*; real
+   search runs warm. The liability was that `_CACHE` was an UNBOUNDED dict — a long search would OOM, forcing
+   `clear_cache()` that throws the amortization away. Now `_CACHE` is a **bounded LRU** (`OrderedDict`,
+   move-to-end on hit, evict-oldest past `MTG_EVAL_CACHE` distinct states, default 200k) — the amortization is
+   safe under arbitrarily long search with bounded memory. Byte-identical (only eviction; test_engine/native/
+   game green). What's left on the COLD path (the 9-eval fixpoint itself) is lever #3.
 
 3. **Incremental evaluation (the structural win).** Soufflé recomputes the *entire* fixpoint from scratch on
    every call, but in tree search a child state differs from its parent by only a handful of facts (one

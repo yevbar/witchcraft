@@ -17,6 +17,7 @@ import random
 import re
 import subprocess
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 
 import sys
@@ -194,8 +195,16 @@ def _lit(x: object) -> str:
 # collapses "total tree nodes × one souffle call" into "DISTINCT engine-inputs × one souffle call",
 # which (with search.canonical_key dedup on top) is what makes deep multi-state lookahead cheap.
 # Keyed by the canonical (order-independent) fact set; cleared with clear_cache() between scenarios.
-_CACHE: dict = {}
+# BOUNDED LRU (lever #2): the per-state eval cache is what amortizes a search node's expansion — sibling lines
+# share the same auto-advance phase crossings (untap/upkeep/draw/combat/…), so a persistent cache turns env.step
+# from ~9 fresh evals into a handful of hits (measured ~7.6x warm vs a cold cache). An UNBOUNDED dict would grow
+# without limit over a long search and OOM — forcing periodic clear_cache(), which throws the amortization away.
+# An OrderedDict keyed by the canonical fact set, evicting least-recently-used past a cap, keeps the amortization
+# while bounding memory. MTG_EVAL_CACHE sets the cap (0 = unbounded; default 200k distinct states).
+_CACHE: "OrderedDict" = OrderedDict()
+_CACHE_MAX = int(os.environ.get("MTG_EVAL_CACHE", "200000"))
 _EVALS = [0]                                          # count of actual souffle invocations (cache misses)
+_EVICTIONS = [0]
 
 
 def _facts_key(state: dict) -> frozenset:
@@ -206,10 +215,12 @@ def _facts_key(state: dict) -> frozenset:
 def clear_cache() -> None:
     _CACHE.clear()
     _EVALS[0] = 0
+    _EVICTIONS[0] = 0
 
 
 def cache_stats() -> dict:
-    return {"distinct_states": len(_CACHE), "souffle_evals": _EVALS[0]}
+    return {"distinct_states": len(_CACHE), "souffle_evals": _EVALS[0],
+            "capacity": _CACHE_MAX, "evictions": _EVICTIONS[0]}
 
 
 def _evaluate(fkey: frozenset) -> dict:
@@ -236,11 +247,17 @@ def _evaluate(fkey: frozenset) -> dict:
 
 
 def run(state: dict, outputs: list[str]) -> dict:
-    """Run the engine on `state`; return the requested output relations (memoized, pure)."""
+    """Run the engine on `state`; return the requested output relations (memoized, pure). The cache is a
+    bounded LRU: a hit refreshes recency; a miss evaluates, inserts, and evicts the oldest past the cap."""
     fkey = _facts_key(state)
     derived = _CACHE.get(fkey)
     if derived is None:
         derived = _CACHE[fkey] = _evaluate(fkey)
+        if _CACHE_MAX and len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)               # evict least-recently-used
+            _EVICTIONS[0] += 1
+    else:
+        _CACHE.move_to_end(fkey)                     # mark most-recently-used
     return {rel: derived.get(rel, set()) for rel in outputs}
 
 
