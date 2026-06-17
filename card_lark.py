@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -168,6 +168,16 @@ asnum: NUM | QUANT                                                           // 
 // else-slug grounding. Compound/run-on/structural-marker objects abstain to the regex.
 cpclause.-2: CP_COPY cpbody                  -> copyverb
 cpbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> cpbody
+
+// MUST_ATTACK / MUST_BLOCK (§508/§509) — '<subj> attacks/blocks [<obj>] [<dur>] if able' (the
+// `_must_attack` / `_must_block_tgt` / `_must_block_able` templates). The ONLY terminal is the distinctive
+// trailing 'if able' anchor (MRABLE) — NO common-word 'attacks'/'blocks' terminal (those collide
+// corpus-wide). The transformer reads the body span before 'if able' and re-applies the templates' own
+// regexes (reusing `_TGT`) to split subject / directed-object / duration, so the grounding is byte-
+// identical; a lossy/compound subject (which the regex grabs LOSSILY) finds no clean `_TGT` split here and
+// abstains -> the regex keeps it (faithful 'abstain over lossy'). NEGATIVE priority.
+mrclause.-2: mrbody MRABLE                    -> mustreq
+mrbody: (WORD | QUANT | NUM | MDUR | TOPREP | FROM)+                         // '<subj> attacks/blocks [<obj>] [<dur>]'
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -425,6 +435,7 @@ RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 r
 SKIP.4: /\bskips?\b/                  // '[<player>] skip[s] …' — §500.7 skip-a-step/phase/turn (skip family; namespaced)
 AMASS.4: /\bamass\b/                  // 'amass <type> <N>' — §701.43 amass keyword action (amass family; namespaced; rare word, low collision)
 CP_COPY.3: /\bcopy\b/                 // 'copy <object>' — §707 copy verb (copy family; namespaced; leading imperative, mirrors DB_DOUBLE)
+MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -657,6 +668,16 @@ _RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
 # template's own `(\d+|one|two|three|x)` set, so a count outside it (e.g. 'four') abstains to the regex.
 _SK_BODY = re.compile(r"^(?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$", re.I)
 _AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
+
+# MUST_ATTACK / MUST_BLOCK body validators — the `_must_attack` / `_must_block_tgt` / `_must_block_able`
+# template patterns MINUS the trailing ' if able' (the grammar's MRABLE terminal already consumed it),
+# applied to the captured `mrbody` span and reusing the templates' own `_TGT`. ATTACK: subject + optional
+# directed player (the negative lookahead keeps a bare duration out of the object slot) + optional
+# duration. BLOCK_TGT: subject + blocked object + optional duration. BLOCK_ABLE: subject + optional
+# duration. A non-`_TGT` (lossy/compound) subject matches none -> abstain to the regex.
+_MR_ATTACK = re.compile(r"^(" + _TGT + r") attacks?(?: (?!each combat|this turn|this combat)(" + _TGT + r"))?(?: each combat| this turn| this combat)?$", re.I)
+_MR_BLOCK_TGT = re.compile(r"^(" + _TGT + r") blocks (" + _TGT + r")(?: this turn| this combat)?$", re.I)
+_MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks(?: this turn| this combat| each combat)?$", re.I)
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
@@ -1022,6 +1043,10 @@ class _AsNum(str):     # amass count token (asnum) — validated against the tem
 
 
 class _CpBody(str):    # the flat 'copy …' object run (value unused; the object is sliced from src like _DbBody)
+    pass
+
+
+class _MrBody(str):    # the combat-requirement body span (mrbody) — '<subj> attacks/blocks [<obj>] [<dur>]'
     pass
 
 
@@ -2209,6 +2234,31 @@ class _ToEffect(Transformer):
         if not _DB_TGT.match(rest) or _is_compound_object(rest):
             return None
         return Effect("copy", "-", _target(rest))
+
+    # --- MUST_ATTACK / MUST_BLOCK (§508/§509) ---------------------------------
+    def mrbody(self, *toks):
+        return _MrBody(" ".join(str(t) for t in toks))
+
+    def mustreq(self, *args):
+        # '<subj> attacks/blocks [<obj>] [<dur>] if able' — the EXACT _must_attack / _must_block_tgt /
+        # _must_block_able templates, re-applied to the body span (the MRABLE 'if able' anchor is already
+        # stripped by the grammar). ATTACK: must_attack(-, subj, <directed|->); BLOCK with object:
+        # must_block(-, subj, <obj>); BLOCK bare: must_block(-, subj). A lossy/compound subject (which the
+        # regex grabs into a garbled `_TGT`) yields no clean split here -> abstain to the regex.
+        body = next((str(a) for a in args if isinstance(a, _MrBody)), None)
+        if body is None:
+            return None
+        body = body.strip()
+        m = _MR_ATTACK.match(body)
+        if m:
+            return Effect("must_attack", "-", _target(m.group(1)), _target(m.group(2)) if m.group(2) else "-")
+        m = _MR_BLOCK_TGT.match(body)
+        if m:
+            return Effect("must_block", "-", _target(m.group(1)), _target(m.group(2)))
+        m = _MR_BLOCK_ABLE.match(body)
+        if m:
+            return Effect("must_block", "-", _target(m.group(1)))
+        return None
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):
