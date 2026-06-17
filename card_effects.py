@@ -589,10 +589,11 @@ def _end_turn(m):
     return Effect("end_the_turn", "-", "you")
 
 
-@_t(rf"^(?:({_TGT}) )?skips? (?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$")
-def _skip(m):
-    """'Skip your <step/phase/turn>' — a §500.7/§502+ skip effect (grounded skip action)."""
-    return Effect("skip", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
+# _skip: migrated to card_lark (the `skclause` TRUE-grammar production — SKIP terminal splits an optional
+# player subject from the '(your|its|their|his or her) [next] <phase>' body; the phase is read with the
+# template's own regex on the captured body span). lark-first grounds every skip clause IDENTICALLY
+# (migrate_check skip = 0 DIFFERS, 0 ABSTAINS), so this template AND the narrower `skip your <phase>`
+# variant below are RETIRED, proven byte-identical by a full-corpus parse_clause snapshot with them removed.
 
 
 @_t(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$")
@@ -900,9 +901,8 @@ def _emblem(m):
 # regex template was retired (gate: lark IDENTICAL, DIFFERS=0).
 
 
-@_t(r"^(?:you )?skip your (draw step|next draw step|untap step|combat phase|next combat phase|draw|next turn|next combat)$")
-def _skip(m):
-    return Effect("skip", "-", ground.slug(m.group(1)))
+# _skip (narrow 'skip your <phase>' variant): retired together with the general _skip above — see that note
+# (card_lark's `skclause` now owns all skip clauses; this variant was shadowed by it in the corpus).
 
 
 @_t(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})( until end of turn| for as long as .+?)?$")
@@ -1155,10 +1155,10 @@ def _grant_ability(m):
     return Effect("grant_ability", "until_end_of_turn" if m.group(3) else "-", _target(m.group(1)), ab) if ab else None
 
 
-@_t(r"^amass ([\w ]+?) (\d+|one|two|three|x)$")
-def _amass(m):
-    n = _amount(m.group(2))
-    return Effect("amass", n if n is not None else 1, "you", ground.slug(m.group(1)))
+# _amass: migrated to card_lark (the `asclause` TRUE-grammar production — AMASS terminal + army-type span +
+# count token, count restricted to the same (\d+|one|two|three|x) set). lark-first grounds every amass
+# clause IDENTICALLY (migrate_check amass = 0 DIFFERS, 0 ABSTAINS); template RETIRED, proven byte-identical
+# by a full-corpus parse_clause snapshot with it removed.
 
 
 @_t(rf"^(?:{_TGT} )?choose(?:s)? (a|an|one|two|three|up to \w+|one or more|any number of|another|target|the) (.+?)$")

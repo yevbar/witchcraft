@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -141,6 +141,24 @@ rdclause.-2: rdpre DMG rda RDIS rdb          -> redirect
 rdpre: (WORD | QUANT | NUM)+                                                 // 'the next <N>' | 'all [combat]'
 rda: (WORD | QUANT | NUM | TOPREP | FROM | MDUR)+                            // 'that would be dealt to <A> [this turn] [by <src>]'
 rdb: (WORD | QUANT | NUM)+                                                   // '<B> [instead]'
+
+// SKIP (§500.7+) — '[<player>] skip[s] (your|its|their|his or her) [next] <phase/step|turn>' (the `_skip`
+// template). The distinctive SKIP terminal splits an optional leading subject SPAN (a player, validated
+// `_TGT` or defaulted to 'you') from the body; the transformer extracts the phase with the template's own
+// possessive+next+phase regex (operating on the captured `skbody` span). skip(-, <player>, <phase_slug>).
+// POSITIVE priority + PVERB in the body: a 'skip your DRAW step' clause is otherwise grabbed by `pcount`
+// (psubj 'skip your', PVERB 'draw', pbody 'step') which abstains; the distinctive leading SKIP makes the
+// positive priority safe (only genuine skip clauses match this production).
+skclause.2: sksubj? SKIP skbody              -> skipverb
+sksubj: (WORD | QUANT | NUM)+                                                // optional acting player (validated _TGT)
+skbody: (WORD | QUANT | NUM | PVERB)+                                        // '(your|its|their|his or her) [next] <phase>' (PVERB covers 'draw')
+
+// AMASS (§701.43) — 'amass <army-type> <N>' (the `_amass` template). Verb-first; the distinctive AMASS
+// terminal leads, then the army-type word(s) SPAN and a trailing count token -> amass(<n|1>, you,
+// slug(<type>)). The count is restricted to the template's own `(\d+|one|two|three|x)` set (else abstain).
+asclause.-2: AMASS askind asnum              -> amassverb
+askind: WORD+                                                                // the army type ('Zombies'/'Orcs'/…)
+asnum: NUM | QUANT                                                           // the count ('2'/'one'/'x'); validated
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -395,6 +413,8 @@ TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform 
 MF_MANIFEST.3: /\bmanifest\b/         // 'manifest' — the §701.34 manifest keyword action (manifest family; namespaced)
 PHASE.4: /\bphases? (?:out|in)\b/     // '<X> phase[s] out/in' — §702.26 phasing (phase_out/phase_in; the 'out'/'in' is bound to 'phase' so a lone in/out is never stolen)
 RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 redirect split (distinct from the source-side 'would be dealt to')
+SKIP.4: /\bskips?\b/                  // '[<player>] skip[s] …' — §500.7 skip-a-step/phase/turn (skip family; namespaced)
+AMASS.4: /\bamass\b/                  // 'amass <type> <N>' — §701.43 amass keyword action (amass family; namespaced; rare word, low collision)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -621,6 +641,12 @@ _RD_PRE_ALL = re.compile(r"^all( combat)?$", re.I)
 _RD_A_NEXT = re.compile(r"^that would be dealt to (" + _TGT + r") this turn$", re.I)
 _RD_A_ALL = re.compile(r"^that would be dealt to (" + _TGT + r")(?: this turn| by [\w' -]+?)?$", re.I)
 _RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
+
+# SKIP body validator — the `_skip` template's '(your|its|their|his or her) [next] <phase>' tail, applied
+# to the captured `skbody` span (the phase slug is group 1). AMASS count validator — the `_amass`
+# template's own `(\d+|one|two|three|x)` set, so a count outside it (e.g. 'four') abstains to the regex.
+_SK_BODY = re.compile(r"^(?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$", re.I)
+_AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
@@ -966,6 +992,22 @@ class _RdA(str):       # redirect source-side span (rda) — 'that would be deal
 
 
 class _RdB(str):       # redirect recipient span (rdb) — '<B> [instead]'
+    pass
+
+
+class _SkSubj(str):    # skip subject span (sksubj) — the optional acting player (validated _TGT)
+    pass
+
+
+class _SkBody(str):    # skip body span (skbody) — '(your|its|their|his or her) [next] <phase>'
+    pass
+
+
+class _AsKind(str):    # amass army-type span (askind) — slugged into the effect's extra
+    pass
+
+
+class _AsNum(str):     # amass count token (asnum) — validated against the template's (\d+|one|two|three|x)
     pass
 
 
@@ -2091,6 +2133,46 @@ class _ToEffect(Transformer):
                 return None
             amt = "all_combat" if ma.group(1) else "all"
         return Effect("redirect_damage", amt, _target(b), "from_" + _target(am.group(1)))
+
+    # --- SKIP (§500.7) --------------------------------------------------------
+    def sksubj(self, *toks):
+        return _SkSubj(" ".join(str(t) for t in toks))
+
+    def skbody(self, *toks):
+        return _SkBody(" ".join(str(t) for t in toks))
+
+    def skipverb(self, *args):
+        # '[<player>] skip[s] (your|its|their|his or her) [next] <phase>' — the EXACT `_skip` template:
+        # skip(-, _target(player or 'you'), slug(<phase>)). The phase is read from the captured body span
+        # with the template's possessive+next+phase regex; a non-player subject or non-phase body abstains.
+        subj = next((a for a in args if isinstance(a, _SkSubj)), None)
+        body = next((a for a in args if isinstance(a, _SkBody)), None)
+        if body is None:
+            return None
+        m = _SK_BODY.match(str(body).strip())
+        if not m:
+            return None
+        if subj is not None and not _AT_TGT.match(str(subj).strip()):
+            return None
+        who = _target(str(subj).strip()) if subj is not None else "you"
+        return Effect("skip", "-", who, ground.slug(m.group(1)))
+
+    # --- AMASS (§701.43) ------------------------------------------------------
+    def askind(self, *toks):
+        return _AsKind(" ".join(str(t) for t in toks))
+
+    def asnum(self, tok):
+        return _AsNum(str(tok))
+
+    def amassverb(self, *args):
+        # 'amass <army-type> <N>' — the EXACT `_amass` template: amass(<n|1>, you, slug(<type>)). The count
+        # token is restricted to the template's own (\d+|one|two|three|x) set; anything else abstains.
+        kind = next((a for a in args if isinstance(a, _AsKind)), None)
+        num = next((a for a in args if isinstance(a, _AsNum)), None)
+        if kind is None or num is None or not _AS_NUM.match(str(num).strip()):
+            return None
+        n = _amount(str(num).strip())
+        return Effect("amass", n if n is not None else 1, "you", ground.slug(str(kind)))
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):
