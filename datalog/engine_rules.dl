@@ -197,6 +197,53 @@ color(C, Col) :- copiable_color(C, Col), !eff_set_color(_, C, _, _).
 // engine-derived ACTIVATED/TRIGGERED abilities are also suppressed below (inst_ability gate) so a
 // frogified creature's printed triggers/activations no longer fire either.
 .decl loses_abilities(c: symbol)
+// --- §613 layer-6 BOARD / FILTERED scopes -------------------------------------------------------------
+// loses_abilities(c) is declared above as a shim-fed EDB (the self/it/that_creature/attached/single-target
+// cases the effect_handlers/lose_abilities.py applier writes). BELOW we ADD engine-DERIVED rows for the
+// CONTINUOUS-STATIC board scopes (Humility "all creatures lose all abilities", and "creatures you control /
+// each creature lose all abilities" lords) — exactly the anthem_creature precedent, but WRITING the
+// suppression flag instead of a P/T/keyword grant. Souffle unions the EDB (.input) facts with these rule
+// heads, so loses_abilities = (driver-fed single-target) UNION (engine-derived static board scope).
+//
+// Mechanism (mirror of static_grant -> anthem_creature -> static_grant_kw):
+//   lose_ab_scope(target, scope)  — the board scopes we resolve in-engine, same vocabulary as anthem_scope
+//                                   plus the opponents'-board scope. ONLY the loses-ALL case (extra=="-").
+//   lose_ab_src(S, scope)         — a STATIC card_ability of instance S whose lose_abilities effect (extra
+//                                   "-") has such a board target. Restricted to "static": a one-shot SPELL
+//                                   (Wrath of Oko, Sudden Spoiling, Polymorphist's Jest) is NOT continuous —
+//                                   it would leak a permanent lock if derived statically — so spells abstain
+//                                   here (the spell_effect path below handles the resolvable spell scopes).
+//   loses_abilities(C)            — every creature the static covers (controller-scoped for *_you_control /
+//                                   *_your_opponents_control; board-wide for all_creatures), gated on the
+//                                   source being on the battlefield. Self-cleaning: re-derived from the live
+//                                   board each run, so NO EOT cleanup is needed (the source leaving the
+//                                   battlefield drops the lock, exactly like an anthem).
+// FAITHFUL-OR-ABSTAIN: clean unfiltered board scopes only. A filtered board scope (creature_tokens_you_control,
+// creatures_you_control_with_toxic, each_creature_with_mana_value_x_or_less) or a TARGETED-player scope on a
+// one-shot (creatures_target_player_controls — the driver picks the player, not the engine) ABSTAINS here.
+.decl lose_ab_scope(target: symbol, scope: symbol)
+lose_ab_scope("all_creatures", "all_creatures"). lose_ab_scope("each_creature", "all_creatures"). lose_ab_scope("all_other_creatures", "other_creatures"). lose_ab_scope("other_creatures", "other_creatures"). lose_ab_scope("creatures_you_control", "creatures_you_control"). lose_ab_scope("other_creatures_you_control", "other_creatures_you_control"). lose_ab_scope("creatures_your_opponents_control", "creatures_your_opponents_control").
+.decl lose_ab_src(source: symbol, scope: symbol)
+lose_ab_src(S, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "lose_abilities", "-", Target, "-", "-"), lose_ab_scope(Target, Scope).
+loses_abilities(C) :- lose_ab_src(S, "all_creatures"), on_battlefield(S), creature(C).
+loses_abilities(C) :- lose_ab_src(S, "other_creatures"), on_battlefield(S), creature(C), C != S.
+loses_abilities(C) :- lose_ab_src(S, "creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C).
+loses_abilities(C) :- lose_ab_src(S, "other_creatures_you_control"), on_battlefield(S), controls(P, S), controls(P, C), creature(C), C != S.
+loses_abilities(C) :- lose_ab_src(S, "creatures_your_opponents_control"), on_battlefield(S), controls(P, S), controls(Q, C), creature(C), P != Q.
+// One-shot SPELL board scope (Wrath of Oko "all creatures lose all abilities", You Exist Only to Amuse
+// "creatures your opponents control lose all abilities"): the engine emits a player-scoped spell_effect
+// whose verb "lose_abilities_scope" carries the board scope in the target column. The driver's existing
+// _run_spell_effects -> _apply_effects passes any unknown effect to effect_handlers.APPLY, so the
+// effect_handlers/lose_abilities_scope.py applier expands the scope from the live board and writes the lock
+// (driver-side, since a one-shot needs §514.2 EOT cleanup the driver owns). UNFILTERED, NON-targeted board
+// scopes only (the targeted-player "creatures target player controls" is the driver's target-pick -> abstain).
+.decl lose_ab_spell_scope(target: symbol, scope: symbol)
+lose_ab_spell_scope("all_creatures", "all_creatures"). lose_ab_spell_scope("each_creature", "all_creatures"). lose_ab_spell_scope("all_other_creatures", "all_other_creatures"). lose_ab_spell_scope("creatures_you_control", "creatures_you_control"). lose_ab_spell_scope("creatures_your_opponents_control", "creatures_your_opponents_control").
+// the durations a one-shot lose-abilities spell uses: permanent ("-"), end of turn, or your next turn.
+// (A PERPETUAL one — patriar_s_humiliation's *_perpetually — is NOT here; perpetual abstains.)
+.decl lose_ab_spell_cond(c: symbol)
+lose_ab_spell_cond("-"). lose_ab_spell_cond("until_end_of_turn"). lose_ab_spell_cond("until_your_next_turn").
+spell_effect(Spell, "lose_abilities_scope", 0, Scope) :- resolves_ability(Spell, Card, A), card_effect(Card, A, _, "lose_abilities", "-", Target, "-", Cond), lose_ab_spell_cond(Cond), lose_ab_spell_scope(Target, Scope).
 // §613 layer 6 — abilities: copiable keywords plus granted, minus removed.
 .decl has_keyword(c: symbol, kw: symbol)
 has_keyword(C, K) :- copiable_keyword(C, K), !eff_remove_keyword(_, C, K), !loses_abilities(C).
@@ -1444,4 +1491,4 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl goaded must_attack must_be_blocked must_block cant_attack lure detained
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl goaded must_attack must_be_blocked must_block cant_attack lure detained loses_abilities
