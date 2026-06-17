@@ -41,6 +41,40 @@ harness is part of Phase 3, not deferred to Phase 6.
 - **Context:** `getNumberOfSCCs`, `isRecursiveSCC`, `getRelationsInSCC`, `getInputRelationsInSCC`,
   `getOutputRelationsInSCC`, `isRecursiveClause`, `translateRecursiveClause` (TranslatorContext.h:80–163).
 
+## Status (live)
+- **3a DONE** — harness (`incremental/harness/`) + `update` subroutine (inlined eval RAM; cannot `Call`
+  strata). Oracle: `update == fresh recompute`, in process.
+- **3b-1 DONE** — `diff_plus_<R>` staging relations + insertion update: merge each staged `diff_plus_<R>` into
+  <R>, re-run the strata (monotone append). Correct for insertions; verified `update == recompute`. The driver
+  owns staging cleanup (`Harness.purge`). NOT yet incremental — it re-runs all strata.
+- **3b-2 TODO** — the incremental win (see "3b-2 design" below).
+
+### Two runtime findings that constrain everything downstream
+1. **A subroutine can't `Call` another** (stratum C++ objects are MAIN-scoped) → the `update` body must inline
+   eval RAM. (3a)
+2. **In-subroutine `ram::Clear` is unreliable.** The synthesiser emits *nothing* for a store/output relation,
+   and gates an intermediate relation's purge on `pruneImdtRels` — which `run()` sets but `executeSubroutine`
+   does NOT. So clears in `update` silently don't fire. Consequences: (a) the driver must purge staging
+   relations itself (via `getRelation()->purge()`); (b) deletion (3c) cannot remove tuples with `ram::Clear`
+   inside `update` — it must use a relation-level erase that isn't gated, or the driver's purge. NOTE:
+   `@delta`/`@new` are `isTemp()` and DO clear unconditionally, so the recursive fixpoint loop is unaffected.
+
+## 3b-2 design — genuinely incremental insertion (the win)
+Replace Pass 1's "re-run every stratum" with diff-seeded evaluation, in topological order:
+- **Per stratum, derive only NEW tuples** using the standard incremental delta rule: for a clause
+  `H :- B1..Bn`, union over i of `H :- B1..B(i-1), diff_plus_Bi, B(i+1)..Bn` (body atom i ranges over its
+  `diff_plus`, the rest over the full relation). That yields exactly the derivations using ≥1 newly-inserted
+  tuple. Insert results into full `H` AND into `diff_plus_H` (so the news propagate to downstream strata).
+- **Within a recursive SCC**, iterate: souffle's `translateRecursiveClause(clause, scc, version)` already
+  emits the version where same-SCC atom `version` ranges over `@delta`; seed `@delta_R` from the cross-stratum
+  delta derivations above, then run `generateStratumLoopBody`/exit/`generateStratumTableUpdates` (the @new/
+  @delta machinery is temp-cleared, so it works in a subroutine). The cross-stratum part (body atom over
+  `diff_plus` of a LOWER relation) is the new translation code — souffle's delta versions only cover same-SCC
+  atoms, so this needs a clause-translation path that ranges a chosen body atom over `diff_plus_<rel>`.
+- **Gate:** `update == recompute` on insertion deltas, AND measurably less work than recompute (e.g. assert the
+  fixpoint touches O(diff) not O(full) — observe via row counts or a profile). Until the cross-stratum delta
+  translation exists, 3b-1's re-run is the correct-but-not-incremental fallback.
+
 ## Decomposition (each step gated by the oracle; build the harness in 3a)
 - **3a — seam + harness + recompute baseline.** Add `diff_plus_/diff_minus_` relations. Generate an `update`
   subroutine registered via `addRamSubroutine("update", …)` that, for v0, simply re-invokes the strata
