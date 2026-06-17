@@ -2788,15 +2788,20 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
     rows = sorted(r for r in run(state, ["spell_scope"])["spell_scope"] if r[0] == spell)
     if not rows:
         return
-    out = run(state, ["controls", "creature", "cant_be_destroyed"])
+    out = run(state, ["controls", "creature", "cant_be_destroyed", "power"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}
     controls = {(p, c) for (p, c) in out["controls"]}
     creatures = {c for (c,) in out["creature"]}
+    powers = {c: int(n) for (c, n) in out["power"]}
     owner_of = {c: p for (p, c) in controls}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
     ptype = state.get("printed_type", set())
-    for (_s, verb, payload, scope) in rows:
+    for (_s, verb, payload, full_scope) in rows:
+        # §115 a board scope may carry '#'-joined FILTER tokens (creatures_you_control#attacking, all_creatures#
+        # tapped) — the same filter vocabulary as restricted single targets (driver._target_filter_pred). Split
+        # the base scope off, expand it, then NARROW by each filter (always faithful — only shrinks the set).
+        scope, *scope_filters = full_scope.split("#")
         if scope == "own_nonland_perms":
             # §613 Dramatic Reversal — every NONLAND permanent the controller controls (not just creatures).
             targets = sorted(c for c in mine if c in on_bf and (c, "land") not in ptype)
@@ -2826,6 +2831,9 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
             # so it expands to the controller's creatures) / all_creatures.
             targets = sorted(c for c in creatures if c in on_bf
                              and (scope == "all_creatures" or c in mine))
+        for filt in scope_filters:                               # §115 narrow the scope by each restriction filter
+            pred = _target_filter_pred(state, filt, powers, creatures)
+            targets = [c for c in targets if pred(c)]
         for tgt in targets:
             _apply_target_verb(state, spell, "spell", verb, payload, tgt, ctrl, indestructible, owner_of)
 

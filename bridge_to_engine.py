@@ -272,6 +272,25 @@ _BOARD_SCOPES = ("creatures_you_control", "other_creatures_you_control", "all_cr
                  "all_artifacts", "all_enchantments", "all_lands", "all_planeswalkers",
                  "all_nonland_permanents", "all_permanents")
 
+# §115 FILTERED board scopes — a base board scope plus a '#'-joined filter token the driver narrows by
+# (driver._target_filter_pred, the same vocabulary as restricted single targets). These are resolved ONLY on
+# the SPELL path (engine board_scope -> spell_scope -> driver._run_spell_scope, which splits base#filter). The
+# TRIGGER path keeps abstaining: the engine's creature_scope (trigger expansion) is filter-less, so _scope()
+# deliberately does NOT return these — a triggered filtered-board effect still faithfully drops rather than
+# silently mis-applying to the unfiltered set. Combat/tapped-state filters only (the driver can read them).
+_FILTERED_BOARD_SCOPES = {
+    "attacking_creatures": "all_creatures#attacking", "other_attacking_creatures": "all_creatures#attacking",
+    "blocking_creatures": "all_creatures#blocking", "attacking_or_blocking_creatures": "all_creatures#atkorblk",
+    "all_tapped_creatures": "all_creatures#tapped", "tapped_creatures": "all_creatures#tapped",
+    "all_untapped_creatures": "all_creatures#untapped", "untapped_creatures": "all_creatures#untapped",
+    "attacking_creatures_you_control": "creatures_you_control#attacking",
+    "blocking_creatures_you_control": "creatures_you_control#blocking",
+    "tapped_creatures_you_control": "creatures_you_control#tapped",
+    "untapped_creatures_you_control": "creatures_you_control#untapped",
+    "attacking_creatures_your_opponents_control": "creatures_your_opponents_control#attacking",
+    "tapped_creatures_your_opponents_control": "creatures_your_opponents_control#tapped",
+}
+
 
 def _int(amt) -> int | None:
     return int(amt) if str(amt).lstrip("-").isdigit() else None
@@ -2483,10 +2502,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("spell_effect", (tid, "self_exile", 0, "-")); continue
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
-                    if scope in _BOARD_SCOPES:
+                    if scope in _BOARD_SCOPES or str(tgt) in _FILTERED_BOARD_SCOPES:
                         # board-scope spell (Overrun=+X/+X your creatures, Wrath=destroy all, Dramatic Reversal=
-                        # untap all your nonland permanents) -> the driver expands the scope on resolution and
-                        # applies the verb to each. spell_scope is DATALOG-derived (board_scope + zone_move_verb).
+                        # untap all your nonland permanents; the FILTERED forms — 'attacking creatures get +X/+X',
+                        # 'destroy all tapped creatures' — narrowed by the driver) -> the driver expands the scope
+                        # on resolution. spell_scope is DATALOG-derived (board_scope + zone_move_verb).
                         r = _creature_verb_payload(verb, amt, extra)
                         if r[0] is None:
                             dropped.append((r[1], r[2])); continue
