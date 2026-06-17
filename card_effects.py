@@ -735,19 +735,12 @@ def _prevent(m):
     return Effect("prevent_damage", n if n is not None else "X", tgt)
 
 
-@_t(rf"^the next (\w+) damage that would be dealt to ({_TGT}) this turn is dealt to ({_TGT})(?: instead)?$")
-def _redirect(m):
-    """'The next N damage that would be dealt to <A> this turn is dealt to <B> instead' — a §614.9
-    damage redirection; recorded as redirect_damage from A to B."""
-    n = _amount(m.group(1))
-    return Effect("redirect_damage", n if n is not None else "X", _target(m.group(3)), "from_" + _target(m.group(2)))
-
-
-@_t(rf"^all (combat )?damage that would be dealt to ({_TGT})(?: this turn| by [\w' -]+?)? is dealt to ({_TGT})(?: instead)?$")
-def _redirect_all(m):
-    """'All [combat] damage that would be dealt to <A> is dealt to <B> instead' — a §614.9 blanket
-    damage redirection (Pariah / Palisade Giant / Maze of Ith family)."""
-    return Effect("redirect_damage", "all" + ("_combat" if m.group(1) else ""), _target(m.group(3)), "from_" + _target(m.group(2)))
+# _redirect / _redirect_all: migrated to card_lark (the `rdclause` TRUE-grammar production — the DMG +
+# RDIS ('is dealt to') terminals carve '<amount> damage that would be dealt to <A> … is dealt to <B>
+# [instead]' into amount/source/recipient spans, A/B certified by `_TGT`-reusing operand regexes so the
+# greedy A/rider split is byte-identical). lark-first now grounds every §614.9 redirect IDENTICALLY
+# (migrate_check redirect_damage = 17/17, 0 DIFFERS, 0 ABSTAINS); both templates RETIRED — proven
+# byte-identical by a full-corpus parse_clause snapshot with them removed.
 
 
 @_t(rf"^change the targets? of ({_TGT})(?: with a single target)?$")

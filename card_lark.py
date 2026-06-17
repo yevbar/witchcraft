@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -128,6 +128,19 @@ pvtail: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR)+
 // wins; a pure '<X> phases out' has no competitor.
 pfclause.-2: pfsubj PHASE trailer?           -> phaseout
 pfsubj: (WORD | QUANT | NUM)+                                                // the permanent NP (validated by _AT_TGT)
+
+// REDIRECT_DAMAGE (§614.9) — '<amount> damage that would be dealt to <A> [this turn] [by <src>] is dealt
+// to <B> [instead]' (the `_redirect` next-N + `_redirect_all` all/all-combat templates). TRUE grammar: the
+// structural DMG ('damage') + the distinctive RDIS ('is dealt to') terminals carve the clause into a
+// leading amount SPAN (`rdpre`: 'the next <N>' / 'all [combat]'), a source-side SPAN (`rda`: 'that would
+// be dealt to <A> …'), and a recipient SPAN (`rdb`: '<B> [instead]'). The transformer reads the three
+// spans and certifies A/B with anchored `_TGT` operand regexes that REUSE the template's own `_TGT` (so
+// the greedy A/rider split — _TGT may absorb a trailing 'this turn', the 'by <src>' rider is dropped — is
+// byte-identical). NEGATIVE priority; a clause outside the skeleton abstains to the regex.
+rdclause.-2: rdpre DMG rda RDIS rdb          -> redirect
+rdpre: (WORD | QUANT | NUM)+                                                 // 'the next <N>' | 'all [combat]'
+rda: (WORD | QUANT | NUM | TOPREP | FROM | MDUR)+                            // 'that would be dealt to <A> [this turn] [by <src>]'
+rdb: (WORD | QUANT | NUM)+                                                   // '<B> [instead]'
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -381,6 +394,7 @@ FG_FIGHTS.5: /\bfights\b/             // '<A> fights <B>' separator (§701.12 fi
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
 MF_MANIFEST.3: /\bmanifest\b/         // 'manifest' — the §701.34 manifest keyword action (manifest family; namespaced)
 PHASE.4: /\bphases? (?:out|in)\b/     // '<X> phase[s] out/in' — §702.26 phasing (phase_out/phase_in; the 'out'/'in' is bound to 'phase' so a lone in/out is never stolen)
+RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 redirect split (distinct from the source-side 'would be dealt to')
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -595,6 +609,18 @@ def _pv_scope(kind: str, scope: str) -> "Effect":
     scope = ((kind + " ") if kind else "") + scope.strip()
     scope = scope.replace("~", "self")
     return Effect("prevent_damage", "all", "-", ground.slug(scope))
+
+# REDIRECT_DAMAGE operand validators — certify the rdpre/rda/rdb spans the GRAMMAR carved at the DMG +
+# RDIS terminals, REUSING the `_redirect`/`_redirect_all` templates' own `_TGT` so the greedy A/rider split
+# is byte-identical: `_RD_A_NEXT` is `_redirect`'s 'to <A> this turn' (this-turn REQUIRED); `_RD_A_ALL` is
+# `_redirect_all`'s 'to <A>(?: this turn| by <src>)?' (the optional this-turn-or-by rider DROPPED, _TGT
+# greedy as in the regex); `_RD_B` is the shared recipient 'to <B>(?: instead)?'. A span outside these
+# abstains to the regex fallback.
+_RD_PRE_NEXT = re.compile(r"^the next (\w+)$", re.I)
+_RD_PRE_ALL = re.compile(r"^all( combat)?$", re.I)
+_RD_A_NEXT = re.compile(r"^that would be dealt to (" + _TGT + r") this turn$", re.I)
+_RD_A_ALL = re.compile(r"^that would be dealt to (" + _TGT + r")(?: this turn| by [\w' -]+?)?$", re.I)
+_RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
@@ -928,6 +954,18 @@ class _PvTail(str):    # the prevent post-DMG span (pvtail) — 'that would be d
 
 
 class _PfSubj(str):    # the phasing subject span (pfsubj) — the permanent that phases out/in (validated _TGT)
+    pass
+
+
+class _RdPre(str):     # redirect amount span (rdpre) — 'the next <N>' / 'all [combat]'
+    pass
+
+
+class _RdA(str):       # redirect source-side span (rda) — 'that would be dealt to <A> [this turn] [by <src>]'
+    pass
+
+
+class _RdB(str):       # redirect recipient span (rdb) — '<B> [instead]'
     pass
 
 
@@ -2012,6 +2050,47 @@ class _ToEffect(Transformer):
             return None
         direction = "out" if "out" in str(tok).lower() else "in"
         return Effect("phase_" + direction, "-", _target(s))
+
+    # --- REDIRECT_DAMAGE (§614.9) ---------------------------------------------
+    def rdpre(self, *toks):
+        return _RdPre(" ".join(str(t) for t in toks))
+
+    def rda(self, *toks):
+        return _RdA(" ".join(str(t) for t in toks))
+
+    def rdb(self, *toks):
+        return _RdB(" ".join(str(t) for t in toks))
+
+    def redirect(self, *args):
+        # '<amount> damage that would be dealt to <A> … is dealt to <B> [instead]' — the EXACT `_redirect`
+        # (next-N, this-turn required) / `_redirect_all` (all/all-combat, optional this-turn-or-by rider)
+        # templates: redirect_damage(<amt>, _target(B), 'from_'+_target(A)). The three spans are read off
+        # the tree and A/B certified by the `_TGT`-reusing operand regexes; outside the skeleton -> abstain.
+        pre = next((str(a) for a in args if isinstance(a, _RdPre)), None)
+        rda = next((str(a) for a in args if isinstance(a, _RdA)), None)
+        rdb = next((str(a) for a in args if isinstance(a, _RdB)), None)
+        if pre is None or rda is None or rdb is None:
+            return None
+        bm = _RD_B.match(rdb.strip())
+        if not bm:
+            return None
+        b = bm.group(1)
+        mn = _RD_PRE_NEXT.match(pre.strip())
+        if mn:
+            am = _RD_A_NEXT.match(rda.strip())            # 'to <A> this turn' (this-turn required)
+            if not am:
+                return None
+            n = _amount(mn.group(1))
+            amt = n if n is not None else "X"
+        else:
+            ma = _RD_PRE_ALL.match(pre.strip())
+            if not ma:
+                return None                               # not 'the next N' / 'all [combat]' -> regex
+            am = _RD_A_ALL.match(rda.strip())             # 'to <A>(?: this turn| by <src>)?' (rider dropped)
+            if not am:
+                return None
+            amt = "all_combat" if ma.group(1) else "all"
+        return Effect("redirect_damage", amt, _target(b), "from_" + _target(am.group(1)))
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):
