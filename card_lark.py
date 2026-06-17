@@ -566,6 +566,25 @@ _PV_FOG_TAIL = re.compile(r"^that would be dealt this turn$", re.I)         # _f
 _PV_NEXT_PRE = re.compile(r"^the next (\w+)$", re.I)                        # _prevent pre: 'the next <count>'
 _PV_NEXT_TAIL = re.compile(r"^that would be dealt (?:this turn )?to (.+)$", re.I)  # _prevent tail: '… to <target>'
 
+# SCOPED / SOURCE prevention (the `_prevent_all_scoped` PASSIVE frame + `_prevent_all_source` ACTIVE
+# frame): 'prevent all [combat|noncombat] damage <rider>'. `_PV_ALL_KIND` certifies the pre span and
+# captures the optional combat/noncombat kind; `_PV_SCOPED_TAIL` is the passive rider ('that would be
+# dealt <scope>'); `_PV_SOURCE_TAIL` is the active rider ('[that ]<source> would deal [to <recip>]
+# [this turn|this combat]') — its source group reuses the regex's restricted `[\w'~ -]+?` charset so we
+# abstain on exactly the spans (commas, slashes, braces) the regex template can't capture either.
+_PV_ALL_KIND = re.compile(r"^all(?: (combat|noncombat))?$", re.I)
+_PV_SCOPED_TAIL = re.compile(r"^that would be dealt (.+)$", re.I)
+_PV_SOURCE_TAIL = re.compile(r"^(?:that )?([\w'~ -]+?) would deal( to .+?)?( this turn| this combat)?$", re.I)
+
+
+def _pv_scope(kind: str, scope: str) -> "Effect":
+    """Build the `prevent_damage / all / - / <scope_slug>` tuple for a scoped/source prevention clause —
+    the EXACT `card_effects._prevent_scope`: prefix the optional kind, map '~'->'self' (so the bare
+    self-reference survives slugging), and record the whole rider as a faithful descriptive slug."""
+    scope = ((kind + " ") if kind else "") + scope.strip()
+    scope = scope.replace("~", "self")
+    return Effect("prevent_damage", "all", "-", ground.slug(scope))
+
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
 # structural COUNTER/FROM terminals anchor it); this regex CERTIFIES the TARGET span is a clean `_TGT`
@@ -1910,33 +1929,56 @@ class _ToEffect(Transformer):
         if mp and _PV_FOG_TAIL.match(tail):
             return Effect("prevent_damage", "all", "combat" if mp.group(1) else "all")
         mp = _PV_NEXT_PRE.match(pre)               # 'the next N damage that would be dealt [this turn] to <span>'
-        if not mp:
-            return None                            # _prevent_all_scoped / _prevent_that / shield -> regex
-        m = _PV_NEXT_TAIL.match(tail)
-        if not m:
-            return None                            # _prevent_all_scoped / _prevent_that / shield -> regex
-        n = _amount(mp.group(1))
-        amt = n if n is not None else "X"
-        span = m.group(1).strip()
-        # Mirror the regex's optional trailing ' this turn': the template's `(?:this turn )?to … (?: this
-        # turn)?` consumes a LEADING 'this turn' (when the body reads 'dealt this turn to <span>') and then
-        # <span> has no trailing 'this turn'; otherwise the trailing ' this turn' is the optional suffix and
-        # is stripped off <span>. (When neither holds — junk after 'this turn' — span keeps it, matching the
-        # regex's greedy `_TGT` swallow, e.g. 'any target this turn by a source of your choice'.)
-        lead_this_turn = "dealt this turn to " in tail
-        if not lead_this_turn and span.endswith(" this turn"):
-            span = span[:-len(" this turn")].strip()
-        # The regex's `_prevent` target is `(any number of targets|{_TGT})` — a clean NP that the `_TGT`
-        # alternatives can't reach across a comma, a '/', a 'divided as you choose' rider, or a ', where
-        # X is …' scaling appendix (those clauses make the template FAIL, so the regex abstains). Lark's
-        # WORD swallows them, which would emit a garbled target slug — a LOSSY net-new fact. Abstain.
-        if "," in span or "/" in span or "divided as you choose" in span or " where " in span:
-            return None
-        if span == "any number of targets":
-            tgt = "any_number_of_targets"          # _prevent's special-case
-        else:
-            tgt = _target(span)
-        return Effect("prevent_damage", str(amt) if isinstance(amt, int) else amt, tgt)
+        if mp:
+            m = _PV_NEXT_TAIL.match(tail)
+            if not m:
+                return None                        # 'the next N' with a non-_prevent tail -> regex
+            n = _amount(mp.group(1))
+            amt = n if n is not None else "X"
+            span = m.group(1).strip()
+            # Mirror the regex's optional trailing ' this turn': the template's `(?:this turn )?to … (?: this
+            # turn)?` consumes a LEADING 'this turn' (when the body reads 'dealt this turn to <span>') and then
+            # <span> has no trailing 'this turn'; otherwise the trailing ' this turn' is the optional suffix and
+            # is stripped off <span>. (When neither holds — junk after 'this turn' — span keeps it, matching the
+            # regex's greedy `_TGT` swallow, e.g. 'any target this turn by a source of your choice'.)
+            lead_this_turn = "dealt this turn to " in tail
+            if not lead_this_turn and span.endswith(" this turn"):
+                span = span[:-len(" this turn")].strip()
+            # The regex's `_prevent` target is `(any number of targets|{_TGT})` — a clean NP that the `_TGT`
+            # alternatives can't reach across a comma, a '/', a 'divided as you choose' rider, or a ', where
+            # X is …' scaling appendix (those clauses make the template FAIL, so the regex abstains). Lark's
+            # WORD swallows them, which would emit a garbled target slug — a LOSSY net-new fact. Abstain.
+            if "," in span or "/" in span or "divided as you choose" in span or " where " in span:
+                return None
+            if span == "any number of targets":
+                tgt = "any_number_of_targets"      # _prevent's special-case
+            else:
+                tgt = _target(span)
+            return Effect("prevent_damage", str(amt) if isinstance(amt, int) else amt, tgt)
+        # SCOPED / SOURCE prevention (_prevent_all_scoped / _prevent_all_source): 'prevent all [combat|
+        # noncombat] damage <rider>' where <rider> is a PASSIVE 'that would be dealt <scope>' or an ACTIVE
+        # '[that ]<source> would deal [to <recipient>] [this turn|this combat]'. Both funnel through
+        # _pv_scope, recording the whole rider as a faithful descriptive scope slug (amount 'all', target
+        # '-') — byte-identical to the regex. PASSIVE is tried first (it requires the literal 'would be
+        # dealt'; ACTIVE requires 'would deal' — disjoint, so order is cosmetic). The plain no-scope fog
+        # ('all [combat] damage that would be dealt this turn') already returned above, so a noncombat fog
+        # falls here -> scope 'noncombat this turn', matching the regex (whose _fog excludes noncombat).
+        mk = _PV_ALL_KIND.match(pre)
+        if not mk:
+            return None                            # not 'all …' (and not 'the next') -> regex
+        kind = mk.group(1) or ""
+        ms = _PV_SCOPED_TAIL.match(tail)           # passive: 'that would be dealt <scope>'
+        if ms:
+            return _pv_scope(kind, ms.group(1))
+        ms = _PV_SOURCE_TAIL.match(tail)           # active: '[that ]<source> would deal [to <X>] [this turn]'
+        if ms:
+            scope = "by " + ms.group(1).strip()
+            if ms.group(2):
+                scope += " " + ms.group(2).strip()
+            if ms.group(3):
+                scope += " " + ms.group(3).strip()
+            return _pv_scope(kind, scope)
+        return None                                # an 'all …' rider outside both skeletons -> regex
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):

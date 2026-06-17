@@ -796,19 +796,11 @@ def _prevent_all_scoped(m):
     return _prevent_scope(m.group(1), m.group(2))
 
 
-@_t(r"^prevent all (combat |noncombat )?damage (?:that )?([\w'~ -]+?) would deal( to .+?)?( this turn| this combat)?$")
-def _prevent_all_source(m):
-    """'Prevent all [combat|noncombat] damage <source> would deal [to <X>] [this turn]' (§615) — the
-    ACTIVE / source-first frame ('… target creature would deal this turn', '… a source of your choice
-    would deal this turn', '… that black sources and red sources would deal this turn'). The source
-    class is recorded as a 'by <source>' scope rider, plus any 'to <recipient>' and 'this turn'
-    suffix, so the slug stays consistent with the passive frame's 'by …'/'to …' scope vocabulary."""
-    scope = "by " + m.group(2).strip()
-    if m.group(3):
-        scope += " " + m.group(3).strip()
-    if m.group(4):
-        scope += " " + m.group(4).strip()
-    return _prevent_scope(m.group(1), scope)
+# _prevent_all_source: migrated to card_lark (the `prevent` transformer's ACTIVE-source branch — '[that ]
+# <source> would deal [to <X>] [this turn]', reusing this template's restricted source charset and the
+# shared _pv_scope slug). lark-first now grounds every source-frame clause IDENTICALLY, so the template
+# was retired (gate: migrate_check prevent_damage = 0 DIFFERS, and a full-corpus parse_clause snapshot
+# is byte-identical with it removed).
 
 
 @_t(r"^([\w' ]+?) (\d+|one|two|three|four|five|x)$")
