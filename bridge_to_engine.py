@@ -504,6 +504,28 @@ _ANTHEM_SCOPE = {
     "other_creatures": "other_creatures",
 }
 
+
+def _load_modeled_conds() -> frozenset:
+    """§611.2 the continuous CONDITIONS the engine can evaluate — the literal cond_met(S, "...") heads in
+    engine_rules.dl. Read from the engine file so the bridge's conditional-static accounting stays in lockstep
+    with the engine automatically (a new cond_met rule is honored with no bridge edit). The conditional
+    static_pt/static_grant rules gate on cond_met, so a static whose condition is here (and whose scope/payload
+    are engine-expressible) is engine-OWNED — the bridge must NOT drop it."""
+    import re as _re
+    from pathlib import Path as _Path
+    try:
+        txt = (_Path(__file__).parent / "datalog" / "engine_rules.dl").read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    return frozenset(_re.findall(r'cond_met\(\s*S\s*,\s*"([^"]+)"\s*\)', txt))
+
+
+_MODELED_CONDS = _load_modeled_conds()
+# the engine's anthem_scope slugs (the conditional static_pt/static_grant rules join anthem_scope): the 4 board
+# scopes plus 'self'. A conditional static over one of these (with a modeled condition + engine-expressible
+# payload) is derived in datalog; anything else (attached/filtered/'it') still abstains.
+_ENGINE_ANTHEM_SCOPE = set(_ANTHEM_SCOPE) | {"self"}
+
 _COLOR_NAME = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green"}
 _ANTHEM_TYPES = {"artifact", "enchantment", "land", "planeswalker", "creature"}
 
@@ -2792,9 +2814,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     dp = _dyn_pt_spec(amt, tgt, cond)
                     if dp is not None:
                         add("dyn_pt", (tid, dp[0], dp[1], dp[2])); continue
-                # only the unconditional board anthems map (a condition the engine can't evaluate, or a
-                # subtype/attachment-restricted scope, abstains). modify_pt -> static_pt, grant -> static_grant.
-                if (cond and cond != "-") or verb not in ("modify_pt", "grant_keyword"):
+                if verb not in ("modify_pt", "grant_keyword"):
+                    dropped.append(("static", verb))
+                    continue
+                # §611.2 a CONDITIONAL static ('~ gets +1/+1 / has flying AS LONG AS <cond>'): the engine's
+                # conditional static_pt/static_grant rule resolves it IFF the condition is modeled (cond_met)
+                # AND the scope is a self/unfiltered-board anthem scope AND the payload is engine-expressible.
+                # Otherwise (unmodeled condition, attached/filtered scope) it abstains. A modeled+expressible
+                # conditional static is engine-OWNED (datalog derives static_pt/static_grant) -> no drop, no emit.
+                if cond and cond != "-":
+                    payload_ok = (_parse_pt(amt) is not None) if verb == "modify_pt" else (amt in _ENGINE_KEYWORDS)
+                    if str(cond) in _MODELED_CONDS and str(tgt) in _ENGINE_ANTHEM_SCOPE and payload_ok:
+                        continue                                 # engine conditional static rule owns it
                     dropped.append(("static", verb))
                     continue
                 if str(tgt) in ("enchanted_creature", "equipped_creature"):
