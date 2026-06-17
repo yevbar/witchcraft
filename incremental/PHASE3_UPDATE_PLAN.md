@@ -1,0 +1,87 @@
+# Phase 3 — the incremental Update subroutine (three-term: deletion / insertion / re-discovery)
+
+Builds on the committed substrate: classification (`IncrementalRelationsAnalysis`), the `@count`/`@iteration`
+auxiliary columns (`@iteration` = derivation depth, real; `@count` reserved), and the `--incremental`
+strategy. Goal: given a Bootstrap result for input `E` and a diff `(E⁻ deletions, E⁺ insertions)` to the EDB,
+produce the IDB for `E\E⁻ ∪ E⁺` **without recomputing from scratch**, via a callable `update` subroutine.
+
+**Oracle (unchanged, non-negotiable):** `Update(Bootstrap(E), (E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)`, byte-identical,
+both backends. This is Theorem 3.5 and equals the engine's existing `delta==full` parity test.
+
+## The testability fact that shapes everything
+Phases 0–2b were CLI-testable (one stateless run, diff outputs). Phase 3 is **stateful**: you Bootstrap, then
+call Update with a diff, then read the relations. That requires driving `executeSubroutine("update", …)` over a
+*persistent* `SouffleProgram` instance. So Phase 3 needs a **minimal in-process harness** (a few lines of
+ctypes/C++ around the compiled `.so`, the same mechanism `engine_inproc.py` already uses) as its test rig — the
+harness is part of Phase 3, not deferred to Phase 6.
+
+## Runtime shape (how the driver will call it)
+1. `newInstance()` → Bootstrap once (normal run populates all relations, kept resident).
+2. Per move: insert the EDB delta into staging relations `diff_plus_<R>` / `diff_minus_<R>` (via the
+   `getRelation(...)->insert(tuple)` C++ interface — `SouffleInterface.h:845,295`).
+3. `executeSubroutine("update", {}, ret)` — runs the three-term eval, mutating the resident IDB in place.
+4. Read outputs from the resident relations. No reload, no clear, no fresh fixpoint.
+
+## Architecture seams (mapped, with file:line)
+- **Program generation:** `seminaive::UnitTranslator::generateProgram` (UnitTranslator.cpp:910) iterates
+  `TopologicallySortedSCCGraphAnalysis::order()`, calls `generateStratum(scc)` (169), registers each as a
+  subroutine `addRamSubroutine(stratumID, …)` (99) and emits `ram::Call("stratum_"+id)` into MAIN.
+- **Fixpoint internals** (this is where incremental seeding hooks in): `generateRecursiveStratum` (752) →
+  `generateStratumPreamble` (469, **seeds @delta by merging the FULL relation in — replace with: merge the
+  diff in**), `generateStratumLoopBody` (553, fills @new from @delta joins), `generateStratumExitSequence`
+  (717, exit when @new empty), `generateStratumTableUpdates` (514, merge @new→full, swap @delta↔@new, clear
+  @new), `generateStratumPostamble` (504, clear @delta).
+- **Subroutine call/return:** `ram::Call(name)` (Call.h:39), `executeSubroutine` dispatch
+  (Synthesiser.cpp:3179), `SouffleProgram::executeSubroutine` (SouffleInterface.h:929).
+- **Statement nodes:** `ram::{Sequence,Loop,Exit,Call,Clear,Query,Swap,MergeExtend,Assign,DebugInfo}` — all
+  constructors confirmed. Merge = `generateMergeRelations(rel,dest,src)` (the Scan-src→Insert-dest pattern).
+- **Diff relations:** create alongside main/@delta/@new in the override of `createRamRelations`
+  (incremental::UnitTranslator already overrides `createRamRelation`); `diff_plus_<R>`, `diff_minus_<R>` carry
+  the same arity+2 shape.
+- **Context:** `getNumberOfSCCs`, `isRecursiveSCC`, `getRelationsInSCC`, `getInputRelationsInSCC`,
+  `getOutputRelationsInSCC`, `isRecursiveClause`, `translateRecursiveClause` (TranslatorContext.h:80–163).
+
+## Decomposition (each step gated by the oracle; build the harness in 3a)
+- **3a — seam + harness + recompute baseline.** Add `diff_plus_/diff_minus_` relations. Generate an `update`
+  subroutine registered via `addRamSubroutine("update", …)` that, for v0, simply re-invokes the strata
+  (correct recompute). Build the minimal in-process harness that Bootstraps, calls `update`, reads relations.
+  Gate: `update`-result == fresh-run, on the toy. This proves the runtime seam end-to-end. *(no incremental
+  win yet — it’s the scaffold, like the Phase-0 no-op strategy.)*
+- **3b — incremental INSERTION.** In the `update` path, seed each stratum’s @delta from `diff_plus` (and the
+  downstream diffs) instead of from the full relation, run the existing fixpoint forward **without clearing
+  the full relations**, and accumulate newly-derived tuples into `diff_plus_<IDB>`. Gate: insertion-only
+  deltas, `update==recompute`. (Phase 0: only ~14% of moves are insertion-only, but this is the tractable
+  half and exercises the whole pipeline.)
+- **3c — DELETION + re-discovery (the real win).** Seed @delta⁻ from `diff_minus`; propagate candidate
+  deletions; for each candidate, use **re-discovery** (backward evaluation via the provenance infra, the
+  `--provenance` substrate) to check for a surviving alternative derivation (the multi-support case — the toy
+  `path(1,3)` surviving `edge(1,3)` deletion); retain survivors. Gate: full mixed deltas, `update==recompute`,
+  including the multi-support oracle. This is the bulk of the effort.
+- **3d — elastic switch + embed.** 20% switching parameter (abort Update→Bootstrap on high impact);
+  aggregate-bearing strata always Bootstrap (the `IncrementalRelationsAnalysis::isBootstrap` set — 25
+  relations); wire `update` into `engine_inproc.mtg_run_delta`; re-benchmark; keep `MTG_NO_INCREMENTAL`.
+
+## Why re-discovery, not counts (decided)
+`@count` would let 3c skip re-discovery when count>1, but a true count needs multiset storage (a core change)
+and is NOT required for correctness — re-discovery alone is correct (it’s the paper’s deletion-correctness
+term). Counts are the Phase-4 eager-diff *optimization*. See `SOUFFLE_FORK_NOTES.md` (the @count decision).
+
+## First concrete action (3a)
+Override `incremental::UnitTranslator::generateProgram`: call the base (normal program + stratum subroutines),
+then register an `update` subroutine whose body **inlines the evaluation RAM** (per stratum), and add
+`diff_plus_/diff_minus_` to `createRamRelations`. Then write `incremental/harness/` — a ctypes driver (model on
+`engine_inproc.py`) that compiles a `.dl` with `--incremental`, Bootstraps, calls `update`, and diffs the
+resident relations against a fresh run. Gate on the toy, then engine fixtures.
+
+### FINDING (verified, cost me a build): `update` cannot be `Call(stratum_…)`.
+A first attempt made `update` a `Sequence` of `ram::Call("stratum_<id>")`. It compiled in the interpreter
+(parity held) but **the compiled backend failed**: `error: use of undeclared identifier
+'stratum_edge_<hash>'`. Reason: the synthesiser emits each stratum subroutine as a C++ object that is only in
+scope inside **MAIN**; a `Call` from *within another subroutine* references an identifier that doesn't exist in
+that scope. So subroutines cannot `Call` other subroutines in compiled mode.
+**Consequence:** the `update` body must **inline** the actual per-stratum evaluation RAM (the
+`generateStratum`/`generateRecursiveStratum` operations), not delegate via `Call`. For v0-recompute that means
+re-emitting the stratum bodies into the `update` subroutine; for the incremental version, emitting the
+diff-seeded bodies. Build this directly as the incremental body (3b) rather than a throwaway recompute body —
+the inlining work is the same, so skip the recompute-only v0 and go straight to diff-seeded insertion, gated by
+the harness.
