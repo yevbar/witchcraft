@@ -53,13 +53,89 @@ SURVIVES on its alternate support. The standalone REPL's `commit` dumps the outp
 path in Phase D). REPL surface: `insert`/`remove`/`commit`/`setdepth`/`explain[diff|all]`/`subproof`/`format`/
 `exit`.
 
-### Next, now feasible HERE
-- **Phase B (go/no-go on our program):** compile the wrapped `engine_rules.dl` under `--incremental`; replay
-  real MTG EDB deltas (insert+delete), assert incremental == full byte-identical (reuse `test_engine_native`'s
-  `delta==full` oracle). Watch: (1) the fork's 2019 codegen on our large program; (2) `@iteration`/`@count`
-  on OUTPUT relations via the EMBEDDED interface (the #1 byte-identity risk).
-- **Phase D:** replace `p->run()` in `engine_inproc.mtg_run_delta` with diff-insert +
-  `executeSubroutine("incremental_update_clear_diffs")` + `("update")`, behind `MTG_NO_INCREMENTAL`.
+---
+
+## Phase B — RAN; NO-GO on this fork (two independent 2019-vs-2026 blockers). Mechanism is sound; the FORK isn't usable for our engine on a modern toolchain.
+
+Phase B = "compile the wrapped `engine_rules.dl` under `--incremental` and assert incremental == full
+recompute on real transitions." Result: **the elastic ALGORITHM is correct (Phase-A toy proved it), but the
+fork itself cannot build our actual engine on a current toolchain.** Two distinct walls, both reproduced here:
+
+### Blocker #1 — the fork's `--incremental` codegen SEGFAULTS on souffle aggregates
+`souffle --incremental` on the full wrapped `engine_rules.dl` (166 EDB rels, ~191 rules) **crashes with
+SIGSEGV** during RAM/codegen. Isolated to **aggregates**: our engine uses **46 `count:{…}` aggregate rules**
+(scaled_count, multicolored, the cond_met graveyard/threshold counts, …); dropping every aggregate-bearing
+rule → `--incremental -g` **succeeds** (emits a 20 MB `.cpp`). So the `incremental-with-provenance-eager-diffs`
+branch has **no working aggregate support**. (There is a *sibling* lineage `incremental-evaluation-iterupdate-
+eager-diffs-aggregates`, but it's the iterupdate family — i.e. WITHOUT the provenance-based multi-support
+retraction we validated in Phase A. You can't get both provenance-retraction AND aggregates from one published
+branch.)
+
+### Blocker #2 — even the no-aggregate generated incremental C++ won't compile under g++ 15
+Compiling the no-agg `.cpp` (via souffle `-o` AND via direct `g++ -O1`) **fails** — 2019 code vs the 2026
+libstdc++:
+```
+include/souffle/ExplainProvenanceImpl.h:908: error: no match for 'operator<<' (std::ostream, std::vector<int>)
+<generated>.cpp:67270: error: redeclaration of 'const souffle::ram::Tuple<int,5> key'  (+ conflicting 'auto range')
+```
+The first is a missing `operator<<` the modern stdlib no longer provides implicitly; the second is a generated-
+code name collision g++ 15 rejects. These are a **cascade of small 2019-vs-now incompatibilities**, not a
+one-flag fix. (Note: the fork's *own library* + the `souffle` binary build fine — it's the **code souffle
+GENERATES for `--incremental`** that doesn't compile on a modern toolchain.)
+
+### Verdict — this is NOT a hardware gate; a beefier/Mac box won't fix it
+root/autotools/mcpp are resolved, the fork builds, and the toy works — so the earlier "needs the mac mini"
+framing is the wrong axis. The real gate is **the fork's age + incomplete feature set**: (a) no aggregate
+support on the provenance branch, (b) its generated incremental C++ predates modern stdlib. **An ARM Mac would
+hit the SAME two walls** (clang's libc++ is at least as strict; the aggregate crash is machine-independent).
+The path to a usable incremental engine is therefore the plan's **strategy (B): port/merge the elastic feature
+onto modern Soufflé 2.x (CMake)** so (i) aggregates work and (ii) the generated code compiles on current
+compilers — a substantial, dedicated effort, not an environment tweak. **Phase D (wire `update` into
+`engine_inproc.mtg_run_delta`) stays BLOCKED until that exists** — there's no point integrating an engine that
+can't codegen/compile our program. The live optimized engine on master remains inproc + cache + delta-input.
+
+---
+
+## Cross-machine reproduction (Linux/aarch64 done here; ARM Mac notes for the next box)
+
+Everything needed to reproduce on another machine. **What's validated by this is the MECHANISM (Phase A);**
+Phase B's two blockers above will recur on any modern toolchain until strategy (B) is done.
+
+### Prereqs (both platforms)
+- A C++17 compiler, `make`, `bison` (>=3.0.4), `flex`, `m4`, `pkg-config`.
+- GNU autotools: `autoconf`, `automake`, `libtool`.
+- `mcpp` (Matsui C preprocessor) — Soufflé needs the **binary on PATH** at BOTH configure-time and run-time.
+- libs the fork's `configure` wants: `ncurses`, `zlib`, `sqlite3`, `libffi` (dev/headers).
+
+### Linux / aarch64 (Fedora 42 Asahi — what was done here)
+- Root (Fedora repos): `dnf install autoconf automake libtool ncurses-devel zlib-ng-devel sqlite-devel libffi-devel`
+  (bison/flex/m4/g++/pkg-config already present).
+- **`mcpp` is NOT packaged on Fedora** → build from source (no root needed; `~/.local`). On GCC 15/aarch64 it
+  needs four fixes (all in the mcpp recipe in the UPDATE section above): the `--build/--host=aarch64` triplet,
+  `CFLAGS="-std=gnu11 -fcommon -fpermissive -w"`, and the `config.h` `LL_FORM="ll"` patch.
+- Fork: `./bootstrap && ./configure --prefix=$PWD/install && make -j2` (memory-capped) → `src/souffle`.
+
+### ARM Mac (Apple Silicon, macOS) — for whoever takes strategy (B)
+- `brew install autoconf automake libtool mcpp bison flex gcc ncurses sqlite libffi`
+  — **`mcpp` IS in Homebrew** (prebuilt), so SKIP the Linux from-source mcpp fixes entirely (the LL_FORM /
+  aarch64-triplet / gnu11 fixes are specific to building *mcpp from source on Linux*; brew's binary just works).
+- brew's `bison`/`flex` are keg-only — put them on PATH before `./configure`
+  (`export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"`), since Apple's system bison is
+  too old.
+- The fork is written for `g++`; with Apple clang expect divergence — use `brew`'s `g++-15` (`CXX=g++-15`) or
+  be ready to patch. **Blocker #2 (generated incremental C++ vs modern stdlib) will be AT LEAST as bad under
+  clang/libc++** — so on Mac too, a clean build of *our generated program* requires the strategy-(B) modern-
+  Soufflé port, not just installing deps.
+- Submodule + toy sanity (machine-independent): `git submodule update --init third_party/souffle-elastic`;
+  build; then `third_party/toy_elastic_test/` (`souffle --incremental -o tc tc.dl`, bootstrap, REPL
+  `remove edge(2, 4)` + `commit`, compare `out/path.csv` to the recompute oracle).
+
+### Running the incremental engine (the API, once a usable build exists)
+Standalone REPL (what Phase A used): run the `--incremental`-compiled binary; on stdin
+`insert/remove R(args)` then `commit` (= `executeSubroutine("incremental_update_clear_diffs")` then
+`("update")`); read outputs from the `-D` dir. Embedded (Phase D target): drive the same diff relations +
+subroutines from `engine_inproc.mtg_run_delta` — see §5 below, and mind the `@iteration`/`@count` output
+columns (strip + filter `count<=0`).
 
 ---
 
