@@ -951,12 +951,16 @@ def _sacrifice(state: dict, obj: str) -> None:
     sacrificed" triggers fire against the still-present permanent (the engine derives them via
     ev_sacrifice -> fires -> pending), apply their effects, then move it to its owner's graveyard.
     phased_out / countered are symmetric — same shape, different event input."""
+    if (obj,) in state.get("_sacrificing", set()):
+        return                                               # §603.10a re-entrancy guard: a 'when sacrificed' trigger
+    state.setdefault("_sacrificing", set()).add((obj,))      # re-sacrificing the SAME object would recurse forever
     print(f"    {obj} is sacrificed")
     state["sacrificed"] = {(obj,)}
     _apply_effects(state, run(state, ["pending"])["pending"])
     state["sacrificed"] = set()
     state["on_battlefield"].discard((obj,))
     state.setdefault("graveyard", set()).add((obj,))
+    state["_sacrificing"].discard((obj,))
 
 
 def _sac_candidates(state: dict, p: str, kind: str, source: str | None = None) -> list[str]:
