@@ -214,7 +214,10 @@ def _attack_options(state: dict, ap: str) -> list[frozenset]:
 
 def _legal_block_pairs(state: dict, ap: str) -> list[tuple[str, str]]:
     attackers = sorted(a for (a, _) in state.get("attacks", set()))
-    blockers = [b for b in driver._creatures_of(state, ap) if (b,) not in state.get("tapped", set())]
+    # a DETAINED creature can't block (the block half of detain; its attack half rides cant_attack/may_attack).
+    detained = {c for (c,) in driver.run(state, ["detained"])["detained"]}
+    blockers = [b for b in driver._creatures_of(state, ap)
+                if (b,) not in state.get("tapped", set()) and b not in detained]
     pairs = []
     for b in blockers:
         for a in attackers:
@@ -232,10 +235,15 @@ def _required_blocks_ok(state: dict, ap: str, chosen: frozenset, pairs: list[tup
         legal blocker for A is available (and not already committed to another required block).
       * must_block(B): B (a creature ap controls) must block if able — illegal to leave B idle while it has
         a legal block available.
+      * lure(A): §509 'all creatures able to block A do so' — the STRONG variant: EVERY blocker that CAN
+        block the lured attacker A (a (b, A) pair exists) must be in the chosen set blocking A. (Multiple
+        lured attackers can over-constrain a single blocker; the greedy fallback in _block_options handles
+        the no-satisfying-set case faithfully.)
     Forced creatures are read off the public engine relations, so this holds on observe.observe too."""
     must_block = {c for (c,) in driver.run(state, ["must_block"])["must_block"]}
     must_be_blocked = {c for (c,) in driver.run(state, ["must_be_blocked"])["must_be_blocked"]}
-    if not must_block and not must_be_blocked:
+    lured = {c for (c,) in driver.run(state, ["lure"])["lure"]}
+    if not must_block and not must_be_blocked and not lured:
         return True
     blockers_in = {b for (b, _a) in chosen}
     attackers_blocked = {a for (_b, a) in chosen}
@@ -247,6 +255,13 @@ def _required_blocks_ok(state: dict, ap: str, chosen: frozenset, pairs: list[tup
     for (a, _d) in state.get("attacks", set()):
         if a in must_be_blocked and a not in attackers_blocked and any(aa == a for (_b, aa) in pairs):
             return False
+    # §509 LURE — every blocker ABLE to block a lured attacker must be blocking THAT attacker in this set.
+    for (a, _d) in state.get("attacks", set()):
+        if a not in lured:
+            continue
+        for (b, aa) in pairs:
+            if aa == a and (b, a) not in chosen:
+                return False
     return True
 
 
@@ -254,9 +269,11 @@ def _block_options(state: dict, ap: str) -> list[frozenset]:
     """Declare-blockers choices: the no-block, the greedy one-per-attacker assignment, and each single
     legal block. (A representative, capped slice of the assignment space — not the full product.)
 
-    §509 combat REQUIREMENTS (must_block / must_be_blocked) prune the slice to legal sets only; if no listed
-    option satisfies the requirements, fall back to the greedy maximal assignment, which blocks as many
-    forced pairs as a one-per-attacker matching allows (a faithful best-effort within the capped surface)."""
+    §509 combat REQUIREMENTS (must_block / must_be_blocked / lure) prune the slice to legal sets only; if no
+    listed option satisfies the requirements, fall back to the greedy maximal assignment, which blocks as
+    many forced pairs as a one-per-attacker matching allows (a faithful best-effort within the capped
+    surface). §509 LURE needs EVERY able blocker on the lured attacker(s), so the lure-mandatory set (every
+    (b, A) pair for a lured attacker A) is offered explicitly — a singleton/greedy slice can't express it."""
     pairs = _legal_block_pairs(state, ap)
     opts = [frozenset()]
     greedy: dict = {}
@@ -266,6 +283,14 @@ def _block_options(state: dict, ap: str) -> list[frozenset]:
     greedy_fs = frozenset((b, a) for a, b in greedy.items())
     if greedy:
         opts.append(greedy_fs)
+    # §509 LURE — the mandatory set: every able blocker assigned to the lured attacker it can block. (Multiple
+    # lured attackers competing for one blocker may yield no satisfying set; _required_blocks_ok rejects those
+    # and the greedy fallback below covers the over-constrained case faithfully.)
+    lured = {c for (c,) in driver.run(state, ["lure"])["lure"]}
+    if lured:
+        lure_set = frozenset((b, a) for (b, a) in pairs if a in lured)
+        if lure_set and lure_set not in opts:
+            opts.append(lure_set)
     for pr in pairs:
         fs = frozenset([pr])
         if fs not in opts:

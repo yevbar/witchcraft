@@ -352,7 +352,27 @@ toughness(C, N) :- pt7c_power(C, N), switched(C).
 .decl must_attack(c: symbol)
 .decl must_be_blocked(c: symbol)
 .decl must_block(c: symbol)
+// COMBAT-RESTRICTION BREADTH (structural #5, restriction-side). Three more combat-state relations the
+// engine surfaces and env consumes when enumerating declare-attackers / declare-blockers, mirroring the
+// cant_be_blocked / must_* precedents above (each is driver-only EDB UNION engine-derived static aura):
+//   detained(c) — DETAIN: the permanent can't attack or block (and its activated abilities can't be
+//     activated) until the detainer's next turn. Driver-only EDB (set by the detain applier; the duration/
+//     expiry lives in the driver — see the handler caveat). Declared-not-head -> auto-EDB; cant_attack(C)
+//     unions it (attack exclusion) and env reads detained(c) directly for the BLOCK exclusion.
+//   lure(c) — §509 'all creatures able to block this creature do so': a STRONG must-be-blocked variant
+//     (EVERY able opponent blocker must block the lured attacker, not just one). env._block_options prunes
+//     any block set leaving an able blocker not blocking a lured attacker; the engine also unions lure(C)
+//     into must_be_blocked(C) so the >=1-blocker floor (and the imperfect-info read) hold even where the
+//     stronger set-level enforcement abstains. Both EDB (the lure applier) and engine-derived (card_effect).
+.decl detained(c: symbol)
+.decl lure(c: symbol)
 n_blockers(A, N) :- blocks(_, A), N = count : { blocks(_, A) }.
+// DETAIN — a detained creature can't attack (env reads cant_attack via may_attack); the can't-BLOCK
+// half is read off detained(c) directly by env._legal_block_pairs. Unioned into cant_attack so a single
+// !cant_attack(C) guard (may_attack + the combat damage rules) covers both defender and detain.
+cant_attack(C) :- detained(C).
+// §509 LURE implies must_be_blocked (the >=1-blocker floor); env adds the stronger 'ALL able blockers' rule.
+must_be_blocked(C) :- lure(C).
 cant_attack(C) :- has_keyword(C, "defender").   // 702.3b
 illegal_block(B, A) :- blocks(B, A), has_keyword(A, "flying"), !has_keyword(B, "flying"), !has_keyword(B, "reach").   // 702.9b
 cant_be_destroyed(C) :- has_keyword(C, "indestructible").   // 702.12b
@@ -1232,6 +1252,24 @@ spell_effect(S, "must_attack", 0, "self") :- resolves_ability(S, Card, A), card_
 spell_effect(S, "must_be_blocked", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "must_be_blocked", _, "self", _, "-").
 spell_effect(S, "remove_from_combat", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "remove_from_combat", _, "self", _, "-").
 
+// COMBAT-RESTRICTION BREADTH — cant_attack / lure / detain. Same two faithful surfaces as the must_* block
+// above (the cant_attack(C) :- has_keyword(C, "defender") §702.3b rule is already a head, so these UNION on).
+//   (a) STATIC AURA / self-static 'can't attack' ('enchanted creature can't attack', e.g. Pacifism's attack
+//       half; 'this creature can't attack' on a self-static) -> derived from card_ability(static)+attached_to
+//       / self. Mirrors anthem_creature; self-cleaning (re-derived from the live board, no EOT cleanup).
+cant_attack(C) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "cant_attack", _, "enchanted_creature", _, "-"), attached_to(S, C), creature(C).
+cant_attack(C) :- instance_of(C, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "cant_attack", _, Tgt, _, "-"), self_target(Tgt), on_battlefield(C), creature(C).
+//   (b) ONE-SHOT (triggered / spell) cant_attack / lure / detain on the literal 'self' target -> the
+//       combat_restrict2 applier sets the driver-only EDB (cant_attack / lure / detained on the SOURCE).
+//       Faithful 'self' only — anaphoric 'it' / 'target creature' abstain (target-pick is driver-owned).
+//       lure on self ('all creatures able to block THIS creature do so') is the dominant printed shape.
+trigger_effect(IA, "cant_attack", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "cant_attack", _, "self", _, "-").
+trigger_effect(IA, "lure", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "lure", _, "self", _, "-").
+trigger_effect(IA, "detain", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "detain", _, "self", _, "-").
+spell_effect(S, "cant_attack", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "cant_attack", _, "self", _, "-").
+spell_effect(S, "lure", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "lure", _, "self", _, "-").
+spell_effect(S, "detain", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "detain", _, "self", _, "-").
+
 // ONE WORLD (triggered slice 2): a triggered ability's CREATURE-SCOPED P/T pump / keyword grant /
 // zone moves over a BOARD scope (self / creatures_you_control / all_creatures) -> trigger_effect_pt /
 // trigger_effect_grant / trigger_effect_destroy / _exile / _tap / _untap / _return, DERIVED from the
@@ -1357,6 +1395,8 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output must_attack
 .output must_be_blocked
 .output must_block
+.output lure
+.output detained
 .output cant_be_destroyed
 .output zone_change
 .output to_untap
@@ -1404,4 +1444,4 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl goaded must_attack must_be_blocked must_block
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl goaded must_attack must_be_blocked must_block cant_attack lure detained
