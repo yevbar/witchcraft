@@ -96,6 +96,45 @@ can't codegen/compile our program. The live optimized engine on master remains i
 
 ---
 
+## Strategy (B) attempted: port the elastic feature onto latest Soufflé — it's a REIMPLEMENTATION, not a merge
+
+Attempted the upstream-port. Findings (hard data, latest souffle = `souffle-lang/souffle@c3861e0`, which is the
+SAME build already installed here):
+- **No incremental upstream.** Modern Soufflé has `--provenance` only; "incremental" appears nowhere in its
+  source except unit-test filenames. The PPDP'21 feature was never merged.
+- **9 of 11 elastic-touched files no longer exist** in modern Soufflé — dissolved by the 2.0 AST/RAM redesign:
+  `Incremental.h`, `IncrementalTransformer.cpp`, `AstTranslator.{cpp,h}`, `RamCondition.h`, `AstProgram.h`,
+  `AstTransforms.h`, `SynthesiserRelation.cpp`, `ReorderLiteralsTransformer.cpp` are all GONE. Only
+  `Synthesiser.cpp` (→ `src/synthesiser/`) and `ExplainProvenanceImpl.h` (→ `src/include/souffle/provenance/`)
+  survive by name, and both are rewritten internally. Modern surface: `src/ast` (101 files), `src/ram` (85),
+  `src/ast2ram` (5), `src/synthesiser` (8) — the fork's flat `Ast*/Ram*` classes are entirely restructured.
+- **Therefore there is no diff to apply** — every fork hunk targets a vanished file/class. `git apply`/merge is
+  a non-starter; the port is a from-scratch reimplementation of the research feature on the new architecture.
+
+### What the reimplementation actually entails (the map, for whoever takes it on)
+Re-create, against modern Soufflé's pipeline + its existing provenance infra (`--provenance`):
+1. **Relation annotation** — add the `@iteration`/`@current_count` columns to every relation (was
+   `IncrementalTransformer.cpp`): now an `ast::transform::Transformer` over the modern AST.
+2. **Diff machinery** — generate `diff_plus@_`/`diff_minus@_` relations + the re-discovery/retraction rules
+   (the `actual_diff_*`/`@new_diff_*` families from `AstTranslator.cpp`): now in `ast2ram/`.
+3. **The `update` subroutine** — emit the special incremental-update RAM subroutine + `incremental_update_
+   clear_diffs` (was in `Synthesiser.cpp`): now in `src/synthesiser/`.
+4. **Runtime/embedding** — the `commit()` driver (`Incremental.h`): the embedded path drives the diff inserts +
+   `executeSubroutine("update")` from `engine_inproc` (no REPL).
+This is essentially redoing the PPDP'21 implementation on the 2.x codebase — a focused multi-week effort (a
+real Soufflé PR), not a session task. Modern Soufflé compiles clean on this box's g++ 15, so a successful
+reimplementation would also dissolve Blocker #2 for free (modern codegen). Blocker #1 (aggregates) must be
+handled explicitly in the reimplemented transformer/synthesiser (it's where the fork crashed).
+
+### Bottom line
+Both prior conclusions hold and are now reinforced with data: the elastic *mechanism* is proven (Phase A), but
+obtaining it for our engine requires reimplementing the feature on modern Soufflé — there is no shorter path
+(not a beefier box, not a branch swap, not a patch). Until that exists, the live engine stays inproc + cache +
+delta-input. The fork + this doc give the next person the exact mechanism, API, integration point, and the
+modern-codebase map to do the reimplementation.
+
+---
+
 ## Cross-machine reproduction (Linux/aarch64 done here; ARM Mac notes for the next box)
 
 Everything needed to reproduce on another machine. **What's validated by this is the MECHANISM (Phase A);**
