@@ -1120,6 +1120,11 @@ def _apply_sac_lands_for_mana(D, state, a, n, tgt, src, ctrl):
 
 @encoder("add_mana")
 def _encode_add_mana(verb, amt, tgt, extra):
+    # §106.x SCALING mana 'add an amount of <color> equal to <count>' (add_mana equal_to_<slug>): delegate to
+    # effect_handlers/scaling_mana, which resolves a clean live count to a `scaled_mana` effect or abstains.
+    if str(amt).startswith("equal_to_"):
+        from effect_handlers import scaling_mana
+        return scaling_mana.encode_scaled_mana(amt, tgt, extra)
     if tgt not in _SELF_TGT:                                 # only the caster's own pool (every ritual is 'you')
         return None
     n = _int(amt)
