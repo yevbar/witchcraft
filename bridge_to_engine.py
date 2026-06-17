@@ -256,13 +256,21 @@ def _scope(tgt: str) -> str | None:
         return "creatures_your_opponents_control"             # §611 every opponent's creatures
     if tgt in ("all_nonland_permanents_you_control", "nonland_permanents_you_control"):
         return "own_nonland_perms"                            # §613 Dramatic Reversal — a PERMANENT (not creature) scope
+    # §701 board-wide NON-CREATURE mass scopes (Shatterstorm 'destroy all artifacts', Tranquility 'all
+    # enchantments', Armageddon 'all lands', Oblivion Stone 'all nonland permanents'). Resolved on the SPELL
+    # path (driver._run_spell_scope enumerates by printed type); the rare triggered form is unchanged.
+    if tgt in ("all_artifacts", "all_enchantments", "all_lands", "all_planeswalkers",
+               "all_nonland_permanents", "all_permanents"):
+        return tgt
     return None
 
 
 # the board scopes whose spell_scope the driver expands on resolution: the creature scopes plus the
 # nonland-permanent scope (untap-all). Used by the bridge to know which scope tokens are DATALOG-derived.
 _BOARD_SCOPES = ("creatures_you_control", "other_creatures_you_control", "all_creatures",
-                 "creatures_your_opponents_control", "own_nonland_perms")
+                 "creatures_your_opponents_control", "own_nonland_perms",
+                 "all_artifacts", "all_enchantments", "all_lands", "all_planeswalkers",
+                 "all_nonland_permanents", "all_permanents")
 
 
 def _int(amt) -> int | None:

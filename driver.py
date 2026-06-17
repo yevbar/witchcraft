@@ -2803,6 +2803,24 @@ def _run_spell_scope(state: dict, spell: str, ctrl: str) -> None:
         elif scope == "creatures_your_opponents_control":
             # §611 every creature an opponent controls (the resolving controller's are excluded).
             targets = sorted(c for c in creatures if c in on_bf and c not in mine)
+        elif scope in ("all_artifacts", "all_enchantments", "all_lands", "all_planeswalkers",
+                       "all_nonland_permanents", "all_permanents"):
+            # §701 board-wide NON-CREATURE mass scopes — enumerate every permanent of the named type.
+            types_of = {}
+            for (o, t) in ptype:
+                types_of.setdefault(o, set()).add(t)
+            for c in creatures:                                  # the engine-DERIVED creature type (animated lands/tokens)
+                types_of.setdefault(c, set()).add("creature")
+            want = {"all_artifacts": "artifact", "all_enchantments": "enchantment",
+                    "all_lands": "land", "all_planeswalkers": "planeswalker"}.get(scope)
+            def _match(c):
+                ts = types_of.get(c, set())
+                if scope == "all_permanents":
+                    return True
+                if scope == "all_nonland_permanents":
+                    return "land" not in ts
+                return want in ts
+            targets = sorted(c for c in on_bf if _match(c))
         else:
             # creatures_you_control / other_creatures_you_control (a spell has no self creature to exclude,
             # so it expands to the controller's creatures) / all_creatures.

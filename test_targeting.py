@@ -428,8 +428,12 @@ def _bridge_checks() -> None:
           bridge._target_class("target_creature_you_control") == "you_control")
     check("target_creature_an_opponent_controls -> opponent",
           bridge._target_class("target_creature_an_opponent_controls") == "opponent")
-    check("restricted target abstains (no class)",
-          bridge._target_class("target_creature_with_power_3_or_greater") is None)
+    # §115 a restricted target now RESOLVES via a filtered class (driver._target_filter_pred narrows the
+    # legal set) — the general single-target filter resolver. A truly unmodeled restriction still abstains.
+    check("restricted target resolves to a filtered class",
+          bridge._target_class("target_creature_with_power_3_or_greater") == "any#powge:3")
+    check("a still-unmodeled restriction abstains (no class)",
+          bridge._target_class("target_creature_with_mana_value_x") is None)
 
 
 def _perm_target_checks() -> None:

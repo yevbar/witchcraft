@@ -1387,6 +1387,9 @@ board_scope("creatures_you_control", "creatures_you_control"). board_scope("all_
 // §611 the unfiltered sibling scopes: aliases for creatures_you_control / all_creatures, plus the OTHER-yours
 // (a spell has no self creature, so it expands to your creatures) and OPPONENTS' board scopes.
 board_scope("each_creature_you_control", "creatures_you_control"). board_scope("all_creatures_you_control", "creatures_you_control"). board_scope("other_creatures_you_control", "other_creatures_you_control"). board_scope("each_creature", "all_creatures"). board_scope("creatures_your_opponents_control", "creatures_your_opponents_control").
+// §701 board-wide NON-CREATURE mass scopes (destroy all artifacts/enchantments/lands/nonland permanents) —
+// the driver enumerates the matching permanents by printed type on resolution.
+board_scope("all_artifacts", "all_artifacts"). board_scope("all_enchantments", "all_enchantments"). board_scope("all_lands", "all_lands"). board_scope("all_planeswalkers", "all_planeswalkers"). board_scope("all_nonland_permanents", "all_nonland_permanents"). board_scope("all_permanents", "all_permanents").
 // zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —
 // destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).
 .decl zone_move_verb(verb: symbol)
