@@ -337,6 +337,18 @@ def _apply_cant_block(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: creatures ({str(tgt).replace('_', ' ')}) can't block this turn")
 
 
+# §509.1b the SELF-scope 'this creature can't be blocked' reading needs a bridge ENCODE entry or it never
+# reaches the applier (the applier writes cant_be_blocked(src), which is correct only when the resolving
+# source IS the creature). 'self' and 'it' both denote the source in these single-clause self-referential
+# abilities ("whenever this attacks, it can't be blocked this turn"); a TARGET_* scope (driver target-pick)
+# or the anaphoric 'that_creature' ABSTAINS here — those belong to the driver's target-verb path, not us.
+@encoder("cant_be_blocked")
+def _encode_cant_be_blocked(verb, amt, tgt, extra):
+    if str(tgt) not in ("self", "it"):
+        return None
+    return ("cant_be_blocked", 0, str(tgt))
+
+
 @applier("cant_be_blocked")
 def _apply_cant_be_blocked(D, state, a, n, tgt, src, ctrl):
     """§509.1b SELF-scope 'this creature can't be blocked' (a triggered/activated/spell self-effect — e.g.

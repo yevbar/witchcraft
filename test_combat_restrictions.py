@@ -147,6 +147,27 @@ def _resolution_and_cleanup() -> None:
     check("cant_be_blocked is cleared by end-of-turn cleanup", not st3.get("cant_be_blocked"))
 
 
+def _bridge_encodes_self_scope() -> None:
+    """The bridge ENCODE entry (effect_handlers.permanents._encode_cant_be_blocked): a SELF-scope
+    'this creature can't be blocked' must reach the applier — without an encoder the bridge dropped it
+    even though the applier handles it. 'self'/'it' route to the source; target/that_creature abstain."""
+    import effect_handlers
+    effect_handlers.load()
+    enc = effect_handlers.ENCODE.get("cant_be_blocked")
+    check("cant_be_blocked has a bridge ENCODE entry", enc is not None)
+    check("encoder routes 'self' to the source", enc and enc("cant_be_blocked", 0, "self", "-") == ("cant_be_blocked", 0, "self"))
+    check("encoder routes 'it' to the source", enc and enc("cant_be_blocked", 0, "it", "-") == ("cant_be_blocked", 0, "it"))
+    check("encoder ABSTAINS on target_creature (driver target-pick)", enc and enc("cant_be_blocked", 0, "target_creature", "-") is None)
+    check("encoder ABSTAINS on anaphoric that_creature", enc and enc("cant_be_blocked", 0, "that_creature", "-") is None)
+    # end-to-end through the bridge: a self-scope card no longer drops the clause
+    import sim, card_corpus, bridge_to_engine as bridge
+    db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    if "Aetherling" in corpus:
+        _f, dropped = bridge.card_facts("Aetherling", "p", "t0", db, corpus)
+        check("Aetherling: the self cant_be_blocked clause is no longer dropped",
+              all(d != "cant_be_blocked" for _k, d in dropped))
+
+
 def run() -> None:
     _enforced_in_block_options()
     _control_is_blockable()
@@ -154,6 +175,7 @@ def run() -> None:
     _combat_damage_respects_it()
     _imperfect_info_public()
     _resolution_and_cleanup()
+    _bridge_encodes_self_scope()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
