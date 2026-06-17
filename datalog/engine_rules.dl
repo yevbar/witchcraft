@@ -187,14 +187,24 @@ color_ts(C, M) :- eff_set_color(_, C, _, _), M = max T : { eff_set_color(_, C, _
 color(C, Col) :- eff_set_color(_, C, Col, Ts), color_ts(C, Ts).
 color(C, Col) :- copiable_color(C, Col), !eff_set_color(_, C, _, _).
 
+// §613 layer 6 — abilities: a "loses all abilities" effect (Turn to Frog, Frogify, Kenrith's
+// Transformation, Lignify, Sudden Spoiling, …) removes EVERY ability from a permanent in this layer.
+// loses_abilities(c) is a shim-fed EDB (declared-not-head -> auto-EDB; empty in normal play -> zero
+// effect; fed by effect_handlers/lose_abilities when a 'loses all abilities' effect resolves). It is
+// the keyword analogue of face_down's characteristic suppression: every has_keyword source is gated by
+// !loses_abilities(C) so such a creature has NO keywords. (Layer 6 removes ONLY abilities — P/T, types,
+// supertypes, subtypes and color are UNTOUCHED here; copiable_power/type/color are NOT gated.) The
+// engine-derived ACTIVATED/TRIGGERED abilities are also suppressed below (inst_ability gate) so a
+// frogified creature's printed triggers/activations no longer fire either.
+.decl loses_abilities(c: symbol)
 // §613 layer 6 — abilities: copiable keywords plus granted, minus removed.
 .decl has_keyword(c: symbol, kw: symbol)
-has_keyword(C, K) :- copiable_keyword(C, K), !eff_remove_keyword(_, C, K).
-has_keyword(C, K) :- eff_grant_keyword(_, C, K), !eff_remove_keyword(_, C, K).
+has_keyword(C, K) :- copiable_keyword(C, K), !eff_remove_keyword(_, C, K), !loses_abilities(C).
+has_keyword(C, K) :- eff_grant_keyword(_, C, K), !eff_remove_keyword(_, C, K), !loses_abilities(C).
 // §611.2 static anthem/lord keyword grant
-has_keyword(C, K) :- static_grant_kw(_, C, K), !eff_remove_keyword(_, C, K).
+has_keyword(C, K) :- static_grant_kw(_, C, K), !eff_remove_keyword(_, C, K), !loses_abilities(C).
 // §122.1b keyword counter
-has_keyword(C, K) :- counter(C, K, N), N >= 1, is_keyword(K), !eff_remove_keyword(_, C, K).
+has_keyword(C, K) :- counter(C, K, N), N >= 1, is_keyword(K), !eff_remove_keyword(_, C, K), !loses_abilities(C).
 
 // §702 keyword vocabulary — the interpreted keyword-ability roster (build_keyword_ability_index).
 // The engine DEPENDS on this: every keyword it grants must be a defined §702 ability (see unknown_keyword conformance).
@@ -840,7 +850,11 @@ player_scope(T, "each_opponent") :- opponent_target(T).
 player_scope(T, "controller") :- seen_target(T), !opponent_target(T).
 // the instance-level ability id, matching the bridge's f'{tid}_{aid}'.
 .decl inst_ability(ia: symbol, source: symbol, aid: symbol, card: symbol)
-inst_ability(cat(S, cat("_", A)), S, A, C) :- instance_of(S, C), card_ability(C, A, _).
+// §613 layer 6 — a permanent that "loses all abilities" has no printed activated/triggered/static
+// abilities either: gate the inst_ability derivation by !loses_abilities(S). This zeroes its has_trigger
+// (derived from inst_ability below) and any inst_ability-keyed activated abilities, so a frogified
+// creature's triggers/activations no longer fire.
+inst_ability(cat(S, cat("_", A)), S, A, C) :- instance_of(S, C), card_ability(C, A, _), !loses_abilities(S).
 // DERIVE has_trigger for EVERY triggered ability whose §603 trigger-phrase maps to an engine event
 // (was bridge: add('has_trigger', (f'{tid}_{aid}', tid, _EVENT[trigger]))). The instance ability id
 // cat(S,'_',A) == f'{tid}_{aid}', the source is the instance S, the event is event_map(Phrase).
@@ -853,8 +867,8 @@ has_trigger(IA, S, Event) :- inst_ability(IA, S, A, C), card_ability(C, A, "trig
 // requires controls(P,S) + !creature spell (so S is on the battlefield under the caster's control);
 // the +1/+1 rides the pending_pt -> eff_mod_power+until_eot path (wears off at cleanup, §611.2). The
 // driver salts the cast-triggered pump's id per cast so several casts STACK (+1/+1 each).
-has_trigger(cat("kw:prowess@", S), S, "you_cast_noncreature") :- instance_of(S, C), card_keyword(C, "prowess").
-trigger_effect_pt(cat("kw:prowess@", S), 1, 1, "self") :- instance_of(S, C), card_keyword(C, "prowess").
+has_trigger(cat("kw:prowess@", S), S, "you_cast_noncreature") :- instance_of(S, C), card_keyword(C, "prowess"), !loses_abilities(S).
+trigger_effect_pt(cat("kw:prowess@", S), 1, 1, "self") :- instance_of(S, C), card_keyword(C, "prowess"), !loses_abilities(S).
 // DERIVE trigger_effect for a triggered ability's player-scoped, numeric, unconditional effect.
 trigger_effect(IA, Eff, N, Scope) :- inst_ability(IA, S, A, C), card_ability(C, A, "triggered"), ability_trigger(C, A, Phrase), event_map(Phrase, _), card_effect(C, A, _, Verb, Amount, Target, _, "-"), pscope_effect(Verb, Eff), match("[0-9]+", Amount), N = to_number(Amount), player_scope(Target, Scope).
 // ONE WORLD: the CONSTANT-form verbs counter / prevent_damage(fog) / create for a TRIGGERED
