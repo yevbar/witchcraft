@@ -1787,13 +1787,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("doubler", (facts, "tokens"))
         elif st == "doubles_counters":
             add("doubler", (facts, "counters"))
-    for _aid, _ab in (f.get("abilities") or {}).items():      # §614 life-gain replacements -> driver-only `life_repl`
-        if _ab.get("kind") == "replacement":                  # (Alhammarret's Archive / Rhox Faithmender, driver._life_gain_mods)
+    for _aid, _ab in (f.get("abilities") or {}).items():      # §614 replacements -> driver-only facts
+        if _ab.get("kind") == "replacement":
             for (_sq, _v, _amt, _t, _x, _c) in _ab.get("effects", []):
-                if _v == "gain_life" and _amt == "twice_that_amount":
+                if _v == "gain_life" and _amt == "twice_that_amount":     # life-gain doubling (driver._life_gain_mods)
                     add("life_repl", (facts, "double"))
                 elif _v == "gain_life" and _amt == "that_amount_plus_1":
                     add("life_repl", (facts, "plus1"))
+            _trig = _ab.get("trigger") or ""                  # §614 graveyard-hate: 'put into a graveyard -> exile instead'
+            if "graveyard" in _trig and "would" in _trig and any(   # (Rest in Peace / Leyline, driver._gy_replaced)
+                    _v == "exile" and _t in ("it", "that_card") for (_sq, _v, _a, _t, _x, _c) in _ab.get("effects", [])):
+                add("gy_repl", (facts, "opponents" if "opponent" in _trig else "all"))
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     self_aliases = _name_aliases(name)                        # §201 the card's own-name slugs -> normalized to 'self'
     modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as

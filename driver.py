@@ -408,6 +408,26 @@ def _doubler_count(state: dict, ctrl: str, kind: str) -> int:
                if p == ctrl and (io.get(c), kind) in dset)
 
 
+def _gy_replaced(state: dict, obj: str) -> bool:
+    """§614 graveyard-hate replacement: would `obj` be EXILED instead of going to a graveyard? True if a
+    player controls a 'a card would be put into a graveyard … exile it instead' permanent whose scope covers
+    obj's owner — 'all' graveyards (Rest in Peace) for everyone, or 'opponents' (Leyline of the Void) for a
+    card owned by an opponent of that permanent's controller. Owner is proxied by obj's controller."""
+    gr = state.get("gy_repl")
+    if not gr:
+        return False
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    pc = state.get("printed_control", set())
+    owner = next((p for (p, c) in pc if c == obj), None)
+    for (p, c) in pc:
+        s = io.get(c)
+        if (s, "all") in gr:
+            return True
+        if (s, "opponents") in gr and owner is not None and owner != p:
+            return True
+    return False
+
+
 def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
     n *= 2 ** _doubler_count(state, controller, "tokens")     # §614 Doubling Season / Parallel Lives / ...
     d = _parse_token_spec(spec)
@@ -1052,6 +1072,10 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         # MAY instead go to the command zone (a _choose decision); if taken, skip the normal destination.
         if _is_commander(state, c) and to in ("graveyard", "exile", "hand", "library") \
                 and _commander_replacement(state, c, to):
+            continue
+        if to == "graveyard" and _gy_replaced(state, c):     # §614 Rest in Peace / Leyline of the Void: exile instead
+            state.setdefault("exile", set()).add((c,))
+            print(f"    {c} would be put into a graveyard — a §614 replacement exiles it instead")
             continue
         state.setdefault(ZONE[to], set()).add((c,))
         verb = "dies" if (frm, to) == ("battlefield", "graveyard") else f"moves {frm}"
