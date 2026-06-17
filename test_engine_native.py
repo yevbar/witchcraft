@@ -86,6 +86,29 @@ def run() -> None:
                 print(f"  state {i} INPROC MISMATCH: only_inproc={sorted(set(inp)-set(intp))[:4]} "
                       f"only_interp={sorted(set(intp)-set(inp))[:4]} value_diffs={diffs[:4]}")
 
+    # DELTA-INPUT parity (the non-negotiable invariant): replay a real game's exact cache-miss state sequence
+    # through the in-process DELTA path (stateful, in order) and assert each result is byte-identical to a fresh
+    # full recompute. This is what makes the "incremental input, full recompute" optimization safe to trust.
+    if engine_inproc.available():
+        import contextlib, io
+        import bridge_to_engine as _bridge
+        import driver as _drv
+        seq = []
+        _orig = _drv._evaluate
+        _drv._evaluate = lambda fk: (seq.append(fk), _orig(fk))[1]
+        _drv.clear_cache()
+        with contextlib.redirect_stdout(io.StringIO()):
+            _bridge.play_real_game(_bridge._DEMO_DECKS, seed=3)
+        _drv._evaluate = _orig
+        engine_inproc._LOADED = None                              # start the delta walk fresh
+        delta_mismatch = sum(
+            1 for fk in seq
+            if {k: v for k, v in engine_inproc.evaluate(fk).items() if v}
+            != {k: v for k, v in engine_native.evaluate(fk).items() if v})
+        checks.append((f"delta-input == full recompute over {len(seq)} real states", delta_mismatch == 0))
+        if delta_mismatch:
+            print(f"  DELTA PARITY: {delta_mismatch}/{len(seq)} states differ from full recompute")
+
     # driver demos must play byte-identically through either backend
     import os
     for demo in ("demo", "demo_sacrifice"):

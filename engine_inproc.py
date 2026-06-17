@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,8 +27,15 @@ import engine_native  # reuse _SRC / _edb / _wrapper / _souffle_include so the w
 
 _CACHE_DIR = Path(tempfile.gettempdir())
 
-# The C ABI shim: create a program instance by factory name, run one state from a TSV fact blob (purging the
-# prior state first), serialize the non-empty output relations back as a TSV blob. All in-memory.
+# The C ABI shim: a live program instance.
+#  mtg_run(h, facts)              — FULL load: purge everything, insert all input facts, run, serialize.
+#  mtg_run_delta(h, purge, facts) — DELTA load (lever #2/#3): purge only the named (changed/removed) input
+#                                   relations, (re)insert `facts` (the changed relations' rows), then purge
+#                                   internal+output and run the FULL fixpoint over the patched inputs. Result
+#                                   is byte-identical to a full load (run() recomputes from current inputs) —
+#                                   this is "incremental INPUT, full recompute": it skips re-marshalling the
+#                                   ~unchanged input (consecutive states differ by ~2 facts of ~485), NOT the
+#                                   derivation. Correct by construction; the caller tracks what's loaded.
 _SHIM_CPP = r"""
 #include "souffle/SouffleInterface.h"
 #include <string>
@@ -35,22 +43,7 @@ _SHIM_CPP = r"""
 #include <cstring>
 using namespace souffle;
 
-extern "C" {
-
-void* mtg_create(const char* name) {
-    return (void*) ProgramFactory::newInstance(std::string(name));
-}
-void mtg_destroy(void* h) { delete (SouffleProgram*) h; }
-void mtg_free(char* s) { free(s); }
-
-// facts: lines "relname\tf1\tf2...\n" (only non-empty input relations need appear). Returns a malloc'd C
-// string of the derived non-empty output relations in the same TSV line format. Caller frees via mtg_free.
-char* mtg_run(void* h, const char* facts) {
-    SouffleProgram* p = (SouffleProgram*) h;
-    p->purgeInputRelations();
-    p->purgeInternalRelations();
-    p->purgeOutputRelations();
-
+static void insert_blob(SouffleProgram* p, const char* facts) {
     std::string blob(facts);
     size_t i = 0, n = blob.size();
     while (i < n) {
@@ -86,9 +79,9 @@ char* mtg_run(void* h, const char* facts) {
         }
         i = nl + 1;
     }
+}
 
-    p->run();
-
+static char* serialize_outputs(SouffleProgram* p) {
     std::string out;
     for (Relation* r : p->getOutputRelations()) {
         if (r->size() == 0) continue;                            // skip empty (matches the .csv-skip behavior)
@@ -112,6 +105,47 @@ char* mtg_run(void* h, const char* facts) {
     return res;
 }
 
+extern "C" {
+
+void* mtg_create(const char* name) {
+    return (void*) ProgramFactory::newInstance(std::string(name));
+}
+void mtg_destroy(void* h) { delete (SouffleProgram*) h; }
+void mtg_free(char* s) { free(s); }
+
+char* mtg_run(void* h, const char* facts) {
+    SouffleProgram* p = (SouffleProgram*) h;
+    p->purgeInputRelations();
+    p->purgeInternalRelations();
+    p->purgeOutputRelations();
+    insert_blob(p, facts);
+    p->run();
+    return serialize_outputs(p);
+}
+
+char* mtg_run_delta(void* h, const char* purge, const char* facts) {
+    SouffleProgram* p = (SouffleProgram*) h;
+    std::string pb(purge);                                       // newline-separated input relations to clear
+    size_t i = 0, n = pb.size();
+    while (i < n) {
+        size_t nl = pb.find('\n', i);
+        if (nl == std::string::npos) nl = n;
+        if (nl > i) {
+            Relation* r = p->getRelation(pb.substr(i, nl - i));
+            if (r != nullptr) r->purge();
+        }
+        i = nl + 1;
+    }
+    // ALL purges BEFORE the insert: purgeOutput would otherwise wipe just-inserted echoed-input relations
+    // (those declared both .input and .output, e.g. printed_color/printed_keyword). After this the only facts
+    // present are the carried-over keepable inputs; insert the (re)loaded relations, then recompute the fixpoint.
+    p->purgeInternalRelations();
+    p->purgeOutputRelations();
+    insert_blob(p, facts);                                       // (re)insert the changed + always-reload rows
+    p->run();
+    return serialize_outputs(p);
+}
+
 }  // extern "C"
 """
 
@@ -119,6 +153,9 @@ char* mtg_run(void* h, const char* facts) {
 _LIB: tuple | None = None
 _HANDLE = None                                                    # the live SouffleProgram* (reused across calls)
 _FAILED = False
+_LOADED: dict | None = None                                       # {rel: frozenset(rows)} currently in the instance
+_NONKEEP: frozenset = frozenset()                                 # inputs that must be purged+reinserted every call
+_NO_DELTA = bool(os.environ.get("MTG_NO_DELTA"))                  # force full loads (A/B + falsifiability escape)
 
 
 def _compile_lib(name: str, gen_cpp: Path, lib: Path) -> bool:
@@ -147,10 +184,22 @@ def build() -> tuple | None:
     global _LIB, _FAILED
     if _LIB is not None or _FAILED:
         return _LIB
+    global _NONKEEP
     rules = engine_native._SRC.read_text()
     edb = engine_native._edb(rules)
+    # NONKEEP = input relations the delta path must purge+reinsert EVERY call (can't carry across states):
+    #   * input ∩ rule-head (the SHIM_INPUTS .input+rule union, e.g. loses_abilities/goaded) — run() derives
+    #     extra facts INTO them and purgeInternalRelations() won't clear them (souffle marks them input);
+    #   * input ∩ .output (echoed inputs, e.g. printed_color/printed_keyword) — purgeOutputRelations() clears
+    #     them, so a carried-over copy would be wiped before run().
+    # The other ~130 inputs are pure (input-only, not head/output) — they hold exactly what we insert, so an
+    # UNCHANGED one is safe to keep loaded across the delta (the whole point: skip re-marshalling ~70% of facts).
+    import re as _re
+    _heads = set(_re.findall(r"^(\w+)\([^)]*\)\s*:-", rules, _re.M))
+    _outs = set(_re.findall(r"^\.output\s+(\w+)", rules, _re.M))
+    _NONKEEP = frozenset(set(edb) & (_heads | _outs))
     src = engine_native._wrapper(rules, edb)
-    h = hashlib.sha1(src.encode()).hexdigest()[:12]
+    h = hashlib.sha1((src + _SHIM_CPP).encode()).hexdigest()[:12]  # shim in the hash -> a shim change rebuilds
     name = f"mtg_inproc_{h}"                                      # == the .dl stem == the ProgramFactory name
     lib = _CACHE_DIR / f"lib{name}.so"
     if not lib.exists():
@@ -168,6 +217,8 @@ def build() -> tuple | None:
         cdll.mtg_create.argtypes = [ctypes.c_char_p]
         cdll.mtg_run.restype = ctypes.c_void_p                   # void* so we can free the exact pointer
         cdll.mtg_run.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        cdll.mtg_run_delta.restype = ctypes.c_void_p
+        cdll.mtg_run_delta.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
         cdll.mtg_destroy.argtypes = [ctypes.c_void_p]
         cdll.mtg_free.argtypes = [ctypes.c_void_p]
     except OSError:
@@ -194,10 +245,24 @@ def _instance():
     return _HANDLE
 
 
+def _rel_blob(items) -> bytes:
+    """TSV-marshal an iterable of (rel, rows) (souffle reads symbols/ints as text — stringify like the .facts
+    path). One line per row: 'rel\\tf1\\tf2...'."""
+    parts = [rel + "\t" + "\t".join(map(str, row)) for rel, rows in items if rows for row in rows]
+    return ("\n".join(parts) + "\n").encode() if parts else b""
+
+
 def evaluate(fkey: frozenset) -> dict:
     """Run the compiled engine IN-PROCESS on a fact set; return {relation: set(tuples)} for every non-empty
     output relation — same signature/return as engine_native.evaluate and driver._evaluate. Raises if the
-    library is unavailable (guard with available())."""
+    library is unavailable (guard with available()).
+
+    DELTA-INPUT (lever #2/#3): consecutive states differ by ~2 facts of ~485, so instead of re-marshalling +
+    re-inserting the whole state every call, we keep the instance's input relations loaded and patch only the
+    relations whose row-set changed (purge+reinsert) or vanished (purge). Then the C side recomputes the FULL
+    fixpoint over the patched inputs — byte-identical to a full load (verified in test_engine_native), just
+    without the input-marshalling cost for the unchanged ~95% of the state. MTG_NO_DELTA forces full loads."""
+    global _LOADED
     built = build()
     if built is None:
         raise RuntimeError("in-process engine library unavailable")
@@ -205,16 +270,21 @@ def evaluate(fkey: frozenset) -> dict:
     handle = _instance()
     if handle is None:
         raise RuntimeError("in-process engine instance unavailable")
-    # marshal the non-empty input relations into one TSV blob (souffle reads symbols/ints as text, same as
-    # the .facts path — we stringify exactly like engine_native).
-    parts = []
-    for rel, rows in fkey:
-        if not rows:
-            continue
-        for row in rows:
-            parts.append(rel + "\t" + "\t".join(map(str, row)))
-    blob = ("\n".join(parts) + "\n").encode() if parts else b""
-    ptr = cdll.mtg_run(handle, blob)
+
+    new = {rel: rows for rel, rows in fkey if rows}
+    if _NO_DELTA or _LOADED is None:
+        ptr = cdll.mtg_run(handle, _rel_blob(new.items()))       # FULL load (first call / forced)
+    else:
+        # purge every relation whose INPUT changed/vanished, PLUS all NONKEEP relations (run() pollutes those
+        # or purgeOutput clears them — they can't carry over); reinsert the input facts for whatever we purged
+        # that still has rows. The kept (unchanged, pure-input) relations carry over untouched.
+        to_purge = {rel for rel, rows in new.items() if _LOADED.get(rel) != rows}
+        to_purge |= {rel for rel in _LOADED if rel not in new}
+        to_purge |= _NONKEEP
+        purge = ("\n".join(to_purge) + "\n").encode() if to_purge else b""
+        facts = _rel_blob((rel, new[rel]) for rel in to_purge if rel in new)
+        ptr = cdll.mtg_run_delta(handle, purge, facts)
+    _LOADED = new                                                # the instance's inputs now equal `new`
     try:
         text = ctypes.string_at(ptr).decode()
     finally:

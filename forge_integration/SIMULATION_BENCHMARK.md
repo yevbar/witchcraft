@@ -76,11 +76,28 @@ So **>5 ms of every 7.3 ms is fork + file I/O**, not the rules computation.
    safe under arbitrarily long search with bounded memory. Byte-identical (only eviction; test_engine/native/
    game green). What's left on the COLD path (the 9-eval fixpoint itself) is lever #3.
 
-3. **Incremental evaluation (the structural win).** Soufflé recomputes the *entire* fixpoint from scratch on
-   every call, but in tree search a child state differs from its parent by only a handful of facts (one
-   action changed). Soufflé's `--incremental` (or a delta/semi-naive re-derivation keyed on the changed EDB)
-   would avoid re-deriving ~200 facts to learn the effect of one change — potentially an order of magnitude on
-   the search-node path specifically.
+3. **Incremental evaluation (the structural win) — PARTIALLY captured; full version blocked by substrate.**
+   Soufflé recomputes the *entire* fixpoint each call, but consecutive states differ by very little. Phase-0
+   instrumentation (5 real games, 2,797 transitions) measured the delta precisely: **median 1 insert + 1
+   delete vs a 485-fact state — 0.4% of the state** (p90 1.2%). So the recompute is ~99.6% waste — the
+   opportunity is real and large. BUT two findings reshape the original plan:
+   - **It's 86% delete-bearing, insert:delete ≈ 1.0:1** — *not* insert-dominated. An insert-only fast path
+     (monotone, easy, correct-by-construction) would cover only **14%** of transitions, not "most of the win."
+     The value lives in the *hard* delete path (retraction/provenance).
+   - **No `--incremental` on this Soufflé build** (only `--provenance`), and the compiled `Sf_*` program only
+     does full fixpoints — so true incremental *derivation* (re-derive just the affected facts) needs either a
+     Soufflé rebuilt with incremental support or a hand-rolled delete-capable engine (191 relations; the engine
+     is ~98%-non-recursive — 0 self-recursive, only `anthem_creature`/`filter_ok`/`has_keyword`/`static_grant_kw`
+     cyclic — so counting works for the bulk, but it's still a large, high-risk build).
+   - **What WAS captured (simpler, lower-risk): incremental INPUT, full recompute** (`engine_inproc` delta path,
+     `MTG_NO_DELTA` to disable). Keep the live instance's input relations loaded; per call purge+reinsert only
+     the relations whose rows changed, **plus** the 34 NONKEEP relations that are `.input ∩ (rule-head | .output)`
+     (run() pollutes those / `purgeOutput` clears them — they can't carry over); the other ~130 pure-input
+     relations (~70% of facts, incl. the big card-definition tables) carry across untouched. The fixpoint still
+     runs full, so it's **byte-identical** (verified delta==full over 1,597 real states + test_engine_native).
+     It skips ~70% of the input marshalling/insert: **cold `env.step` 520→640/sec (~1.23×), evaluate-sequence
+     ~1.28×** — modest, because it removes input-side overhead, not the fixpoint. The order-of-magnitude prize
+     still needs incremental *derivation* (above).
 
 ## Note on the comparison
 
