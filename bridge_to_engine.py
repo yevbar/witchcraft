@@ -998,6 +998,91 @@ def _fold_dig(effs: list, emit) -> set:
     return consumed
 
 
+# §205 card TYPES we can confirm from the surfaced printed_type for a zone_sort partition. Any OTHER bare
+# token in a 'all <X> cards' filter is treated as a SUBtype (matched against printed_subtype): a subtype no
+# revealed card has simply matches nothing (rest all binned) — always legal, never a mis-route, so the
+# distinction needs no closed subtype list. (A subtype tutor in the dig-to-battlefield/search handlers reads
+# the same printed_subtype.)
+_ZS_CARD_TYPES = ("artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle")
+
+
+def _zone_sort_pred(filt: str) -> str | None:
+    """A 'all <X> cards' partition filter (the head of the put clause, after stripping the trailing
+    '_into_your_hand_and_the_rest' / '_revealed_this_way') -> a predicate the zone_sort applier evaluates,
+    or None to ABSTAIN. Resolvable shapes:
+      'all_creature_cards'            -> 'type:creature'           (a §205 card type)
+      'all_creature_and_land_cards'   -> 'type:creature|land'      (a card-type disjunction)
+      'all_nonland_permanent_cards'   -> 'nonland_permanent'
+      'all_goblin_cards' / 'all_island_cards' -> 'subtype:goblin' / 'subtype:island'   (a printed subtype)
+    ABSTAINS on a player-chosen referent we can't bind ('all_cards_OF_THE_CHOSEN_TYPE', 'the_chosen_cards'),
+    a free-choice 'a/any_number … from_among_them' count, a name/letter predicate, or a non-'all_' head."""
+    t = str(filt)
+    if t.endswith("_revealed_this_way"):                         # peel the §701 'revealed this way' anaphora tail
+        t = t[: -len("_revealed_this_way")]
+    if not t.startswith("all_") or not t.endswith("_cards"):
+        return None                                              # only the UNCONDITIONAL 'all <X> cards' partition
+    core = t[len("all_"): -len("_cards")]
+    if "chosen" in core or "from_among" in core:                 # a player-chosen referent / free pick -> abstain
+        return None
+    if core == "nonland_permanent":
+        return "nonland_permanent"
+    parts = core.split("_and_")                                  # a card-type disjunction ('creature and land')
+    if all(p in _ZS_CARD_TYPES for p in parts):
+        return "type:" + "|".join(parts)
+    if len(parts) == 1 and "_" not in parts[0] and parts[0].isalpha():
+        return "subtype:" + parts[0]                            # a single bare token -> a printed subtype
+    return None                                                  # anything we can't confirm -> abstain
+
+
+def _fold_zone_sort(effs: list, emit) -> set:
+    """§701 the TYPED-PARTITION zone sort the dig fold doesn't own: 'reveal the top N of your library; put all
+    <TYPE> cards [revealed this way] into your hand and the rest on the bottom / in your graveyard' (Goblin
+    Ringleader, Brass Herald, Mulch, Beast Hunt, Ajani Unyielding). Unlike _fold_dig (a FIXED count M kept,
+    keyed on the `look` verb), this keeps EVERY revealed card matching a card-type / subtype predicate, keyed
+    on the `reveal` verb — so the two folds are structurally DISJOINT (dig never fires here, this never fires
+    on a dig). Emits one zone_sort effect: amount = N, target = '<pred>|<rest_dest>'.
+
+    Two faithful sub-shapes:
+      A1  reveal N  +  put_on_bottom(extra='<filt>_into_your_hand_and_the_rest')           -> rest to BOTTOM
+      A2  reveal N  +  return_to_hand(tgt='<filt>')  +  put_in_graveyard(extra='the_rest') -> rest to GRAVEYARD
+    The filter must resolve via _zone_sort_pred (a confirmable type/subtype 'all <X> cards'); a dynamic N, a
+    chosen-type / from-among-them referent, an 'onto the battlefield' rider, or any unrecognized clause shape
+    leaves the whole sequence to drop rather than guess. ABSTAIN-over-lossy."""
+    rev_i = next((i for i, (_s, v, *_r) in enumerate(effs) if v == "reveal"), None)
+    if rev_i is None:
+        return set()
+    _s, _v, rev_amt, rev_tgt, _x, _c = effs[rev_i]
+    n = _int(rev_amt)
+    if n is None or str(rev_tgt) != "top_of_library":
+        return set()
+    pred, rest_dest, consumed = None, None, {rev_i}
+    for i, (_s2, v, _a, t, extra, _cnd) in enumerate(effs):
+        if i == rev_i:
+            continue
+        ex, ts = str(extra), str(t)
+        # A1: a SINGLE put_on_bottom carrying the whole partition '<filt>_into_your_hand_and_the_rest'.
+        if v == "put_on_bottom" and ex.endswith("_into_your_hand_and_the_rest"):
+            p = _zone_sort_pred(ex[: -len("_into_your_hand_and_the_rest")])
+            if p is None:
+                return set()
+            pred, rest_dest = p, "bottom"; consumed.add(i)
+        # A2 part 1: return_to_hand whose target IS the partition filter '<filt>_revealed_this_way'.
+        elif v == "return_to_hand" and ts.endswith("_revealed_this_way"):
+            p = _zone_sort_pred(ts[: -len("_revealed_this_way")])
+            if p is None:
+                return set()
+            pred = p; consumed.add(i)
+        # A2 part 2: 'put the rest into your graveyard'.
+        elif v == "put_in_graveyard" and "the_rest" in ex:
+            rest_dest = "graveyard"; consumed.add(i)
+        # any OTHER clause is left to its own path (NOT consumed here); the fold only fires if a COMPLETE
+        # partition (pred + rest_dest) was found among the reveal sequence's clauses.
+    if pred is None or rest_dest is None:
+        return set()
+    emit("zone_sort", n, f"{pred}#{rest_dest}")                  # '#' separates the pred (which may hold '|') from the dest
+    return consumed
+
+
 # §608 the anaphora a 'you may play/cast <it>' impulse rider uses for the just-exiled card(s), after peeling
 # a trailing 'without paying its mana cost' / 'this turn' rider (it doesn't change the impulse shape — an
 # impulse card is always castable for its normal cost or for free; either way it's cast from exile).
@@ -2079,8 +2164,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 the LOOK-AND-BIN dig on a TRIGGERED ability ('look at the top N, put M into your hand, the
             # rest into your graveyard') -> one dig_to_hand, the same fold the spell/activated paths use.
             dig_skip = _fold_dig(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §701 the TYPED-PARTITION zone sort on a TRIGGERED ability ('reveal the top N, put all <type>
+            # cards into your hand and the rest on the bottom / in your graveyard') -> one zone_sort effect.
+            zs_skip = _fold_zone_sort(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2222,6 +2310,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 'look at top N, put M into hand, rest on bottom/graveyard' (Stock Up, card advantage) ->
             # one atomic dig_to_hand effect (the look + put clauses resolve together; spell_effect is unordered).
             dig_skip = _fold_dig(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 TYPED-PARTITION zone sort 'reveal top N, put all <type> cards into hand, rest on bottom /
+            # in graveyard' (Benefaction of Rhonas, Lair Delve) -> one atomic zone_sort spell_effect.
+            zs_skip = _fold_zone_sort(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §608 IMPULSE: 'exile top N, you may play them this turn' -> one impulse_play effect.
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §702.34 FLASHBACK GRANT (cost = mana cost): Past in Flames / Recoup -> one grant_flashback effect.
@@ -2253,7 +2344,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -2454,6 +2545,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # '{B}, {T}, Sacrifice ~, Pay 1 life: …') — fold into one name_exile_lib activated_ability row.
             act_skip |= _fold_name_exile(act_effs, _emit_act)
             act_skip |= _fold_dig(act_effs, _emit_act)         # §701 'look N, put M into hand, rest to bottom/yard'
+            # §701 TYPED-PARTITION zone sort 'reveal top N, put all <type> cards into hand, rest bottom/yard'.
+            act_skip |= _fold_zone_sort(act_effs, _emit_act)
             # §122 'put a <counter> on ~, then draw a card for each <counter> on ~' (The One Ring) -> one
             # dyn_counter_draw row (add the counter, then draw = the live counter count).
             act_skip |= _fold_counter_draw(act_effs, _emit_act)
