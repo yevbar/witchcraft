@@ -584,10 +584,40 @@ def _dyn_pt_spec(amt, tgt, cond) -> tuple | None:
     return (pt[0], pt[1], cm.group(1))
 
 
+# §611 ADDITIONAL static-anthem filter dimensions beyond color/type/subtype: a +1/+1 COUNTER, a KEYWORD
+# (with flying/…), the LEGENDARY supertype, and MULTICOLORED — each resolved by an engine filter_ok rule over
+# an existing relation (counter / has_keyword / has_supertype / multicolored). The slug forms are irregular
+# (prefix 'legendary_'/'multicolored_' vs suffix '_with_flying'/'_with_a_1_1_counter_on_it'), so they're
+# enumerated explicitly here (and as anthem_filter facts in engine_rules.dl, kept in lockstep). fval '-' means
+# the fkind needs no value (multicolored). See engine_rules.dl filter_ok for the matching derivations.
+_ANTHEM_EXTRA = {
+    # +1/+1 counter present (the highest-count filtered anthem family)
+    "each_creature_you_control_with_a_1_1_counter_on_it": ("creatures_you_control", "counter", "p1p1"),
+    "creatures_you_control_with_1_1_counters_on_them": ("creatures_you_control", "counter", "p1p1"),
+    "each_other_creature_you_control_with_a_1_1_counter_on_it": ("other_creatures_you_control", "counter", "p1p1"),
+    "creatures_you_control_with_a_1_1_counter_on_them": ("creatures_you_control", "counter", "p1p1"),
+    # a keyword (flying is by far the common one; infect/flanking appear once each)
+    "creatures_you_control_with_flying": ("creatures_you_control", "keyword", "flying"),
+    "other_creatures_you_control_with_flying": ("other_creatures_you_control", "keyword", "flying"),
+    "creatures_with_flying": ("all_creatures", "keyword", "flying"),
+    "other_creatures_you_control_with_infect": ("other_creatures_you_control", "keyword", "infect"),
+    "other_creatures_you_control_with_flanking": ("other_creatures_you_control", "keyword", "flanking"),
+    # the legendary supertype
+    "legendary_creatures_you_control": ("creatures_you_control", "supertype", "legendary"),
+    "other_legendary_creatures_you_control": ("other_creatures_you_control", "supertype", "legendary"),
+    # multicolored (2+ colors)
+    "multicolored_creatures_you_control": ("creatures_you_control", "multicolored", "-"),
+    "other_multicolored_creatures_you_control": ("other_creatures_you_control", "multicolored", "-"),
+}
+
+
 def _anthem_target(tgt: str, corpus: dict):
     """Parse a static-anthem scope slug into (base_scope, fkind|None, fval|None), or None to abstain. Strips
     the you_control suffix and other/all prefix to find the core '<filter>_creatures'; the filter token is
-    classified as a color (closed set), a type (closed set), or a corpus subtype — anything else abstains."""
+    classified as a color (closed set), a type (closed set), or a corpus subtype — anything else abstains.
+    An irregular filtered form (counter/keyword/legendary/multicolored) is read from _ANTHEM_EXTRA first."""
+    if str(tgt) in _ANTHEM_EXTRA:
+        return _ANTHEM_EXTRA[str(tgt)]
     t = str(tgt)
     you = t.endswith("_you_control")
     core = t[: -len("_you_control")] if you else t
