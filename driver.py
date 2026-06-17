@@ -1075,6 +1075,11 @@ _PERM_FILTER = {
     "acl": ("artifact", "creature", "land"),                           # Twitch: artifact/creature/land tapper
     "land": ("land",),                                                 # Sundering Eruption: destroy target land
     "aenl": ("artifact", "enchantment", "nonbasic_land"),              # Boseiju: artifact/ench/NONBASIC land
+    "artifact_creature": ("artifact", "creature"),                     # §115 'target artifact or creature' (Abrade-style)
+    "artifact_land": ("artifact", "land"),                             # 'target artifact or land'
+    "creature_land": ("creature", "land"),                             # 'target creature or land'
+    "artifact_enchantment_land": ("artifact", "enchantment", "land"),  # 'target artifact, enchantment, or land'
+    "nonbasic_land": ("nonbasic_land",),                               # §205.4 'target nonbasic land' (Wasteland-style)
     "noncreature": ("noncreature",), "nonland": ("nonland",), "any": ("any",),
 }
 _PERM_COLORS = {"white", "blue", "black", "red", "green"}    # §105 a COLOR target class (Pyroblast/REB: a blue permanent)
@@ -1124,22 +1129,81 @@ def _perm_candidates(state: dict, cls: str, creatures: set, ctrl: str | None = N
     return [c for c in on_bf if matches(c)]
 
 
+# §115 a restricted legal-target class carries FILTER tokens after the base, joined by '#': e.g.
+# 'any#attacking', 'any#powge:4', 'opponent#tapped', 'any#notcolor:black#nottype:artifact'. The base
+# (any / you_control / opponent / perm_<...>) selects the candidate pool exactly as before; each filter
+# then NARROWS it (§115.4 — a candidate the restriction excludes is not a legal target). Narrowing is
+# always faithful: we only ever shrink the legal set, never add an illegal target. The bridge encodes
+# these in target_class (build_engine copies them into the engine's target_class table); the class is
+# opaque to the engine and decoded only here.
+def _target_filter_pred(state: dict, filt: str, powers: dict, creatures: set):
+    """Return a predicate creature_id -> bool for one filter token, plus a flag for whether it needs the
+    candidate to be a creature (combat/P-T/keyword filters do; type/color ones apply to any permanent)."""
+    name, _, arg = filt.partition(":")
+    if name == "attacking":
+        atk = {a for (a, _d) in state.get("attacks", set())}
+        return lambda c: c in atk
+    if name == "blocking":
+        blk = {b for (b, _a) in state.get("blocks", set())}
+        return lambda c: c in blk
+    if name == "atkorblk":
+        atk = {a for (a, _d) in state.get("attacks", set())} | {b for (b, _a) in state.get("blocks", set())}
+        return lambda c: c in atk
+    if name == "tapped":
+        tap = {c for (c,) in state.get("tapped", set())}
+        return lambda c: c in tap
+    if name == "untapped":
+        tap = {c for (c,) in state.get("tapped", set())}
+        return lambda c: c not in tap
+    if name in ("powge", "powle"):
+        n = int(arg)
+        return (lambda c: powers.get(c, 0) >= n) if name == "powge" else (lambda c: powers.get(c, 0) <= n)
+    if name in ("touge", "toule"):
+        n = int(arg)
+        tough = {c: int(x) for (c, x) in run(state, ["eff_toughness"])["eff_toughness"]}
+        return (lambda c: tough.get(c, 0) >= n) if name == "touge" else (lambda c: tough.get(c, 0) <= n)
+    if name in ("mvge", "mvle"):
+        n = int(arg)
+        mv = {s: int(v) for (s, v) in state.get("mana_cost", set())}
+        return (lambda c: mv.get(c, 0) >= n) if name == "mvge" else (lambda c: mv.get(c, 0) <= n)
+    if name == "kw":
+        have = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == arg}
+        return lambda c: c in have
+    if name == "color":
+        col = {c for (c, x) in state.get("printed_color", set()) if x == arg}
+        return lambda c: c in col
+    if name == "notcolor":
+        col = {c for (c, x) in state.get("printed_color", set()) if x == arg}
+        return lambda c: c not in col
+    if name == "nottype":
+        typ = {c for (c, t) in state.get("printed_type", set()) if t == arg}
+        return lambda c: c not in typ
+    if name == "nonlegendary":
+        leg = {c for (c, s) in state.get("has_supertype", set()) if s == "legendary"}
+        return lambda c: c not in leg
+    return lambda c: True                                    # an unrecognized filter is conservatively a no-op pass
+
+
 def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
                  controls: set, powers: dict, creatures: set) -> str | None:
     """§601.2c choose a legal target for a single-target effect. `cls` constrains the legal set
-    (any / you_control / opponent for creatures; perm_<filter> for non-creature permanents); within it,
-    a harmful verb (removal/tap/bounce, or a P/T shrink) picks the strongest enemy and a beneficial one
-    the strongest own permanent."""
+    (any / you_control / opponent for creatures; perm_<filter> for non-creature permanents; plus optional
+    '#'-joined restriction filters — see _target_filter_pred); within it, a harmful verb (removal/tap/
+    bounce, or a P/T shrink) picks the strongest enemy and a beneficial one the strongest own permanent."""
+    base, *filters = cls.split("#")                          # §115 strip any restriction filters off the base class
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
-    if cls.startswith("perm_"):                              # §115 non-creature permanent target (Abrade, bounce)
-        cands = _perm_candidates(state, cls, creatures, ctrl)
+    if base.startswith("perm_"):                             # §115 non-creature permanent target (Abrade, bounce)
+        cands = _perm_candidates(state, base, creatures, ctrl)
     else:
         cands = [c for c in creatures if c in on_bf]
-        if cls == "you_control":
+        if base == "you_control":
             cands = [c for c in cands if c in mine]
-        elif cls == "opponent":
+        elif base == "opponent":
             cands = [c for c in cands if c not in mine]
+    for filt in filters:                                     # §115.4 narrow to candidates meeting each restriction
+        pred = _target_filter_pred(state, filt, powers, creatures)
+        cands = [c for c in cands if pred(c)]
     if not cands:
         return None
     harmful = verb in _HARMFUL_TARGET

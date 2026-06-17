@@ -96,12 +96,13 @@ def _bridge_checks() -> None:
     check("unmodelled-event grant abstains, no trigger_effect_grant",
           _unmapped is not None and not f.get("trigger_effect_grant"))
 
-    # A single 'target creature' destroy (Nekrataal) ABSTAINS — its RESTRICTED target
-    # (target_nonartifact_nonblack_creature) isn't a clean target class. ONE WORLD: the single-target
-    # destroy now lives in datalog (translate.dl, trigger_target via target_class), so the abstain is a
-    # NON-derivation, not a python `dropped` reason. The invariant: NOT mistranslated into a board-scope
-    # trigger_effect_destroy, and the engine derives NO pending_target for the restricted target (fed here
-    # on a forced-firing upkeep trigger so `fires` is true — the abstain is purely the unmapped class).
+    # A single 'target creature' destroy (Nekrataal) now RESOLVES its RESTRICTED target
+    # (target_nonartifact_nonblack_creature -> the §115 filtered class 'any#nottype:artifact#notcolor:black').
+    # ONE WORLD: the single-target destroy lives in datalog (trigger_target via target_class), and the
+    # restriction rides in the class string — the engine derives a pending_target carrying the filtered class,
+    # and the driver narrows the legal set to the cards the restriction allows (driver._target_filter_pred).
+    # The invariant: NOT mistranslated into a board-scope trigger_effect_destroy, and the derived pending_target
+    # carries the filter so the driver honors it (fed on a forced-firing upkeep trigger so `fires` is true).
     f, dropped = facts("Nekrataal")
     nek = {
         "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("upkeep",)},
@@ -112,9 +113,12 @@ def _bridge_checks() -> None:
         "card_effect": {("nekrataal", "a1", 0, "destroy", "-", "target_nonartifact_nonblack_creature", "-", "-")},
         "counter": set(), "tapped": set(),
     }
-    check("single-target destroy abstains (restricted target), not mistranslated",
-          not f.get("trigger_effect_destroy")
-          and not driver.run(nek, ["pending_target"])["pending_target"])
+    pend = driver.run(nek, ["pending_target"])["pending_target"]
+    check("single-target destroy is NOT mistranslated into a board-scope destroy",
+          not f.get("trigger_effect_destroy"))
+    check("restricted target now RESOLVES with its §115 filter in the class string",
+          any(verb == "destroy" and cls == "any#nottype:artifact#notcolor:black"
+              for (_ia, _src, verb, _pl, cls, _c) in pend))
 
     # A variable pump (+X/+X / per-creature) can't become constants -> abstains.
     pt_amt = bridge._parse_pt("+X/+X")

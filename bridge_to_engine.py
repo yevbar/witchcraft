@@ -314,7 +314,51 @@ _TARGET_CLASS = {
     "target_artifact_enchantment_or_nonbasic_land_an_opponent_controls": "perm_opp_aenl",
     # §115 'target artifact, creature, or land' (Twitch, Icy-style tappers) — a type union over ANY controller.
     "target_artifact_creature_or_land": "perm_acl",
+    # §115 clean TYPE-UNION permanent targets (the driver's _PERM_FILTER decodes the union).
+    "target_artifact_or_creature": "perm_artifact_creature",
+    "target_artifact_or_land": "perm_artifact_land",
+    "target_creature_or_land": "perm_creature_land",
+    "target_artifact_enchantment_or_land": "perm_artifact_enchantment_land",
+    "target_nonbasic_land": "perm_nonbasic_land",
+    # §115 'target creature or Vehicle' — a creature is always a legal target (the Vehicle-only option is
+    # simply not exercised, like the 'or planeswalker' precedent); resolve the creature half.
+    "target_creature_or_vehicle": "any",
 }
+
+# §115 RESTRICTED single-target creature classes — a base class ('any'/'you_control'/'opponent') plus '#'-joined
+# FILTER tokens the driver decodes (driver._target_filter_pred) to NARROW the legal set. Generated here so the
+# bridge dict (and the engine's target_class table, which build_engine copies verbatim from this dict) stay in
+# lockstep. Narrowing is always faithful — we only ever shrink the legal set to the cards the restriction allows.
+_COLORS_LONG = ("white", "blue", "black", "red", "green")
+_FILTER_KEYWORDS = ("flying", "trample", "first_strike", "double_strike", "deathtouch", "lifelink",
+                    "vigilance", "menace", "reach", "haste", "defender", "hexproof", "indestructible")
+for _c in _COLORS_LONG:
+    _TARGET_CLASS[f"target_non{_c}_creature"] = f"any#notcolor:{_c}"
+    _TARGET_CLASS[f"target_{_c}_creature"] = f"any#color:{_c}"
+for _n in range(1, 14):
+    _TARGET_CLASS[f"target_creature_with_power_{_n}_or_greater"] = f"any#powge:{_n}"
+    _TARGET_CLASS[f"target_creature_with_power_{_n}_or_less"] = f"any#powle:{_n}"
+    _TARGET_CLASS[f"target_creature_with_toughness_{_n}_or_greater"] = f"any#touge:{_n}"
+    _TARGET_CLASS[f"target_creature_with_toughness_{_n}_or_less"] = f"any#toule:{_n}"
+    _TARGET_CLASS[f"target_creature_with_mana_value_{_n}_or_less"] = f"any#mvle:{_n}"
+    _TARGET_CLASS[f"target_creature_with_mana_value_{_n}_or_greater"] = f"any#mvge:{_n}"
+for _kw in _FILTER_KEYWORDS:
+    _TARGET_CLASS[f"target_creature_with_{_kw}"] = f"any#kw:{_kw}"
+_TARGET_CLASS.update({
+    "target_attacking_creature": "any#attacking", "another_target_attacking_creature": "any#attacking",
+    "target_blocking_creature": "any#blocking", "another_target_blocking_creature": "any#blocking",
+    "target_attacking_or_blocking_creature": "any#atkorblk",
+    "target_tapped_creature": "any#tapped", "target_untapped_creature": "any#untapped",
+    "target_nonlegendary_creature": "any#nonlegendary",
+    "target_nonartifact_nonblack_creature": "any#nottype:artifact#notcolor:black",
+    # §115 MULTI-target shapes where choosing exactly ONE creature is a legal subset (0..N or up-to-N allowed).
+    # 'two/three target creatures' (EXACTLY N) is NOT a one-target subset, so those still abstain.
+    "up_to_two_target_creatures": "any", "up_to_three_target_creatures": "any",
+    "up_to_two_target_creatures_each": "any", "any_number_of_target_creatures": "any",
+    "any_number_of_target_creatures_each": "any", "up_to_one_other_target_creature": "any",
+    "any_number_of_target_creatures_you_control": "you_control",
+    "any_number_of_untapped_creatures_you_control": "you_control#untapped",
+})
 
 # The perm_<filter> class is opaque to the bridge — it flows straight through target_class into the datalog
 # spell_target/trigger_target rules and is decoded by the DRIVER (driver._PERM_FILTER, the authoritative
