@@ -69,5 +69,30 @@ s = _ctr_state(); driver._bump_counter(s, "cc", "p1p1", 1)
 check("imperfect info: opponent sees the doubled +1/+1 counters (public)",
       ("cc", "p1p1", 2) in observe.observe(s, "bob").get("counter", set()))
 
+# --- LIFE-GAIN doubling at _adjust_life (Alhammarret's Archive / Rhox Faithmender) -----------------
+check("Alhammarret's Archive emits life_repl double", ("alhammarret_s_archive", "double") in
+      bridge.card_facts("Alhammarret's Archive", "alice", "x1", db, corpus)[0].get("life_repl", set()))
+
+def _life_state(kind):
+    return {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+            "on_battlefield": {("arch",)}, "printed_control": {("alice", "arch")},
+            "instance_of": {("arch", "alhammarret_s_archive")}, "life_repl": {("alhammarret_s_archive", kind)}}
+def _life(s, p):
+    return next(v for (q, v) in s["life"] if q == p)
+
+s = _life_state("double"); driver._adjust_life(s, "alice", 3)
+check("life doubler: gain 3 -> +6 (life 26)", _life(s, "alice") == 26)
+s = _life_state("double"); driver._adjust_life(s, "alice", -3)
+check("life doubler does NOT affect life LOSS (lose 3 -> 17)", _life(s, "alice") == 17)
+s = _life_state("plus1"); driver._adjust_life(s, "alice", 3)
+check("life plus1: gain 3 -> +4 (life 24)", _life(s, "alice") == 24)
+# the opponent's archive doesn't double alice's gain
+s = _life_state("double"); s["printed_control"] = {("bob", "arch")}; driver._adjust_life(s, "alice", 3)
+check("opponent's life doubler doesn't double your gain (life 23)", _life(s, "alice") == 23)
+# no replacement -> plain gain
+s = {"is_player": {("alice",)}, "life": {("alice", 20)}, "on_battlefield": set(), "printed_control": set(), "instance_of": set()}
+driver._adjust_life(s, "alice", 3)
+check("no life replacement: gain 3 -> 23", _life(s, "alice") == 23)
+
 print(f"\n{_ok[1]}/{_ok[0]} checks passed")
 import sys; sys.exit(0 if _ok[1] == _ok[0] else 1)

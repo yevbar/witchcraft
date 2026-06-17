@@ -1787,6 +1787,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("doubler", (facts, "tokens"))
         elif st == "doubles_counters":
             add("doubler", (facts, "counters"))
+    for _aid, _ab in (f.get("abilities") or {}).items():      # §614 life-gain replacements -> driver-only `life_repl`
+        if _ab.get("kind") == "replacement":                  # (Alhammarret's Archive / Rhox Faithmender, driver._life_gain_mods)
+            for (_sq, _v, _amt, _t, _x, _c) in _ab.get("effects", []):
+                if _v == "gain_life" and _amt == "twice_that_amount":
+                    add("life_repl", (facts, "double"))
+                elif _v == "gain_life" and _amt == "that_amount_plus_1":
+                    add("life_repl", (facts, "plus1"))
     is_is_card = bool({"Instant", "Sorcery"} & set(c.get("types") or []))
     self_aliases = _name_aliases(name)                        # §201 the card's own-name slugs -> normalized to 'self'
     modal_modes = set(f.get("modes", []))                     # §700.2 mode abilities are NOT fed to the datalog as

@@ -268,7 +268,26 @@ def _set_life(state: dict, p: str, n: int) -> None:
     state["life"] = {(q, v) for (q, v) in state["life"] if q != p} | {(p, n)}
 
 
+def _life_gain_mods(state: dict, p: str) -> tuple:
+    """§614 life-gain replacements p controls: (#doublers, +flat). 'twice that amount' (Alhammarret's
+    Archive / Rhox Faithmender) doubles; 'that amount plus 1' adds 1 — applied to ANY life p gains."""
+    lr = state.get("life_repl")
+    if not lr:
+        return (0, 0)
+    io = {i: c for (i, c) in state.get("instance_of", set())}
+    dbl = plus = 0
+    for (pp, c) in state.get("printed_control", set()):
+        if pp == p:
+            s = io.get(c)
+            dbl += (s, "double") in lr
+            plus += (s, "plus1") in lr
+    return (dbl, plus)
+
+
 def _adjust_life(state: dict, p: str, delta: int) -> int:
+    if delta > 0:                                            # §614 a life GAIN — apply p's life-gain replacements
+        dbl, plus = _life_gain_mods(state, p)
+        delta = delta * (2 ** dbl) + plus
     cur = next(v for (q, v) in state["life"] if q == p)
     _set_life(state, p, cur + delta)
     return cur + delta
