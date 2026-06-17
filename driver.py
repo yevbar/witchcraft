@@ -548,6 +548,35 @@ def _steal_monarch_on_combat(state: dict, dmg_pairs: set) -> None:
             return
 
 
+# --- §720-ish THE INITIATIVE (a player designation; structurally a sibling of THE MONARCH) ------------
+def _set_initiative(state: dict, p: str, reason: str = "") -> None:
+    """Designate `p` the initiative-holder, replacing any prior one (only ONE at a time). Public info. The
+    upkeep 'venture into Undercity' consequence ABSTAINS (no dungeon model) — we hold only the designation."""
+    cur = next((q for (q,) in state.get("_initiative", set())), None)
+    if cur == p:
+        return
+    state["_initiative"] = {(p,)}
+    tail = f" ({reason})" if reason else ""
+    print(f"    {p} takes the initiative{tail}")
+
+
+def _steal_initiative_on_combat(state: dict, dmg_pairs: set) -> None:
+    """Whenever a creature deals COMBAT DAMAGE to the initiative-holder, that creature's CONTROLLER takes the
+    initiative. Mirrors _steal_monarch_on_combat exactly (reads ev_combat_dmg_player + controls)."""
+    cur = next((q for (q,) in state.get("_initiative", set())), None)
+    if cur is None or not dmg_pairs:
+        return
+    controls = run(state, ["controls"])["controls"]
+    ctrl_of = {c: p for (p, c) in controls}
+    for (src, p) in sorted(dmg_pairs):
+        if p != cur:                                          # only damage to the initiative-holder matters
+            continue
+        new = ctrl_of.get(src)
+        if new is not None and new != cur:                    # a creature you don't already control hit you
+            _set_initiative(state, new, reason=f"{src} dealt combat damage to the initiative-holder")
+            return
+
+
 def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
     n *= 2 ** _doubler_count(state, controller, "tokens")     # §614 Doubling Season / Parallel Lives / ...
     d = _parse_token_spec(spec)
@@ -1224,7 +1253,10 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     output' surface — every consequence the engine flags is handled here."""
     # derived relations are sets; iterate them sorted so behavior is canonical regardless of the
     # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
+    no_untap = state.get("doesnt_untap", set())                  # permanents that 'don't untap' (continuous lock)
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
+        if (c,) in no_untap:                                      # 'doesn't untap during its controller's untap step'
+            print(f"    {c} doesn't untap (stays tapped)"); continue
         state["tapped"].discard((c,)); print(f"    {ap} untaps {c}")
     if ("untap",) in state.get("current_step", set()):           # §502 Seedborn Muse untaps off-turn
         _seedborn_untap(state, ap)
@@ -1264,6 +1296,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
         state.setdefault("_combat_damaged", set()).add((p,))     # §510 players dealt combat damage THIS TURN (Tymna)
     _steal_monarch_on_combat(state, out.get("ev_combat_dmg_player", set()))   # §720.5 monarch steal
+    _steal_initiative_on_combat(state, out.get("ev_combat_dmg_player", set()))  # initiative steal on combat damage
     for (p, cmd, n) in sorted(out.get("combat_commander_damage", set())):   # §903.10a accrue commander damage
         cd = state.setdefault("commander_damage", set())          # carried per-(player, commander) total
         old = next((b for (pp, cc, b) in cd if pp == p and cc == cmd), 0)
@@ -3199,6 +3232,8 @@ def _seedborn_untap(state: dict, ap: str) -> None:
         if owner is None or owner == ap or s not in bf:
             continue
         for c in sorted(c for (p, c) in ctrl if p == owner):
+            if (c,) in state.get("doesnt_untap", set()):         # 'doesn't untap' overrides Seedborn too
+                continue
             if (c,) in state.get("tapped", set()):
                 state["tapped"].discard((c,)); print(f"    {owner} untaps {c} (Seedborn Muse)")
 

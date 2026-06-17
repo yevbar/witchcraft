@@ -105,6 +105,8 @@ def observe(state: dict, seat: str) -> dict:
     # driver's _-prefixed bookkeeping (which the loop above dropped) so every seat observes them.
     if state.get("_monarch"):
         view["monarch"] = set(state["_monarch"])
+    if state.get("_initiative"):                          # the initiative-holder's identity is PUBLIC too
+        view["initiative"] = set(state["_initiative"])
     if state.get("_regen_shield"):
         view["regen_shield"] = set(state["_regen_shield"])
     return view
