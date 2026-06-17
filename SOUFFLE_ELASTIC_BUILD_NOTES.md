@@ -4,11 +4,66 @@ Executes Phase A of `SOUFFLE_ELASTIC_PLAN.md` (de-risk the elastic fork in paral
 `davidwzhao/souffle` @ branch `incremental-with-provenance-eager-diffs` — the PPDP'21 "Towards Elastic
 Incrementalization for Datalog" implementation.
 
-**Go/No-go headline:** the fork is **vendored and fully analyzed**; the **incremental insert/delete/commit
-API is precisely pinned**; the **`engine_inproc` integration sketch is concrete**. But the fork **did NOT
-build on this box** — blocked at the *toolchain* layer (no GNU autotools, no `mcpp`, no root), not by memory.
-**Phase B is NOT feasible on this laptop; it needs the mac mini (or a box where autoconf/automake/libtool/mcpp
-are installable).** Memory was never the gate — the build never reached a compile.
+**Go/No-go headline (UPDATED):** the fork is **vendored, fully analyzed, and now BUILT + Phase-A-validated on
+this box** — the original "needs the mac mini" verdict is SUPERSEDED (see the UPDATE section). With autotools
+installed as root and **`mcpp` built from source (no root)**, the fork compiles and `--incremental` works: the
+toy insert/delete reproduces the full-recompute oracle including multi-support retraction. **Phase B is now
+feasible here.** (Originally the build was blocked at the toolchain layer — no GNU autotools, no `mcpp`, no
+root — never at compile and never memory; that's what the reference sections below first documented.)
+
+---
+
+## UPDATE — built + Phase-A-validated ON THIS BOX (supersedes the "needs the mac mini" verdict)
+
+Once `autoconf`/`automake`/`libtool` were installed (root, Fedora repos) and **`mcpp` was built from source**
+(NO root — Soufflé only needs the `mcpp` *binary on PATH*), the fork built and elastic `--incremental` was
+validated here. Exact working recipe:
+
+### mcpp 2.7.2 from source (the one unpackaged dep; `~/.local`, no root)
+GCC 15 / aarch64 needs fixes the stock 2008 build lacks:
+```bash
+curl -fsSL -o /tmp/mcpp-2.7.2.tar.gz \
+  https://downloads.sourceforge.net/project/mcpp/mcpp/V.2.7.2/mcpp-2.7.2.tar.gz
+cd /tmp && tar xf mcpp-2.7.2.tar.gz && cd mcpp-2.7.2
+./configure --prefix=$HOME/.local \
+  --build=aarch64-unknown-linux-gnu --host=aarch64-unknown-linux-gnu \   # 2008 config.guess can't detect aarch64
+  CFLAGS="-std=gnu11 -fcommon -fpermissive -w"                            # C23 true/false keywords + GCC14 permerrors
+sed -i 's|/\* #undef LL_FORM \*/|#define LL_FORM "ll"|' src/config.h      # long-long printf fmt left undefined here
+make && make install                                                      # -> ~/.local/bin/mcpp
+export PATH=$HOME/.local/bin:$PATH
+```
+
+### The fork itself (compiled clean once autotools+mcpp present)
+```bash
+git submodule update --init third_party/souffle-elastic
+cd third_party/souffle-elastic && export PATH=$HOME/.local/bin:$PATH
+./bootstrap                          # autotools chain (non-fatal obsolete-macro warnings)
+./configure --prefix=$PWD/install    # finds mcpp + ncurses/zlib/sqlite/libffi
+systemd-run --user --scope -p MemoryMax=5G -p MemorySwapMax=2G make -j2   # memory-capped; ~5 min, no OOM
+# -> src/souffle  (0.0.3-4408-g540cf8d33; has --incremental AND --provenance=...subtreeHeights)
+```
+No build errors (only `std::iterator`-deprecated C++17 warnings); `USE_NCURSES/USE_LIBZ/USE_SQLITE` enabled.
+
+### Phase-A toy sanity: PASSED (incremental == recompute, multi-support retraction)
+`souffle --incremental -o tc tc.dl`; bootstrap `edge={(1,2),(2,3),(2,4)}` → `path={(1,2),(1,3),(1,4),(2,3),
+(2,4)}` (== recompute). Then the incremental REPL on stdin: `remove edge(2, 4)` then `commit` ("Commit done in
+epoch 1!") → `out/path.csv = {(1,2),(1,3),(2,3)}` — the EXACT oracle: `(1,4)`/`(2,4)` retracted, `(1,3)`
+SURVIVES on its alternate support. The standalone REPL's `commit` dumps the output dir clean (2 cols) — the
+`@iteration`/`@count` columns did NOT leak into `path.csv` here (encouraging, but re-verify on the EMBEDDED
+path in Phase D). REPL surface: `insert`/`remove`/`commit`/`setdepth`/`explain[diff|all]`/`subproof`/`format`/
+`exit`.
+
+### Next, now feasible HERE
+- **Phase B (go/no-go on our program):** compile the wrapped `engine_rules.dl` under `--incremental`; replay
+  real MTG EDB deltas (insert+delete), assert incremental == full byte-identical (reuse `test_engine_native`'s
+  `delta==full` oracle). Watch: (1) the fork's 2019 codegen on our large program; (2) `@iteration`/`@count`
+  on OUTPUT relations via the EMBEDDED interface (the #1 byte-identity risk).
+- **Phase D:** replace `p->run()` in `engine_inproc.mtg_run_delta` with diff-insert +
+  `executeSubroutine("incremental_update_clear_diffs")` + `("update")`, behind `MTG_NO_INCREMENTAL`.
+
+---
+
+## (Original Phase-A findings below — the toolchain block is now resolved; kept for reference)
 
 ---
 
