@@ -21,7 +21,8 @@ from pathlib import Path
 
 import sys
 
-import engine_native        # compiled-binary backend; falls back to the interpreter if unavailable
+import engine_native        # compiled-binary backend (subprocess); falls back to the interpreter if unavailable
+import engine_inproc        # in-process compiled engine (ctypes .so, no fork/files); preferred when buildable
 import effect_handlers      # pluggable effect verbs (effect_handlers/*.py); _apply_effects dispatches here
 
 _THIS = sys.modules[__name__]   # passed to effect-handler apply fns so they reach driver helpers w/o a cycle
@@ -215,11 +216,16 @@ def _evaluate(fkey: frozenset) -> dict:
     """Run the engine once for a fact set and return ALL outputs (cached). The program derives every
     relation regardless of what's read back, so we capture them all and serve any later request.
 
-    Prefers the compiled native binary (engine_native, ~17x faster); falls back to the souffle
-    interpreter when no binary can be built or MTG_NO_NATIVE is set — byte-identical either way."""
+    Backend preference (all byte-identical): (1) the IN-PROCESS compiled engine (engine_inproc — the souffle
+    C++ linked as a .so and called over ctypes, no fork/no files; ~10x the subprocess path, ~0.7 ms/state);
+    (2) the compiled binary via subprocess (engine_native); (3) the souffle interpreter. MTG_NO_NATIVE forces
+    the interpreter; MTG_NO_INPROC forces the subprocess (skips the in-process .so) for A/B comparison."""
     _EVALS[0] += 1
-    if not os.environ.get("MTG_NO_NATIVE") and engine_native.available():
-        return engine_native.evaluate(fkey)
+    if not os.environ.get("MTG_NO_NATIVE"):
+        if not os.environ.get("MTG_NO_INPROC") and engine_inproc.available():
+            return engine_inproc.evaluate(fkey)
+        if engine_native.available():
+            return engine_native.evaluate(fkey)
     facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})."
                       for rel, rows in fkey for row in rows)
     with tempfile.TemporaryDirectory() as d:

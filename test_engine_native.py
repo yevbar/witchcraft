@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 import engine_native
+import engine_inproc
 from driver import RULES, _facts_key, _lit
 
 
@@ -74,6 +75,16 @@ def run() -> None:
             diffs = [k for k in shared if nat[k] != intp[k]]
             print(f"  state {i} MISMATCH: only_native={sorted(only_n)[:4]} "
                   f"only_interp={sorted(only_i)[:4]} value_diffs={diffs[:4]}")
+        # the IN-PROCESS .so backend must also equal the interpreter (same wrapped program -> same derivations).
+        if engine_inproc.available():
+            inp = {k: v for k, v in engine_inproc.evaluate(fkey).items() if v}
+            shared_i = set(inp) & set(intp)
+            ok_i = inp.keys() == intp.keys() and all(inp[k] == intp[k] for k in shared_i)
+            checks.append((f"state {i}: in-process relations == interpreter", ok_i))
+            if not ok_i:
+                diffs = [k for k in shared_i if inp[k] != intp[k]]
+                print(f"  state {i} INPROC MISMATCH: only_inproc={sorted(set(inp)-set(intp))[:4]} "
+                      f"only_interp={sorted(set(intp)-set(inp))[:4]} value_diffs={diffs[:4]}")
 
     # driver demos must play byte-identically through either backend
     import os
