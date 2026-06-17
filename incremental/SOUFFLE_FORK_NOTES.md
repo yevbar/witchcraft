@@ -65,8 +65,35 @@ a new evaluation mode to be added. The fork→modern component map becomes:
    on the *compiled* program shape (with `.input` directives); on the bare rules file with no inputs,
    `RemoveEmptyRelations` deletes the EDB and cascades, collapsing the program.
 
-   Next: Phase-2 Bootstrap (counting semi-naïve + sparse σ), which is where the `@count`/`@iteration` columns
-   are introduced and stripped on emit.
+3. **Phase 2a landed — the `@count`/`@iteration` columns are threaded** (submodule commit `83b4781aa`).
+   Every relation grows two auxiliary columns (arity+2, auxiliaryArity+2); they're stripped on output
+   (`auxArity=2`) and excluded from the key, so output stays byte-identical. Values are placeholders for now
+   (`@count=1`, `@iteration=0`) — Phase 2b fills in the real counting. New files in `src/ast2ram/incremental/`:
+   `UnitTranslator` (grow relations, copy columns through @new/@delta merges), `ClauseTranslator` (append at
+   head insertion; thread the recursive semi-naïve negation checks), `ConstraintTranslator` (user negations).
+   The mechanism mirrors the provenance strategy's auxiliary-column threading — the proven-correct path.
+
+   **Hard-won findings (write these down so the next agent doesn't re-derive them):**
+   - **Negation is the whole game.** A negated atom must supply a value for EVERY column — data values plus a
+     *free* value per auxiliary column — supplied **explicitly**. An existence check given only the data
+     values is rewritten by index selection into `(x) IN rel` that ignores the auxiliary columns and never
+     matches → wrong output (and a malformed view → interpreter crash). This bites in TWO places, both must be
+     overridden: the **ClauseTranslator** `addNegatedAtom`/`addNegatedDeltaAtom` (the recursive semi-naïve
+     "don't re-derive" checks) AND the **ConstraintTranslator** `visit_<Negation>` (user-written `!atom`).
+     Missing the ConstraintTranslator was the bug that made `!other(X)` fail to exclude anything.
+   - **Use a plain `ExistenceCheck` with explicit `undef` aux values, NOT `ProvenanceExistenceCheck`.** The
+     provenance variant adds a height `<=` test (wrong for set membership) and equality-binds the rule-number
+     column; it gave wrong negation output. Provenance itself uses a plain ExistenceCheck for user/delta
+     negation — only its recursive head-check uses the height variant, which we don't want.
+   - **Test in BOTH backends.** The compiled synthesiser and the bytecode interpreter diverge on malformed
+     aux-column ops (compiled silently wrong, interpreter crashes). Parity in one ≠ parity in both. Verified
+     byte-identical in both across recursion/negation/aggregates on the toy and all three engine fixtures.
+   - **Reconstruct the program as actually compiled** (rules + facts, or rules + `.input` per EDB) — the bare
+     rules file with no inputs is deleted by `RemoveEmptyRelations` and segfaults the interpreter for both
+     strategies (a misleading "identical" of two crashes).
+
+   Next: Phase-2b — give the columns real meaning (counting semi-naïve: @count = derivation count with the
+   sparsification invariant, @iteration = the loop counter), then Phase 3 (the three-term Update).
 3. Then Phases 2–6 from the impl plan, each gated by `delta==full` byte-identity (Theorem 3.5 == our
    `test_engine_native.py` oracle), with `MTG_NO_INCREMENTAL` as the escape hatch.
 
