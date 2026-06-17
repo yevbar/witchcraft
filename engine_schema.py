@@ -104,9 +104,12 @@ def validate_bridge() -> dict:
 
 
 def validate_outputs_consumed() -> dict:
-    """Which `.output` relations the driver actually reads (directly or transitively), from the schema."""
-    drv = Path(__file__).with_name("driver.py").read_text()
-    reads = set(re.findall(r'"(\w+)"', drv))            # any quoted relation the driver mentions
+    """Which `.output` relations the driver/referee actually read (directly or transitively), from the
+    schema. Both driver.py (the player) AND env.py (the referee built on it, which probes engine outputs to
+    enumerate legal combat actions — e.g. illegal_block, may_attack, must_attack) are output consumers."""
+    here = Path(__file__).parent
+    src = (here / "driver.py").read_text() + "\n" + (here / "env.py").read_text()
+    reads = set(re.findall(r'"(\w+)"', src))            # any quoted relation the driver/referee mentions
     outs = outputs()
     return {"outputs": sorted(outs), "unread": sorted(outs - reads)}
 

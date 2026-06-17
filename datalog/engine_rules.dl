@@ -327,6 +327,21 @@ toughness(C, N) :- pt7c_power(C, N), switched(C).
 // the engine combat (blocked/deals below) and the referee (env._legal_block_pairs probes illegal_block)
 // already honor — so no separate combat / env change is needed.
 .decl cant_be_blocked(c: symbol)
+// §701.39 GOAD + combat REQUIREMENTS/RESTRICTIONS (structural #5, must-side). Mirror the cant_be_blocked
+// precedent: a small set of EDB/derived combat-state relations the engine surfaces and the REFEREE (env)
+// consumes when enumerating the legal declare-attackers / declare-blockers options. These constrain the
+// player's CHOICE (which creatures must be in the attack/block set), not combat damage — so unlike
+// illegal_block they have no engine-combat rule; env._attack_options / _block_options read them via run().
+//   goaded(c)         — driver-only EDB (set by the goad applier; cleared at the env turn boundary).
+//   must_attack(c)    — a creature that attacks each combat if able (incl. every goaded creature).
+//   must_be_blocked(c)— an attacker that must be blocked if a legal blocker exists.
+//   must_block(c)     — a creature that must block if able.
+// Declared-but-never-a-rule-head relations are auto-EDB (.input); the union rules below add the DERIVED
+// static-aura / self-static cases on top, so each relation is (driver-only EDB) UNION (engine-derived).
+.decl goaded(c: symbol)
+.decl must_attack(c: symbol)
+.decl must_be_blocked(c: symbol)
+.decl must_block(c: symbol)
 n_blockers(A, N) :- blocks(_, A), N = count : { blocks(_, A) }.
 cant_attack(C) :- has_keyword(C, "defender").   // 702.3b
 illegal_block(B, A) :- blocks(B, A), has_keyword(A, "flying"), !has_keyword(B, "flying"), !has_keyword(B, "reach").   // 702.9b
@@ -1169,6 +1184,40 @@ trigger_effect(IA, "cant_be_blocked", 0, "-") :- trig_ability(IA, S, C, A), card
 trigger_target(IA, "switchpt", "-", Cls) :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), target_class(Tgt, Cls).
 trigger_effect(IA, "switchpt", 0, "-") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "switch_pt", _, Tgt, _, "-"), self_target(Tgt).
 
+// §701.39 GOAD + must-attack/must-block requirements (combat restrictions, structural #5 must-side). The
+// interpretation already exists as goad / must_attack / must_be_blocked / must_block card_effect verbs but
+// was inert. Two faithful surfaces, both self-cleaning (no EOT cleanup needed — re-derived from the live
+// board) or one-shot via the applier:
+//   (a) STATIC AURA effects ('enchanted creature is goaded / must attack / must be blocked / must block')
+//       -> derived from card_ability(static) + attached_to(aura, creature). Self-static ('this creature
+//       must block each combat', e.g. razorgrass_screen) -> the source itself. Mirrors anthem_creature.
+//   (b) ONE-SHOT goad/must from a TRIGGERED or SPELL ability with a 'self'/'it' target -> trigger_effect /
+//       spell_effect routed to the combat_requirements applier (driver-only goaded/must_* state).
+// goaded implies must_attack (§701.39d: a goaded creature attacks each combat if able). The driver-only
+// goaded(c) EDB the applier writes is UNIONED here so applier-set goads also force the attack.
+goaded(C) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "goad", _, "enchanted_creature", _, "-"), attached_to(S, C), creature(C).
+must_attack(C) :- goaded(C).
+must_attack(C) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_attack", _, "enchanted_creature", _, "-"), attached_to(S, C), creature(C).
+must_attack(C) :- instance_of(C, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_attack", _, Tgt, _, "-"), self_target(Tgt), on_battlefield(C), creature(C).
+must_block(C) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_block", _, "enchanted_creature", _, "-"), attached_to(S, C), creature(C).
+must_block(C) :- instance_of(C, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_block", _, Tgt, _, _), self_target(Tgt), on_battlefield(C), creature(C).
+must_be_blocked(C) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_be_blocked", _, "enchanted_creature", _, "-"), attached_to(S, C), creature(C).
+must_be_blocked(C) :- instance_of(C, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "must_be_blocked", _, Tgt, _, "-"), self_target(Tgt), on_battlefield(C), creature(C).
+// ONE-SHOT (triggered / spell) goad + must_* -> trigger_effect / spell_effect -> the applier sets
+// driver-only state (goaded/must_attack/must_be_blocked/remove_from_combat) on the SOURCE. FAITHFUL: only
+// the literal 'self' target (genuine self-reference, 'this creature') maps to the source — NOT the
+// anaphoric 'it' (which in a triggered/spell ability usually refers to a PRIOR clause's target, e.g.
+// Karazikar's 'tap target creature, then goad it'), which would mis-goad the source. 'it' abstains here;
+// the unambiguous static enchanted_creature path above carries the aura cases.
+trigger_effect(IA, "goad", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "goad", _, "self", _, "-").
+trigger_effect(IA, "must_attack", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "must_attack", _, "self", _, "-").
+trigger_effect(IA, "must_be_blocked", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "must_be_blocked", _, "self", _, "-").
+trigger_effect(IA, "remove_from_combat", 0, "self") :- trig_ability(IA, S, C, A), card_effect(C, A, _, "remove_from_combat", _, "self", _, "-").
+spell_effect(S, "goad", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "goad", _, "self", _, "-").
+spell_effect(S, "must_attack", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "must_attack", _, "self", _, "-").
+spell_effect(S, "must_be_blocked", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "must_be_blocked", _, "self", _, "-").
+spell_effect(S, "remove_from_combat", 0, "self") :- resolves_ability(S, Card, A), card_effect(Card, A, _, "remove_from_combat", _, "self", _, "-").
+
 // ONE WORLD (triggered slice 2): a triggered ability's CREATURE-SCOPED P/T pump / keyword grant /
 // zone moves over a BOARD scope (self / creatures_you_control / all_creatures) -> trigger_effect_pt /
 // trigger_effect_grant / trigger_effect_destroy / _exile / _tap / _untap / _return, DERIVED from the
@@ -1291,6 +1340,9 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output advance_to
 .output cant_attack
 .output illegal_block
+.output must_attack
+.output must_be_blocked
+.output must_block
 .output cant_be_destroyed
 .output zone_change
 .output to_untap
@@ -1338,4 +1390,4 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword card_subtype card_color card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_drew draw_ord won_flip copied_spell ev_search_library prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl goaded must_attack must_be_blocked must_block

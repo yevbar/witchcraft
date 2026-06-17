@@ -173,18 +173,43 @@ def _activate_choices(state: dict, ability_row: tuple) -> list[dict]:
     return [{}]
 
 
+def _must_attackers(state: dict) -> set:
+    """§508/§701.39 the creatures the active player must declare as attackers if able (goaded + must_attack),
+    surfaced by the engine (goaded is unioned into must_attack there) and read off the public state — so it
+    holds identically on observe.observe's imperfect-info view (combat state is public)."""
+    return {c for (c,) in driver.run(state, ["must_attack"])["must_attack"]}
+
+
 def _attack_options(state: dict, ap: str) -> list[frozenset]:
     """Declare-attackers choices: subsets of the eligible attackers. Every subset up to _MAX_SUBSET_ATOMS
-    creatures; beyond that, {none, all, each singleton} to keep the branching factor finite (a policy cap)."""
+    creatures; beyond that, {none, all, each singleton} to keep the branching factor finite (a policy cap).
+
+    §508/§701.39 combat REQUIREMENTS: a goaded / 'attacks each combat if able' creature MUST attack if it
+    CAN — so `forced` = (must_attack ∪ goaded) ∩ eligible is the floor every legal attack set must contain.
+    Faithful: we force only creatures already in `eligible` (untapped, not sick, !cant_attack) — a forced
+    attacker that can't legally attack (tapped, summoning-sick) is simply not forced (§508.1a 'if able')."""
     sick = state.get("_sick", set())
     haste = {c for (c, k) in driver.run(state, ["has_keyword"])["has_keyword"] if k == "haste"}
     eligible = sorted(c for (c,) in driver.run(state, ["may_attack"])["may_attack"]
                       if (c,) not in sick or c in haste)
     if not eligible:
         return [frozenset()]
+    # §508.1a 'if able' — a forced attacker is only required when it CAN attack: eligible (may_attack, not
+    # summoning-sick) AND untapped. A tapped/sick must-attacker is simply not forced (don't manufacture an
+    # illegal attack), so the floor stays a subset of the real attack-enumeration.
+    able = set(eligible) - {c for (c,) in state.get("tapped", set())}
+    forced = _must_attackers(state) & able                     # §508 'attacks each combat if able' / §701.39 goad
     if len(eligible) <= _MAX_SUBSET_ATOMS:
-        return [frozenset(s) for r in range(len(eligible) + 1) for s in itertools.combinations(eligible, r)]
-    return [frozenset(), frozenset(eligible)] + [frozenset([c]) for c in eligible]
+        opts = [frozenset(s) for r in range(len(eligible) + 1) for s in itertools.combinations(eligible, r)]
+    else:
+        opts = [frozenset(eligible)] + [frozenset(forced | {c}) for c in eligible]
+        if not forced:
+            opts.append(frozenset())
+    if forced:                                                 # every legal set must include the forced attackers
+        opts = [s for s in opts if forced <= s]
+        if frozenset(forced) not in opts:
+            opts.append(frozenset(forced))
+    return opts
 
 
 def _legal_block_pairs(state: dict, ap: str) -> list[tuple[str, str]]:
@@ -199,22 +224,54 @@ def _legal_block_pairs(state: dict, ap: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _required_blocks_ok(state: dict, ap: str, chosen: frozenset, pairs: list[tuple[str, str]]) -> bool:
+    """§509 combat REQUIREMENTS on the BLOCK declaration. Reject a block set that violates a forced block
+    when satisfying it was POSSIBLE (mirrors the illegal_block precedent at the SET level, which datalog
+    can't express over the chosen set):
+      * must_be_blocked(A): an attacker that must be blocked if able — illegal to leave A unblocked while a
+        legal blocker for A is available (and not already committed to another required block).
+      * must_block(B): B (a creature ap controls) must block if able — illegal to leave B idle while it has
+        a legal block available.
+    Forced creatures are read off the public engine relations, so this holds on observe.observe too."""
+    must_block = {c for (c,) in driver.run(state, ["must_block"])["must_block"]}
+    must_be_blocked = {c for (c,) in driver.run(state, ["must_be_blocked"])["must_be_blocked"]}
+    if not must_block and not must_be_blocked:
+        return True
+    blockers_in = {b for (b, _a) in chosen}
+    attackers_blocked = {a for (_b, a) in chosen}
+    # a must-block creature that CAN block must be blocking something.
+    for b in must_block:
+        if b not in blockers_in and any(bb == b for (bb, _a) in pairs):
+            return False
+    # a must-be-blocked attacker that COULD be blocked must be blocked.
+    for (a, _d) in state.get("attacks", set()):
+        if a in must_be_blocked and a not in attackers_blocked and any(aa == a for (_b, aa) in pairs):
+            return False
+    return True
+
+
 def _block_options(state: dict, ap: str) -> list[frozenset]:
     """Declare-blockers choices: the no-block, the greedy one-per-attacker assignment, and each single
-    legal block. (A representative, capped slice of the assignment space — not the full product.)"""
+    legal block. (A representative, capped slice of the assignment space — not the full product.)
+
+    §509 combat REQUIREMENTS (must_block / must_be_blocked) prune the slice to legal sets only; if no listed
+    option satisfies the requirements, fall back to the greedy maximal assignment, which blocks as many
+    forced pairs as a one-per-attacker matching allows (a faithful best-effort within the capped surface)."""
     pairs = _legal_block_pairs(state, ap)
     opts = [frozenset()]
     greedy: dict = {}
     for (b, a) in pairs:
         if a not in greedy and b not in greedy.values():
             greedy[a] = b
+    greedy_fs = frozenset((b, a) for a, b in greedy.items())
     if greedy:
-        opts.append(frozenset((b, a) for a, b in greedy.items()))
+        opts.append(greedy_fs)
     for pr in pairs:
         fs = frozenset([pr])
         if fs not in opts:
             opts.append(fs)
-    return opts
+    legal = [s for s in opts if _required_blocks_ok(state, ap, s, pairs)]
+    return legal if legal else [greedy_fs] if greedy else [frozenset()]
 
 
 def _avail_mana(state: dict, ap: str) -> int:
