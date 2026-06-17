@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -118,6 +118,16 @@ rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
 pvclause.-2: PVPREVENT pvpre DMG pvtail      -> prevent
 pvpre:  (WORD | QUANT | NUM)+                                                // 'all [combat]' / 'the next <count>'
 pvtail: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR)+  // 'that would be dealt [this turn] [to <tgt>] [this turn]'
+
+// PHASE_OUT / PHASE_IN (§702.26/§502.15) — '<permanent> phases out/in [until …]' (the `_phase` template
+// `^(_TGT) phases? (out|in)(?: until …)?$`). A TRUE grammar production: the distinctive PHASE terminal
+// ('phase[s] out/in') splits the clause into a leading subject SPAN (validated as the anchored `_TGT`,
+// `_AT_TGT`) and an optional trailing 'until …' rider (reuse `trailer`, DROPPED exactly as the regex's
+// `(?: until …)?` does). The transformer reads the subject + direction off the tree -> phase_<dir>(-,
+// _target(subj)); a subject outside `_TGT` abstains to the regex. NEGATIVE priority so a competing parse
+// wins; a pure '<X> phases out' has no competitor.
+pfclause.-2: pfsubj PHASE trailer?           -> phaseout
+pfsubj: (WORD | QUANT | NUM)+                                                // the permanent NP (validated by _AT_TGT)
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -370,6 +380,7 @@ AT_ATTACH.3: /\battach\b/             // 'attach' — the §701.3 attach keyword
 FG_FIGHTS.5: /\bfights\b/             // '<A> fights <B>' separator (§701.12 fight; the 's' form, distinct from the rarer bare 'fight')
 TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform keyword action (transform family; namespaced; bare imperative, not 'transforms')
 MF_MANIFEST.3: /\bmanifest\b/         // 'manifest' — the §701.34 manifest keyword action (manifest family; namespaced)
+PHASE.4: /\bphases? (?:out|in)\b/     // '<X> phase[s] out/in' — §702.26 phasing (phase_out/phase_in; the 'out'/'in' is bound to 'phase' so a lone in/out is never stolen)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -913,6 +924,10 @@ class _PvPre(str):     # the prevent pre-DMG span (pvpre) — 'all [combat]' / '
 
 
 class _PvTail(str):    # the prevent post-DMG span (pvtail) — 'that would be dealt … [to <tgt>] …'
+    pass
+
+
+class _PfSubj(str):    # the phasing subject span (pfsubj) — the permanent that phases out/in (validated _TGT)
     pass
 
 
@@ -1979,6 +1994,24 @@ class _ToEffect(Transformer):
                 scope += " " + ms.group(3).strip()
             return _pv_scope(kind, scope)
         return None                                # an 'all …' rider outside both skeletons -> regex
+
+    # --- PHASE_OUT / PHASE_IN (§702.26) ---------------------------------------
+    def pfsubj(self, *toks):
+        return _PfSubj(" ".join(str(t) for t in toks))
+
+    def phaseout(self, *args):
+        # '<permanent> phases out/in [until …]' — the EXACT `_phase` template: phase_<dir>(-, _target(subj)),
+        # the optional trailing 'until …' rider (reused `trailer`) DROPPED. The subject is the leading span
+        # before the PHASE terminal; a subject outside `_TGT` (`_AT_TGT`) abstains to the regex.
+        subj = next((a for a in args if isinstance(a, _PfSubj)), None)
+        tok = next((a for a in args if getattr(a, "type", None) == "PHASE"), None)
+        if subj is None or tok is None:
+            return None
+        s = str(subj).strip()
+        if not _AT_TGT.match(s):
+            return None
+        direction = "out" if "out" in str(tok).lower() else "in"
+        return Effect("phase_" + direction, "-", _target(s))
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):

@@ -1510,10 +1510,10 @@ def _fight_each(m):
     return Effect("fight", "-", _target(m.group(1)), "each_other")
 
 
-@_t(rf"^({_TGT}) phases? (out|in)(?: until [\w' ]+)?$")
-def _phase(m):
-    """'<permanent> phases out/in' — phasing (§702.26/§502.15)."""
-    return Effect("phase_" + m.group(2).lower(), "-", _target(m.group(1)))
+# _phase: migrated to card_lark (the `pfclause` TRUE-grammar production — distinctive PHASE terminal splits
+# '<permanent> phases out/in [until …]' into subject span + dropped trailer). lark-first now grounds every
+# phasing clause IDENTICALLY (migrate_check phase_out/phase_in = 17/17, 0 DIFFERS, 0 ABSTAINS), so the
+# template was RETIRED — proven byte-identical by a full-corpus parse_clause snapshot with it removed.
 
 
 @_t(rf"^(?:({_TGT}) )?(?:gains?|ha(?:s|ve)) ([\w ]+?)$")
