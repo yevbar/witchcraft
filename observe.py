@@ -101,6 +101,12 @@ def observe(state: dict, seat: str) -> dict:
     top = [c for c in state.get("_known_top", {}).get(seat, []) if c in own_lib]
     if top:
         view["library_top"] = {(i, c) for i, c in enumerate(top)}
+    # §720 the monarch's identity and §701.15 regeneration shields are PUBLIC information — re-export the
+    # driver's _-prefixed bookkeeping (which the loop above dropped) so every seat observes them.
+    if state.get("_monarch"):
+        view["monarch"] = set(state["_monarch"])
+    if state.get("_regen_shield"):
+        view["regen_shield"] = set(state["_regen_shield"])
     return view
 
 

@@ -1106,7 +1106,7 @@ target_class("a_target_creature", "any"). target_class("another_target_creature"
 // single_verb = the creature verbs whose single-target case the engine surfaces (NOT modify_pt:
 // that needs P/T parsing, deferred). grant_keyword maps to 'grant'; the rest map to themselves.
 .decl single_verb(verb: symbol, ev: symbol)
-single_verb("tap", "tap"). single_verb("untap", "untap"). single_verb("destroy", "destroy"). single_verb("exile", "exile"). single_verb("return_to_hand", "return_to_hand").
+single_verb("tap", "tap"). single_verb("untap", "untap"). single_verb("destroy", "destroy"). single_verb("exile", "exile"). single_verb("return_to_hand", "return_to_hand"). single_verb("regenerate", "regenerate").
 // a non-battlefield-zone bounce/exile (from graveyard/exile/library/hand) is a DIFFERENT action
 // than the battlefield zone move this single-target model applies — the bridge abstained on it.
 .decl nonbf_zone(extra: symbol)
@@ -1246,6 +1246,10 @@ spell_put_counter(S, Target, cat(Kind, cat(":", Amount))) :- resolves_ability(S,
 // with the keyword in the EXTRA column; put_counter -> ('counter', 'p1p1:N'/'m1m1:N').
 spell_target(S, Verb, "-", Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, Verb, _, Target, _, "-"), zone_move_verb(Verb), target_class(Target, Cls).
 spell_target(S, "grant", Kw, Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "-"), engine_keyword(Kw), target_class(Target, Cls).
+// §701.15 'Regenerate target creature' (an instant — Mending Touch, Heroic Intervention's kin): a single-
+// target regenerate shield. Not a zone move (it doesn't feed board_scope), so a dedicated rule; the driver
+// puts a §701.15 shield on the picked target via _apply_target_verb's regenerate case.
+spell_target(S, "regenerate", "-", Cls) :- resolves_ability(S, Card, A), card_effect(Card, A, _, "regenerate", _, Target, _, "-"), target_class(Target, Cls).
 spell_target(S, "counter", Payload, Cls) :- spell_put_counter(S, Target, Payload), target_class(Target, Cls).
 // modify_pt single-target P/T pump/shrink (Giant Growth): payload 'dp/dt' lexed via pt_value
 // (REUSED foundation table — souffle can't parse '+1/+1'). Matches the bridge's f'{dp}/{dt}'.
@@ -1323,6 +1327,7 @@ spell_reanimate(S, Mode) :- resolves_ability(S, Card, A), card_effect(Card, A, _
 .output eff_toughness
 .output combat_commander_damage
 .output combat_poison
+.output ev_combat_dmg_player
 .output stack_top
 .output resolves
 .output controls

@@ -180,7 +180,7 @@ def _variant_hand_size(variant: str) -> int:
     return int(m.group(1)) if m else 7
 
 OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
-           "combat_commander_damage", "combat_poison", "pending"]
+           "combat_commander_damage", "combat_poison", "pending", "ev_combat_dmg_player"]
 
 
 def _lit(x: object) -> str:
@@ -499,6 +499,55 @@ def _gy_replaced(state: dict, obj: str) -> bool:
     return False
 
 
+def _consume_regen_shield(state: dict, obj: str) -> bool:
+    """§701.15 REGENERATION replacement. If `obj` has a regeneration shield (state['_regen_shield'], set up
+    by effect_handlers/regeneration) and it ISN'T cant_be_regenerated, REPLACE this destruction: consume the
+    shield, TAP it, REMOVE it from combat, and it is NOT destroyed — return True so the destroy chokepoint
+    leaves it on the battlefield. Otherwise return False (it dies normally). The shield is per-turn (cleared
+    at cleanup) and one-shot (consumed here). Mirrors how _gy_replaced / cant_be_destroyed gate the destroy."""
+    if (obj,) not in state.get("_regen_shield", set()):
+        return False
+    if (obj,) in state.get("cant_be_regenerated", set()):     # §701.15g — the shield can't save it
+        return False
+    state["_regen_shield"].discard((obj,))                    # §701.15c — used up
+    _tap(state, obj)                                          # §701.15c (1) tap it
+    # §701.15c (2) remove it from combat — drop any attack/block declaration mentioning it.
+    state["attacks"] = {row for row in state.get("attacks", set()) if obj not in row}
+    state["blocks"] = {row for row in state.get("blocks", set()) if obj not in row}
+    print(f"    {obj} would be destroyed — a §701.15 regeneration shield taps it instead (removed from combat)")
+    return True
+
+
+# --- §720 THE MONARCH (a player designation with ongoing draw + steal-on-combat-damage) ---------------
+def _set_monarch(state: dict, p: str, reason: str = "") -> None:
+    """§720.2 designate `p` the monarch, replacing any prior one (only ONE monarch at a time). Public info."""
+    cur = next((q for (q,) in state.get("_monarch", set())), None)
+    if cur == p:
+        return
+    state["_monarch"] = {(p,)}
+    tail = f" ({reason})" if reason else ""
+    print(f"    {p} becomes the monarch (§720.2){tail}")
+
+
+def _steal_monarch_on_combat(state: dict, dmg_pairs: set) -> None:
+    """§720.5 whenever a creature deals COMBAT DAMAGE to the monarch, that creature's CONTROLLER becomes the
+    monarch. dmg_pairs = ev_combat_dmg_player (source, player) from the engine. If a creature the monarch
+    doesn't control hit the current monarch this combat, its controller takes the crown. (If several creatures
+    hit the monarch, the controller of the first by sorted id takes it — a deterministic referee resolution.)"""
+    cur = next((q for (q,) in state.get("_monarch", set())), None)
+    if cur is None or not dmg_pairs:
+        return
+    controls = run(state, ["controls"])["controls"]
+    ctrl_of = {c: p for (p, c) in controls}
+    for (src, p) in sorted(dmg_pairs):
+        if p != cur:                                          # only damage to the monarch matters
+            continue
+        new = ctrl_of.get(src)
+        if new is not None and new != cur:                    # a creature you don't already monarch-own hit you
+            _set_monarch(state, new, reason=f"{src} dealt combat damage to the monarch")
+            return
+
+
 def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
     n *= 2 ** _doubler_count(state, controller, "tokens")     # §614 Doubling Season / Parallel Lives / ...
     d = _parse_token_spec(spec)
@@ -758,6 +807,8 @@ def _apply_creature_effects(state: dict) -> None:
             if c in indestructible:                          # §702.12b — indestructible isn't destroyed
                 print(f"    trigger {a}: {c} can't be destroyed (indestructible)")
                 continue
+            if _consume_regen_shield(state, c):              # §701.15 a regen shield replaces the destruction
+                continue
             state["on_battlefield"].discard((c,))
             state.setdefault("graveyard", set()).add((c,))
             print(f"    trigger {a}: {c} is destroyed -> graveyard")
@@ -881,9 +932,14 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         if tgt in indestructible:
             print(f"    {kind} {a}: targets {tgt} but it can't be destroyed (indestructible)")
             return
+        if _consume_regen_shield(state, tgt):                # §701.15 a regen shield replaces the destruction
+            return
         state["on_battlefield"].discard((tgt,))
         state.setdefault("graveyard", set()).add((tgt,))
         print(f"    {kind} {a}: destroys target {tgt} -> graveyard")
+    elif verb == "regenerate":                               # §701.15 'Regenerate target creature' (instant)
+        state.setdefault("_regen_shield", set()).add((tgt,))
+        print(f"    {kind} {a}: {tgt} gains a regeneration shield (§701.15)")
     elif verb == "exile":
         state["on_battlefield"].discard((tgt,))
         state.setdefault("exile", set()).add((tgt,))
@@ -1186,6 +1242,11 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
             print(f"  ** {p} draws from an empty library and loses the game (§104.3c) **")
             return p
     for (c, frm, to) in sorted(out["zone_change"]):              # §701.8a zone moves
+        # §701.15 REGENERATION — a battlefield->graveyard destruction may be replaced by a regen shield
+        # (tap + remove from combat, NOT destroyed). Consult BEFORE leaving the battlefield, like cant_be_
+        # destroyed gates `dies` in the engine; if the shield fires, the permanent stays put.
+        if (frm, to) == ("battlefield", "graveyard") and _consume_regen_shield(state, c):
+            continue
         state.setdefault(ZONE[frm], set()).discard((c,))
         # §903.9 / §704.5 commander replacement: a commander headed to graveyard/exile (or hand/library)
         # MAY instead go to the command zone (a _choose decision); if taken, skip the normal destination.
@@ -1202,6 +1263,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     for (p, n) in sorted(out["player_damage"]):                  # §510.2 persist combat damage
         print(f"    {p} takes {n} -> {_adjust_life(state, p, -int(n))} life")
         state.setdefault("_combat_damaged", set()).add((p,))     # §510 players dealt combat damage THIS TURN (Tymna)
+    _steal_monarch_on_combat(state, out.get("ev_combat_dmg_player", set()))   # §720.5 monarch steal
     for (p, cmd, n) in sorted(out.get("combat_commander_damage", set())):   # §903.10a accrue commander damage
         cd = state.setdefault("commander_damage", set())          # carried per-(player, commander) total
         old = next((b for (pp, cc, b) in cd if pp == p and cc == cmd), 0)
@@ -2459,6 +2521,8 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
         if c in indestructible:
             print(f"      {label} deals damage to {c} but it can't be destroyed (indestructible)")
             return
+        if _consume_regen_shield(state, c):                  # §701.15 a regen shield replaces the destruction
+            return
         state["on_battlefield"].discard((c,))
         state.setdefault("graveyard", set()).add((c,))
         print(f"      {label} deals lethal damage to {c} -> graveyard")
@@ -3227,6 +3291,8 @@ def _end_of_turn(state: dict) -> None:
     state["prevent_all_combat"] = set()                      # §615 Fog lasts only 'this turn'
     state["_cant_block"] = set()                             # §509.1b 'can't block this turn' restriction
     state["cant_be_blocked"] = set()                         # §509.1b 'can't be blocked this turn' restriction
+    state["_regen_shield"] = set()                           # §701.15 a regeneration shield lasts only 'this turn'
+    state["cant_be_regenerated"] = set()                     # §701.15g the 'can't be regenerated this turn' rider
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
@@ -3254,6 +3320,9 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if step == "end":                        # §513 'at the beginning of your next end step' deliveries
                 _deliver_necro(state, ap)            # §601 Necropotence: exiled cards come to hand at end step
                 _return_stolen(state, ap)            # §608 Mnemonic Betrayal: stolen cards return to graveyards
+                if (ap,) in state.get("_monarch", set()):   # §720.6 the monarch draws at the beginning of THEIR end step
+                    print(f"    {ap} is the monarch and draws a card (§720.6)")
+                    _draw(state, ap)
             if step == "cleanup":                    # §514.2 cleanup
                 _end_of_turn(state)
             out = run(state, OUTPUTS)
