@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -159,6 +159,15 @@ skbody: (WORD | QUANT | NUM | PVERB)+                                        // 
 asclause.-2: AMASS askind asnum              -> amassverb
 askind: WORD+                                                                // the army type ('Zombies'/'Orcs'/…)
 asnum: NUM | QUANT                                                           // the count ('2'/'one'/'x'); validated
+
+// COPY (§707) — 'copy <object>' (the generic object-verb leaf `_verb_target`/`_generic_object_verb`,
+// NOT a dedicated template — so this FLIPS copy onto lark but the shared catch-all stays). The EXACT
+// mirror of `dbclause`/`dbl`: the distinctive CP_COPY terminal owns the leading verb; the transformer
+// slices the object from the source after 'copy ' (byte-identical slug, never a re-joined approximation),
+// applies the leaf's `_DB_OBJ_BAD`/`_is_compound_object` guards, and reproduces the _TGT-keeps-article /
+// else-slug grounding. Compound/run-on/structural-marker objects abstain to the regex.
+cpclause.-2: CP_COPY cpbody                  -> copyverb
+cpbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> cpbody
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -415,6 +424,7 @@ PHASE.4: /\bphases? (?:out|in)\b/     // '<X> phase[s] out/in' — §702.26 phas
 RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 redirect split (distinct from the source-side 'would be dealt to')
 SKIP.4: /\bskips?\b/                  // '[<player>] skip[s] …' — §500.7 skip-a-step/phase/turn (skip family; namespaced)
 AMASS.4: /\bamass\b/                  // 'amass <type> <N>' — §701.43 amass keyword action (amass family; namespaced; rare word, low collision)
+CP_COPY.3: /\bcopy\b/                 // 'copy <object>' — §707 copy verb (copy family; namespaced; leading imperative, mirrors DB_DOUBLE)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -1008,6 +1018,10 @@ class _AsKind(str):    # amass army-type span (askind) — slugged into the effe
 
 
 class _AsNum(str):     # amass count token (asnum) — validated against the template's (\d+|one|two|three|x)
+    pass
+
+
+class _CpBody(str):    # the flat 'copy …' object run (value unused; the object is sliced from src like _DbBody)
     pass
 
 
@@ -2173,6 +2187,28 @@ class _ToEffect(Transformer):
             return None
         n = _amount(str(num).strip())
         return Effect("amass", n if n is not None else 1, "you", ground.slug(str(kind)))
+
+    # --- COPY (§707) ----------------------------------------------------------
+    def cpbody(self, *toks):
+        return _CpBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def copyverb(self, *args):
+        # 'copy <object>' -> copy(-, _target(<object>)) — the EXACT `_verb_target` leaf. Unlike `double`,
+        # copy is NOT in `_OBJ_VERBS`, so the generic slug leaf (`_generic_object_verb`) never grounds it:
+        # only `_verb_target` (`^(\w+) (_TGT)$`) does, requiring a clean whole-`_TGT` object that isn't a
+        # run-on. So we slice the object from the source after 'copy ' and ground ONLY when it is a `_TGT`
+        # (`_DB_TGT`) and not `_is_compound_object`; anything else (a rider like ', except the copy is …',
+        # a non-`_TGT` object, a compound) abstains to the regex — NO slug fallback (that was the over-grounding bug).
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = re.match(r"^copy (.+)$", src.strip(), re.I)
+        if not m:
+            return None
+        rest = m.group(1)
+        if not _DB_TGT.match(rest) or _is_compound_object(rest):
+            return None
+        return Effect("copy", "-", _target(rest))
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
     def sfsubj(self, *toks):
