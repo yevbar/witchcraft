@@ -1229,8 +1229,11 @@ def declare_blockers(state: dict, ap: str) -> None:
     blocked by flying/reach, etc.) rather than a naive pairing that wastes a blocker on an illegal block."""
     opp = _others(state, ap)[0]
     attackers = sorted(a for (a, _) in state.get("attacks", set()))
-    blockers = [b for b in _creatures_of(state, opp) if (b,) not in state.get("tapped", set())]
-    if ("without_flying",) in state.get("_cant_block", set()):  # §509.1b 'creatures without flying can't block'
+    # §509.1a a creature with a 'can't block' restriction (e.g. a suspected creature) is never a legal blocker.
+    cant_block = state.get("_cant_block", set())
+    blockers = [b for b in _creatures_of(state, opp)
+                if (b,) not in state.get("tapped", set()) and (b,) not in cant_block]
+    if ("without_flying",) in cant_block:                       # §509.1b 'creatures without flying can't block'
         flyers = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "flying"}
         blockers = [b for b in blockers if b in flyers]
     blocks: dict = {}                                            # attacker -> blocker (one blocker each)

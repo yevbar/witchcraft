@@ -104,6 +104,20 @@ def run() -> None:
     check("control: a non-suspected attacker accepts a single blocker (pair exists)",
           any(att == "atk" for (_b, att) in pairs_ctl))
 
+    # (3b) the CAN'T-BLOCK half: a suspected creature on the DEFENDING side can't be a legal blocker
+    # (§509.1a). bob's w1 is suspected; bob is defending alice's 'atk' — w1 must be offered no block pair
+    # and never chosen by the driver, while the un-suspected w2 still can.
+    cb = _self_state()
+    cb["_cant_block"] = {("w1",)}
+    pairs_cb = env._legal_block_pairs(cb, "bob")
+    check("can't-block: a suspected creature is offered no block pair (env)",
+          not any(b == "w1" for (b, _a) in pairs_cb))
+    check("can't-block: an un-suspected creature is still a legal blocker (env)",
+          any(b == "w2" for (b, _a) in pairs_cb))
+    driver.declare_blockers(cb, "alice")
+    check("can't-block: the driver never assigns a suspected creature as a blocker",
+          not any(b == "w1" for (b, _a) in cb.get("blocks", set())))
+
     # (4) apply target_creature: a driver-picked OPPONENT creature (bob's) becomes suspected.
     tg = _self_state()
     tg["_chance"] = None

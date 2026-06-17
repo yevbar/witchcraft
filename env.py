@@ -216,8 +216,11 @@ def _legal_block_pairs(state: dict, ap: str) -> list[tuple[str, str]]:
     attackers = sorted(a for (a, _) in state.get("attacks", set()))
     # a DETAINED creature can't block (the block half of detain; its attack half rides cant_attack/may_attack).
     detained = {c for (c,) in driver.run(state, ["detained"])["detained"]}
+    # §509.1a a creature with a 'can't block' restriction (e.g. a suspected creature) can't be in any block.
+    cant_block = state.get("_cant_block", set())
     blockers = [b for b in driver._creatures_of(state, ap)
-                if (b,) not in state.get("tapped", set()) and b not in detained]
+                if (b,) not in state.get("tapped", set()) and b not in detained
+                and (b,) not in cant_block]
     pairs = []
     for b in blockers:
         for a in attackers:
