@@ -109,6 +109,11 @@ def observe(state: dict, seat: str) -> dict:
         view["initiative"] = set(state["_initiative"])
     if state.get("_regen_shield"):
         view["regen_shield"] = set(state["_regen_shield"])
+    # §106.6 'may spend mana as though any color' and §616 damage-redirect are PUBLIC continuous info too.
+    if state.get("_spend_any_color"):
+        view["spend_any_color"] = set(state["_spend_any_color"])
+    if state.get("_damage_redirect"):
+        view["damage_redirect"] = dict(state["_damage_redirect"])
     return view
 
 

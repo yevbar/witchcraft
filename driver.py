@@ -576,6 +576,18 @@ def _consume_regen_shield(state: dict, obj: str) -> bool:
     return True
 
 
+def _redirect_player_damage(state: dict, player: str) -> str | None:
+    """§616 DAMAGE REDIRECTION. If `player` is protected by a redirect (state['_damage_redirect'][player],
+    set by effect_handlers/redirect_damage from a Pariah/Kjeldoran/en-Kor 'damage to you is dealt to <a
+    creature you control> instead'), return the creature the damage is rerouted to (if it's still on the
+    battlefield) — the §616 replacement. Otherwise None (the player takes the damage normally). Mirrors how
+    _gy_replaced / _consume_regen_shield gate their chokepoints; per-turn, cleared at §514.2 cleanup."""
+    creature = state.get("_damage_redirect", {}).get(player)
+    if creature is not None and (creature,) in state.get("on_battlefield", set()):
+        return creature
+    return None
+
+
 # --- §720 THE MONARCH (a player designation with ongoing draw + steal-on-combat-damage) ---------------
 def _set_monarch(state: dict, p: str, reason: str = "") -> None:
     """§720.2 designate `p` the monarch, replacing any prior one (only ONE monarch at a time). Public info."""
@@ -1652,6 +1664,14 @@ def _mana_demand(state: dict, ap: str) -> list[str]:
     return [c for c in sorted(want, key=lambda c: -want[c]) for _ in range(want[c])]
 
 
+def _spends_any_color(state: dict, p: str) -> bool:
+    """§106.6 'you may spend mana as though it were mana of any color' — does p hold the BLANKET permission?
+    Set by effect_handlers/spend_mana_as (state['_spend_any_color'] = {(player,)}), cleared at §514.2 cleanup.
+    When True, the mana model ignores color-matching: _resolve_pool re-colors p's whole pool toward demand so
+    pip_shortfall can't fire, and _spend_mana lets any source pay any pip. Public info (re-exported by observe)."""
+    return (p,) in state.get("_spend_any_color", set())
+
+
 # --- §106.4 FLOATING MANA — mana actually IN the pool right now (produced and not yet spent: a ritual's
 # output, or a source's excess over a cost). It PERSISTS across spells within a step and empties at the
 # end of each step/phase (§500.4). Distinct from the tappable POTENTIAL of untapped sources — affordability
@@ -1765,6 +1785,25 @@ def _resolve_pool(state: dict, ap: str):
     for c, n in floating.items():                             # §106.4 floating mana sits on top of source potential
         by_color[c] = by_color.get(c, 0) + n
     by_color = {c: n for c, n in by_color.items() if n > 0}
+    # §106.6 'spend mana as though it were any color' — the player may pay any pip with any mana, so re-color
+    # the WHOLE pool toward the hand's demanded colors (the total is preserved). This lets the engine's
+    # per-color pip_shortfall see enough of each demanded color (it would otherwise fail an off-color pip).
+    if _spends_any_color(state, ap):
+        total = sum(by_color.values())
+        demand = _mana_demand(state, ap)                      # the flat list of demanded pip colors
+        recol: dict[str, int] = {}
+        for col in demand:                                    # one unit toward each demanded pip (in priority order)
+            if total <= 0:
+                break
+            recol[col] = recol.get(col, 0) + 1; total -= 1
+        for col in demand[::-1]:                              # then top up demanded colors with the remaining mana
+            if total <= 0:
+                break
+            recol[col] += 1; total -= 1
+        if total > 0:                                         # any leftover stays colorless (still pays generic)
+            recol["colorless"] = recol.get("colorless", 0) + total
+        if recol:                                             # (no demand at all -> leave the real pool unchanged)
+            by_color = recol
     return by_color, sum(by_color.values())
 
 
@@ -2053,6 +2092,9 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
     rem_pips, rem_generic = dict(pips), generic           # cost the SOURCES must cover (after floating) — for excess
     need_pips = dict(pips)
     need_generic = generic
+    # §106.6 'spend mana as though it were any color' — when this player holds the blanket permission, any
+    # source's mana may pay any pip, so colset-matching is relaxed (an off-color source covers a colored pip).
+    anyc = _spends_any_color(state, ap)
     # tap sources to cover the cost. A source contributes ALL its mana when tapped; we apply that mana to
     # an unmet colored pip first (matching the source's color, prefer a concrete-color source over a
     # wildcard for that pip), then to generic. Greedy but faithful: tap only sources that help.
@@ -2063,13 +2105,13 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         for colset in slots:                                  # each single slot pays one matching pip
             if avail <= 0:
                 break
-            hit = next((c for c in need_pips if need_pips[c] > 0 and c in colset), None)
+            hit = next((c for c in need_pips if need_pips[c] > 0 and (anyc or c in colset)), None)
             if hit:
                 need_pips[hit] -= 1; avail -= 1
         for colset, n in bundles:                             # a bundle pays up to n pips of ONE chosen color
             if avail <= 0:
                 break
-            color = max((c for c in need_pips if need_pips[c] > 0 and c in colset),
+            color = max((c for c in need_pips if need_pips[c] > 0 and (anyc or c in colset)),
                         key=lambda c: need_pips[c], default=None)
             give = min(n, avail)
             if color is not None:
@@ -2085,6 +2127,8 @@ def _spend_mana(state: dict, ap: str, spell: str) -> None:
         if avail <= 0:
             return False
         if need_generic > 0:
+            return True
+        if anyc and any(v > 0 for v in need_pips.values()):   # §106.6 any source helps any unmet pip
             return True
         for colset in slots + [b[0] for b in bundles]:
             if any(need_pips.get(c, 0) > 0 for c in colset):
@@ -2622,11 +2666,22 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
         killable = [c for c in enemy if c not in indestructible and tough.get(c, 1) <= n]
         return max(killable, key=lambda c: powers.get(c, 0)) if killable else None
 
+    def hit_player(p):                                        # §616 a player's damage may be REDIRECTED first
+        redir = _redirect_player_damage(state, p)            # to a creature they control (Pariah/Kjeldoran/en-Kor)
+        if redir is not None:
+            print(f"      {label}'s {n} to {p} is redirected to {redir} (§616)")
+            if tough.get(redir, 1) <= n:                     # the creature takes the damage instead — lethal if it finishes it
+                kill(redir)
+            else:
+                print(f"      {label} deals {n} to {redir} (non-lethal)")
+        else:
+            print(f"      {label} deals {n} to {p} -> {_adjust_life(state, p, -n)} life")
+
     if kind == "self":
-        print(f"      {label} deals {n} to {ctrl} -> {_adjust_life(state, ctrl, -n)} life")
+        hit_player(ctrl)
     elif kind == "face":
         if opp is not None:
-            print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
+            hit_player(opp)
     elif kind in ("creature_any", "creature_opponent"):
         tgt = best_killable() or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
         if tgt is None:
@@ -3386,6 +3441,8 @@ def _end_of_turn(state: dict) -> None:
     state["cant_be_blocked"] = set()                         # §509.1b 'can't be blocked this turn' restriction
     state["_regen_shield"] = set()                           # §701.15 a regeneration shield lasts only 'this turn'
     state["cant_be_regenerated"] = set()                     # §701.15g the 'can't be regenerated this turn' rider
+    state["_spend_any_color"] = set()                        # §106.6 'spend mana as though any color' is a per-turn grant
+    state["_damage_redirect"] = {}                           # §616 a 'damage to you is dealt to <creature>' redirect this turn
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
