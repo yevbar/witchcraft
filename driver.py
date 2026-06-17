@@ -255,6 +255,36 @@ def _next_active_player(state: dict, ap: str, players: list[str]) -> str:
     return players[(players.index(ap) + 1) % len(players)]
 
 
+# --- TURN-STRUCTURE effects (§505/§506 extra combat, §500.7 skip step) — driver-only counters/flags --------
+# Both mirror extra_turn: a resolving effect (effect_handlers/extra_combat.py / skip_step.py) only BUMPS a
+# per-turn marker in state; the turn loop below does the structural work. Cleared each turn at turn-pass.
+_COMBAT_STEPS = ("beginning_of_combat", "declare_attackers", "declare_blockers",
+                 "combat_damage", "end_of_combat")
+
+
+def _skipping_step(state: dict, ap: str, step: str) -> bool:
+    """§500.7 — is the active player's `step` being skipped this turn? Reads the per-turn flags set by the
+    `skip` effect (effect_handlers/skip_step.py): state['_skip_step'] = {(player, engine_step)}. A
+    'combat_phase' skip flag (engine_step 'combat') suppresses the WHOLE combat (every §506 step)."""
+    flags = state.get("_skip_step", set())
+    if (ap, step) in flags:
+        return True
+    return step in _COMBAT_STEPS and (ap, "combat") in flags
+
+
+def _extra_combat_redirect(state: dict, ap: str, advance_to: set) -> set:
+    """§505/§506 — at end_of_combat, if the active player has a pending additional combat phase
+    (state['_extra_combats'][ap] > 0, set by effect_handlers/extra_combat.py), loop back into combat
+    (beginning_of_combat) instead of advancing to the postcombat main phase; consume one marker. Bounded by
+    the counter itself (each redirect decrements it). Returns the (possibly redirected) advance_to set."""
+    extra = state.setdefault("_extra_combats", {})
+    if extra.get(ap, 0) > 0 and advance_to == {("postcombat_main",)}:
+        extra[ap] -= 1
+        print(f"    {ap} gets an additional combat phase (§505/§506)")
+        return {("beginning_of_combat",)}
+    return advance_to
+
+
 def _creatures_of(state: dict, p: str) -> list[str]:
     """Creatures p controls — from the engine's DERIVED controls/creature (which fold in
     printed_control/printed_type and the layer system), not raw state, so a permanent that
@@ -3373,10 +3403,13 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
                 pact_loser = _resolve_delayed_upkeep(state, ap)
                 if pact_loser:
                     return pact_loser
+            skip_this = _skipping_step(state, ap, step)   # §500.7 a 'skip your <step>' effect this turn
             if step == "declare_attackers":          # §508 turn-based action (before priority)
-                declare_attackers(state, ap)
+                if not skip_this:                    # §506 a skipped combat phase declares no attackers
+                    declare_attackers(state, ap)
             elif step == "declare_blockers":         # §509 turn-based action (before priority)
-                declare_blockers(state, ap)
+                if not skip_this:
+                    declare_blockers(state, ap)
             if step in GRANTS_PRIORITY:              # §5 priority window — the active player may cast
                 _cast_phase(state, ap)
             _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
@@ -3389,14 +3422,19 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if step == "cleanup":                    # §514.2 cleanup
                 _end_of_turn(state)
             out = run(state, OUTPUTS)
-            if step == "draw" and (skip_draw or _skips_draw(state, ap)):   # §103.8a first-turn / §504 Necropotence
+            if step == "untap" and skip_this:        # §500.7 a 'skip your untap step' effect
+                out["to_untap"] = set(); print(f"    {ap} skips their untap step")
+            if step == "draw" and (skip_draw or _skips_draw(state, ap) or skip_this):   # §103.8a first-turn / §504 Necropotence / §500.7 'skip your draw step'
                 out["to_draw"] = set(); print(f"    {ap} skips their draw step")
             loser = _apply_outputs(state, out, ap)
             if loser:
                 return loser
             if not out["advance_to"]:                            # past cleanup -> turn ends
                 break
-            state["current_step"] = out["advance_to"]            # advance to the engine's next step
+            advance_to = _extra_combat_redirect(state, ap, out["advance_to"])  # §505/§506 loop back into combat
+            if advance_to != out["advance_to"]:                  # an extra combat means fresh §508 declarations
+                state["attacks"], state["blocks"] = set(), set()
+            state["current_step"] = advance_to                   # advance to the engine's next step
             _empty_mana_pool(state)                              # §500.4 mana empties at end of each step/phase
         nxt_p = _next_active_player(state, ap, players)          # pass the turn (§500.6) — or take an extra one
         state["active_player"] = {(nxt_p,)}
@@ -3413,6 +3451,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
+        state["_extra_combats"] = {}; state["_skip_step"] = set()  # §505/§506 + §500.7 turn-structure flags are per-turn
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
