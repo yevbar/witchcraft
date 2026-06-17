@@ -43,8 +43,14 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause
 
+// LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
+// regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
+// high-priority phrase terminal owns each; the whole clause must BE the phrase, so it's byte-identical
+// to the anchored `^…$` regex, or no parse.
+litclause: LITEFFECT                                          -> lit
+LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
@@ -1030,8 +1036,19 @@ def _pure_target_conj(tgt: str) -> bool:
     return all(_DET.match(p.strip()) and " to " not in p for p in parts)
 
 
+_LIT_EFFECTS = {                                   # fixed-phrase clause -> the nullary Effect the regex made
+    "clash with an opponent": ("clash", "-", "you"),
+    "you become the monarch": ("become_monarch", "-", "you"),
+    "you take the initiative": ("take_initiative", "-", "you"),
+}
+
+
 @v_args(inline=True)
 class _ToEffect(Transformer):
+    def lit(self, tok):                            # §720/§701 literal keyword-action effects (see litclause)
+        v = _LIT_EFFECTS.get(str(tok).strip())
+        return Effect(*v) if v else None
+
     def quant(self, tok):
         return _Quant(str(tok))
 

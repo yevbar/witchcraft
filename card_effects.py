@@ -259,9 +259,8 @@ def _reveal_top(m):
 # ('manifest those cards') keep their existing handling.
 
 
-@_t(r"^clash with an opponent$")
-def _clash(m):
-    return Effect("clash", "-", "you")
+# clash: migrated to card_lark (the `litclause` GRAMMAR production owns 'clash with an opponent',
+# lark-first); the regex template was retired (gate: lark IDENTICAL, DIFFERS=0).
 
 
 @_t(rf"^({_TGT}) gets? ([+-](?:\d+|X)/[+-](?:\d+|X)) (until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)$")
@@ -880,9 +879,8 @@ def _attach(m):
     return Effect("attach", "-", _target(m.group(2)), _target(m.group(1)))
 
 
-@_t(r"^you become the monarch$")
-def _monarch(m):
-    return Effect("become_monarch", "-", "you")
+# become_monarch: migrated to card_lark (`litclause` owns 'you become the monarch', lark-first); the
+# regex template was retired (gate: lark IDENTICAL, DIFFERS=0).
 
 
 @_t(r"^(?:if it's neither day nor night, )?it becomes (day|night)(?: as ~ enters)?$")
@@ -913,9 +911,8 @@ def _emblem(m):
     return Effect("get_emblem", "-", _target(m.group(1)), ground.slug(m.group(2))[:160])
 
 
-@_t(r"^you take the initiative$")
-def _initiative(m):
-    return Effect("take_initiative", "-", "you")
+# take_initiative: migrated to card_lark (`litclause` owns 'you take the initiative', lark-first); the
+# regex template was retired (gate: lark IDENTICAL, DIFFERS=0).
 
 
 @_t(r"^(?:you )?skip your (draw step|next draw step|untap step|combat phase|next combat phase|draw|next turn|next combat)$")
