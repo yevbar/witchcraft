@@ -13,15 +13,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness
 
-# A non-recursive 3-stratum chain: base -> mid -> top (monotone, no negation).
-CHAIN = """\
-.decl base(x:number)
-.input base
-.decl mid(x:number)
-.decl top(x:number)
-mid(x) :- base(x).
-top(x) :- mid(x).
-.output top
+# A non-recursive monotone program with genuine (non-copy) intermediates: 2-hop and 3-hop joins over edges.
+# twohop has a real join (two scans), so it isn't optimised away like a copy rule would be.
+HOPS = """\
+.decl edge(a:number, b:number)
+.input edge
+.decl twohop(a:number, c:number)
+.decl threehop(a:number, d:number)
+twohop(a, c) :- edge(a, b), edge(b, c).
+threehop(a, d) :- twohop(a, c), edge(c, d).
+.output twohop
+.output threehop
 """
 
 # Recursive transitive closure — exercises the recompute fallback path (still must be correct).
@@ -49,32 +51,37 @@ def main():
         return 0
     ok = True
 
-    # --- non-recursive chain: correctness + incrementality ---
-    h = harness.Harness(CHAIN, incremental=True)
-    h.bootstrap({"base": {("1",), ("2",)}})
-    h.insert({"diff_plus_base": {("5",)}})       # stage one new base fact
+    # --- non-recursive join program: correctness + delta-only incrementality ---
+    base_edges = {("1", "2"), ("2", "3"), ("3", "4")}
+    h = harness.Harness(HOPS, incremental=True)
+    h.bootstrap({"edge": base_edges})
+    h.insert({"diff_plus_edge": {("4", "5")}})   # one new edge
     h.update()
-    got = h.dump(["base", "mid", "top"])
-    diffs = h.dump(["diff_plus_mid", "diff_plus_top"])
-    h.purge(["diff_plus_base", "diff_plus_mid", "diff_plus_top"])
+    got = h.dump(["twohop", "threehop"])
+    diffs = h.dump(["diff_plus_twohop", "diff_plus_threehop"])
+    h.purge(["diff_plus_edge", "diff_plus_twohop", "diff_plus_threehop"])
     h.close()
 
-    want = {k: v for k, v in fresh(CHAIN, {"base": {("1",), ("2",), ("5",)}}).items()
-            if k in ("base", "mid", "top")}
-    for rel in ("base", "mid", "top"):
+    want = fresh(HOPS, {"edge": base_edges | {("4", "5")}})
+    for rel in ("twohop", "threehop"):
         if got.get(rel, set()) != want.get(rel, set()):
-            print(f"  chain FAIL [{rel}]: update={sorted(got.get(rel,set()))} fresh={sorted(want.get(rel,set()))}")
+            print(f"  hops FAIL [{rel}]: update={sorted(got.get(rel,set()))} fresh={sorted(want.get(rel,set()))}")
             ok = False
     if ok:
-        print("  chain: update==recompute ✓")
-    # incrementality (PENDING — 3b-2): once per-stratum delta evaluation lands, diff_plus_mid/top should hold
-    # ONLY the newly-derived tuple {(5,)}, not the whole relation. Today the update recomputes, so the staging
-    # relations are empty here. This is reported, not asserted, until 3b-2 makes it delta-only.
-    dm = sorted(diffs.get("diff_plus_mid", set()))
-    dt = sorted(diffs.get("diff_plus_top", set()))
-    incremental = (diffs.get("diff_plus_mid") == {("5",)} and diffs.get("diff_plus_top") == {("5",)})
-    print(f"  chain delta-only propagation (3b-2 goal): {'YES ✓' if incremental else 'pending'} "
-          f"(diff_plus_mid={dm}, diff_plus_top={dt})")
+        print(f"  hops: update==recompute ✓  (twohop={sorted(got['twohop'])}, threehop={sorted(got['threehop'])})")
+    # delta-only: the staging relations must hold ONLY the newly-derived tuples, not the whole relation.
+    #   new edge (4,5) -> new twohop (3,5)  [edge(3,4),edge(4,5)]
+    #                  -> new threehop (2,5) [twohop(2,4),edge(4,5)]
+    want_dt = {("3", "5")}
+    want_dh = {("2", "5")}
+    if diffs.get("diff_plus_twohop", set()) != want_dt:
+        print(f"  hops NOT delta-only: diff_plus_twohop = {sorted(diffs.get('diff_plus_twohop', set()))} (expected {want_dt})")
+        ok = False
+    if diffs.get("diff_plus_threehop", set()) != want_dh:
+        print(f"  hops NOT delta-only: diff_plus_threehop = {sorted(diffs.get('diff_plus_threehop', set()))} (expected {want_dh})")
+        ok = False
+    if ok:
+        print("  hops: DELTA-ONLY propagation ✓  (diff_plus_twohop={(3,5)}, diff_plus_threehop={(2,5)} — only the new tuples)")
 
     # --- recursive tc: recompute fallback must stay correct ---
     h = harness.Harness(TC, incremental=True)

@@ -47,9 +47,17 @@ harness is part of Phase 3, not deferred to Phase 6.
 - **3b-1 DONE** — `diff_plus_<R>` staging relations + insertion update: merge each staged `diff_plus_<R>` into
   <R>, re-run the strata (monotone append). Correct for insertions; verified `update == recompute`. The driver
   owns staging cleanup (`Harness.purge`). NOT yet incremental — it re-runs all strata.
-- **3b-2 IN PROGRESS** — incremental delta evaluation. First approach (AST-rewrite) hit a blocker; see below.
-  The update stays at the correct 3b-1 recompute until the blocker is resolved; `test_incremental.py` asserts
-  correctness now and reports the delta-only goal as pending.
+- **3b-2 DONE (monotone)** — incremental delta evaluation via RAM-level relation rename (option #2). The
+  `update` evaluates monotone programs incrementally: each non-recursive clause is translated normally, then a
+  `DeltaRewriter` (ram::NodeMapper) emits one version per scan with that scan over `diff_plus` and the insert
+  redirected to `diff_plus_<head>`; the union is the derivations using ≥1 new tuple. Gated on monotonicity
+  (negation makes insertion non-monotone) — non-monotone programs (the engine) keep the 3b-1 recompute.
+  Verified: on a 2-hop/3-hop join program a one-edge insert propagates DELTA-ONLY (diff_plus holds only the
+  new tuples), update == recompute, parity preserved, engine still codegens. The first AST-rewrite approach
+  was abandoned (analyses keyed by qualified name throw on the synthetic relation names — see blocker below).
+  REMAINING for full 3b: recursive strata still recompute (+ conservatively publish full→diff_plus); the
+  diff-seeded recursive fixpoint is the next within-3b step. Then 3c (deletion) is what makes it sound for the
+  engine's negation.
 
 ### Two runtime findings that constrain everything downstream
 1. **A subroutine can't `Call` another** (stratum C++ objects are MAIN-scoped) → the `update` body must inline

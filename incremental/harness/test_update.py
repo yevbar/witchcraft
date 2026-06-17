@@ -55,12 +55,16 @@ def main():
     if ok:
         print(f"  staged insertion: update==recompute ✓  (path={sorted(got.get('path',set()))}; staging cleared)")
 
-    # Case 2: a no-op update (no staged diff) must be idempotent.
+    # Case 2: a no-op update (no staged diff) must be idempotent on the real relations. The driver purges the
+    # staging relations after each update (its contract), so compare excluding diff_plus_*.
+    def real(d):
+        return {k: v for k, v in d.items() if not k.startswith("diff_plus_")}
     h = harness.Harness(TC, incremental=True)
     h.bootstrap({"edge": {("1", "2"), ("2", "3")}})
-    before = h.dump()
+    before = real(h.dump())
     h.update()
-    after = h.dump()
+    h.purge(["diff_plus_edge", "diff_plus_path"])
+    after = real(h.dump())
     h.close()
     if before != after:
         print(f"  idempotent FAIL: before={before} after={after}"); ok = False
