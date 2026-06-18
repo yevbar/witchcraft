@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import engine_native  # reuse _SRC / _edb / _wrapper so the wrapped program matches engine_inproc/engine_native
@@ -42,6 +43,7 @@ _OUTPUTS: list | None = None  # the .output relation names to read back
 _DECLS: list | None = None    # all declared relations (for staging-relation purge)
 _INH: set | None = None       # input+head (SHIM_INPUTS) relations — staged FULL (see _stage)
 _PREV_OUT: dict | None = None  # last result, carried forward and patched per move (dump only CHANGED outputs)
+_STACK: list = []             # branching stack: (loaded, prev_out) snapshots for O(diff) rollback (push/pop)
 _FAILED = False
 
 
@@ -84,12 +86,13 @@ def available() -> bool:
 
 def reset() -> None:
     """Drop the live instance so the next evaluate() bootstraps fresh (e.g. starting a new game / test run)."""
-    global _H, _LOADED, _PREV_OUT
+    global _H, _LOADED, _PREV_OUT, _STACK
     if _H is not None:
         _H.close()
     _H = None
     _LOADED = None
     _PREV_OUT = None
+    _STACK = []
 
 
 def _stage(old: dict, new: dict) -> dict:
@@ -148,6 +151,51 @@ def evaluate(fkey) -> dict:
         _PREV_OUT = out
     _LOADED = new
     return dict(_PREV_OUT)
+
+
+# ── Game-tree search primitives ─────────────────────────────────────────────────────────────────────────────
+# The `update` subroutine is direction-agnostic: staging the INVERSE of a move's diff (its insertions as
+# deletions and vice-versa) rolls the resident relations back to the parent state — byte-identically, and at
+# O(diff) cost, with no full snapshot. That makes the incremental engine a search substrate: from a state, try a
+# move (push), evaluate the child, then roll back (pop) to try the next — exactly what a game-tree search needs.
+# Validated in test_branching.py: every child evaluation and every rollback equals a fresh from-scratch recompute
+# across repeated branches and nested push/pop.
+
+def push(fkey) -> dict:
+    """Apply a move and descend one ply: update to `fkey`'s state, remembering the current state so a matching
+    pop() can roll back to it. Returns the child state's result (same shape as evaluate). The first push from a
+    fresh engine bootstraps the root (and pop() below the root raises). O(diff)."""
+    _STACK.append((_LOADED, _PREV_OUT))  # (None, None) at the root — pop() guards against descending past it
+    return evaluate(fkey)
+
+
+def pop() -> dict:
+    """Ascend one ply: roll back the most recent push() by applying the inverse diff (the parent state restored
+    via the same `update` subroutine), and return the parent's result. O(diff); does not re-dump outputs — the
+    parent's result is restored from the snapshot. Raises if there is no push to undo / already at the root."""
+    global _H, _LOADED, _PREV_OUT
+    if not _STACK:
+        raise RuntimeError("pop() without a matching push()")
+    prev_loaded, prev_out = _STACK.pop()
+    if prev_loaded is None:
+        raise RuntimeError("cannot pop() below the root state")
+    _H.insert(_stage(_LOADED, prev_loaded))  # inverse diff: current -> parent
+    _H.update()
+    _H.purge_staging()
+    _LOADED = prev_loaded
+    _PREV_OUT = prev_out
+    return dict(_PREV_OUT)
+
+
+@contextmanager
+def branch(fkey):
+    """`with branch(child_state) as result:` — push the move, yield the child result, and pop on exit (even on
+    exception). Ergonomic single-ply exploration for search code."""
+    result = push(fkey)
+    try:
+        yield result
+    finally:
+        pop()
 
 
 if __name__ == "__main__":
