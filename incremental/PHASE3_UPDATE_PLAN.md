@@ -163,11 +163,20 @@ out of the body scan, so @iteration must be constant, not body-dependent; (b) in
 re-merge the staged input after emptying and let the guard fire on their own staged diff. Staging convention
 for the driver: pure-input relations stage the DIFF; input+head relations stage the FULL new input.
 
-REMAINING — purely THROUGHPUT now, correctness is done end to end:
-1. **Phase 6 integration + benchmark**: wire `update` into `engine_inproc` (a delta path that stages
-   diff_plus/diff_minus per the convention above, calls executeSubroutine("update"), purges staging) and
-   measure the real states/sec gain vs the current full-recompute delta path. The harness already proves it
-   correct; this makes it the engine's actual evaluation path and quantifies the search-depth payoff.
+**BENCHMARKED (`incremental/harness/bench.py`).** In-process update vs full recompute, both producing
+identical resident relations: ~5x on a tiny state (2 creatures), ~1.38x on a ~30-creature state, roughly
+independent of change locality. The cap is FIXED OVERHEAD, not dirty-set size: (a) the guard evaluates a
+clean-condition over each stratum's dependency diffs for ALL ~250 strata every update; (b) each recomputed
+stratum copies its whole relation (the erase scratch old->diff_minus + the conservative new->diff_plus
+publish). On an already-fast in-process recompute (~0.13ms) that overhead dominates the skip savings; the win
+widens on larger/more-expensive states.
+
+REMAINING — throughput optimization + integration; correctness is done end to end:
+1. **Cheaper dirty signal / guard** (to approach Phase-0 ~3-4x): replace the whole-relation publish with a
+   per-stratum nullary "ran" flag (removes one O(relation) copy per dirty stratum), and make the guard check
+   one flag instead of many emptiness checks.
+2. **Phase 6 integration**: wire `update` into `engine_inproc` as the engine's delta path (stage per the
+   input+head convention, executeSubroutine("update"), purge), so the search actually uses it.
 2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
    monotone strata (uncommon; the engine uses recompute anyway).
 3. Cheaper dirty signal — the conservative whole-relation publish copies the relation to diff each recompute;
