@@ -20,7 +20,24 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > the demo game plays correctly through ~9 engine calls (was 1) and test_nullary (insertion + single-atom
 > deletion) passes.
 >
-> STILL OPEN — **simultaneous deletion of MULTIPLE body atoms of one rule** (general DRed gap, NOT nullary-
+> FIXED — **nullary simultaneous deletion** (generateNullaryOverDelete): a conservative single-candidate
+> over-delete for nullary heads, gated on `NOT ISEMPTY(head) AND NOT ISEMPTY(diff_minus_B)` per body relation;
+> re-derive cleans up. Demo now plays through ~11 engine calls (was 9). test_nullary + test_simultaneous_delete
+> (nullary case) pass.
+>
+> STILL OPEN (two distinct issues):
+> (1) **Data-carrying simultaneous deletion** (test_simultaneous_delete data case). Same DRed gap; the fix is a
+>     conservative over-delete that PROJECTS each head-covering body atom's diff_minus to the head (and falls
+>     back to recompute for cross-product rules where no single atom covers the head).
+> (2) **has_trigger drift at demo step 11 — a PUZZLE worth a fresh look.** The full-resident sequential run
+>     drifts (has_trigger under-derives a tuple that was true and should stay), BUT the ISOLATED single update
+>     (bootstrap step10 → update step11) is CORRECT, and the detector flags no drift before step 11. Ruled out:
+>     dump-only-dirty (full-dump still drifts) and @swap residue (purging @swap still drifts). The remaining
+>     suspect is the @iteration AUX column accumulating differently across sequential updates vs a fresh
+>     fixpoint (the data-only resident comparison can't see it) — possibly perturbing the erase match or the
+>     recursive SCC. Repro saved at /tmp/repro11.pkl.
+>
+> (historical) STILL OPEN — **simultaneous deletion of MULTIPLE body atoms of one rule** (general DRed gap, NOT nullary-
 > specific; test_simultaneous_delete.py). For `H :- B1, B2`, the over-delete is per-atom: the version scanning
 > diff_minus_B1 checks B2 over its CURRENT state. When both B1 and B2 lose their support in one update, each
 > over-delete checks the other AFTER it emptied, so neither fires and H is not retracted. The over-delete must
