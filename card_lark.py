@@ -41,7 +41,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
@@ -56,6 +56,7 @@ oclause: OVERB quant? objall trailer?            -> imperative  // object verbs:
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
+mfeclause: mtgt GETS PTDELTA mdur FOREACH mferest -> boost_foreach  // '<t> gets +N/+N until eot for each <X>' (§107.3)
 
 // deal_damage VARIANTS (the basic dclause abstains on these — they lack a single-token amount before
 // 'damage', or carry an 'equal to <amount>' / 'that much' / 'divided' rider). The discriminator is
@@ -549,6 +550,7 @@ dvamt: (WORD | QUANT | NUM | ZONE | TOPREP | EQUALTO)+   // target-first amount:
 ddivtgt: (WORD | QUANT | NUM | ZONE | TOPREP | EQUALTO)+ // divided targets: run to end (grounded raw, like the regex)
 mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
 mdur: MDUR
+mferest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+   // the 'for each <X>' object span
 gtgt: (WORD | QUANT | NUM)+             // the permanent/player receiving the grant (stops at gains/has/have)
 gkw: WORD (WORD | NUM | QUANT | TOPREP | FROM | ZONE)*   // keyword phrase: first token a plain WORD (so 'gains 3 life' -> pcount, not here)
 csubj: (WORD | QUANT | NUM | ZONE)+     // a player phrase before 'put' (DROPPED — must be a clean player, else abstain)
@@ -1400,6 +1402,10 @@ class _Dur(str):
     pass
 
 
+class _FERest(str):                      # the 'for each <X>' object span of a count-scaled pump (mfeclause)
+    pass
+
+
 class _CSubj(str):
     pass
 
@@ -1758,6 +1764,31 @@ class _ToEffect(Transformer):
         elif perpetual:
             cond = "perpetual"
         return Effect("modify_pt", pt.replace(" ", "").upper(), _target(tgt), "-", cond)   # X stays uppercase
+
+    def mferest(self, *toks):
+        return _FERest(" ".join(str(t) for t in toks))
+
+    def boost_foreach(self, *args):
+        # '<t> gets +N/+N until end of turn for each <X>' — count-scaled pump (§107.3). Reproduce
+        # `_boost_foreach` EXACTLY: digits-only P/T delta, the literal 'until end of turn' duration, and
+        # the '<delta>_per_<slug(X)>' amount with extra='until_end_of_turn'. Abstain on anything the regex's
+        # narrower pattern wouldn't match (an X-delta, a different duration, a compound subject).
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        rest = next((str(a) for a in args if isinstance(a, _FERest)), None)
+        pt = next((str(a) for a in args if isinstance(a, str)
+                   and not isinstance(a, (_Tgt, _Dur, _FERest)) and re.match(r"^[+-]", str(a))), None)
+        if tgt is None or pt is None or rest is None:
+            return None
+        if dur is None or dur.strip().lower() != "until end of turn":
+            return None                        # `_boost_foreach` matches only 'until end of turn'
+        if "x" in pt.lower():
+            return None                        # regex P/T is digits-only ([+-]\d+/[+-]\d+) -> X-deltas abstain
+        t = tgt.strip().lower()
+        if _MULTICLAUSE.search(t) or "," in t:
+            return None                        # mirror boost's subject guards (greedy mtgt over-capture)
+        return Effect("modify_pt", pt.replace(" ", "") + "_per_" + ground.slug(rest.strip()),
+                      _target(t), "until_end_of_turn")
 
     def ccreator(self, *toks):
         return _Creator(" ".join(str(t) for t in toks))
