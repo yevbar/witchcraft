@@ -8,6 +8,19 @@ produce the IDB for `E\E⁻ ∪ E⁺` **without recomputing from scratch**, via 
 **Oracle (unchanged, non-negotiable):** `Update(Bootstrap(E), (E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)`, byte-identical,
 both backends. This is Theorem 3.5 and equals the engine's existing `delta==full` parity test.
 
+> ⚠️ **CORRECTNESS STATUS (critical, found by wiring engine_incremental into a real demo game): the update is
+> NOT yet correct for the full engine.** The `test_engine` oracle (only 2 transitions on simple static states)
+> was far too weak — it missed bugs around NULLARY / disconnected-proposition relations. A real game sequence
+> diverges (a triggered ability silently doesn't fire) because the update mis-handles nullary relations. So the
+> earlier "~1.4x at realistic scale" win was measured on an engine that is INCORRECT for some transitions.
+> Fixed so far: emptiness-guard mis-skip on deletion; over-stripping of positive nullary body atoms; nullary
+> body-atom INSERTION delta (no scan → no version before); nullary-head dedup Break. STILL OPEN: nullary
+> DELETION through a proposition — a query-level emptiness guard on the now-empty ORIGINAL relation, emitted at
+> a deeper RAM/synthesiser layer than the ast2ram guard-strip reaches, skips the over-delete. **The right oracle
+> is a full game byte-identical to engine_inproc (test_engine_incremental drives sequences; test_nullary pins
+> the minimal repro). Correctness must be closed before the speedup means anything.** engine_incremental.py is
+> kept as the experimental harness; it is NOT wired into driver.py until correct.
+
 ## The testability fact that shapes everything
 Phases 0–2b were CLI-testable (one stateless run, diff outputs). Phase 3 is **stateful**: you Bootstrap, then
 call Update with a diff, then read the relations. That requires driving `executeSubroutine("update", …)` over a
