@@ -194,6 +194,33 @@ benchmark_vs_forge("engine", games=10)
 are the differential-fidelity signal — high `modeled` / low `endorsed` means witchcraft *recognizes* the
 board but can't yet *derive* the play, which is the precise place to extend the rules engine.
 
+## ReBeL player (search over public belief states)
+
+`ReBeLPlayer` is a search agent in the style of ReBeL (Brown et al. 2020, arXiv:2007.13544): at each
+decision it solves a **depth-limited CFR subgame over the public belief state** and acts on the resulting
+average (near-equilibrium) strategy. CPU-only, no GPU, no engine changes — it sits entirely on the shim.
+
+```python
+from witchcraft import ReBeLPlayer, RandomPlayer, play
+play({"alice": ReBeLPlayer(worlds=4, iterations=100, depth=3, time_budget=5.0),
+     "bob":   RandomPlayer()})
+```
+
+- **Belief / PBS** — `observe.observe` is the public projection; the belief is `worlds` *determinizations*
+  (full states sampling the opponent's hidden hand/library partition from the known deck). Each is a
+  perfect-information world the engine evaluates exactly — the perfect-info aspect used *inside* the PBS.
+- **Shared infosets** — regrets are keyed by `observe()`-derived infostate, so the acting seat shares one
+  strategy across worlds it can't distinguish (the imperfect-information constraint, for free).
+- **Depth-limited CFR** — the subgame is expanded once per world (the only `env.step` cost), then CFR runs as
+  arithmetic over the cached tree; leaves are scored by `value_fn` (default `heuristic_value`).
+- **`perfect_info=True`** solves the true game (one world) — same machinery, full information.
+- Bounded by `worlds / iterations / depth / action_cap / time_budget`.
+
+The leaf evaluator is the lever: with the naive heuristic and a shallow horizon it plays ~even with random
+(combat damage sits one ply past a depth-2 leaf; depth 3 sees it). Strength comes from replacing the leaf
+with a **trained value function** (ReBeL's value network) — `value_fn=` is the hook, and a small CPU-trained
+net + self-play data generation is the companion piece (`rebel_train`).
+
 ## Variants
 
 ```python
