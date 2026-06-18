@@ -17,11 +17,13 @@ speedup that the (briefly-shipped, unsound) blanket actual-diff staging had:
   (The intermediate FULL-staging-for-ALL-input+head convention was correct but ~0.7x — it re-inflated the whole
   input chain every move; narrowing FULL staging to the recompute set is what recovers the win.)
 
-  CORRECTNESS (Phase 6): the over-delete now enumerates non-empty SUBSETS of the deletable body atoms
-  (generateOverDeleteRules) so SIMULTANEOUS multi-atom deletion is retracted correctly — the long-standing
-  data-carrying xfail (test_simultaneous_delete) is fixed. Perf-NEUTRAL (numbers above hold). Cost: the 2^k-1
-  versions roughly double the generated C++ (~108K lines, ~4 min one-time .so compile); a merge-back
-  implementation (k versions reading old state via a temporary diff_minus re-merge) would avoid the bloat — TODO.
+  CORRECTNESS (Phase 6): SIMULTANEOUS multi-atom deletion is retracted correctly via MERGE-BACK — before the
+  per-atom over-delete, each positive dependency is temporarily restored to its OLD state (current ∪
+  truly-deleted, staged through the dep's @swap scratch) so non-target atoms read old; the union over the k
+  versions = the join over the old database (the exact deletion delta). Fixes the long-standing data-carrying
+  xfail (test_simultaneous_delete). Perf-NEUTRAL (numbers above hold), full closure eligibility (no body-size
+  cap), k versions not 2^k-1. (The interim 2^k-1 subset enumeration was correct but bloated codegen + needed a
+  cap; merge-back supersedes it.)
   REJECTED: precise-publish (expand eligibility to 98% by having recompute strata publish a precise diff) — it is
   correct but a NET PERF LOSS (2.4x->1.7x) + 7 min compile; see incremental/experiments/README.md.
   Two overhead removals lifted it from ~0.97x to ~1.3x at 506 facts (DONE):

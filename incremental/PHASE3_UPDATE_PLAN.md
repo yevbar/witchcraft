@@ -44,15 +44,19 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > re-derive cleans up. Demo now plays through ~11 engine calls (was 9). test_nullary + test_simultaneous_delete
 > (nullary case) pass.
 >
-> ✅ **FIXED (Phase 6) — data-carrying simultaneous deletion** (the (1) below). The over-delete now enumerates
-> every NON-EMPTY SUBSET of a clause's deletable body atoms (generateOverDeleteRules + SubsetDeltaRewriter): the
-> subset's atoms range over their diff_minus, the rest over their current relation; the union over subsets equals
-> the join over the OLD database restricted to ≥1 deletion (the all-deleted-atoms subset reads only diff_minus,
-> so a head losing several body facts at once is caught). Bounded by kOverDeleteAtomCap (6) via
-> computeDeltaEligible — larger bodies recompute, so 2^k-1 stays ≤63 versions. test_simultaneous_delete (nullary
-> AND data) PASS; test_engine PASS; demo byte-identical; perf-NEUTRAL (TAP 2.4x / ADD 2.0x at 506 facts). Cost:
-> ~2x generated C++ (~108K lines, ~4 min one-time compile) — a merge-back impl (k versions over a temporarily
-> re-merged old state) would avoid the bloat (TODO). The old conservative-projection plan below is superseded.
+> ✅ **FIXED (Phase 6) — data-carrying simultaneous deletion** (the (1) below), via MERGE-BACK. Before the
+> per-atom over-delete (generateDeltaRules over diff_minus), each positive dependency is temporarily restored to
+> its OLD state: stage diff_minus_d \ d (the truly-deleted tuples — survivors re-derived by d's own delete are
+> already back in d) into the dep's free @swap_d scratch and merge it in; run the k per-atom versions (non-target
+> atoms now read old); then erase exactly the staged tuples to restore new state. The union over the k versions =
+> the join over the OLD database (the exact deletion delta) — same result as a 2^k-1 subset enumeration but only
+> k versions, so NO codegen blow-up and NO body-size cap (full closure eligibility). A dependency of a
+> delta-eligible stratum is itself eligible (delta) or EDB, so its @swap_d is always free to borrow. Helpers:
+> positiveDeleteDeps + generateSetDifference. All 9 harness tests PASS (incl. test_simultaneous_delete
+> nullary+data, test_engine); demo byte-identical; perf-NEUTRAL (TAP 2.3x / ADD 2.0x at 506 facts).
+> (Interim: a 2^k-1 subset-enumeration impl — generateOverDeleteRules + SubsetDeltaRewriter + kOverDeleteAtomCap —
+> was correct but bloated codegen and needed a body-size cap; merge-back superseded it.) The old
+> conservative-projection plan below is superseded.
 >
 > ❌ **REJECTED (Phase 6) — precise-publish** (have recompute strata publish a precise diff so eligibility jumps
 > to 98% of IDB strata). Correct but a NET PERF LOSS (2.4x→1.7x) + 7 min compile: the 58 unlocked strata are the

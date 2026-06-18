@@ -5,11 +5,11 @@ B2 over its CURRENT state, and vice-versa. When BOTH B1 and B2 lost their suppor
 each over-delete checked the other relation AFTER it had been emptied, so NEITHER version fired and the head was
 never retracted. The over-delete must evaluate the non-target atoms over the OLD state (current ∪ diff_minus).
 
-FIX (generateOverDeleteRules): instead of one version per body atom, enumerate every NON-EMPTY SUBSET of the
-deletable body atoms — the subset's atoms range over their diff_minus, the rest over their current relation. The
-union over subsets equals the join over the OLD database restricted to ≥1 deletion (the exact deletion delta);
-the all-deleted-atoms subset reads only diff_minus relations, so a head losing several body facts at once is
-caught. Bounded to small bodies (kOverDeleteAtomCap) so 2^k-1 stays small; larger bodies recompute.
+FIX (merge-back, generateIncrementalDelete): before the per-atom over-delete, temporarily restore each positive
+dependency to its OLD state (current ∪ truly-deleted, staged via diff_minus_d \ d into the dep's free @swap_d
+scratch) so the per-atom rules read OLD non-target relations. The union over the k versions then equals the join
+over the OLD database (the exact deletion delta) — a head losing several body facts at once is caught. Same
+result as a 2^k-1 subset enumeration but only k versions, so no codegen blow-up and no body-size cap.
 
 The real engine hit it via disconnected propositions like `+disconnected4() :- cast_spell(P,_), cast_ord(P,1)`
 when a spell resolves (both cast_spell and cast_ord clear in one step), and via permanent removal (on_battlefield
