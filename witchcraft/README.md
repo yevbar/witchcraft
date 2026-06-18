@@ -163,6 +163,37 @@ play({"alice": Aggro(), "bob": RandomPlayer(seed=1)}, variant="two-player", seed
 
 (London mulligan resolves with the engine default — keep — before play begins.)
 
+## Benchmarking a heuristic
+
+Drop in a `Player` and measure it. Self-play is fast (no Forge); the seats are swapped every other game and
+`Random` vs `Random` lands at ~0.50, so the win-rate is honest.
+
+```python
+from witchcraft import benchmark, RandomPlayer, Player
+
+class MyBot(Player):
+    def choose_move(self, game): ...
+
+benchmark(MyBot(), games=50)                 # -> {'win_rate': 0.62, 'avg_turns': 14.1, 'games_per_s': 1.4, ...}
+benchmark(MyBot(), RandomPlayer(seed=1))     # vs a fixed-seed baseline
+```
+
+To benchmark **against Forge** (Forge referees — the source of truth — and runs the **mirror**: witchcraft
+reconstructs the board from Forge's observation stream every decision and runs in parallel):
+
+```python
+from witchcraft.benchmark import benchmark_vs_forge
+benchmark_vs_forge("engine", games=10)
+# -> {'bot_win_rate': 0.3, 'avg_turns': 23,
+#     'mirror_modeled_frac': 0.93,   # how much of Forge's real game witchcraft could MODEL
+#     'mirror_endorsed_frac': 0.17,  # how much it could independently ENDORSE as legal (the engine gaps)
+#     'source_of_truth': 'forge', ...}
+```
+
+`benchmark_vs_forge` needs Forge installed and spins up one JVM per game (heavy). The two mirror fractions
+are the differential-fidelity signal — high `modeled` / low `endorsed` means witchcraft *recognizes* the
+board but can't yet *derive* the play, which is the precise place to extend the rules engine.
+
 ## Variants
 
 ```python
