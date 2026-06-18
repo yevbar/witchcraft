@@ -741,6 +741,8 @@ _BCM_REM = re.compile(r"^(?: with [\w, ]+?)?(?: until end of turn)?$", re.I)
 # the clean residue, so abstaining here loses nothing.
 from card_effects import _TGT as _BCM_TGT_SRC
 _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
+# DRAW <N> cards for each <X> — `_draw_foreach`'s exact pattern (count-scaled draw); re-applied to src by pcount.
+_DFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (a card|\w+) cards? for each (.+?)$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1937,6 +1939,14 @@ class _ToEffect(Transformer):
             la = self._lose_abilities_eff(subj, body)   # the subject is a PERMANENT and the body is abilities,
             if la is not None:                 # not a player-count amount -> handle before the player gate
                 return la
+        if verb in ("draw", "draws"):          # DRAW '<N> cards for each <X>' count-scaled amount (§613) —
+            src = getattr(self, "_src", None)  # routes here via PVERB but the body is a per-X amount; reproduce
+            if src is not None and "for each" in src.lower():   # `_draw_foreach` (its own _TGT subject) exactly
+                fm = _DFE_RE.match(src.strip())
+                if fm:
+                    g2 = fm.group(2)
+                    base = "1" if g2 in ("a", "a card") else (str(_amount(g2)) if _amount(g2) is not None else ground.slug(g2))
+                    return Effect("draw", base + "_per_" + ground.slug(fm.group(3)), _target(fm.group(1) or "you"))
         if subj is not None and not _PLAYER.match(subj.strip()):
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
