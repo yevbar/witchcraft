@@ -4,4 +4,5 @@
 	branch = incremental-with-provenance-eager-diffs
 [submodule "third_party/souffle"]
 	path = third_party/souffle
-	url = git@github.com:yevbar/souffle.git
+	url = https://github.com/yevbar/souffle.git
+	branch = elastic-incremental-engine
