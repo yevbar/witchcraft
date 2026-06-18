@@ -16,11 +16,16 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > STAGING of input+head (SHIM_INPUTS) relations is UNSOUND.** Not all input+head relations are delta-eligible:
 > has_trigger depends on a non-eligible relation (loses_abilities via `!loses_abilities`) so it is on the
 > RECOMPUTE path, which swap-clears it and re-merges only `diff_plus` — actual-diff staging dropped its
-> unchanged input facts. Fix: stage the FULL new input for input+head relations (engine_incremental._stage,
-> test_engine, bench). **The earlier "~2.3x at 506 facts" was on this BROKEN engine; the CORRECT engine is ~0.7x
-> at 506 facts** (full-input staging re-inflates the input chain). NEXT (perf): stage actual-diff for ELIGIBLE
-> input+head and full only for the few RECOMPUTE ones — needs the eligibility set plumbed to the driver (and the
-> analyze_delta_eligibility invariant, which wrongly claimed ALL input+head eligible, corrected).
+> unchanged input facts. Fix: stage the FULL new input for input+head relations on the recompute path
+> (engine_incremental._stage, test_engine, bench).
+>
+> ✅ **PERF RECOVERED (Phase 3e) — CORRECT AND FAST.** Blanket FULL-input staging for ALL input+head was correct
+> but ~0.7x (re-inflated the input chain). Narrowing FULL staging to just the RECOMPUTE input+head (21 of 69;
+> read authoritatively from the update RAM's `SWAP (R, @swap_R)`, not the SCC closure which over-predicts
+> eligibility) and giving the other 48 cheap actual-diff staging restores the win WHILE staying byte-identical:
+> TAP 506 facts **2.4x** (10x small-scale), ADD-CREATURE 506 facts **2.0x**, demo still byte-identical (27
+> calls). `engine_incremental._INH = input_and_head & _recompute_relations(src)`; bench/test_engine mirror it;
+> analyze_delta_eligibility now reads the RAM and cross-checks the SCC closure (which mispredicts all 21).
 >
 > (historical) ⚠️ **CORRECTNESS STATUS (critical, found by wiring engine_incremental into a real demo game): the update is
 > NOT yet correct for the full engine.** The `test_engine` oracle (only 2 transitions on simple static states)
