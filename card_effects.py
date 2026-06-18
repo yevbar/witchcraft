@@ -539,16 +539,20 @@ def _put_counter_many(m):
                   ground.slug(m.group(1)) if "/" not in m.group(1) else m.group(1))
 
 
-@_t(rf"^create (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:,? except (?:it has |they have |it's |they're )?(.+?))?$")
+@_t(rf"^(?:({_TGT}) )?creates? (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:,? except (?:it has |they have |it's |they're )?(.+?))?$")
 def _create_copy(m):
-    """'Create [N] token(s) that's a copy of <X>[[,] except <mods>]' — token copy creation (§111/§707).
-    The 'except' clause (added haste, altered P/T/color, granted abilities, 'it's an artifact in addition
-    to its other types', 'it's not legendary') is kept as a faithful slug; the comma before 'except' is
-    optional (both 'copy of that creature except …' and '…, except …' templates occur)."""
-    n = _amount(m.group(1))
+    """'[<player> ]create(s) [N] token(s) that's a copy of <X>[[,] except <mods>]' — token copy creation
+    (§111/§707). An optional creator subject ('Target player creates …', 'You create …') is accepted and a
+    non-you creator recorded in the cond slot, mirroring `_create_token`; subjectless/you stays cond='-' so
+    those groundings are unchanged. The 'except' clause (added haste, altered P/T/color, granted abilities,
+    'it's an artifact in addition to its other types', 'it's not legendary') is kept as a faithful slug; the
+    comma before 'except' is optional (both 'copy of that creature except …' and '…, except …' occur)."""
+    n = _amount(m.group(2))
     amt = n if n is not None else "X"
-    extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
-    return Effect("create", amt, "token", extra)
+    extra = "copy_of_" + _target(m.group(3)) + ("_except_" + ground.slug(m.group(4)) if m.group(4) else "")
+    creator = _target(m.group(1)) if m.group(1) and m.group(1).lower() != "you" else "-"
+    cond = "creator_" + creator if creator != "-" else "-"
+    return Effect("create", amt, "token", extra, cond)
 
 
 @_t(r"^create (a|one|two|three|x|\w+) cop(?:y|ies) of (.+?)(?:, except (.+?))?$")
