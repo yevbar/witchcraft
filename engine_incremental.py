@@ -34,16 +34,19 @@ _H = None                     # the live Harness (one bootstrapped SouffleProgra
 _LOADED: dict | None = None   # {rel: frozenset(rows)} currently resident in the instance
 _OUTPUTS: list | None = None  # the .output relation names to read back
 _DECLS: list | None = None    # all declared relations (for staging-relation purge)
+_INH: set | None = None       # input+head (SHIM_INPUTS) relations — staged FULL (see _stage)
 _PREV_OUT: dict | None = None  # last result, carried forward and patched per move (dump only CHANGED outputs)
 _FAILED = False
 
 
 def _prepare():
     """Compile + bootstrap-free setup: returns the (src, outputs, decls) for the wrapped engine, or None."""
-    global _OUTPUTS, _DECLS
+    global _OUTPUTS, _DECLS, _INH
     rules = engine_native._SRC.read_text()
     _OUTPUTS = re.findall(r"^\.output\s+(\w+)", rules, re.M)
     _DECLS = re.findall(r"^\.decl\s+(\w+)", rules, re.M)
+    heads = set(re.findall(r"^(\w+)\(", rules, re.M))
+    _INH = set(engine_native._edb(rules)) & heads
     return engine_native._wrapper(rules, engine_native._edb(rules))
 
 
@@ -62,15 +65,26 @@ def reset() -> None:
 
 
 def _stage(old: dict, new: dict) -> dict:
-    """Actual-diff staging for every relation: diff_plus_<R> = added rows, diff_minus_<R> = removed rows."""
+    """Stage the input diff. For a pure relation, diff_plus = added rows, diff_minus = removed rows. For an
+    INPUT+HEAD (SHIM_INPUTS) relation, stage diff_plus = the FULL new input: such a relation can be on the
+    RECOMPUTE path (e.g. has_trigger, which depends on a non-eligible relation), where the update swap-clears it
+    and re-merges diff_plus to restore the input — actual-diff staging would lose the unchanged input facts and
+    silently drop them. (Eligible input+head relations process the full diff_plus correctly too, just not as
+    cheaply; correctness over the per-move marshalling cost.)"""
     stage = {}
     for rel in set(old) | set(new):
         added = set(new.get(rel, set())) - set(old.get(rel, set()))
         removed = set(old.get(rel, set())) - set(new.get(rel, set()))
-        if added:
-            stage[f"diff_plus_{rel}"] = added
-        if removed:
-            stage[f"diff_minus_{rel}"] = removed
+        if rel in _INH:
+            if new.get(rel):
+                stage[f"diff_plus_{rel}"] = set(new[rel])
+            if removed:
+                stage[f"diff_minus_{rel}"] = removed
+        else:
+            if added:
+                stage[f"diff_plus_{rel}"] = added
+            if removed:
+                stage[f"diff_minus_{rel}"] = removed
     return stage
 
 

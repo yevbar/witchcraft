@@ -24,6 +24,7 @@ import sys
 
 import engine_native        # compiled-binary backend (subprocess); falls back to the interpreter if unavailable
 import engine_inproc        # in-process compiled engine (ctypes .so, no fork/files); preferred when buildable
+import engine_incremental   # incremental `update` backend (fork --incremental); opt-in via MTG_INCREMENTAL
 import effect_handlers      # pluggable effect verbs (effect_handlers/*.py); _apply_effects dispatches here
 
 _THIS = sys.modules[__name__]   # passed to effect-handler apply fns so they reach driver helpers w/o a cycle
@@ -233,6 +234,11 @@ def _evaluate(fkey: frozenset) -> dict:
     the interpreter; MTG_NO_INPROC forces the subprocess (skips the in-process .so) for A/B comparison."""
     _EVALS[0] += 1
     if not os.environ.get("MTG_NO_NATIVE"):
+        # MTG_INCREMENTAL: the in-process incremental `update` backend (bootstrap once, then stage the input
+        # diff and re-evaluate only the affected strata). Byte-identical to a full recompute (verified on a
+        # full demo game across 27 engine calls); fastest for the sequential, small-diff turn loop.
+        if os.environ.get("MTG_INCREMENTAL") and engine_incremental.available():
+            return engine_incremental.evaluate(fkey)
         if not os.environ.get("MTG_NO_INPROC") and engine_inproc.available():
             return engine_inproc.evaluate(fkey)
         if engine_native.available():

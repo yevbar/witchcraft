@@ -38,6 +38,8 @@ def main():
 
     src = engine_native._wrapper(RULES, engine_native._edb(RULES))
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
+    heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
+    inh = set(engine_native._edb(RULES)) & heads  # input+head (SHIM_INPUTS) — staged FULL
 
     def fd(state):
         return {rel: set(rows) for rel, rows in _facts_key(state)}
@@ -48,17 +50,24 @@ def main():
         s0, s1 = fd(STATES[i]), fd(STATES[j])
         h = harness.Harness(src, incremental=True)
         h.bootstrap(s0)
-        # Stage the ACTUAL diff for every relation, input+head included: all input+head (SHIM_INPUTS) relations
-        # are delta-eligible, so the update never empties them and never needs the full input re-merged — the
-        # delta path applies the diff in place. (Full-input staging was only needed for the recompute path.)
+        # Stage the input diff. Pure relations get the actual diff; an INPUT+HEAD relation gets the FULL new
+        # input in diff_plus, because it can be on the recompute path (it depends on a non-eligible relation),
+        # where the update swap-clears it and re-merges diff_plus — actual-diff staging would lose the unchanged
+        # input facts (the has_trigger bug). See engine_incremental._stage.
         stage = {}
         for rel in set(s0) | set(s1):
             p = s1.get(rel, set()) - s0.get(rel, set())
             m = s0.get(rel, set()) - s1.get(rel, set())
-            if p:
-                stage[f"diff_plus_{rel}"] = p
-            if m:
-                stage[f"diff_minus_{rel}"] = m
+            if rel in inh:
+                if s1.get(rel):
+                    stage[f"diff_plus_{rel}"] = set(s1[rel])
+                if m:
+                    stage[f"diff_minus_{rel}"] = m
+            else:
+                if p:
+                    stage[f"diff_plus_{rel}"] = p
+                if m:
+                    stage[f"diff_minus_{rel}"] = m
         h.insert(stage)
         h.update()
         h.purge([f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls])

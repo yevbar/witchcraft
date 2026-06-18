@@ -8,7 +8,21 @@ produce the IDB for `E\E⁻ ∪ E⁺` **without recomputing from scratch**, via 
 **Oracle (unchanged, non-negotiable):** `Update(Bootstrap(E), (E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)`, byte-identical,
 both backends. This is Theorem 3.5 and equals the engine's existing `delta==full` parity test.
 
-> ⚠️ **CORRECTNESS STATUS (critical, found by wiring engine_incremental into a real demo game): the update is
+> ✅ **CORRECTNESS — the incremental update is now byte-identical to a full recompute across an entire real
+> demo game (27 engine calls), and the demo plays byte-identically through driver.py with MTG_INCREMENTAL=1.**
+> The marathon of bugs (all found by wiring engine_incremental into the demo) is closed. Root causes, in order
+> of discovery: (a) `apply`-visits-children-not-self in the guard-stripper / nullary rewriter; (b) nullary
+> simultaneous deletion (conservative single-candidate over-delete); (c) **the decisive one — ACTUAL-DIFF
+> STAGING of input+head (SHIM_INPUTS) relations is UNSOUND.** Not all input+head relations are delta-eligible:
+> has_trigger depends on a non-eligible relation (loses_abilities via `!loses_abilities`) so it is on the
+> RECOMPUTE path, which swap-clears it and re-merges only `diff_plus` — actual-diff staging dropped its
+> unchanged input facts. Fix: stage the FULL new input for input+head relations (engine_incremental._stage,
+> test_engine, bench). **The earlier "~2.3x at 506 facts" was on this BROKEN engine; the CORRECT engine is ~0.7x
+> at 506 facts** (full-input staging re-inflates the input chain). NEXT (perf): stage actual-diff for ELIGIBLE
+> input+head and full only for the few RECOMPUTE ones — needs the eligibility set plumbed to the driver (and the
+> analyze_delta_eligibility invariant, which wrongly claimed ALL input+head eligible, corrected).
+>
+> (historical) ⚠️ **CORRECTNESS STATUS (critical, found by wiring engine_incremental into a real demo game): the update is
 > NOT yet correct for the full engine.** The `test_engine` oracle (only 2 transitions on simple static states)
 > was far too weak — it missed bugs around NULLARY / disconnected-proposition relations. A real game sequence
 > diverges (a triggered ability silently doesn't fire) because the update mis-handles nullary relations. So the

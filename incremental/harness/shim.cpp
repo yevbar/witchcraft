@@ -62,12 +62,13 @@ static void insert_blob(SouffleProgram* p, const char* facts) {
 // Serialize a set of relations as TSV, DATA columns only (getArity() includes the @count/@iteration
 // auxiliary columns; getAuxiliaryArity() is how many trailing columns to drop). Comparing data columns is
 // the oracle: incremental state and a fresh recompute must agree on the derived facts, not on internal aux.
+static bool g_include_aux = false;  // debug: include the @iteration aux column(s) in dumps
 static char* serialize(SouffleProgram* p, const std::vector<Relation*>& rels) {
     std::string out;
     for (Relation* r : rels) {
         if (r == nullptr) continue;
         const std::string name = r->getName();
-        size_t arity = r->getArity() - r->getAuxiliaryArity();
+        size_t arity = g_include_aux ? r->getArity() : (r->getArity() - r->getAuxiliaryArity());
         for (auto& tup : *r) {
             out += name;
             for (size_t k = 0; k < arity; k++) {
@@ -88,6 +89,7 @@ static char* serialize(SouffleProgram* p, const std::vector<Relation*>& rels) {
 
 extern "C" {
 
+void h_set_aux(int on) { g_include_aux = (on != 0); }  // debug toggle for aux columns in dumps
 void* h_create(const char* name) { return (void*) ProgramFactory::newInstance(std::string(name)); }
 void h_destroy(void* h) { delete (SouffleProgram*) h; }
 void h_free(char* s) { free(s); }
