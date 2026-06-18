@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -198,6 +198,31 @@ xtbody: (WORD | QUANT | NUM)+                                                // 
 // on a compound/run-on object. exile(-, _target(obj), 'until_self_leaves'). NEGATIVE priority.
 xlclause.-2: EXILE xlobj XLEAVES             -> exileuntil
 xlobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+                          // the object NP (validated _TGT)
+
+// RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
+// existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
+// 'to its owner's hand' / 'their owners' hands' destination, so the object span greedily swallows it ->
+// abstain). We mirror the EXACT `_bounce` (`^return (_TGT) to (its owner's hand|your hand|their owners'
+// hands?|its owner's hands?)$`) and `_regrowth` (`^return (_TGT) from your graveyard to your hand$`)
+// templates. The distinctive trailing RETHAND terminal IS the structural marker — it anchors the
+// owner-hand destination at clause end; the transformer slices the object span out of `self._src` between
+// the leading 'return[s] ' verb and RETHAND (byte-identical slug, never a re-joined approximation) and
+// splits a trailing 'from <zone>' SOURCE off the object into extra (the faithful-replacement convention,
+// object stops at 'from' — identical to `_bounce`). A leading PLAYER subject ('<player> returns <obj> …',
+// the `_return_zone` subject-first shape) is allowed and dropped exactly as that template drops it. The
+// object is gated ONLY by `_is_compound_object` (NOT `_TGT`): `_bounce` needs a `_TGT`, but `_return_zone`
+// — which runs after `_bounce` and yields the SAME tuple — accepts any non-compound object via its
+// `(.+?)`, so a §107.3 X-count / 'up to N' / 'all' / 'those' / 'it' / 'a card' / a card-name object all
+// ground faithfully. `_is_compound_object` abstains a run-on EFFECT compound (' and '/' then ' + predicate),
+// but a NOUN conjunction ('A and B' both nouns) is NOT compound and DOES ground. Comma lists / multi-'to'
+// clauses are deferred up front by `_ret_ambiguous`. POSITIVE rule priority (2): the generic `rclause`/`ret`
+// ALSO parses these
+// (its `robj` greedily swallows the owner-hand destination, then returns None on the singular forms or
+// grounds via `zonephrase` on 'to its owner's hand') — so `rhclause` must WIN the Earley forest to ground
+// the plural 'their owners' hands' that `rclause` misses. On the singular overlap ('to its owner's hand'/
+// 'to your hand') `rhclause` reproduces `rclause`'s `_bounce` tuple byte-identically, so winning is inert.
+rhclause.2: rhbody RETHAND                    -> rethand
+rhbody: (RVERB | WORD | QUANT | NUM | ZONE | FROM | TOPREP | EQUALTO)+   // 'return[s] [<subject>] <object> [from <zone>]' (RVERB: the leading 'return' string terminal; value unused; sliced from src)
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -428,6 +453,13 @@ robj: (WORD | ZONE | EQUALTO)+          // return object stops at from/to; 'equa
 objall: (WORD | TOPREP | ZONE | FROM | EQUALTO)+   // object verbs: 'equal to' stays content ('destroy each … equal to N')
 
 RVERB: "return"
+// RETHAND — the distinctive trailing owner-hand destination of the §614 bounce (`_bounce`/`_regrowth`).
+// Matches EXACTLY the destinations those templates accept ('its owner's hand', 'your hand', "their
+// owners' hands", 'its owner's hands') anchored at clause end ($). High priority (.5) so it wins the
+// 'to'/'hand'/possessive tokens away from WORD/ZONE/TOPREP, forcing the object/destination split the
+// generic `rclause` can't make. Anchored to end -> a trailing rider ('… at the beginning of …') leaves
+// the regex `_return_zone` to own it (no parse here -> abstain), faithful to `_bounce`'s own `…$`.
+RETHAND.5: /\bto (?:its owner's|your|their owners'|their owner's|their|his or her) hands?/
 OVERB: %(verbs)s
 CVERB.3: /\bcreates?\b/
 CCOUNT.3: /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)\b/
@@ -744,6 +776,18 @@ def _am_upper_syms(s: str) -> str:
 # `_TGT`). A half outside `_TGT` ('… to Sokka') or no viable split ('…attached to a creature to another
 # creature') abstains -> the whole-object `_generic_object_verb` form to the regex. No structural regex.
 _AT_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
+
+# RETURN_TO_HAND (rhclause). `_RH_SUBJ` is the optional leading PLAYER subject ('<player> returns <obj> …'
+# — the `_return_zone` subject-first shape), the family-shared closed `_PLAYER` allow-list; it is DROPPED
+# exactly as `_return_zone`'s `(?:_TGT )?` prefix drops it. The object itself is gated ONLY by
+# `_is_compound_object` (no `_TGT` requirement): `_bounce` requires a `_TGT`, but `_return_zone` (which
+# runs after `_bounce` and produces the SAME tuple) accepts any non-compound object via its `(.+?)` —
+# so a non-`_TGT` clean object like 'a card' / a card name still grounds, faithful to `_return_zone`.
+# `_RH_FROM` splits a trailing 'from <…> graveyard/battlefield/exile/hand/library' SOURCE off the object
+# (object stops at 'from'), byte-identical to `_bounce`/`_return_zone` (here including 'battlefield' as
+# `_bounce` does, so a 'from a graveyard'/'from the battlefield' source folds to from_<zone>).
+_RH_SUBJ = _PLAYER
+_RH_FROM = re.compile(r"\bfrom [\w' ]+? (graveyard|battlefield|exile|hand|library)$", re.I)
 
 # TRANSFORM — the exact mirror of DOUBLE. The generic object-verb leaf grounds 'transform <object>' as
 # transform(-, slug(<object>)); precedence is `_verb_target` (`^(\w+) (<_TGT>)$`, _target, article kept)
@@ -1082,6 +1126,10 @@ class _AsNum(str):     # amass count token (asnum) — validated against the tem
 
 
 class _CpBody(str):    # the flat 'copy …' object run (value unused; the object is sliced from src like _DbBody)
+    pass
+
+
+class _RhBody(str):    # the flat 'return[s] [<subj>] <obj> [from <zone>]' run (value unused; sliced from src like _CpBody)
     pass
 
 
@@ -2336,6 +2384,44 @@ class _ToEffect(Transformer):
         if not m or _is_compound_object(m.group(1)):
             return None
         return Effect("exile", "-", _target(m.group(1)), "until_self_leaves")
+
+    # --- RETURN_TO_HAND (§614 bounce) -----------------------------------------
+    def rhbody(self, *toks):
+        return _RhBody(" ".join(str(t) for t in toks))   # value unused; presence consumes the run
+
+    def rethand(self, *args):
+        # 'Return [<player>] <object> [from <zone>] to <owner>'s hand' -> return_to_hand(-, _target(<obj>),
+        # <from_<zone>|->) — the EXACT `_bounce`/`_regrowth`/`_return_zone` templates. The RETHAND terminal
+        # (the trailing 'to <owner-poss> hand[s]' destination) is already split off by the grammar; we slice
+        # the body out of `self._src` after the leading 'return[s] ' verb (byte-identical slug, never a
+        # re-joined approximation, like `copyverb`), drop an optional leading PLAYER subject (`_RH_SUBJ`,
+        # exactly as `_return_zone`'s `(?:_TGT )?` does), then split a trailing 'from <zone>' SOURCE off the
+        # object into extra (object stops at 'from'). Grounds ONLY when the object is a clean `_TGT`
+        # (`_RH_TGT`) and not an `_is_compound_object` run-on EFFECT compound; a NOUN conjunction ('A and B',
+        # both nouns) is NOT compound and DOES ground. Anything else abstains to the regex — NO slug fallback.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        # split at the 'return[s]' verb so a leading PLAYER subject ('<player> returns <obj> …', the
+        # `_return_zone` subject-first shape) is dropped exactly as that template's `(?:_TGT )?` prefix does.
+        m = re.match(r"^(.*?)returns? (.+) to (?:its owner's|your|their owners'|their owner's|their|his or her) hands?$",
+                     src.strip(), re.I)
+        if not m:
+            return None
+        subj = m.group(1).strip()
+        if subj and not _RH_SUBJ.match(subj):
+            return None                            # a leading lead-in that isn't a clean PLAYER -> regex owns it
+        body = m.group(2).strip()
+        # split a trailing 'from <…> graveyard/battlefield/exile/hand/library' SOURCE off the object.
+        obj = body
+        extra = "-"
+        fm = _RH_FROM.search(obj)
+        if fm:
+            obj = obj[:fm.start()].strip()
+            extra = "from_" + fm.group(1).lower()
+        if not obj or _is_compound_object(obj):
+            return None                            # empty / run-on EFFECT compound -> regex owns it
+        return Effect("return_to_hand", "-", _target(obj), extra)
 
     # --- MUST_ATTACK / MUST_BLOCK (§508/§509) ---------------------------------
     def mrbody(self, *toks):

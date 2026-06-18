@@ -235,9 +235,9 @@ def _to_hand(m):
     return Effect("return_to_hand", "-", _target(m.group(1)))
 
 
-@_t(rf"^return ({_TGT}) from your graveyard to your hand$")
-def _regrowth(m):
-    return Effect("return_to_hand", "-", _target(m.group(1)), "from_graveyard")
+# _regrowth: migrated to card_lark (`rhclause`, the from-graveyard hand-return split into extra). lark-first
+# grounds it IDENTICALLY (migrate_check return_to_hand DIFFERS=0); RETIRED, proven byte-identical by a
+# full-corpus parse_clause snapshot with it removed.
 
 
 # _exile_top: migrated to card_lark (`xtclause` — EXILE + body + XLIB terminal, re-applies this template's
@@ -323,19 +323,11 @@ def _taputap(m):
     return Effect(m.group(1).lower(), "-", _target(m.group(2)))
 
 
-@_t(rf"^return ({_TGT}) to (?:its owner's hand|your hand|their owners' hands?|its owner's hands?)$")
-def _bounce(m):
-    """'Return <X> [from <source>] to <owner>'s hand' — a §614 hand return. A trailing source zone on the
-    object ('from a graveyard', 'from the battlefield') is split off into extra as 'from_<zone>' (the
-    faithful-replacement convention — the object stops at 'from'), so the same bounce collapses to one
-    shape regardless of where the source clause sits."""
-    obj = m.group(1)
-    src = "-"
-    sm = re.search(r"\bfrom [\w' ]+? (graveyard|battlefield|exile|hand|library)$", obj, re.I)
-    if sm:
-        obj = obj[:sm.start()].strip()
-        src = "from_" + sm.group(1).lower()
-    return Effect("return_to_hand", "-", _target(obj), src)
+# _bounce: migrated to card_lark (`rhclause`/`rethand` — the RETHAND owner-hand destination terminal +
+# object slice from src + trailing 'from <zone>' source split). lark-first grounds it IDENTICALLY
+# (migrate_check return_to_hand DIFFERS=0); RETIRED, proven byte-identical by a full-corpus parse_clause
+# snapshot with it removed. The generic `_return_zone` (other destinations / reversed phrasing / comma
+# lists / trailing-rider hand returns) stays — `rhclause` deliberately abstains on those.
 
 
 _RET_DEST = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
