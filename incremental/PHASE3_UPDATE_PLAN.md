@@ -308,12 +308,21 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   the already-delta-input-optimized engine_inproc. Correctness holds across real + synthetic sequences
   (test_engine_incremental). engine_incremental.py is the production-shaped driver; wiring it into driver.py
   behind a flag is the remaining plumbing.
-- **NEXT levers (in priority order):** (1) the 400cr super-linear update cost (the win shrinks past ~realistic
-  scale) — the remaining INDEX/TREE frontier: profile which join/aggregate in the update goes super-linear
-  (likely a recompute aggregate that is O(n^2), or a missing index on an aux-bearing relation), and fix the
-  index selection. (2) the aux columns (@count reserved/unused, @iteration) widen every tuple — drop where
-  unused to shrink the per-tuple tax further. (3) wire engine_incremental into driver.py behind a flag so sims
-  use it. (4) aggregate-delta for the recompute strata — the logical-work frontier for going beyond ~1.5x.
+- **DONE — dropped the dead @count aux column** (1 aux instead of 2). @count was always 1 and never read;
+  removing it narrows every tuple. ~19% faster update at 400cr (where the per-tuple tax bit hardest), neutral
+  at realistic ~500-fact scale. All oracles pass. Profiling also localized the dominant cost: `cond_met` (an
+  aggregate+negation stratum joining `controls(P,S), controls(P,X), has_type(...)`) is the hot rule, recomputed
+  every move; it scans the eligible (BTREE_DELETE+aux) relations `controls`/`has_type`. inproc stays ~linear
+  (compiled index pushdown), but the update's per-tuple tax compounds → the update goes ~O(n^1.7) past
+  realistic scale.
+- **NEXT levers (in priority order):** (1) **aggregate-delta** for the recompute strata — `cond_met` and the
+  other aggregate strata are recomputed in full every move and dominate the cost; making them incremental is
+  the only way past ~1.4x AND it fixes the super-linear scaling (the dominant rule stops being recomputed). The
+  hard logical-work frontier, but now clearly the top lever. (2) reduce the BTREE_DELETE scan tax on eligible
+  relations that are heavily READ by recompute strata (e.g. `controls`/`has_type`) — they need erase but pay
+  the slower-btree scan tax always; a fast-btree main + deletion via swap-clear-on-deletion hybrid could help.
+  (3) wire engine_incremental into driver.py behind a flag so sims use the 1.4x. (4) diff-driven negation-delta
+  (deprioritized — same outer-scan obstacle as positive delta, which was neutral).
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
