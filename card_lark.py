@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -229,6 +229,13 @@ fesubj: (WORD | QUANT | NUM)+                                                // 
 // `_kwaction_n` catch-all stays). Count restricted to the template's (\d+|one..five|x) set.
 kwnclause.-2: KWACTION_N kwnnum               -> kwaction_n
 kwnnum: NUM | QUANT                                                          // the count ('2'/'x'); validated
+
+// INTRANSITIVE KEYWORD ACTIONS (§701.x) — '[<subject>] investigate[s]/explore[s]/proliferate[s]' (the
+// shared `_bare_action` bare-form + `_subject_action` subject-form leaves, for these distinctive verbs).
+// KVINTRANS terminal + optional leading subject SPAN -> <verb>(-, _target(subject|you)); the 3rd-person
+// 's' is stripped to the keyword-action base exactly as `_subject_action` does. FLIP-ONLY (catch-alls stay).
+kviclause.-2: kvisubj? KVINTRANS              -> kvintrans
+kvisubj: (WORD | QUANT | NUM)+                                               // optional actor (validated _TGT)
 
 // RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
 // existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
@@ -545,6 +552,7 @@ GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
+KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?)\b/   // intransitive §701 keyword actions (distinctive)
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -1222,6 +1230,10 @@ class _FeSubj(str):    # the 'fight each other' subject span (fesubj) — valida
 
 
 class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — validated (\d+|one..five|x)
+    pass
+
+
+class _KviSubj(str):   # the intransitive-keyword-action subject span (kvisubj) — validated _TGT, dropped to target
     pass
 
 
@@ -2510,6 +2522,27 @@ class _ToEffect(Transformer):
             return None
         n = _amount(str(num).strip())
         return Effect(v, n if n is not None else "-", "you")
+
+    # --- INTRANSITIVE KEYWORD ACTIONS (investigate/explore/proliferate) -------
+    def kvisubj(self, *toks):
+        return _KviSubj(" ".join(str(t) for t in toks))
+
+    def kvintrans(self, *args):
+        # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
+        # <verb>(-, _target(subject|you)). The 3rd-person 's' is stripped to the keyword-action base exactly
+        # as `_subject_action` does (slug as-is if a keyword action, else strip trailing 's'). Subject _TGT or abstain.
+        tok = next((str(a) for a in args if getattr(a, "type", None) == "KVINTRANS"), None)
+        subj = next((a for a in args if isinstance(a, _KviSubj)), None)
+        if tok is None:
+            return None
+        v = ground.slug(tok)
+        if v not in ground.keyword_actions():
+            v = v.rstrip("s")
+            if v not in ground.keyword_actions():
+                return None
+        if subj is not None and not _AT_TGT.match(str(subj).strip()):
+            return None
+        return Effect(v, "-", _target(str(subj).strip()) if subj is not None else "you")
 
     # --- COPY (§707) ----------------------------------------------------------
     def cpbody(self, *toks):
