@@ -1,0 +1,16 @@
+# Mono-White Soldiers — 40-card limited-style pool
+# Deliberately simple: vanilla Soldiers (no abilities) + a few Angels whose only ability is flying.
+# Everything here is fully interpreted by the engine (no untranslated text).
+2 Eager Cadet
+3 Elite Vanguard
+2 Devoted Hero
+2 Glory Seeker
+2 Squire
+2 Alaborn Trooper
+2 Bastion Enforcer
+2 Border Guard
+1 Shu Elite Infantry
+1 Foot Soldiers
+2 Tormented Angel
+2 Starlit Angel
+17 Plains
