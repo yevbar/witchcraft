@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -236,6 +236,13 @@ kwnnum: NUM | QUANT                                                          // 
 // 's' is stripped to the keyword-action base exactly as `_subject_action` does. FLIP-ONLY (catch-alls stay).
 kviclause.-2: kvisubj? KVINTRANS              -> kvintrans
 kvisubj: (WORD | QUANT | NUM)+                                               // optional actor (validated _TGT)
+
+// EXCHANGE (§701.10) — 'exchange <object>' (the generic object-verb leaf; exchange IS in `_OBJ_VERBS`, so
+// like `dbl`/double it grounds via the slug leaf). The EXACT mirror of `dbl`: slice the object from src
+// after 'exchange ' (byte-identical slug), apply the leaf's `_DB_OBJ_BAD`/`_is_compound_object` guards, and
+// reproduce the _TGT-keeps-article / else-slug grounding. FLIP-ONLY (shared catch-all stays).
+excclause.-2: EXCHANGE excbody               -> exchangeverb
+excbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> excbody
 
 // RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
 // existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
@@ -552,7 +559,8 @@ GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
-KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?)\b/   // intransitive §701 keyword actions (distinctive)
+KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?|connives?)\b/   // intransitive §701 keyword actions (distinctive)
+EXCHANGE.3: /\bexchange\b/   // 'exchange <object>' — §701.10 exchange verb (in _OBJ_VERBS; mirrors DB_DOUBLE)
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -1234,6 +1242,10 @@ class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — va
 
 
 class _KviSubj(str):   # the intransitive-keyword-action subject span (kvisubj) — validated _TGT, dropped to target
+    pass
+
+
+class _ExcBody(str):   # the flat 'exchange …' object run (value unused; object sliced from src like _DbBody)
     pass
 
 
@@ -2543,6 +2555,26 @@ class _ToEffect(Transformer):
         if subj is not None and not _AT_TGT.match(str(subj).strip()):
             return None
         return Effect(v, "-", _target(str(subj).strip()) if subj is not None else "you")
+
+    # --- EXCHANGE (§701.10) ---------------------------------------------------
+    def excbody(self, *toks):
+        return _ExcBody(" ".join(str(t) for t in toks))   # value unused; the object is sliced from src
+
+    def exchangeverb(self, *args):
+        # 'exchange <object>' -> exchange(-, slug(<object>)) — the EXACT mirror of `dbl` (exchange IS in
+        # `_OBJ_VERBS`, so the generic slug leaf grounds it): slice the object from src after 'exchange ',
+        # apply the leaf's `_DB_OBJ_BAD`/`_is_compound_object` guards, reproduce _TGT-keeps-article / else-slug.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = re.match(r"^exchange (.+)$", src.strip(), re.I)
+        if not m:
+            return None
+        rest = m.group(1)
+        if _DB_OBJ_BAD.search(rest) or _is_compound_object(rest):
+            return None
+        tgt = _target(rest) if _DB_TGT.match(rest) else ground.slug(rest)
+        return Effect("exchange", "-", tgt)
 
     # --- COPY (§707) ----------------------------------------------------------
     def cpbody(self, *toks):
