@@ -10,7 +10,9 @@ fuzzes the delta/merge-back/negation-delta/recompute machinery against the recom
 the curated tests don't reach. Deterministic per seed, so any divergence is reproducible (it prints the seed,
 step, mutation, and diverging relations).
 
-Slow on first run (compiles the engine once); skips cleanly if the toolchain can't build.
+Defaults to 8 seeds x 40 mutations (320 differential checks) as a regression test; FUZZ_SEEDS / FUZZ_STEPS
+env vars scale it up for a stress pass (a 20x100 = 2000-check run is clean). Slow on first run (compiles the
+engine once); skips cleanly if the toolchain can't build.
 """
 
 import random
@@ -136,8 +138,9 @@ def main():
     def purge(h):
         h.purge([f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls])
 
-    SEEDS = range(8)
-    STEPS = 40
+    import os
+    SEEDS = range(int(os.environ.get("FUZZ_SEEDS", "8")))
+    STEPS = int(os.environ.get("FUZZ_STEPS", "40"))
     ok = True
     for seed in SEEDS:
         rng = random.Random(seed)
