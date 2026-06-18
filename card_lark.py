@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -88,6 +88,15 @@ tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'cre
 // post-P/T span is captured raw and the regex's non-greedy g3 (type tail) is reconstructed exactly
 // in the transformer (`_bcm_g3`) — the 'with <kw>' and a trailing 'until end of turn' are stripped.
 bcmclause: bcmtgt BCM_COP quant? BCM_PT bcmtail?   -> bcmbecomes
+
+// BECOMES <color> (§105/§613) — '<subj> becomes/is <basic-color> [in addition to its other colors] [until
+// end of turn]' (the `_becomes_color` template, the literal-color slice). The COLOR terminal GREEDILY
+// includes the two optional riders, so a compound ('becomes white and gains flying') does NOT parse as
+// this production (COLOR stops at 'white', the clause has leftover -> no parse) — that avoids the
+// body-splitter coupling. The transformer re-matches src against `_becomes_color`'s exact pattern (subj
+// via _target, color via ground.slug) for byte-identity; 'the color of your choice' is NOT in COLOR, so it
+// defers to `_becomes_choice`. NEGATIVE priority.
+bccclause.-2: bcmtgt BCM_COP COLOR                 -> bccolor_v
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -576,6 +585,7 @@ THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
+COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 DIVIDED.4: /\bdivided as you choose among\b/
 THATMUCH.4: /\bthat much\b/
@@ -682,6 +692,9 @@ _BCM_REM = re.compile(r"^(?: with [\w, ]+?)?(?: until end of turn)?$", re.I)
 # the clean residue, so abstaining here loses nothing.
 from card_effects import _TGT as _BCM_TGT_SRC
 _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
+# BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
+# omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
+_BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2207,6 +2220,23 @@ class _ToEffect(Transformer):
 
     def bcmtgt(self, *toks):
         return _BcmTgt(" ".join(str(t) for t in toks))
+
+    def bccolor_v(self, *args):
+        # '<subj> becomes/is <basic-color> [in addition to its other colors] [until end of turn]' — the
+        # EXACT `_becomes_color` template: becomes(-, _target(subj), ground.slug(color)). Re-match src
+        # against the template's own pattern (literal-color slice, 'the color of your choice' excluded so it
+        # defers to `_becomes_choice`); a non-match (compound, type word) abstains to the regex.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        if _is_compound_object(src.strip()):
+            return None                            # a run-on '<subj> gains X and becomes <color>' — an earlier
+            # template (grant_keyword) wins in the regex chain; abstain so the greedy `_TGT` can't swallow the
+            # preceding effect into a garbage subject. Defer to the regex (byte-identical).
+        m = _BCC_RE.match(src.strip())
+        if not m:
+            return None
+        return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
 
     def bcmtail(self, *toks):
         return _BcmTail(" ".join(str(t) for t in toks))    # value unused; presence consumes the span
