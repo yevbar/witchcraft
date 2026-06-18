@@ -122,6 +122,27 @@ Option 1 or 2 is likely the least code; 1 reuses the most machinery if the empty
   the full relations**, and accumulate newly-derived tuples into `diff_plus_<IDB>`. Gate: insertion-only
   deltas, `update==recompute`. (Phase 0: only ~14% of moves are insertion-only, but this is the tractable
   half and exercises the whole pipeline.)
+### 3c progress (deletion) — scaffold landed, blocked on erase-over-aux-relations
+The DRed-style deletion code is in (dormant, not wired into `update`): `diff_minus_<R>` relations,
+`generateEraseAll` (arity+2 erase), `generateIncrementalDelete` (over-delete candidates → erase → re-derive
+survivors), and `DeltaRewriter` generalized with a scan prefix (`diff_minus_` for over-deletion). It is NOT
+active because **erase does not compose with the auxiliary columns**:
+- `ram::Erase` compiles to `relation->erase(tuple)`, which only exists on the deletion-capable btree
+  (`RelationRepresentation::BTREE_DELETE`), not the default btree.
+- Forcing `BTREE_DELETE` in `createRamRelation` is ignored: `synthesiser/Relation.cpp` routes ANY relation
+  with `auxiliaryArity > 0` (all of ours, due to `@count`/`@iteration`) through `DirectRelation(..., isDelete=
+  false)`, dropping the delete capability.
+- Patching that branch to honor `BTREE_DELETE` for aux relations then fails deeper: the generated
+  `btree_set` for an aux relation (with the aux comparator/updater) has no `erase` member — the delete-enabled
+  btree and the auxiliary-column machinery don't compose in the data-structure layer.
+**Unblock options for next iteration:** (a) make the aux relation use the genuine delete-enabled btree type
+(may need a `btree_delete` variant that carries the aux updater); (b) avoid erase entirely — implement
+deletion by REBUILDING the relation (compute survivors into a temp, swap), or have the driver patch the EDB
+(purge + reinsert survivors) and run a recompute update for strata with deletions; (c) drop the auxiliary
+columns from the relations that must be erased (keep @count/@iteration only where needed). Option (b)
+(driver-patch-EDB + recompute on deletion) is the lowest-risk correct path; erase-based incremental deletion
+is the optimization.
+
 - **3c — DELETION + re-discovery (the real win).** Seed @delta⁻ from `diff_minus`; propagate candidate
   deletions; for each candidate, use **re-discovery** (backward evaluation via the provenance infra, the
   `--provenance` substrate) to check for a surviving alternative derivation (the multi-support case — the toy
