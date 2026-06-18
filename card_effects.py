@@ -240,11 +240,9 @@ def _regrowth(m):
     return Effect("return_to_hand", "-", _target(m.group(1)), "from_graveyard")
 
 
-@_t(r"^exile the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$")
-def _exile_top(m):
-    n = _amount(m.group(1)) if m.group(1) else 1
-    owner = "library" if m.group(2).lower() == "your" else "top_of_" + ground.slug(m.group(2)) + "_library"
-    return Effect("exile", n, "top_of_library" if m.group(2).lower() == "your" else owner) if n is not None else None
+# _exile_top: migrated to card_lark (`xtclause` — EXILE + body + XLIB terminal, re-applies this template's
+# own regex to the captured span). lark-first grounds it IDENTICALLY (migrate_check exile DIFFERS=0);
+# RETIRED, proven byte-identical by a full-corpus parse_clause snapshot with it removed.
 
 
 @_t(r"^reveal the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$")
@@ -1126,9 +1124,9 @@ def _reanimate_put(m):
     return Effect("return_to_battlefield", "-", _target(m.group(1)), extra)
 
 
-@_t(rf"^exile ({_TGT}) until ~ leaves the battlefield$")
-def _exile_until(m):
-    return Effect("exile", "-", _target(m.group(1)), "until_self_leaves")
+# _exile_until: migrated to card_lark (`xlclause` — EXILE + object + XLEAVES 'leaves the battlefield'
+# terminal, reusing `_TGT`). lark-first grounds it IDENTICALLY (migrate_check exile DIFFERS=0); RETIRED,
+# proven byte-identical by a full-corpus parse_clause snapshot with it removed.
 
 
 @_t(rf"^exile ({_TGT}) with (\w+) (\w[\w ]*?) counters? on it$")

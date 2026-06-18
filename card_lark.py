@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -178,6 +178,26 @@ cpbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP 
 // abstains -> the regex keeps it (faithful 'abstain over lossy'). NEGATIVE priority.
 mrclause.-2: mrbody MRABLE                    -> mustreq
 mrbody: (WORD | QUANT | NUM | MDUR | TOPREP | FROM)+                         // '<subj> attacks/blocks [<obj>] [<dur>]'
+
+// EXILE-TOP-OF-LIBRARY (§701.x exile) — 'exile the top [<N>] card[s] of <owner> librar(y|ies)' (the
+// `_exile_top` template `^exile the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$`). The generic
+// imperative leaf ALREADY abstains here (its `_TOPLIB` guard), so this production OWNS the shape. Verb-
+// first like `copyverb`: the distinctive leading EXILE + a trailing XLIB ('library'/'libraries') anchor
+// carve the clause; the transformer slices the body from `self._src` and RE-APPLIES the template's own
+// regex (byte-identical N + `top_of_…_library` owner slug), never a re-joined approximation. NEGATIVE
+// priority (the SF_VERB/oclause exile parses compete; on this shape they abstain so this wins clean).
+xtclause.-2: EXILE xtbody XLIB               -> exiletop
+xtbody: (WORD | QUANT | NUM)+                                                // 'the top [<N>] card[s] of <owner>'
+
+// EXILE-UNTIL-LEAVES (§603.6e / §701.x) — 'exile <object> until ~ leaves the battlefield' (the
+// `_exile_until` template `^exile (_TGT) until ~ leaves the battlefield$`). The generic imperative leaf
+// ALREADY abstains here (its `trailer` eats the 'until …' rider and yields no object), so this owns it.
+// Verb-first: leading EXILE + the distinctive trailing XLEAVES ('leaves the battlefield') anchor; the
+// transformer reads the object SPAN between them and CERTIFIES it with the anchored `_TGT` (`_XL_TGT`,
+// reusing the shared `_TGT`) exactly as the template's `(_TGT)` group, abstaining (over a lossy fact)
+// on a compound/run-on object. exile(-, _target(obj), 'until_self_leaves'). NEGATIVE priority.
+xlclause.-2: EXILE xlobj XLEAVES             -> exileuntil
+xlobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+                          // the object NP (validated _TGT)
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -435,6 +455,9 @@ RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 r
 SKIP.4: /\bskips?\b/                  // '[<player>] skip[s] …' — §500.7 skip-a-step/phase/turn (skip family; namespaced)
 AMASS.4: /\bamass\b/                  // 'amass <type> <N>' — §701.43 amass keyword action (amass family; namespaced; rare word, low collision)
 CP_COPY.3: /\bcopy\b/                 // 'copy <object>' — §707 copy verb (copy family; namespaced; leading imperative, mirrors DB_DOUBLE)
+EXILE.3: /\bexiles?\b/                // 'exile …' — leading §701.x exile verb for the top-of-library / until-leaves shapes (mirrors CP_COPY; dynamic lexer also explores SF_VERB/OVERB on 'exile')
+XLIB.5: /\blibrar(?:y|ies)\b/         // 'library'/'libraries' — the trailing anchor of `_exile_top` (outranks ZONE so xtbody stops here; re-validated in the transformer)
+XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the distinctive `_exile_until` trailing anchor ('until ~ leaves the battlefield')
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -728,6 +751,14 @@ _AT_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
 # precedence (whole-`_TGT` object -> _target; else plain slug) and apply the same guards.
 _TF_OBJ_BAD = re.compile(r"[:;]|\bequal to\b|\bfor each\b|\bunless\b|\bwhere\b|\bif\b", re.I)
 _TF_TGT = re.compile(r"^(?:" + _TGT + r")$", re.I)
+
+# EXILE shapes (exiletop / exileuntil). The GRAMMAR carves the clause (EXILE … XLIB / EXILE … XLEAVES);
+# each transformer RE-APPLIES the template's own anchored regex to `self._src` so the grounded tuple is
+# BYTE-IDENTICAL, never a re-joined span approximation. `_XL_TOP` is `_exile_top` verbatim (N + owner ->
+# 'top_of_library' for 'your', else 'top_of_'+slug(owner)+'_library'); `_XL_UNTIL` is `_exile_until`
+# (object certified by the shared `_TGT`, extra 'until_self_leaves'). A compound/run-on object abstains.
+_XL_TOP = re.compile(r"^exile the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$", re.I)
+_XL_UNTIL = re.compile(rf"^exile ({_TGT}) until ~ leaves the battlefield$", re.I)
 
 
 # SUBJECT-FIRST object verbs. `_SF_PLAYER` is the closed player allow-list (reuse the family-shared
@@ -1031,6 +1062,14 @@ class _SkSubj(str):    # skip subject span (sksubj) — the optional acting play
 
 
 class _SkBody(str):    # skip body span (skbody) — '(your|its|their|his or her) [next] <phase>'
+    pass
+
+
+class _XtBody(str):    # exile-top body span (xtbody) — value unused; the clause is re-matched off src
+    pass
+
+
+class _XlObj(str):     # exile-until object span (xlobj) — value unused; the object is re-matched off src
     pass
 
 
@@ -2257,6 +2296,46 @@ class _ToEffect(Transformer):
         if not _DB_TGT.match(rest) or _is_compound_object(rest):
             return None
         return Effect("copy", "-", _target(rest))
+
+    # --- EXILE top-of-library / until-leaves (§701.x) -------------------------
+    def xtbody(self, *toks):
+        return _XtBody(" ".join(str(t) for t in toks))     # value unused; the clause is re-matched off src
+
+    def exiletop(self, *args):
+        # 'exile the top [<N>] card[s] of <owner> librar(y|ies)' -> the EXACT `_exile_top` template:
+        # n = _amount(<N>) (default 1), owner 'your' -> 'top_of_library', else 'top_of_'+slug(owner)+
+        # '_library'. The grammar (EXILE … XLIB) reaches this only on the library shape (the generic
+        # imperative leaf's `_TOPLIB` guard already abstains here); re-match the template regex on src so
+        # the N + owner slug are byte-identical, abstaining (None) exactly where `_exile_top` does.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _XL_TOP.match(src.strip())
+        if not m:
+            return None
+        n = _amount(m.group(1)) if m.group(1) else 1
+        if n is None:
+            return None
+        owner = ("top_of_library" if m.group(2).lower() == "your"
+                 else "top_of_" + ground.slug(m.group(2)) + "_library")
+        return Effect("exile", n, owner)
+
+    def xlobj(self, *toks):
+        return _XlObj(" ".join(str(t) for t in toks))      # value unused; the object is re-matched off src
+
+    def exileuntil(self, *args):
+        # 'exile <object> until ~ leaves the battlefield' -> the EXACT `_exile_until` template:
+        # exile(-, _target(<object>), 'until_self_leaves'). The grammar (EXILE … XLEAVES) reaches this only
+        # on the until-leaves shape (the generic imperative leaf's `trailer` eats the rider and abstains);
+        # re-match the template regex (object certified by the shared `_TGT`) on src so the slug is byte-
+        # identical, and ABSTAIN (over a lossy fact) on a compound/run-on object the regex would garble.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _XL_UNTIL.match(src.strip())
+        if not m or _is_compound_object(m.group(1)):
+            return None
+        return Effect("exile", "-", _target(m.group(1)), "until_self_leaves")
 
     # --- MUST_ATTACK / MUST_BLOCK (§508/§509) ---------------------------------
     def mrbody(self, *toks):
