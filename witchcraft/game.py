@@ -15,7 +15,7 @@ The hard parts already exist underneath:
 Because `env.step` is a PURE transition (it clones internally and never mutates its input), `push`/`pop`
 need no snapshotting: the undo stack just holds the prior state object, which `step` left untouched.
 
-A move is an action tuple from `env.legal_actions` — hashable, so it indexes a policy/MCTS directly:
+A move is an action tuple from `env.legal_actions`:
 
     ("cast", player, spell, {choices})         cast a spell (with its forced sub-choices)
     ("cast_commander", player, name)           cast the commander from the command zone
@@ -23,6 +23,10 @@ A move is an action tuple from `env.legal_actions` — hashable, so it indexes a
     ("attack", frozenset(attackers))           declare attackers
     ("block",  frozenset((blocker, attacker))) declare blockers
     ("pass",)                                  pass priority / end the window
+
+NOTE: cast/activate moves carry a `{choices}` dict, so the raw tuple is NOT hashable. To key a policy /
+transposition / visited table on a move, use `Game.move_key(move)` (a fully-hashable canonical form). For a
+hashable key of the whole game POSITION (for transposition tables / repetition), use `Game.key()`.
 """
 
 from __future__ import annotations
@@ -30,9 +34,8 @@ from __future__ import annotations
 import driver
 import env
 import game as _setup
-import bridge_to_engine as _bridge
 
-DEMO_DECKS = _bridge._DEMO_DECKS                 # Gruul vs Dimir, real cards — the default 1v1 matchup
+DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
 
 class Game:
@@ -90,14 +93,23 @@ class Game:
         """The live engine state (a dict of relations). Read-only by convention — mutate via push()."""
         return self._state
 
-    def push(self, move: tuple) -> tuple:
+    def push(self, move: tuple, checked: bool = True) -> tuple:
         """Make `move`, advancing through the engine to the next decision point. Returns the move.
-        Raises ValueError if `move` isn't currently legal."""
-        if move not in self.legal_moves:
+        Raises ValueError if `move` isn't currently legal.
+
+        `checked=False` skips the legality re-check — pass it in hot search loops where `move` already
+        came from `legal_moves` (the check otherwise recomputes legal_moves, doubling that cost)."""
+        if checked and move not in self.legal_moves:
             raise ValueError(f"illegal move: {move!r}")
         self._history.append((self._state, move))
         self._state = env.step(self._state, move)        # pure: leaves self._state's old object intact
         return move
+
+    def key(self) -> frozenset:
+        """A hashable transposition key for the CURRENT position — the engine's canonical fact set
+        (`driver._facts_key`). Equal keys denote engine-equivalent states, so this keys a transposition
+        table / repetition set / visited set directly (python-chess's `_transposition_key()` analog)."""
+        return driver._facts_key(self._state)
 
     def pop(self) -> tuple:
         """Undo the last push and return the move that was undone. Raises IndexError if nothing to undo."""
@@ -159,8 +171,16 @@ class Game:
         return self._zone("in_hand", player)
 
     def graveyard(self, player: str | None = None) -> list[str] | dict[str, list[str]]:
-        """The cards in the graveyard (§404)."""
-        return self._zone("in_graveyard", player)
+        """The cards in the graveyard (§404). The engine tracks this as the arity-1 `graveyard` relation
+        (card ids); ownership is attributed via `printed_control` (a card goes to its owner's graveyard)."""
+        owner = {c: p for (p, c) in self._state.get("printed_control", set())}
+        cards = [c for (c,) in self._state.get("graveyard", set())]
+        if player is not None:
+            return sorted(c for c in cards if owner.get(c) == player)
+        gy = {p: [] for p in self.players}
+        for c in cards:
+            gy.setdefault(owner.get(c), []).append(c)
+        return {p: sorted(v) for p, v in gy.items()}
 
     def command_zone(self, player: str | None = None) -> list[str] | dict[str, list[str]]:
         """The cards in the command zone (§408) — commanders not currently in play."""
@@ -183,7 +203,9 @@ class Game:
 
     @property
     def turn_number(self) -> int:
-        """How many turns have elapsed (the engine's `_turn` counter)."""
+        """Turns elapsed so far — the engine's `_turn` counter (the number of turn-boundaries crossed).
+        Note the first *decision* of a game is often `turn_number == 2`: the opening turns have no mana to
+        spend, so they auto-pass and the referee surfaces no choice until a later turn."""
         return self._state.get("_turn", 0)
 
     @property
@@ -205,7 +227,14 @@ class Game:
         g._history = list(self._history)
         return g
 
-    # ---- move rendering ---------------------------------------------------------------------------
+    # ---- move keys / rendering --------------------------------------------------------------------
+
+    @staticmethod
+    def move_key(move: tuple) -> tuple:
+        """A fully-hashable canonical form of an action tuple (the raw move isn't hashable — cast/activate
+        carry a `{choices}` dict). Use this to key a policy / transposition / visited table on a move.
+        Two moves are the same iff their move_keys are equal."""
+        return tuple(tuple(sorted(x.items())) if isinstance(x, dict) else x for x in move)
 
     @staticmethod
     def describe_move(move: tuple) -> str:

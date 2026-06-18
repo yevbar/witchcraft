@@ -26,8 +26,7 @@ while not g.is_game_over():              # a trivial "first legal option" policy
     g.push(g.legal_moves[0])
 ```
 
-A **move** is a hashable action tuple from the referee (`env.legal_actions`), so it indexes a policy/MCTS
-directly:
+A **move** is an action tuple from the referee (`env.legal_actions`):
 
 | tuple | meaning |
 |---|---|
@@ -39,6 +38,19 @@ directly:
 | `("pass",)` | pass priority / end the window |
 
 `Game.describe_move(move)` renders any of these to a short label.
+
+### Keys for tree search
+
+cast/activate moves carry a `{choices}` dict, so the **raw tuple is not hashable**. For tree modeling:
+
+```python
+witchcraft.Game.move_key(move)   # hashable canonical move (key a policy / visited table on this)
+g.key()                          # hashable transposition key of the POSITION (driver._facts_key)
+g.copy()                         # cheap, independent branch — push/pop without touching the parent
+g.push(move, checked=False)      # skip the legality re-check in hot loops
+```
+
+`g.key()` keys a transposition table / repetition set directly; equal keys denote engine-equivalent states.
 
 ## Variants
 
