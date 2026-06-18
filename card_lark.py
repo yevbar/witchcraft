@@ -728,6 +728,9 @@ _BCP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") becomes? a copy of (" + _BCM_TGT
 _BCH_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") becomes? the (.+?) of your choice(?: until end of turn)?$", re.I)
 # BECOMES a/an <card-type> — `_becomes_type`'s exact pattern (closed card-type word list); re-applied to src.
 _BCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]*?(?:artifact|enchantment|land|creature|planeswalker|aura|equipment|plains|island|swamp|mountain|forest)s?)(?: in addition to its other types)?(?: until end of turn| for as long as (.+?))?$", re.I)
+# BECOMES a/an <color(s)> <type> (e.g. 'is a black Zombie') — `_becomes_color_type`'s exact pattern
+# (color-anchored); re-applied to src by bctype_v as a fallback after _BCT_RE (matching the regex chain order).
+_BCCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ((?:white|blue|black|red|green|colorless)(?: (?:and )?(?:white|blue|black|red|green|colorless))* [\w' -]+?)(?: in addition to its other (?:types and colors|colors and types|types|colors))?(?: until end of turn)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2320,10 +2323,15 @@ class _ToEffect(Transformer):
         if _is_compound_object(src.strip()):
             return None
         m = _BCT_RE.match(src.strip())
-        if not m:
-            return None
-        cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
-        return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
+        if m:
+            cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
+            return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
+        # FALLBACK (matching the regex chain's `_becomes_type` -> `_becomes_color_type` order): a color-led
+        # type ('is a black Zombie') the card-type list above didn't match -> the `_becomes_color_type` slug.
+        m = _BCCT_RE.match(src.strip())
+        if m:
+            return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+        return None
 
     def bcmtail(self, *toks):
         return _BcmTail(" ".join(str(t) for t in toks))    # value unused; presence consumes the span
