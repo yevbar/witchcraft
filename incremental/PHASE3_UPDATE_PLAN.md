@@ -146,14 +146,21 @@ re-derived correctly. Verified with single and stratified two-level negation (`t
 deleting a negated atom flips the head across strata == fresh recompute. **This is the engine's path** (it is
 non-monotone), so the engine's incremental update is now correct (via recompute), not just the monotone tests.
 
-REMAINING — purely THROUGHPUT now, correctness is done for the engine:
-1. **Selective-stratum** — the big win. The update currently recomputes EVERY stratum for a non-monotone
-   program (correct but O(whole program)). Only strata transitively downstream of a changed relation can
-   change; skip the clean ones (Phase 0: median move dirties ~26% of strata → ~3-4x). Needs a per-stratum
-   structure the driver (or a runtime guard) can use to skip clean strata. This is the next major step.
+**Selective-stratum DONE.** Each stratum's body is wrapped in a runtime guard `LOOP { EXIT(clean); body;
+EXIT(true) }` where clean = every dependency relation's diff_plus/diff_minus is empty. A stratum that runs
+publishes its diff (the dirty signal); a skipped one leaves it empty, so the dirty set is exactly the
+transitive-downstream closure of the changed inputs — strata not downstream of a change are skipped entirely.
+Verified (`test_selective.py`): changing one of two independent chains recomputes that chain and SKIPS the
+other (its diff stays empty), outputs correct, parity both backends, engine codegens. This is the ~3-4x
+throughput lever (Phase 0: median move dirties ~26% of strata).
+
+REMAINING — purely THROUGHPUT now, correctness is done:
+1. **Phase 6**: wire `update` into `engine_inproc.mtg_run_delta` (stage diff_plus/diff_minus, call
+   executeSubroutine("update"), purge staging) + benchmark the real states/sec gain.
 2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
    monotone strata (uncommon; the engine uses recompute anyway).
-3. Phase 6: wire `update` into `engine_inproc.mtg_run_delta` + benchmark.
+3. Cheaper dirty signal — the conservative whole-relation publish copies the relation to diff each recompute;
+   a nullary "ran" flag per stratum would avoid the copy (the recompute cost dominates, so this is minor).
 
 ### (historical) 3c blocker — erase-over-aux-relations [RESOLVED above]
 The DRed-style deletion code is in (dormant, not wired into `update`): `diff_minus_<R>` relations,
