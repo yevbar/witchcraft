@@ -4,7 +4,7 @@ Patches here were implemented but set aside — either **rejected on performance
 (correct, but inert until a complementary piece lands). Kept so the analysis isn't repeated. Apply with
 `git -C third_party/souffle apply <patch>` from a clean submodule at the commit noted below.
 
-## `mixed_stratum_WIP.patch` (STAGED — correct but inert alone)
+## `mixed_stratum_WIP.patch` (MEASURED + REJECTED — see Phase 8b conclusion below)
 
 **Idea.** A relation with BOTH aggregate clauses and simple clauses (the only such relation at scale is
 `cond_met` — see `incremental/harness/profile_strata.py`, the #1 recompute hotspot at 41–63%) is currently
@@ -25,11 +25,29 @@ the patch is a no-op for the hotspot. (It also has a minor edge bug: a PURE-aggr
 wrongly passes the `has-aggregate ∧ all-simple-deps-eligible` test with an empty simple-clause set — add a
 "≥1 simple clause" requirement before reusing.)
 
-**The real fix is two parts** (next iteration): (1) SELECTIVE precise-publish of the small `*_ts` aggregate
-roots to unblock the type/PT/control chain — but this re-opens the rejected `precise_publish` and its perf is
-UNCERTAIN (it may unblock many cheap strata and hit the same cheap-strata trap — see below), so it MUST be
-MEASURED, not assumed; THEN (2) this mixed-stratum patch lets `cond_met` itself delta. Base commit (submodule):
-`d3caa943f`.
+**The real fix is two parts:** (1) precise-publish to unblock the `copy_ts → … → cond_met` chain, THEN (2) this
+mixed-stratum patch lets `cond_met` itself delta. Base commit (submodule): `d3caa943f`.
+
+**MEASURED (Phase 8b) — the two-part fix is a NET PERF LOSS *and* buggy, decisively closing this avenue.** I
+applied broad precise-publish + this mixed-stratum patch together (relaxing mixed-eligibility to "≥1 simple
+clause", since under precise-publish every dep publishes a diff; fixing two btree-representation mirror bugs —
+merge-back erases from recompute deps, and a publishing recompute relation's `@swap` must share its main's
+deletion-capable type). `cond_met` DID become delta (verified in the RAM). But:
+- **Perf REGRESSION at every scale**: TAP 506 facts **1.62x** (clean merge-back baseline 2.32x), 2cr **3.98x**
+  (baseline ~10x); ADD-CREATURE 506 facts **1.41x** (baseline 2.05x). The broad precise-publish overhead — an
+  O(|R|) precise diff on every recompute stratum each move, delta machinery on dozens of cheap near-EDB strata,
+  and the per-mixed-stratum guards — MORE than offsets the `cond_met` saving, even though `cond_met` was 63% of
+  recompute |R|. The fixed per-move overhead dominates, worst at small scale.
+- **Correctness BUG**: precise-publish makes the aggregate-body relations (`__agg_subclause*`) delta-eligible,
+  and their delta-DELETION is buggy — removing a creature leaves stale `__agg_subclause16(cr,owner,creature)`
+  tuples, so the engine diverges on the first creature removal (the demo loops forever; `test_engine`'s two
+  transitions don't exercise it).
+
+**Conclusion:** the `cond_met` hotspot is NOT worth optimizing via precise-publish+mixed — it confirms the
+precise-publish lesson a third time (delta-izing the broad chain backfires *even when* it unlocks the expensive
+`cond_met`). A *narrowly* selective publish (only the `*_ts` roots) would have LESS publish overhead but the
+same chain-unblocking (same cheap-strata delta overhead) and the same `__agg_subclause` deletion bug, so it is
+very unlikely to flip to a win. The ~2x ceiling with the clean merge-back is the better engine. Not pursuing.
 
 ---
 

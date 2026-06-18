@@ -12,14 +12,17 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > ranks the strata that run on a move by recompute cost: ONE relation, `cond_met`, dominates every move type
 > (41–63%). It is ~10×(controlled permanents) — ~10 "global" conditions (life≥20, untapped, empty graveyard…)
 > each true for every source — and recomputes wholesale because a few of its ~30 clauses use a `count`
-> aggregate, even though those clauses contribute ~0 tuples. The obvious fix (mixed-stratum delta: delta the
-> simple clauses, recompute only the aggregate part) was IMPLEMENTED and is correct, but **inert alone**:
-> `cond_met`'s simple-clause deps (`controls`/`creature`/`has_type`/`color`/`subtype`) are themselves recompute,
-> downstream of the small `*_ts` **max-aggregate** strata (`copy_ts` = `max T:{…}`, etc.) which don't publish a
-> diff and so closure-block the entire `copy_ts → has_type → cond_met` chain. The real fix is two parts:
-> SELECTIVE precise-publish of the small `*_ts` roots (unblock the chain) **+** mixed-stratum (let `cond_met`
-> delta) — but selective-publish re-opens the rejected precise-publish, so its payoff must be MEASURED (it may
-> hit the cheap-strata trap). Mixed-stratum patch staged in `incremental/experiments/`; not landed (no-op alone).
+> aggregate, even though those clauses contribute ~0 tuples. The fix (mixed-stratum delta + a precise-publish to
+> unblock `cond_met`'s recompute deps — the `copy_ts = max T:{…}` → `has_type` → `cond_met` chain) was
+> IMPLEMENTED and MEASURED in full (Phase 8b) and is **DECISIVELY a dead end**: `cond_met` did become delta, but
+> the result is a NET PERF REGRESSION at every scale (TAP 506f **1.6x** vs the clean **2.3x**; ADD **1.4x** vs
+> **2.0x**) AND buggy (precise-publish makes the `__agg_subclause*` aggregate-body relations delta-eligible and
+> their delta-deletion drops nothing on creature removal → the demo diverges; `test_engine`'s two transitions
+> miss it). The broad precise-publish overhead (an O(|R|) diff per recompute stratum each move + delta machinery
+> on dozens of cheap strata) more than offsets the `cond_met` saving even though it was 63% of recompute |R| —
+> confirming the precise-publish lesson a THIRD time. Full write-up in `incremental/experiments/README.md`.
+> **The ~2x clean merge-back is the better engine; the perf ceiling is settled and the `cond_met` hotspot is not
+> worth optimizing this way.**
 
 > ✅ **PHASE 7 — GAME-TREE SEARCH PRIMITIVES (push/pop/branch).** The `update` subroutine is direction-agnostic:
 > staging a move's INVERSE diff rolls the resident relations back to the parent state byte-identically, at
