@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "witchcraft"
+version = "0.1.0"
+description = "A python-chess-style API for an MTG rules engine interpreted from the Comprehensive Rules"
+readme = "witchcraft/README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+# Pure-Python and stdlib-only at the API layer; the engine backends shell out to a souffle build.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/yevbar/mtg_parser"
+
+# SCAFFOLD ONLY — this declares the importable API package. A real wheel also needs the engine modules
+# (driver, env, game, bridge_to_engine, engine_*) and the datalog/ data moved inside the package, plus a
+# native-build strategy for the souffle .so. See PACKAGING.md. Until then, run from the repository root.
+[tool.setuptools]
+packages = ["witchcraft"]
