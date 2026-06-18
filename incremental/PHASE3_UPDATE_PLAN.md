@@ -24,6 +24,19 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > **The ~2x clean merge-back is the better engine; the perf ceiling is settled and the `cond_met` hotspot is not
 > worth optimizing this way.**
 
+> 🔬 **PHASE 10 — WHERE THE ELASTIC ENGINE HELPS THE *REAL* SEARCH (a state-size crossover).** The repo already
+> has a real search layer (`search.py`: `legal_moves`/`apply`/`find_loop`), built on `driver.run`. Wiring it onto
+> the incremental backend (`MTG_INCREMENTAL`) and benchmarking (`incremental/harness/search_bench.py`): the
+> incremental engine has a higher PER-CALL overhead (stage diff, dump dirty, purge, ctypes) than inproc's
+> delta-input recompute, repaid only on EXPENSIVE recomputes — so there's a CROSSOVER at ~250 facts (~50
+> permanents): board=0 (21f) **0.57x**, board=20 (121f) 0.93x, board=50 (271f) **1.03x**, board=100 (521f)
+> **1.14x**. The sorcery-speed move space keeps search positions small, so the elastic engine helps the search
+> only on WIDE-BOARD (late-game) positions, and even then modestly (≤1.14x, far below the single-move 2x — the
+> per-node overhead is paid at every node). A restore-to-node variant (small backtrack diffs) does NOT help; the
+> cost is per-call overhead, not diff size. **Takeaway:** the elastic engine is a single-move accelerator for
+> large states, not a universal search speedup; the search regime that benefits is wide boards, and the per-call
+> Python overhead is the lever to cut if search throughput on large states matters.
+
 > ✅ **PHASE 7 — GAME-TREE SEARCH PRIMITIVES (push/pop/branch).** The `update` subroutine is direction-agnostic:
 > staging a move's INVERSE diff rolls the resident relations back to the parent state byte-identically, at
 > O(diff), with no full snapshot. So the engine is a search substrate — from a state, push a move, evaluate the
