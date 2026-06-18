@@ -8,6 +8,13 @@ produce the IDB for `E\E⁻ ∪ E⁺` **without recomputing from scratch**, via 
 **Oracle (unchanged, non-negotiable):** `Update(Bootstrap(E), (E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)`, byte-identical,
 both backends. This is Theorem 3.5 and equals the engine's existing `delta==full` parity test.
 
+> ✅ **PHASE 7 — GAME-TREE SEARCH PRIMITIVES (push/pop/branch).** The `update` subroutine is direction-agnostic:
+> staging a move's INVERSE diff rolls the resident relations back to the parent state byte-identically, at
+> O(diff), with no full snapshot. So the engine is a search substrate — from a state, push a move, evaluate the
+> child, pop to try the next. `engine_incremental.push/pop/branch`; validated in test_branching against the
+> recompute oracle (flat branching, nested descend/unwind, ctx-mgr). This is the "elastic" payoff: bidirectional
+> movement through the state tree, each ply O(diff). No souffle change — rollback reuses the update subroutine.
+
 > ✅ **CORRECTNESS — the incremental update is now byte-identical to a full recompute across an entire real
 > demo game (27 engine calls), and the demo plays byte-identically through driver.py with MTG_INCREMENTAL=1.**
 > The marathon of bugs (all found by wiring engine_incremental into the demo) is closed. Root causes, in order
