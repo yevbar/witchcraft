@@ -218,8 +218,25 @@ play({"alice": ReBeLPlayer(worlds=4, iterations=100, depth=3, time_budget=5.0),
 
 The leaf evaluator is the lever: with the naive heuristic and a shallow horizon it plays ~even with random
 (combat damage sits one ply past a depth-2 leaf; depth 3 sees it). Strength comes from replacing the leaf
-with a **trained value function** (ReBeL's value network) — `value_fn=` is the hook, and a small CPU-trained
-net + self-play data generation is the companion piece (`rebel_train`).
+with a **trained value function** (ReBeL's value network) — `value_fn=` is the hook.
+
+### Trained value net (`witchcraft.rebel_train`, CPU)
+
+A tiny numpy value net + self-play data generation — the leaf that fixes the horizon. CPU-only, no GPU
+(needs `numpy`; kept out of the top-level import so `import witchcraft` stays dependency-free).
+
+```python
+from witchcraft.rebel_train import train
+from witchcraft.rebel import ReBeLPlayer
+
+value_fn = train(games=200, epochs=300)          # self-play -> features + Monte-Carlo outcome -> fit
+player = ReBeLPlayer(value_fn=value_fn, worlds=6, iterations=120, depth=2)
+value_fn.net.save("vnet")                         # ...and TinyValueNet.load("vnet") later
+```
+
+`features(state, seat)` is the public-belief feature vector; `generate(games, player_factory=…)` produces
+`(X, y)` (target = the deciding seat's eventual outcome) from any data-generating policy (default random
+self-play, cheap). A more ReBeL-faithful target is the CFR root value under ReBeL self-play — heavier, optional.
 
 ## Variants
 
