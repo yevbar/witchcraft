@@ -205,6 +205,40 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   CAVEAT: even an eligible stratum's DELETION re-derive currently calls `generateNonRecursiveRelation` (full
   O(|R|) re-derive of survivors) — so the delta path is O(diff) for INSERTIONS but still O(|R|) for the
   deletion re-derive until a precise candidate-restricted re-derive is built.
+- **DONE — per-stratum delta eligibility** (`computeDeltaEligible`): the global `monotone` gate became a
+  per-stratum closure, so the 61 eligible strata of the (non-monotone) engine now take the delta path. Verified
+  correct (`test_engine.py`: update == recompute on real transitions, both backends). **BUT measured
+  PERFORMANCE-NEUTRAL** (bench tap & add-creature sweeps unchanged, ~1.27x at 506 facts). Root cause, now
+  pinned precisely: `generateIncrementalDelete` runs `generateNonRecursiveRelation` — a FULL O(|R|) re-derive
+  of the whole relation — for EVERY eligible stratum that runs, even for an insertion-only change (empty
+  diff_minus). So the "delta" path is still O(|R|), identical cost to recompute; eligibility just changes which
+  O(|R|) routine runs. The eligibility closure is a necessary PREREQUISITE (it routes the engine's strata to
+  the delta path) but delivers no win on its own.
+- **DONE — candidate-restricted re-derive** (`generateRederiveCandidates` + `RederiveRestrictor`).
+  `generateIncrementalDelete` no longer calls `generateNonRecursiveRelation` (full O(|R|) re-derive); instead
+  each clause is translated normally and its head Insert wrapped in a membership test against `diff_minus_<H>`,
+  so only the over-deleted candidates are re-derived (survivors with alternative support). O(|diff_minus|·body)
+  not O(|R|·body), and a NO-OP for insertion-only updates (diff_minus empty). Verified correct: the full suite
+  incl. `test_deletion`'s multi-support re-discovery oracle, and `test_engine` (update == recompute), both
+  backends. **BUT still benchmark-neutral on the engine (~1.3x at 506 facts, both tap and add-creature
+  sweeps).** CONCLUSIVE FINDING: the engine's update cost is dominated by the NON-ELIGIBLE (negation-bearing)
+  RECOMPUTE strata — neither eligibility nor the precise re-derive touches those. The eligible strata are the
+  cheap near-EDB ones; making them O(diff) doesn't move the total. The precise re-derive is a real algorithmic
+  improvement (true O(diff) deletion re-derive, benefits monotone programs) and a PREREQUISITE for the lever
+  below, but the engine win requires making the negation strata delta too.
+- **THE lever for the engine — NEGATION-DELTA** (make the recompute strata O(diff)). For a non-recursive
+  stratum `H :- B…, !N…`, seed the three-term update from negation sign-flips too, at RAM level (avoiding the
+  AST-analysis blocker — see below):
+    - OVER-DELETE via a negated atom that NEWLY became true: translate the clause, rewrite the j-th
+      `Filter(Negation(ExistenceCheck(N, vals)))` → `Filter(ExistenceCheck(diff_plus_N, vals))` and the head
+      Insert → `diff_minus_H`. (H was valid when N was absent; N now present ⇒ over-delete candidate.) Then the
+      candidate-restricted re-derive above re-checks survivors.
+    - INSERT via a negated atom that became false: keep the `!N` check (true now) AND add
+      `Filter(ExistenceCheck(diff_minus_N, vals))`, head Insert → `diff_plus_H`. (N just removed ⇒ H newly
+      derivable.)
+  All negated-atom variables are bound by positive body scans (groundedness), so the rewrite only swaps a
+  condition — no new generator needed. This unlocks the 41 negation-blocked strata (→ 62% closure) and is what
+  should finally move the engine benchmark. Recursion stays on recompute (only 1 recursive SCC).
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.

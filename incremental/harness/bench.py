@@ -19,9 +19,16 @@ FINDINGS (Mac, in-process) — the speedup still shrinks as the state grows, but
     (b) A per-stratum nullary "__dirty" flag instead of the whole-relation publish — removed the O(|R|) publish.
   Remaining O(|R|) cost: each DIRTY stratum still RECOMPUTES the whole relation (empty + re-derive), so the
   per-dirty-stratum cost scales with |R|. The win comes only from SKIPPING clean strata.
-  The deeper fix (the real win at scale): a DELTA-based update for non-monotone strata (the paper's three-term
-  update with negation), which is O(diff) not O(|R|). The recompute approach is correct but fundamentally
-  O(|R|) per dirty stratum; only delta evaluation breaks that.
+
+  CONCLUSIVE FINDING (per-stratum delta eligibility + candidate-restricted re-derive landed, both neutral on
+  the engine): the ~1.3x ceiling is set by the NON-ELIGIBLE negation-bearing RECOMPUTE strata. 37% of the
+  engine's IDB strata are delta-eligible (negation/aggregate-free, EDB-fed) and now run O(diff), but they are
+  the cheap near-EDB strata; the cost is dominated by the negation strata downstream, which recompute. Two
+  sweeps below — TAP (feeds negation immediately) and ADD-CREATURE (feeds the negation-free type/P-T chain) —
+  are both ~1.3x, confirming the eligible-strata optimizations don't move the total.
+  The deeper fix (the real win at scale): NEGATION-DELTA — make the recompute strata O(diff) by seeding the
+  three-term update from negation sign-flips (diff_plus of a negated atom over-deletes; diff_minus re-derives).
+  See PHASE3_UPDATE_PLAN.md. Only delta evaluation of the negation strata breaks the O(|R|) floor.
 
 Run: python3 incremental/harness/bench.py  (compiles the 328-relation engine once, ~40s)
 """
@@ -120,13 +127,20 @@ def main():
         print(f"  {label:28s} correct={'✓' if ok else 'FAIL'}  update={um:.3f}ms  recompute={rm:.3f}ms  "
               f"speedup={rm/um:.2f}x")
 
-    print("  state size sweep (tap 1 creature; the win shrinks as relations grow):")
+    print("  TAP sweep (toggle `tapped` — feeds NEGATION immediately, so the dirty strata recompute):")
     for n in (2, 10, 30, 60, 100):
         base = make_state(n)
         tap = {k: set(v) for k, v in base.items()}
         tap["tapped"].add(("cr0",))
         nf = sum(len(v) for v in base.values())
         run(base, tap, f"{n} creatures (~{nf} facts)")
+
+    print("  ADD-CREATURE sweep (feeds the negation-free type/P-T derivation chain — exercises the delta path):")
+    for n in (2, 10, 30, 60, 100):
+        base = make_state(n)
+        grown = make_state(n + 1)  # one extra creature: diff lands on printed_* / on_battlefield (EDB)
+        nf = sum(len(v) for v in base.values())
+        run(base, grown, f"{n}->{n+1} creatures (~{nf} facts)")
     h.close()
     return 0
 
