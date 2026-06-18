@@ -139,10 +139,21 @@ correctness (recursive monotone strata recompute). Verified: recursive transitiv
 combined insert+delete in one update both == recompute.
 **Monotone incremental is now feature-complete**: insertion (non-recursive delta-only + recursive recompute),
 deletion (non-recursive DRed with re-discovery + recursive recompute), combined, both backends.
-REMAINING for the engine: (1) true incremental recursive (DRed + re-discovery inside the fixpoint — an
-optimization, not correctness); (2) **NEGATION soundness** — the engine is non-monotone (recompute fallback);
-making it incremental needs the cross-sign negation propagation (a negated atom's insertions drive head
-deletions and vice versa), which the erase + diff_plus/diff_minus machinery now supports building.
+**Negation/non-monotone update is now CORRECT** (`generateStratumRecompute`): every intensional stratum of a
+non-monotone program (and every recursive stratum) is recomputed — empty the relation, re-run the standard
+evaluation over the patched dependencies — so insertions, deletions and negation sign-flips are all retracted/
+re-derived correctly. Verified with single and stratified two-level negation (`test_negation.py`): inserting/
+deleting a negated atom flips the head across strata == fresh recompute. **This is the engine's path** (it is
+non-monotone), so the engine's incremental update is now correct (via recompute), not just the monotone tests.
+
+REMAINING — purely THROUGHPUT now, correctness is done for the engine:
+1. **Selective-stratum** — the big win. The update currently recomputes EVERY stratum for a non-monotone
+   program (correct but O(whole program)). Only strata transitively downstream of a changed relation can
+   change; skip the clean ones (Phase 0: median move dirties ~26% of strata → ~3-4x). Needs a per-stratum
+   structure the driver (or a runtime guard) can use to skip clean strata. This is the next major step.
+2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
+   monotone strata (uncommon; the engine uses recompute anyway).
+3. Phase 6: wire `update` into `engine_inproc.mtg_run_delta` + benchmark.
 
 ### (historical) 3c blocker — erase-over-aux-relations [RESOLVED above]
 The DRed-style deletion code is in (dormant, not wired into `update`): `diff_minus_<R>` relations,
