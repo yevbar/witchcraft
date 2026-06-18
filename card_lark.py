@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -97,6 +97,14 @@ bcmclause: bcmtgt BCM_COP quant? BCM_PT bcmtail?   -> bcmbecomes
 // via _target, color via ground.slug) for byte-identity; 'the color of your choice' is NOT in COLOR, so it
 // defers to `_becomes_choice`. NEGATIVE priority.
 bccclause.-2: bcmtgt BCM_COP COLOR                 -> bccolor_v
+
+// BECOMES a copy of <X> (§707) — '<subj> becomes a copy of <X>[, except <mods>] [until end of turn]' (the
+// `_becomes_copy` template). Distinctive COPYOF ('a copy of') anchor; the rest (copied object + optional
+// 'except' overrides + 'until end of turn') is consumed by bcprest, then the transformer re-matches src
+// against the template's exact pattern -> becomes(-, _target(subj), 'copy_of_'+_target(obj)[+'_except_'+
+// slug(mods)]). An `_is_compound_object(src)` guard defers a run-on ('… and <verb> …') to the regex chain.
+bcpclause.-2: bcmtgt BCM_COP COPYOF bcprest        -> bccopy_v
+bcprest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS)+
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -586,6 +594,7 @@ PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
+COPYOF.5: /\ba copy of\b/   // '<subj> becomes a copy of <X>' — §707 (the becomes-copy anchor)
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 DIVIDED.4: /\bdivided as you choose among\b/
 THATMUCH.4: /\bthat much\b/
@@ -695,6 +704,8 @@ _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
+# BECOMES a copy of <X> — `_becomes_copy`'s exact pattern (re-applied to src by bccopy_v).
+_BCP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") becomes? a copy of (" + _BCM_TGT_SRC + r"|that card|the chosen card)(?:, except (.+?))?(?: until end of turn)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2237,6 +2248,24 @@ class _ToEffect(Transformer):
         if not m:
             return None
         return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+
+    def bcprest(self, *toks):
+        return None                                # value unused; presence consumes the run (object re-sliced from src)
+
+    def bccopy_v(self, *args):
+        # '<subj> becomes a copy of <X>[, except <mods>] [until end of turn]' — the EXACT `_becomes_copy`
+        # template: becomes(-, _target(subj), 'copy_of_'+_target(obj)[+'_except_'+slug(mods)]). Re-match src
+        # against the template's pattern; a run-on (caught by `_is_compound_object`) or non-match abstains.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        if _is_compound_object(src.strip()):
+            return None                            # '… and <verb> …' run-on -> defer to the regex chain
+        m = _BCP_RE.match(src.strip())
+        if not m:
+            return None
+        extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
+        return Effect("becomes", "-", _target(m.group(1)), extra)
 
     def bcmtail(self, *toks):
         return _BcmTail(" ".join(str(t) for t in toks))    # value unused; presence consumes the span

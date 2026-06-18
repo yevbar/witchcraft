@@ -1279,7 +1279,10 @@ def _return_bf(m):
 @_t(rf"^({_TGT}) becomes? a copy of ({_TGT}|that card|the chosen card)(?:, except (.+?))?(?: until end of turn)?$")
 def _becomes_copy(m):
     """'<target> becomes a copy of <X>[, except <mods>]' — a §707 copy effect (clones, Vesuva, etc.);
-    the copied object and any 'except' overrides are recorded as a faithful slug."""
+    the copied object and any 'except' overrides are recorded as a faithful slug. NOTE: card_lark's
+    `bcpclause` now grounds the bare clause lark-first, but this template is RETAINED because it is still
+    reached via wrapper chains (a leading 'Until your next turn,' / 'When you do,' cond prefix that the
+    wrapper strips before grounding the inner copy clause)."""
     extra = "copy_of_" + _target(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
     return Effect("becomes", "-", _target(m.group(1)), extra)
 
