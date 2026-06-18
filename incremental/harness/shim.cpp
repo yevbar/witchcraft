@@ -129,6 +129,19 @@ void h_subroutine(void* h, const char* name) {
     p->executeSubroutine(std::string(name), args, ret);
 }
 
+// Purge every staging relation (diff_plus_*, diff_minus_*, __dirty_*) in one pass — the per-update reset the
+// driver owes (in-subroutine Clear of a non-temporary is unreliable). Far cheaper than h_purge over a
+// newline-list of ~3xN names: no name marshaling and no per-name map lookup, just iterate + prefix-test.
+void h_purge_staging(void* h) {
+    SouffleProgram* p = (SouffleProgram*) h;
+    for (Relation* r : p->getAllRelations()) {
+        const std::string& nm = r->getName();
+        if (nm.rfind("diff_plus_", 0) == 0 || nm.rfind("diff_minus_", 0) == 0 || nm.rfind("__dirty_", 0) == 0) {
+            r->purge();
+        }
+    }
+}
+
 // Dump every relation the program exposes (input + internal + output), data columns only.
 char* h_dump_all(void* h) {
     SouffleProgram* p = (SouffleProgram*) h;

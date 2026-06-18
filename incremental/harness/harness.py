@@ -103,6 +103,7 @@ class Harness:
         cdll.h_bootstrap.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_insert.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_purge.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        cdll.h_purge_staging.argtypes = [ctypes.c_void_p]
         cdll.h_subroutine.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         cdll.h_dump_all.restype = ctypes.c_void_p
         cdll.h_dump_all.argtypes = [ctypes.c_void_p]
@@ -121,6 +122,10 @@ class Harness:
 
     def purge(self, names):
         self._cdll.h_purge(self._h, ("\n".join(names) + "\n").encode())
+
+    def purge_staging(self):
+        """Purge all diff_plus_*/diff_minus_*/__dirty_* in one C++ pass (the per-update reset)."""
+        self._cdll.h_purge_staging(self._h)
 
     def update(self):
         self._cdll.h_subroutine(self._h, b"update")

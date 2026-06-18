@@ -278,13 +278,29 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   branch lean (the ~90 lines of chain-decomposition + tuple-id remapping bought no measured gain). LESSON: the
   remaining O(|R|)-ish scaling is in the RECOMPUTE strata (aggregates + recursion) and the O(|body|) NEGATION
   filter-flip rules, not positive delta.
-- **NEXT levers (in priority order):** (1) the 62 recompute strata — these dominate the remaining cost; the 3
-  aggregate strata (P/T sums/counts) + their downstream are the target, so AGGREGATE-DELTA is the frontier;
-  (2) wire the `update` into the real `engine_inproc` driver with actual-diff staging (Phase 3d) so the 2.26x
-  is realized in the game engine, not just the harness; (3) diff-driven negation-delta — deprioritized: it has
-  the same outer-scan obstacle as positive delta (the negated atom must become an outer scan over diff_plus_N),
-  and positive delta being neutral suggests negation diff-driving would be too, unless profiling shows the
-  negation filter-flip O(|body|) scans are individually hot.
+- **DONE (Phase 3d) — wired the `update` into a real in-process driver (`engine_incremental.py`), and it is
+  CORRECT but NOT a production win.** `engine_incremental.evaluate(fkey)` bootstraps once then drives the engine
+  through the `update` subroutine (actual-diff staging, one C++-pass staging purge via the new
+  `h_purge_staging` shim). Verified `update == engine_inproc full recompute` over sequences of real and
+  synthetic states (`test_engine_incremental.py`). **But measured against the REAL production baseline
+  (engine_inproc, which already does delta-INPUT + a lean native full recompute), the incremental driver is
+  break-even-to-SLOWER, and gets relatively worse with scale:** 0.98x @100cr, 0.79x @200cr, 0.65x @400cr.
+  ROOT CAUSE (measured): the `--incremental` PROGRAM is inherently 4-14x heavier per full run than engine_inproc
+  (100cr bootstrap 7ms vs 0.5ms) because the incremental machinery TAXES EVERY relation — (a) the
+  @count/@iteration aux columns widen every tuple, and (b) `createRamRelation` forces `BTREE_DELETE`
+  (deletion-capable, slower than the optimized btree) on ALL relations for erase support. The update's
+  selective-stratum savings (it does less logical work than a full run) do not overcome this per-tuple tax plus
+  the per-move overhead (output dump ~0.18ms, staging purge, ctypes round-trips). The harness bench's ~2.3x was
+  vs a NAIVE fresh bootstrap (purge-all + insert-all + run); engine_inproc skips the insert-all, erasing most of
+  that margin. HONEST VERDICT: the incremental `update` is a correct, complete implementation but does not beat
+  the existing optimized full-recompute driver at realistic scale.
+- **NEXT levers (in priority order):** (1) **shrink the per-tuple tax** — only force `BTREE_DELETE` on relations
+  that are actually erased (the DRed/deletion targets), leaving the rest on the fast btree; and consider
+  dropping the aux columns where unused. This attacks the 4-14x program-heaviness that currently sinks the
+  driver, and is the prerequisite for any production win. (2) dump only the CHANGED outputs (incremental knows
+  the dirty strata; engine_inproc must dump all) — cuts the common ~0.18ms/move. (3) the 62 recompute strata
+  (aggregate-delta) — still the logical-work frontier, but moot for production until the per-tuple tax is fixed.
+  (4) diff-driven negation-delta — deprioritized (same outer-scan obstacle as positive delta, which was neutral).
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
