@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -131,6 +131,16 @@ ctrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQ
 bptclause.-2: bptpre BASEPT bptpost                   -> basept_v
 bptpre: (WORD | QUANT | NUM | BCM_COP | TOPREP)+
 bptpost: (BCM_PT | PTDELTA | WORD | QUANT | NUM | MDUR | BOUND | TOPREP | ZONE | EQUALTO)+
+
+// BECOMES 'is/are also a/an <type>' (§205 type ADDITION) — the `_type_also` template. ALSO-anchored ('is
+// also a Cleric, Rogue, Warrior, and Wizard'); re-match src -> becomes(-, _target(subj), 'added_'+slug(X)).
+btaoclause.-2: bcmtgt BCM_COP ALSO QUANT btaorest     -> btalso_v
+btaorest: (WORD | QUANT | NUM)+
+
+// BECOMES 'the chosen type' (§205) — the `_becomes_chosen` template's TYPE branch ('the chosen color' is
+// already owned by the color slice, so the CHOSENTYPE anchor is 'the chosen type' only). -> chosen_type.
+bcchclause.-2: bcmtgt BCM_COP CHOSENTYPE bcchtail?    -> bcchosen_v
+bcchtail: (WORD | QUANT | TOPREP | MDUR)+
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -618,6 +628,8 @@ ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 BASEPT.6: /\bbase power and toughness\b/   // §208/§613.3 base-P/T-set anchor (distinctive)
+ALSO.4: /\balso\b/                  // 'is/are also a <type>' — §205 type-addition anchor (_type_also)
+CHOSENTYPE.6: /\bthe chosen type\b/   // 'is the chosen type' — §205 (_becomes_chosen type branch; 'chosen color' is the color slice)
 BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
@@ -749,6 +761,9 @@ _BTA_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]
 _BBPT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness ([\dxX]+/[\dxX]+)(?: in addition to (?:its|their) other (?:colors and types|types and colors|creature types|types|colors))?(?: until end of turn| for as long as (.+?))?$", re.I)
 _BPTP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") perpetually (?:has|have) base power and toughness ([\dxX]+/[\dxX]+)$", re.I)
 _BPT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:has|have|with) base power and toughness ([\dxX]+/[\dxX]+)(?: until end of turn| until your next (?:turn|upkeep)| until the end of your next upkeep)?$", re.I)
+# `_type_also` + `_becomes_chosen` exact patterns (re-applied to src).
+_TAO_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are) also an? ([\w' ,-]+?)(?: in addition to its other types)?(?: until end of turn)?$", re.I)
+_BCHN_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) the chosen (color|type)(?: in addition to its other (?:types|colors))?(?: until end of turn)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2385,6 +2400,33 @@ class _ToEffect(Transformer):
         if m:
             return Effect("becomes", m.group(2).upper(), _target(m.group(1)), "base_pt")
         return None
+
+    def btaorest(self, *toks):
+        return None
+
+    def btalso_v(self, *args):
+        # '<subj> is/are also a/an <type>' -> the EXACT `_type_also`: becomes(-, _target(subj), 'added_'+slug(X)).
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _TAO_RE.match(src.strip())
+        if not m:
+            return None
+        return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+
+    def bcchtail(self, *toks):
+        return None
+
+    def bcchosen_v(self, *args):
+        # '<subj> is the chosen type' -> the `_becomes_chosen` TYPE branch: becomes(-, _target(subj),
+        # 'chosen_type'). (The CHOSENTYPE anchor is 'the chosen type' only; 'the chosen color' is the color slice.)
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _BCHN_RE.match(src.strip())
+        if not m:
+            return None
+        return Effect("becomes", "-", _target(m.group(1)), "chosen_" + m.group(2).lower())
 
     def bcmtail(self, *toks):
         return _BcmTail(" ".join(str(t) for t in toks))    # value unused; presence consumes the span
