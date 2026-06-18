@@ -294,13 +294,26 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   vs a NAIVE fresh bootstrap (purge-all + insert-all + run); engine_inproc skips the insert-all, erasing most of
   that margin. HONEST VERDICT: the incremental `update` is a correct, complete implementation but does not beat
   the existing optimized full-recompute driver at realistic scale.
-- **NEXT levers (in priority order):** (1) **shrink the per-tuple tax** — only force `BTREE_DELETE` on relations
-  that are actually erased (the DRed/deletion targets), leaving the rest on the fast btree; and consider
-  dropping the aux columns where unused. This attacks the 4-14x program-heaviness that currently sinks the
-  driver, and is the prerequisite for any production win. (2) dump only the CHANGED outputs (incremental knows
-  the dirty strata; engine_inproc must dump all) — cuts the common ~0.18ms/move. (3) the 62 recompute strata
-  (aggregate-delta) — still the logical-work frontier, but moot for production until the per-tuple tax is fixed.
-  (4) diff-driven negation-delta — deprioritized (same outer-scan obstacle as positive delta, which was neutral).
+- **CORRECTED — it IS a win at realistic scale (1.44x); the "not a win" was a BRIDGING failure, not a limit.**
+  Two fixes (the user's steer: "it should be improving the baseline; the index/tree use can be improved"):
+    1. **Dump only the CHANGED outputs.** The pure update (0.19ms) already beat engine_inproc (0.46ms) at 506
+       facts; engine_incremental was re-dumping ALL outputs every move (the harness's testtime behavior,
+       ~0.18ms), which erased the win. Now it dumps only the outputs whose stratum RAN (__dirty set) and carries
+       the rest forward — O(changed outputs). engine_inproc CAN'T do this (its full recompute doesn't know what
+       changed), so it is a structural advantage of the incremental path.
+    2. **BTREE_DELETE only on erased relations** (EDB + delta-eligible intensional mains), not all — recompute
+       mains and the diff/swap relations keep the fast btree.
+  Driver vs engine_inproc (tap 1 creature): 30cr/156f 1.03x, **100cr/506f 1.44x**, 200cr/1006f 1.10x,
+  400cr/2006f 0.86x. Real game states are ~485 facts (~100cr) → **1.44x at realistic scale** (was 0.96x), vs
+  the already-delta-input-optimized engine_inproc. Correctness holds across real + synthetic sequences
+  (test_engine_incremental). engine_incremental.py is the production-shaped driver; wiring it into driver.py
+  behind a flag is the remaining plumbing.
+- **NEXT levers (in priority order):** (1) the 400cr super-linear update cost (the win shrinks past ~realistic
+  scale) — the remaining INDEX/TREE frontier: profile which join/aggregate in the update goes super-linear
+  (likely a recompute aggregate that is O(n^2), or a missing index on an aux-bearing relation), and fix the
+  index selection. (2) the aux columns (@count reserved/unused, @iteration) widen every tuple — drop where
+  unused to shrink the per-tuple tax further. (3) wire engine_incremental into driver.py behind a flag so sims
+  use it. (4) aggregate-delta for the recompute strata — the logical-work frontier for going beyond ~1.5x.
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
