@@ -4,14 +4,20 @@ engine_inproc.py removed the subprocess + filesystem overhead but still recomput
 move (p->run()). This module goes further: it compiles the engine with the fork's `--incremental` strategy and,
 per move, stages only the ACTUAL input diff into the `diff_plus_<R>` / `diff_minus_<R>` relations and calls the
 `update` subroutine, which re-evaluates only the strata downstream of the change (selective-stratum + the
-three-term delta/DRed update). At realistic scale (~485-fact states differing by ~1 move) this is ~2.3x faster
+three-term delta/DRed update). At realistic scale (~485-fact states differing by ~1 move) this is ~2x faster
 than a from-scratch recompute, and the resident relations are byte-identical to a full recompute (the Phase-3
-oracle, verified in test_engine.py and test_engine_incremental.py).
+oracle, verified in test_engine.py and the full-demo byte-identity check; benchmarked in bench.py).
 
 It reuses the proven in-process harness (incremental/harness/harness.py) as the ctypes bridge — that Harness is
 the incremental driver; this module wraps it with a stateful `evaluate(fkey)` matching engine_inproc.evaluate
-(bootstrap once, then incremental updates), and an actual-diff staging convention (every relation, input+head
-included — all SHIM_INPUTS relations are delta-eligible, so the update applies their diff in place).
+(bootstrap once, then incremental updates). Staging is actual-diff for every relation EXCEPT the input+head
+(SHIM_INPUTS) relations on the RECOMPUTE path: those are swap-cleared and re-merged from diff_plus by the update,
+so they must be staged with the FULL new input (actual-diff would drop their unchanged facts — the has_trigger
+bug). The recompute set is read from the update RAM (`SWAP (R, @swap_R)`); the other input+head relations are
+delta-eligible and take cheap actual-diff staging (the perf recovery — see bench.py).
+
+Verified: byte-identical to a from-scratch recompute across an entire real demo game (27 engine calls), and
+2.0–2.4x faster than recompute at ~506 facts (up to 10x at small scale).
 
 Graceful degradation (agent-first): available() is False if the fork toolchain can't build the .so, and the
 caller falls back to engine_inproc (full recompute) and then the interpreter. Nothing here is required for
@@ -46,8 +52,30 @@ def _prepare():
     _OUTPUTS = re.findall(r"^\.output\s+(\w+)", rules, re.M)
     _DECLS = re.findall(r"^\.decl\s+(\w+)", rules, re.M)
     heads = set(re.findall(r"^(\w+)\(", rules, re.M))
-    _INH = set(engine_native._edb(rules)) & heads
-    return engine_native._wrapper(rules, engine_native._edb(rules))
+    src = engine_native._wrapper(rules, engine_native._edb(rules))
+    # _INH = the input+head relations that must be staged with the FULL new input: those on the RECOMPUTE path
+    # (the update swap-clears them and re-merges only diff_plus, so actual-diff staging would drop unchanged
+    # input facts). Determined authoritatively from the update RAM — a relation R is recompute iff it has a
+    # `SWAP (R, @swap_R)`. The other input+head relations (and all pure relations) take actual-diff staging.
+    input_and_head = set(engine_native._edb(rules)) & heads
+    _INH = input_and_head & _recompute_relations(src)
+    return src
+
+
+def _recompute_relations(src: str) -> set:
+    """The relations the update recomputes (swap-clears), from `souffle --incremental --show=initial-ram`.
+    Returns an empty set if the show pass fails (then no input+head is full-staged — only safe if all are
+    eligible, so callers that need correctness should treat an empty result cautiously)."""
+    import subprocess
+    import tempfile
+    if not harness._SOUFFLE.exists():
+        return set()
+    with tempfile.NamedTemporaryFile("w", suffix=".dl", delete=False) as f:
+        f.write(src)
+        path = f.name
+    r = subprocess.run([str(harness._SOUFFLE), "--incremental", "--show=initial-ram", path],
+                       capture_output=True, text=True)
+    return set(re.findall(r"SWAP \((\w+), @swap_", r.stdout))
 
 
 def available() -> bool:

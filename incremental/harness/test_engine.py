@@ -5,12 +5,12 @@ state, stages the input diff to a second state, runs the incremental `update`, a
 relations equal a from-scratch recompute of the second state. This exercises the whole machinery at engine
 scale: negation, aggregates, recursion, propositions, and the input+head (SHIM_INPUTS) relations.
 
-Staging convention (mirrors what the engine_inproc driver must do): stage the ACTUAL diff for EVERY relation
-(diff_plus = added rows, diff_minus = removed rows), input+head (SHIM_INPUTS) relations included. All input+head
-relations are delta-eligible, so the update applies their diff in place and never empties them — full-input
-staging (the old convention) is unnecessary and forces the whole input chain (e.g. the 100-row P/T relations)
-to re-process every move, which roughly halved the speedup. See analyze_delta_eligibility.py for the invariant
-check that all input+head relations are eligible.
+Staging convention (mirrors engine_incremental._stage): stage the ACTUAL diff for every relation EXCEPT the
+input+head (SHIM_INPUTS) relations on the RECOMPUTE path. Those are swap-cleared and re-merged from diff_plus by
+the update, so they must be staged with the FULL new input — actual-diff would drop their unchanged facts and
+drift (the has_trigger bug). The recompute set is read from the update RAM (`SWAP (R, @swap_R)`); the remaining
+input+head relations are delta-eligible and take cheap actual-diff staging. (Blanket full-input staging is also
+correct but re-processes the whole input chain every move, costing ~half the speedup.)
 
 Slow (compiles a 328-relation program, ~40s); skips cleanly if the toolchain can't build.
 """
@@ -39,7 +39,17 @@ def main():
     src = engine_native._wrapper(RULES, engine_native._edb(RULES))
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
     heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
-    inh = set(engine_native._edb(RULES)) & heads  # input+head (SHIM_INPUTS) — staged FULL
+    # input+head relations need FULL staging only on the RECOMPUTE path (swap-clear + re-merge diff_plus);
+    # eligible ones take actual-diff staging. Authoritative source: the update RAM's `SWAP (R, @swap_R)`.
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".dl", delete=False) as _f:
+        _f.write(src)
+        _rampath = _f.name
+    _rr = subprocess.run([str(harness._SOUFFLE), "--incremental", "--show=initial-ram", _rampath],
+                         capture_output=True, text=True)
+    recompute = set(re.findall(r"SWAP \((\w+), @swap_", _rr.stdout))
+    inh = (set(engine_native._edb(RULES)) & heads) & recompute  # input+head on the recompute path — staged FULL
 
     def fd(state):
         return {rel: set(rows) for rel, rows in _facts_key(state)}
