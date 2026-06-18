@@ -130,6 +130,39 @@ witchcraft.engine_available()           # 'incremental' | 'native' | 'inproc' | 
 large states and neutral on small. It's a **process-global** selection (the driver reads it per eval) and
 degrades gracefully — if the souffle fork isn't built it warns and falls back.
 
+## Players
+
+A `Player` answers the two kinds of decision the engine raises, both wired through the shim: a **top-level
+move** (`choose_move(game)` — pick from `game.legal_moves`) and an internal **sub-choice**
+(`decide(view, key, options, default)` — a target/mode/blocks/discard resolved inside `step`). `play()` runs
+a full game with each seat driven by its player; a seat's player drives *both* its moves and its sub-choices.
+
+```python
+from witchcraft import Player, RandomPlayer, GreedyPlayer, play
+
+result = play({"alice": RandomPlayer(), "bob": GreedyPlayer()}, seed=7)
+result.outcome()          # ('alice', 'bob lost')
+
+# a custom heuristic — subclass Player, override choose_move; you get the whole Game
+class Aggro(Player):
+    def choose_move(self, game):
+        atk = [m for m in game.legal_moves if m[0] == "attack"]
+        return max(atk, key=lambda m: len(m[1])) if atk else game.legal_moves[0]
+    # (optionally also override decide() to steer targets/modes/blocks)
+
+play({"alice": Aggro(), "bob": RandomPlayer(seed=1)}, variant="two-player", seed=3)
+```
+
+- **`RandomPlayer(seed=None)`** — uniform-random; `seed=None` draws from the game's own seeded RNG (so the
+  game is reproducible from its seed), an explicit `seed` gives the player its own independent RNG.
+- **`GreedyPlayer`** (= base `Player`) — takes the engine's hand-tuned default at every decision; a complete,
+  legal opponent with zero config.
+- **Custom** — subclass `Player`. `choose_move(game)` is where heuristics/search live (use `game.copy()`,
+  `game.key()`, `game.push`/`pop`, the zone accessors); override `decide()` only if you want to steer the
+  nested sub-choices too.
+
+(London mulligan resolves with the engine default — keep — before play begins.)
+
 ## Variants
 
 ```python
@@ -137,6 +170,8 @@ import game as _setup
 g = witchcraft.Game(_setup.COMMANDER_DECKS, variant="commander", seed=1,
                     commanders=_setup.COMMANDERS)   # §903: 40 life, command zone
 witchcraft.self_play(seed=7)                          # full random game -> winner
+result = play({"alice": RandomPlayer(), "bob": RandomPlayer()},
+              _setup.COMMANDER_DECKS, variant="commander", commanders=_setup.COMMANDERS)  # players, any variant
 ```
 
 ## How it sits on the engine

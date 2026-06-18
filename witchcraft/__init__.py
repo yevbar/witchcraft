@@ -29,8 +29,10 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from .game import Game, DEMO_DECKS                                      # noqa: E402
+from .players import Player, RandomPlayer, GreedyPlayer, play           # noqa: E402
 
-__all__ = ["Game", "DEMO_DECKS", "new_game", "self_play", "demo", "engine_available", "__version__"]
+__all__ = ["Game", "DEMO_DECKS", "Player", "RandomPlayer", "GreedyPlayer", "play",
+           "new_game", "self_play", "demo", "engine_available", "__version__"]
 __version__ = "0.1.0"
 
 
