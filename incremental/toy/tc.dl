@@ -1,0 +1,10 @@
+// transitive closure with a MULTI-SUPPORT tuple, to exercise re-discovery on deletion.
+// path(1,3) is derivable TWO ways: directly via edge(1,3), and via 1->2->3. Removing edge(1,3)
+// must NOT delete path(1,3) — it survives on its alternative support. That is the retraction
+// correctness the elastic Update / provenance re-discovery term provides.
+.decl edge(a:number, b:number)
+.input edge
+.decl path(a:number, b:number)
+.output path
+path(x, y) :- edge(x, y).
+path(x, y) :- path(x, z), edge(z, y).
