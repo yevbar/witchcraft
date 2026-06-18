@@ -30,8 +30,10 @@ if _ROOT not in sys.path:
 
 from .game import Game, DEMO_DECKS                                      # noqa: E402
 from .players import Player, RandomPlayer, GreedyPlayer, play           # noqa: E402
+from .forge import play_forge, forge_available                         # noqa: E402  (lazy JVM tooling inside)
 
 __all__ = ["Game", "DEMO_DECKS", "Player", "RandomPlayer", "GreedyPlayer", "play",
+           "play_forge", "forge_available",
            "new_game", "self_play", "demo", "engine_available", "__version__"]
 __version__ = "0.1.0"
 

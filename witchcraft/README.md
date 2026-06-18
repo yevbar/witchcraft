@@ -174,6 +174,29 @@ result = play({"alice": RandomPlayer(), "bob": RandomPlayer()},
               _setup.COMMANDER_DECKS, variant="commander", commanders=_setup.COMMANDERS)  # players, any variant
 ```
 
+## Forge as the source of truth
+
+The default engine is witchcraft (our datalog rules referee). For a mode where **Forge** is authoritative and
+one seat is the **"forge player"** (Forge's own AI), use `witchcraft.forge` — the game actually runs in Forge,
+and the witchcraft side connects as a bot seat (over `forge_bridge`'s socket) answering each Forge decision:
+
+```python
+import witchcraft.forge as wf
+if wf.forge_available():                      # needs a built Forge fatjar + JDK 17 ($FORGE / $JDK)
+    r = wf.play_forge(bot="engine")           # Forge AI vs the witchcraft 'stockfish' bot; FORGE judges
+    print(r["winner"], r["turns"])            # winner is Forge's verdict — the source of truth
+    # bot="random" for the baseline seat; witch_deck/opp_deck pick ForgeVsBot archetypes ('vanilla','infect')
+```
+
+This is the only faithful way to involve Forge: there is **no reverse bridge** that lets Forge's AI choose
+moves inside a witchcraft `Game`, so when Forge is the truth, the game runs in Forge. It reuses the wired
+`forge_integration` orchestration (`ForgeVsBot` + `run_bot`), so it spins up the JVM and can be slow /
+memory-hungry; set `$JVM_HEAP` / `$GAME_TIMEOUT` on small hosts. The witchcraft bot seat is driven by an
+`forge_bridge` obs-policy (`'engine'` = the win-search bot, `'random'` = baseline); a `RandomPlayer` maps to
+`'random'`, any other `Player` to `'engine'`. (A custom *Game-based* `Player` can't drive a Forge seat —
+Forge hands it an observation + Forge-ids, not a witchcraft state + moves; write a `forge_bridge` policy for a
+custom Forge bot.)
+
 ## How it sits on the engine
 
 ```
