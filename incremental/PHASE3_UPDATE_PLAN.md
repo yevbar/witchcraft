@@ -189,6 +189,22 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   keep the cheaper pointer swap. Removed the ~2x O(|R|) erase copy; benchmark 100 creatures/506 facts
   1.05x->1.3x, 30 creatures 1.47x->1.8x, 2 creatures 5.3x->6.6x. Selective test now detects "ran" via __dirty
   (the swap-clear no longer populates diff_minus as the erase scratch).
+- **MEASURED the delta-eligible frontier** (`analyze_delta_eligibility.py`, authoritative SCC graph via
+  `souffle --show=scc-graph-text`). A non-recursive stratum can use the delta path EVEN in a non-monotone
+  program iff its own clauses are negation+aggregate-free AND every dependency hands it a precise small diff
+  (EDB stage, or another delta stratum) — a closure over the stratum DAG. On the real engine (164 IDB strata,
+  only **1 recursive**, 28 with negation, 3 with aggregate):
+    - **37% (61/164) are delta-eligible TODAY** with the EXISTING DeltaRewriter machinery (no negation-delta
+      needed) — these are neg/agg-free strata in the EDB-fed closure;
+    - **62% (102/164) is the ceiling** if negation-delta machinery were also built (relax the gate to
+      aggregate-free); the remaining 62 are downstream of the recursive/aggregate strata.
+  The eligible strata cluster near the EDB — exactly where a move's staged diff lands — so they are
+  disproportionately the DIRTY strata. CONCLUSION: route the 61 already-eligible strata through the delta path
+  (change the GLOBAL `monotone` gate to a PER-STRATUM eligibility closure); recompute the rest. Real but bounded
+  win (the costly aggregate/large strata stay in recompute); the 25-point jump to 62% needs negation-delta.
+  CAVEAT: even an eligible stratum's DELETION re-derive currently calls `generateNonRecursiveRelation` (full
+  O(|R|) re-derive of survivors) — so the delta path is O(diff) for INSERTIONS but still O(|R|) for the
+  deletion re-derive until a precise candidate-restricted re-derive is built.
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
