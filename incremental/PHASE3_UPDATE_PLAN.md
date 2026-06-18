@@ -13,13 +13,23 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > was far too weak — it missed bugs around NULLARY / disconnected-proposition relations. A real game sequence
 > diverges (a triggered ability silently doesn't fire) because the update mis-handles nullary relations. So the
 > earlier "~1.4x at realistic scale" win was measured on an engine that is INCORRECT for some transitions.
-> Fixed so far: emptiness-guard mis-skip on deletion; over-stripping of positive nullary body atoms; nullary
-> body-atom INSERTION delta (no scan → no version before); nullary-head dedup Break. STILL OPEN: nullary
-> DELETION through a proposition — a query-level emptiness guard on the now-empty ORIGINAL relation, emitted at
-> a deeper RAM/synthesiser layer than the ast2ram guard-strip reaches, skips the over-delete. **The right oracle
-> is a full game byte-identical to engine_inproc (test_engine_incremental drives sequences; test_nullary pins
-> the minimal repro). Correctness must be closed before the speedup means anything.** engine_incremental.py is
-> kept as the experimental harness; it is NOT wired into driver.py until correct.
+> FIXED so far: emptiness-guard mis-skip on deletion; over-stripping of positive nullary body atoms; nullary
+> body-atom INSERTION delta; nullary-head dedup Break; and the root **apply-on-self** bug — the guard-stripper
+> and NullaryAtomRewriter called `inner->apply(*this)` (visits inner's CHILDREN) after deciding to rewrite a
+> node, so a guard/Insert sitting directly below was skipped; now they dispatch on the node itself. With these,
+> the demo game plays correctly through ~9 engine calls (was 1) and test_nullary (insertion + single-atom
+> deletion) passes.
+>
+> STILL OPEN — **simultaneous deletion of MULTIPLE body atoms of one rule** (general DRed gap, NOT nullary-
+> specific; test_simultaneous_delete.py). For `H :- B1, B2`, the over-delete is per-atom: the version scanning
+> diff_minus_B1 checks B2 over its CURRENT state. When both B1 and B2 lose their support in one update, each
+> over-delete checks the other AFTER it emptied, so neither fires and H is not retracted. The over-delete must
+> evaluate non-target atoms over the OLD state (current ∪ diff_minus); RAM has no Disjunction/union-scan, and
+> the non-target atoms are SCANS (not checks), so the clean fix is a 3-PHASE DRed (over-delete-all over OLD →
+> erase-all → re-derive-all over NEW) — currently the three are interleaved per stratum, which is what forces
+> the over-delete to see the already-erased NEW state. The engine hits this via `+disconnected4() :-
+> cast_spell(P,_), cast_ord(P,1)` when a spell resolves (both clear at once). **This is the remaining blocker to
+> correctness.** engine_incremental.py stays experimental; NOT wired into driver.py until correct.
 
 ## The testability fact that shapes everything
 Phases 0–2b were CLI-testable (one stateless run, diff outputs). Phase 3 is **stateful**: you Bootstrap, then

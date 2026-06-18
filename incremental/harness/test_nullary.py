@@ -6,10 +6,11 @@ exercise code paths the data-carrying tests miss: a nullary body atom is an exis
 nullary head's insert is hoisted with a dedup Break. Real gameplay exposed several bugs here that the
 2-transition test_engine oracle did not.
 
-INSERTION (a nullary head deriving when its body becomes satisfiable) is FIXED. DELETION through a proposition
-is a KNOWN-OPEN bug: a query-level emptiness guard on the original (now-empty) relation survives the ast2ram
-guard-strip (it is emitted at a deeper RAM/synthesiser layer), so the over-delete is skipped and the head is
-never retracted. This test reports both; the deletion case is xfail (printed, not a hard failure) until fixed.
+Both nullary INSERTION and (single-atom) DELETION are now FIXED (the apply-on-self bug in the guard-stripper /
+nullary rewriter). The remaining KNOWN-OPEN bug is SIMULTANEOUS deletion of MULTIPLE body atoms of one rule —
+see test_simultaneous_delete.py; it is general (not nullary-specific) and is the reason the real demo game
+still drifts (a disconnected proposition `+disconnected4() :- cast_spell(P,_), cast_ord(P,1)` whose two body
+relations are deleted in the same step).
 """
 
 import sys
@@ -55,10 +56,9 @@ def main():
     if dele is None:
         print("  nullary DELETION (p retracts when its support is removed): ✓")
     else:
-        print(f"  nullary DELETION: xfail KNOWN BUG (p = {dele}, expected None) — query-level emptiness guard "
-              "on the now-empty original relation skips the over-delete")
+        print(f"  nullary DELETION: FAIL (p = {dele}, expected None)"); ok = False
 
-    print("NULLARY:", "PASS ✓" if ok else "FAIL ✗", "(deletion case is xfail, tracked separately)")
+    print("NULLARY:", "PASS ✓" if ok else "FAIL ✗")
     return 0 if ok else 1
 
 
