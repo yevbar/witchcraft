@@ -67,17 +67,33 @@ def _prepare():
 def _recompute_relations(src: str) -> set:
     """The relations the update recomputes (swap-clears), from `souffle --incremental --show=initial-ram`.
     Returns an empty set if the show pass fails (then no input+head is full-staged — only safe if all are
-    eligible, so callers that need correctness should treat an empty result cautiously)."""
+    eligible, so callers that need correctness should treat an empty result cautiously).
+
+    The result is a pure function of `src` (and the souffle binary), so it is CACHED to a file keyed by their
+    content hash — the `--show=initial-ram` subprocess parses the whole engine (~290ms), which would otherwise
+    be re-paid on every bootstrap/reset (startup latency). Cache hit reads the saved set in <1ms."""
+    import hashlib
     import subprocess
     import tempfile
     if not harness._SOUFFLE.exists():
         return set()
+    sver = str(harness._SOUFFLE.stat().st_mtime_ns)
+    key = hashlib.sha1((src + sver).encode()).hexdigest()[:16]
+    cache = Path(tempfile.gettempdir()) / f"mtg_recompute_{key}.txt"
+    if cache.exists():
+        return set(cache.read_text().split())
     with tempfile.NamedTemporaryFile("w", suffix=".dl", delete=False) as f:
         f.write(src)
         path = f.name
     r = subprocess.run([str(harness._SOUFFLE), "--incremental", "--show=initial-ram", path],
                        capture_output=True, text=True)
-    return set(re.findall(r"SWAP \((\w+), @swap_", r.stdout))
+    rels = set(re.findall(r"SWAP \((\w+), @swap_", r.stdout))
+    if rels:
+        try:
+            cache.write_text("\n".join(sorted(rels)))
+        except OSError:
+            pass  # cache is best-effort; correctness doesn't depend on it
+    return rels
 
 
 def available() -> bool:
