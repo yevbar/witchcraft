@@ -57,6 +57,68 @@ with g.branch(move):             # push on enter, pop on exit — for recursive 
 `branch()` is pure push/pop ergonomics — it does **not** use the engine's incremental rollback (measured
 ~1.0× for this sorcery-speed move space; the tree is too narrow to amortize — see `incremental/README.md`).
 
+### Inspecting cards (the `piece_at` analog)
+
+Zone accessors return opaque ids; `card()`/`permanents()` return their derived characteristics:
+
+```python
+g.card("grizzly_bears_6")
+# {'id':..., 'zone':'battlefield', 'controller':'alice', 'types':['creature'], 'subtypes':['bear'],
+#  'colors':['green'], 'is_creature':True, 'power':2, 'toughness':2, 'keywords':[],
+#  'tapped':False, 'summoning_sick':False}
+
+g.permanents()                       # views for everything on the battlefield (one engine eval for all)
+g.permanents(player="alice")         # filter by controller
+g.permanents(type="creature")        # filter by printed type
+```
+
+Power/toughness/creature-ness/keywords/control are the engine's **derived** values (effects applied);
+types/colors/subtypes are printed. Fields that don't apply (controller off the battlefield, P/T of a land)
+come back `None`/`[]`/`False`.
+
+### Serialization (the FEN analog)
+
+Persist a position to JSON and reconstruct an engine-equivalent game — **future play included**, since the
+RNG position is preserved:
+
+```python
+blob = g.serialize()                 # JSON str (round-trips sets/tuples/dicts/RNG that JSON can't hold)
+g2 = witchcraft.Game.deserialize(blob)
+assert g2.key() == g.key()           # same position; replaying the same moves yields identical games
+
+g3 = witchcraft.Game.from_state(other_game.state)   # wrap a raw state dict in-memory (no JSON)
+```
+
+Captures the **position only**, not the move history (so `pop()` can't cross the boundary, like a chess
+FEN) or an installed `policies` seam (re-supply it on the rebuilt game if needed).
+
+### Readable names
+
+Engine ids/slugs are underscored (`grizzly_bears_6`); recover the printed name (with MTG's casing) anywhere:
+
+```python
+g.name("grizzly_bears_6")        # 'Grizzly Bears'
+g.name(commander_id)             # 'Magda, Brazen Outlaw'  (corpus-correct, not naive title-case)
+g.card(id)["name"]               # card()/permanents() views include a 'name' field
+g.describe(move)                 # 'alice: cast Grizzly Bears'  (vs Game.describe_move(move), id-form)
+```
+
+### Imperfect information (what one seat sees)
+
+```python
+obs = g.observation("alice")     # a redacted, READ-ONLY Game from alice's seat (§103)
+obs.hand("alice")                # alice's real hand
+obs.hand("bob")                  # [] — hidden; but obs.hand_count("bob") gives the true size
+obs.library_size("bob")          # true count (rows hidden, count carried)
+obs.battlefield(); obs.life()    # public info kept
+obs.library_top()                # cards this seat scried/looked at, in order (else [])
+obs.push(...)                    # RuntimeError — observations are read-only (legality lives on the true game)
+```
+
+This is the view an agent should reason over to "play like a real player." Note terminal/turn bookkeeping
+(`_loser`, `_turn`) is redacted, so `is_game_over()`/`turn_number` aren't meaningful on an observation — it's
+a snapshot for reasoning about an in-progress position, not for driving.
+
 ### Engine backend
 
 ```python
