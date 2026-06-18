@@ -175,17 +175,21 @@ erase scratch (copy R->diff_minus then erase, ~2x O(|R|)) and the conservative p
 on top of the recompute. As relations grow with the state, this per-dirty-stratum copy cost exceeds the
 clean-stratum skip savings. Selective-stratum helps only when relations are small.
 
-REMAINING — the throughput win needs the overhead removed (correctness is done end to end):
-1. **SWAP-based clear** instead of erase-scratch: recompute into a temp, `ram::Swap` with R, clear the temp
-   (a temp's purge is unconditional even in a subroutine). Removes the ~2x O(|R|) erase copy — the dominant
-   cost. Highest-value next step.
-2. **Per-stratum nullary "ran" flag** instead of the whole-relation publish — removes the O(|R|) publish; the
-   guard checks one flag per dependency instead of two emptiness checks.
-3. **The deeper fix**: a DELTA-based update for non-monotone strata (the paper's three-term update with
-   negation), which is O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per
-   dirty stratum; only delta evaluation breaks that — this is the real elastic win, and the hard core deferred
-   earlier.
-4. Phase 6 integration into `engine_inproc` — only worthwhile once 1–2 (or 3) make the update a win at scale.
+PROGRESS on the throughput overhead (correctness is done end to end):
+- **DONE — nullary __dirty "ran" flag** replaces the whole-relation publish; the guard checks one flag per
+  dependency (plus an input relation's own staged diff). Removed one O(|R|) copy per dirty stratum and halved
+  the guard checks. Benchmark improved across the sweep (30 creatures 1.33x->1.47x; 100 creatures/506 facts
+  0.97x->1.05x). NB the flag is NOT @-prefixed — an @-temporary is removed by a RAM transform as unused; the
+  driver purges it like the diff relations.
+- **BLOCKED — SWAP-based clear** (the dominant erase-scratch cost). std::swap exchanges the relation objects
+  but the RelationWrapper backing getRelation does NOT follow, so the driver reads the wrong object after a
+  swap. Swap is only safe for unexposed @delta/@new temporaries. A different cheap clear for an EXPOSED
+  relation is needed (e.g. teach the synthesiser to also swap the wrappers, or a wrapper-aware bulk-clear);
+  until then the erase-scratch (~2x O(|R|)) remains and caps the win at ~1.05x on realistic states.
+- **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
+  negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
+  only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
+- Phase 6 integration into `engine_inproc` is worthwhile once the update is a win at scale.
 2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
    monotone strata (uncommon; the engine uses recompute anyway).
 3. Cheaper dirty signal — the conservative whole-relation publish copies the relation to diff each recompute;

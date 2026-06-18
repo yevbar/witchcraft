@@ -69,7 +69,7 @@ def main():
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
     heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
     inh = set(engine_native._edb(RULES)) & heads
-    allpurge = [f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls]
+    allpurge = [f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls]
 
     def stage(a, b):
         st = {}
@@ -98,10 +98,10 @@ def main():
         h.insert(stage(s0, s1))
         h.update()
         h.purge(allpurge)
-        got = {k: v for k, v in h.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_"))}
+        got = {k: v for k, v in h.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_", "__dirty_", "@"))}
         f = harness.Harness(src, incremental=True)
         f.bootstrap(s1)
-        want = {k: v for k, v in f.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_"))}
+        want = {k: v for k, v in f.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_", "__dirty_", "@"))}
         f.close()
         ok = not [k for k in set(got) | set(want) if got.get(k, set()) != want.get(k, set())]
         ut, rt = [], []

@@ -64,12 +64,12 @@ def main():
                     stage[f"diff_minus_{rel}"] = m
         h.insert(stage)
         h.update()
-        h.purge([f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls])
-        got = {k: v for k, v in h.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_"))}
+        h.purge([f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls])
+        got = {k: v for k, v in h.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_", "__dirty_", "@"))}
         h.close()
         f = harness.Harness(src, incremental=True)
         f.bootstrap(s1)
-        want = {k: v for k, v in f.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_"))}
+        want = {k: v for k, v in f.dump().items() if v and not k.startswith(("diff_plus_", "diff_minus_", "__dirty_", "@"))}
         f.close()
         diffs = [k for k in set(got) | set(want) if got.get(k, set()) != want.get(k, set())]
         if diffs:
