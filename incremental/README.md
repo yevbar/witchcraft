@@ -72,9 +72,12 @@ must equal the default run, and `test_fuzz` at scale.
   HARD (max/sum/count under deletion). The workaround — precise-publish + mixed-stratum to delta-ize `cond_met`
   — was implemented and **MEASURED as a net regression + buggy** (`experiments/`): delta-izing the broad
   cheap-strata chain backfires even when it unlocks the expensive hotspot. **Do not re-attempt that path.**
-- **push/pop search integration** — for LARGE-state search, driving `find_loop`'s DFS with push/pop (small
-  backtrack diffs) instead of plain `evaluate` would help; characterized but not built, since current search
-  positions are small (sorcery-speed move space) and the restore-invariant doesn't help below the crossover.
+- **push/pop search integration** — CLOSED (measured no value). The hypothesis was that driving `find_loop`'s
+  DFS with push/pop (small backtrack diffs) would beat plain `evaluate` (large diffs when backtracking) on large
+  states. Measured the restore-invariant (keep the engine resident at each node) at board 0/50/100/200: **~1.0x
+  at every size** — no benefit. Reason: the sorcery-speed move space makes the search tree NARROW (few legal
+  moves per node), so there is almost no backtracking for small diffs to optimize. Backtracking is not the
+  search's cost; the per-move engine eval + driver orchestration is. Needs a richer move space first (below).
 - **Richer move space** (activated/mana abilities) — would make searches long and wide enough for the elastic
   engine to pay off; that is rules-engine/app work, not incremental-engine work.
 
