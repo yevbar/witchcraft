@@ -223,6 +223,32 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
 # The player.
 # --------------------------------------------------------------------------------------------------------
 
+class GreedyValuePlayer(Player):
+    """1-ply greedy on a value function: play the move whose immediate resulting state `value_fn(state, seat)`
+    rates highest. No search — fast, and it IMPROVES as the value net does. Used as the cheap, self-improving
+    data-generating agent for training (vs a random opponent)."""
+
+    name = "greedy_value"
+
+    def __init__(self, value_fn=None, seed: int | None = None):
+        self.value_fn = value_fn or heuristic_value
+        self._rng = random.Random(seed)
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        seat = game.turn
+        best, best_v = moves[0], float("-inf")
+        for m in moves:
+            v = self.value_fn(env.step(game.state, m), seat)
+            if v > best_v:
+                best_v, best = v, m
+        return best
+
+
 class ReBeLPlayer(Player):
     """A ReBeL-style player: at each decision it solves a depth-limited CFR subgame over the public belief
     state and acts on the average (near-equilibrium) strategy. Imperfect-information by default (a belief of

@@ -81,12 +81,12 @@ def features(state: dict, seat: str) -> np.ndarray:
 def generate(games: int = 40, *, decks=None, variant: str = "two-player", seed: int = 0,
              player_factory=None, max_moves: int = 4000):
     """Play `games` self-play games, recording each visited state's features + the eventual outcome z in
-    {+1, -1, 0} from the DECIDING seat's view. Default players are RandomPlayer (cheap, lots of positions);
-    pass `player_factory()->Player` for a different data-generating policy. Returns (X, y) numpy arrays."""
-    pf = player_factory or (lambda: RandomPlayer())
+    {+1, -1, 0} from the DECIDING seat's view. `player_factory(seat) -> Player` builds each seat's player
+    (default RandomPlayer for both — cheap, lots of positions). Returns (X, y) numpy arrays."""
+    pf = player_factory or (lambda _seat: RandomPlayer())
     X, Y = [], []
     for gi in range(games):
-        players = {"alice": pf(), "bob": pf()}
+        players = {"alice": pf("alice"), "bob": pf("bob")}
         policies = {s: p.as_policy() for s, p in players.items()}
         g = Game(decks, variant=variant, seed=seed + gi, policies=policies)
         rows = []                                       # (features, seat) along the trajectory
@@ -208,44 +208,61 @@ def _eval_vs_random(value_fn, decks, games, rebel_kwargs, seed):
     return round(wins / games, 3) if games else 0.0
 
 
-def train_loop(rounds: int = 8, *, train_decks=("mono_green_landfall", "mono_white_soldiers"),
-               games_per_round: int = 24, eval_games: int = 8, epochs: int = 150, hidden: int = 24,
-               lr: float = 0.05, forge_every: int = 3, forge_games: int = 3, forge_witch_deck: str = "vanilla",
-               save_path: str = "rebel_vnet", seed: int = 0, rebel_kwargs=None, verbose: bool = True):
-    """Self-play training run on a FIXED two-deck pairing — the training seat ('alice') is the first deck
-    (e.g. mono_green_landfall), the opponent ('bob') the second (e.g. mono_white_soldiers). Each round:
-    accumulate self-play data on the pairing, (re)fit the value net, save it, and evaluate ReBeL(net) vs a
-    random opponent on the pairing. Every `forge_every` rounds (if Forge is installed) it ALSO benchmarks the
-    current net against Forge's AI (Forge = source of truth). Returns {'value_fn', 'history', 'save_path'}.
+def train_loop(rounds: int = 12, *, train_decks=("mono_green_landfall", "mono_white_soldiers"),
+               games_per_round: int = 24, epochs: int = 150, hidden: int = 24, lr: float = 0.05,
+               benchmark_every: int = 4, eval_games: int = 8, forge: bool = True, forge_games: int = 3,
+               forge_timeout: int = 300, forge_witch_deck: str = "vanilla", save_path: str = "rebel_vnet",
+               seed: int = 0, rebel_kwargs=None, verbose: bool = True):
+    """Self-play training run on a FIXED two-deck pairing. The training seat ('alice', the first deck — e.g.
+    mono_green_landfall) plays **self-play against a RANDOM opponent** ('bob', the second deck — e.g.
+    mono_white_soldiers): cheaply, with a value-greedy agent that improves as the net does. EVERY round just
+    generates that data, refits the value net, and saves it.
+
+    BENCHMARKS are infrequent (every `benchmark_every` rounds): there it evaluates ReBeL(net) vs a random
+    opponent, and THEN — only at the benchmark — tests the net against Forge's AI (Forge = source of truth,
+    if installed). Returns {'value_fn', 'history', 'save_path'}.
 
     Fixed known decks make the determinization belief exact ('perfect information to train against'). CPU-only;
-    tune rounds/games/epochs and `rebel_kwargs` (the ReBeL search budget used at eval) to your time budget."""
+    training rounds are light (no search), the Forge benchmark is the only heavy/infrequent step."""
     from .decks import load_deck
+    from .rebel import GreedyValuePlayer
     rebel_kwargs = rebel_kwargs or dict(worlds=3, iterations=30, depth=3, action_cap=5, time_budget=1.5)
     decks = {"alice": load_deck(train_decks[0]), "bob": load_deck(train_decks[1])}
+    train_seat = "alice"
     X_all = np.empty((0, FEATURES)); Y_all = np.empty((0, 1))
     history, vf = [], None
     for r in range(rounds):
-        X, Y = generate(games_per_round, decks=decks, variant="two-player", seed=seed + r * 1000)
+        # --- TRAIN: the improving agent (value-greedy on the current net) plays self-play vs a random seat ---
+        def pf(s, _vf=vf, _r=r):
+            if s == train_seat and _vf is not None:
+                return GreedyValuePlayer(_vf, seed=seed + _r)
+            return RandomPlayer(seed=seed + _r * 7 + (1 if s == "bob" else 0))
+        X, Y = generate(games_per_round, decks=decks, variant="two-player", seed=seed + r * 1000,
+                        player_factory=pf)
         X_all, Y_all = np.vstack([X_all, X]), np.vstack([Y_all, Y])
         net = TinyValueNet(FEATURES, hidden=hidden, seed=seed).fit(X_all, Y_all, epochs=epochs, lr=lr, seed=seed)
         net.save(save_path)
         vf = NetValue(net)
-        wr = _eval_vs_random(vf, decks, eval_games, rebel_kwargs, seed=seed + r)
-        rec = {"round": r, "data": int(len(Y_all)), "win_rate_vs_random": wr}
-        if forge_every and (r + 1) % forge_every == 0:
-            try:
-                from . import forge as wf
-                if wf.forge_available():
-                    from .benchmark import benchmark_vs_forge
-                    rec["forge"] = benchmark_vs_forge(vf, games=forge_games, witch_deck=forge_witch_deck,
-                                                      opp_deck=forge_witch_deck, timeout=120)
-            except Exception as e:
-                rec["forge_error"] = str(e)[:120]
+        rec = {"round": r, "data": int(len(Y_all))}
+        # --- BENCHMARK (infrequent): eval vs random, THEN test against Forge ---
+        if benchmark_every and (r + 1) % benchmark_every == 0:
+            rec["win_rate_vs_random"] = _eval_vs_random(vf, decks, eval_games, rebel_kwargs, seed=seed + r)
+            if forge:
+                try:
+                    from . import forge as wf
+                    if wf.forge_available():
+                        from .benchmark import benchmark_vs_forge
+                        rec["forge"] = benchmark_vs_forge(vf, games=forge_games, witch_deck=forge_witch_deck,
+                                                          opp_deck=forge_witch_deck, timeout=forge_timeout)
+                except Exception as e:
+                    rec["forge_error"] = str(e)[:120]
         history.append(rec)
         if verbose:
-            extra = ""
-            if "forge" in rec:
-                f = rec["forge"]; extra = f"  | vs Forge: {f['bot_wins']}/{f['games']} (modeled {f['mirror_modeled_frac']})"
-            print(f"round {r}: data={rec['data']:5}  ReBeL(net) vs random = {wr:.2f}{extra}", flush=True)
+            if "win_rate_vs_random" in rec:
+                f = rec.get("forge")
+                fx = f"  THEN vs Forge: {f['bot_wins']}/{f['games']} (modeled {f['mirror_modeled_frac']})" if f else ""
+                print(f"round {r}: data={rec['data']:5}  [BENCHMARK] ReBeL(net) vs random = "
+                      f"{rec['win_rate_vs_random']:.2f}{fx}", flush=True)
+            else:
+                print(f"round {r}: data={rec['data']:5}  (train)", flush=True)
     return {"value_fn": vf, "history": history, "save_path": save_path}

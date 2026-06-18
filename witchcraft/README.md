@@ -242,16 +242,18 @@ self-play, cheap). A more ReBeL-faithful target is the CFR root value under ReBe
 
 ```python
 from witchcraft.rebel_train import train_loop
-out = train_loop(rounds=10, train_decks=("mono_green_landfall", "mono_white_soldiers"),
-                 forge_every=3, save_path="rebel_vnet")     # alice=green (trains), bob=white (random)
-out["history"]   # per round: data size, ReBeL(net) win-rate vs random, and (every 3rd) the vs-Forge result
+out = train_loop(rounds=12, train_decks=("mono_green_landfall", "mono_white_soldiers"),
+                 benchmark_every=4, save_path="rebel_vnet")  # alice=green (trains), bob=white (random)
+out["history"]   # every round: data size; benchmark rounds also carry win_rate_vs_random + the Forge result
 ```
 
-Fixed known decks make the determinization belief exact ("perfect information to train against"). Each round
-generates self-play data on the pairing, refits the net, saves it, and evaluates ReBeL(net) vs random; every
-`forge_every` rounds it also benchmarks the net against Forge (if installed). And you can fire that off
-directly — the trained net plays a Forge seat (Forge = source of truth) via a reconstruct + 1-ply net-rank
-policy:
+EVERY round is a **cheap training round**: the training seat (alice) plays self-play **against a random
+opponent** (bob) with a value-greedy agent that improves as the net does, then the net refits and saves — no
+search, so it's light. BENCHMARKS are **infrequent** (every `benchmark_every` rounds): there it evaluates
+ReBeL(net) vs random, and **then** tests the net against Forge (the only heavy step; `forge=False` to skip).
+Fixed known decks make the determinization belief exact ("perfect information to train against"). You can also
+fire the Forge test off directly — the trained net plays a Forge seat (Forge = source of truth) via a
+reconstruct + 1-ply net-rank policy:
 
 ```python
 from witchcraft.rebel_train import TinyValueNet, NetValue
