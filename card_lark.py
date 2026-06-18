@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -223,6 +223,24 @@ xlobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+                          // 
 // 'to your hand') `rhclause` reproduces `rclause`'s `_bounce` tuple byte-identically, so winning is inert.
 rhclause.2: rhbody RETHAND                    -> rethand
 rhbody: (RVERB | WORD | QUANT | NUM | ZONE | FROM | TOPREP | EQUALTO)+   // 'return[s] [<subject>] <object> [from <zone>]' (RVERB: the leading 'return' string terminal; value unused; sliced from src)
+
+// GRANT_COMBAT (§509/§508 combat permission) — the clean '<subj> can attack/block …' subfamily of
+// grant_ability (the `_as_though_combat` as-though-permission + `_can_block_more` multi-block templates).
+// The distinctive GCC_CAN bigram ('can attack'/'can block') anchors it (bare 'can' collides corpus-wide,
+// the bigram doesn't); an optional leading subject SPAN and a trailing permission SPAN flank it. The
+// transformer slices the WHOLE clause from `self._src` and re-applies the two templates' OWN regexes
+// (_GCC_ASTHOUGH / _GCC_BLOCKMORE, reusing `_TGT`) so the slug — and exactly which trailing duration is
+// dropped (the as-though span keeps a mid-phrase 'this turn'; the block-more count drops a trailing
+// 'this turn'/'each combat') — is byte-identical. A quoted-ability grant, an ' and '-joined compound, a
+// 'can't …' restriction, or a non-`_TGT` subject matches NEITHER regex -> abstain to the regex (the
+// `_grant_ability` quoted template / compound splitters own those). POSITIVE priority so the GCC_CAN-
+// anchored parse WINS the `gclause`/`grant` competitor (a mid-phrase 'have' copula — 'as though it didn't
+// HAVE defender' — would otherwise let `grant` claim the clause as a keyword-grant and abstain to None);
+// this is safe because the transformer is faithful-or-abstain (it only grounds on an exact template match
+// and otherwise returns None, after which `parse_clause` falls back to the regex anyway).
+gccclause.2: gccsubj? GCC_CAN gcctail         -> grantcombat
+gccsubj: (WORD | QUANT | NUM)+                                               // optional subject NP (validated `_TGT` via the re-applied template)
+gcctail: (WORD | QUANT | NUM | MDUR | ZONE | FROM | TOPREP)+                 // the permission phrase after 'can attack/block' (re-sliced from `_src`)
 
 // SUBJECT-FIRST object verbs (§701.17 sacrifice; §701.x exile) with an explicit PLAYER subject:
 //   '<player> sacrifices it/that creature/them'        (_sacrifice_subj #1: by_<player> in extra, obj in target)
@@ -491,6 +509,7 @@ EXILE.3: /\bexiles?\b/                // 'exile …' — leading §701.x exile v
 XLIB.5: /\blibrar(?:y|ies)\b/         // 'library'/'libraries' — the trailing anchor of `_exile_top` (outranks ZONE so xtbody stops here; re-validated in the transformer)
 XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the distinctive `_exile_until` trailing anchor ('until ~ leaves the battlefield')
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
+GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
@@ -741,6 +760,26 @@ _AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
 _MR_ATTACK = re.compile(r"^(" + _TGT + r") attacks?(?: (?!each combat|this turn|this combat)(" + _TGT + r"))?(?: each combat| this turn| this combat)?$", re.I)
 _MR_BLOCK_TGT = re.compile(r"^(" + _TGT + r") blocks (" + _TGT + r")(?: this turn| this combat)?$", re.I)
 _MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks(?: this turn| this combat| each combat)?$", re.I)
+
+# GRANT_COMBAT (can attack/block …) — the clean §509/§508 combat-PERMISSION subfamily of grant_ability,
+# the EXACT mirror of two card_effects templates re-applied to the captured clause (the GCC_CAN 'can
+# attack'/'can block' terminal anchors the production; the transformer slices `self._src` so the slug is
+# byte-identical — never a re-joined approximation):
+#   _as_though_combat: `^(_TGT) can ((?:attack|block)\b[\w' -]*? as though (?:it|they) (?:had|didn't have|
+#       don't have) [\w' -]+?)$` -> grant_ability('-', _target(subj), 'can_' + slug(<attack/block…asthough…>)).
+#       The whole 'attack/block … as though …' span is slugged WHOLE (`$`-anchored after the as-though tail)
+#       — NO trailing-duration strip (a mid-phrase 'this turn' is KEPT, e.g. 'can attack this turn as though…').
+#   _can_block_more: `^(?:(_TGT) )?can block (an additional creature|any number of creatures|up to \w+
+#       additional creatures|an additional \w+ creatures?)(?: this turn| each combat)?$` -> grant_ability(
+#       '-', _target(subj or 'self'), 'can_block_' + slug(<count>)). The trailing ' this turn'/' each combat'
+#       is OUTSIDE the captured count group -> DROPPED. The subject is optional (-> 'self' when absent).
+# A clause that matches NEITHER regex (a quoted-ability grant, an ' and '-joined compound, a 'can't …'
+# restriction, a non-`_TGT` subject) finds no clean re-application here -> abstain to the regex (the
+# `_grant_ability` quoted template / the compound splitters own it). We additionally hard-guard on a quote
+# char and `_is_compound_object` so a quoted/compound clause never grounds even if a regex were to skim it.
+_GCC_ASTHOUGH = re.compile(rf"^({_TGT}) can ((?:attack|block)\b[\w' -]*? as though (?:it|they) (?:had|didn't have|don't have) [\w' -]+?)$", re.I)
+_GCC_BLOCKMORE = re.compile(rf"^(?:({_TGT}) )?can block (an additional creature|any number of creatures|up to \w+ additional creatures|an additional \w+ creatures?)(?: this turn| each combat)?$", re.I)
+
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
 # GRAMMAR now owns the `remove <count> [<kind>] counter[s] from <tgt>` skeleton as distinct spans (the
@@ -1142,6 +1181,10 @@ class _RhBody(str):    # the flat 'return[s] [<subj>] <obj> [from <zone>]' run (
 
 
 class _MrBody(str):    # the combat-requirement body span (mrbody) — '<subj> attacks/blocks [<obj>] [<dur>]'
+    pass
+
+
+class _GccSubj(str):   # the optional subject span before 'can attack/block' (the whole clause is re-sliced from _src)
     pass
 
 
@@ -2479,6 +2522,35 @@ class _ToEffect(Transformer):
         m = _MR_BLOCK_ABLE.match(body)
         if m:
             return Effect("must_block", "-", _target(m.group(1)))
+        return None
+
+    # --- GRANT_COMBAT (can attack/block …; §509/§508) -------------------------
+    def gccsubj(self, *toks):
+        return _GccSubj(" ".join(str(t) for t in toks))
+
+    def gcctail(self, *toks):
+        return None   # presence consumes the permission span; the slug is re-sliced from `self._src`
+
+    def grantcombat(self, *args):
+        # '<subj> can attack/block …' — the EXACT `_as_though_combat` (whole 'attack/block … as though …'
+        # span slugged, NO trailing-duration strip) and `_can_block_more` (count slugged, trailing 'this
+        # turn'/'each combat' DROPPED) templates, re-applied to the WHOLE clause sliced from `self._src`
+        # (so the slug is byte-identical, never a re-joined token approximation). Hard-guard a quote char
+        # and `_is_compound_object`: a quoted-ability grant ('… can attack" and has "…') / ' and '-joined
+        # compound never grounds here (the `_grant_ability` quoted template / compound splitters own it).
+        # A clause matching NEITHER regex (a 'can't …' restriction, a non-`_TGT` subject) -> abstain.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        s = src.strip()
+        if '"' in s or _is_compound_object(s):
+            return None
+        m = _GCC_ASTHOUGH.match(s)
+        if m:
+            return Effect("grant_ability", "-", _target(m.group(1)), "can_" + ground.slug(m.group(2)))
+        m = _GCC_BLOCKMORE.match(s)
+        if m:
+            return Effect("grant_ability", "-", _target(m.group(1) or "self"), "can_block_" + ground.slug(m.group(2)))
         return None
 
     # --- SUBJECT-FIRST object verbs (sacrifice / exile) -----------------------
