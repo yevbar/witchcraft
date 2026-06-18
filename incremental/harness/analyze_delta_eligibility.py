@@ -160,6 +160,15 @@ def main():
     delta = closure(lambda s: recursive(s) or not neg_free(s) or not agg_free(s))
     ideal = closure(lambda s: recursive(s) or not agg_free(s))
 
+    # PRECISE-PUBLISH ceiling: if every RECOMPUTE stratum (recursive or aggregate-bearing) published a PRECISE
+    # diff (diff_plus = R_new\R_old, diff_minus = R_old\R_new — the old contents sit in @swap_R before the
+    # clear), then requirement (3) "every dep hands a precise diff" is satisfied by ANY dep (recompute strata
+    # become valid precise-diff sources too). Eligibility then reduces to JUST the LOCAL block: non-recursive ∧
+    # aggregate-free. Negation is fine (negation-delta consumes the published diff). This is the ceiling the
+    # precise-publish change would unlock — no transitive (downstream-of-recompute) blocking remains.
+    pubideal = {s for s in idb_sccs if not recursive(s) and agg_free(s)}
+    downstream_unlock = pubideal - ideal  # strata blocked ONLY by being downstream of a recompute stratum
+
     n_idb = len(idb_sccs)
     rec = sum(1 for s in idb_sccs if recursive(s))
     has_neg = sum(1 for s in idb_sccs if not neg_free(s))
@@ -181,6 +190,12 @@ def main():
     print(f"    relations: {rels_in(ideal):4d} / {rels_in(idb_sccs)}")
     print(f"  (neg-free-only closure, for reference: {len(delta)} strata — what was eligible before negation-delta)")
     print(f"  Strata blocked from delta (recursion/aggregate, or downstream of one): {n_idb - len(ideal)}")
+    print()
+    print("  PRECISE-PUBLISH ceiling (if recompute strata published a precise diff_plus/diff_minus from @swap_R):")
+    print(f"    eligible strata:   {len(pubideal):4d} / {n_idb}  ({100*len(pubideal)/n_idb:.0f}% of IDB strata)")
+    print(f"    DOWNSTREAM UNLOCK: {len(downstream_unlock):4d} strata ({rels_in(downstream_unlock)} relations) move "
+          f"from recompute O(|R|) to delta O(diff)")
+    print(f"    still recompute:   {n_idb - len(pubideal)} (the {rec} recursive + {has_agg} aggregate source strata only)")
     print()
 
     # STAGING SET — which input+head (SHIM_INPUTS) relations need FULL-input staging. The AUTHORITATIVE source is
