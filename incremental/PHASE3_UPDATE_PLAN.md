@@ -163,20 +163,29 @@ out of the body scan, so @iteration must be constant, not body-dependent; (b) in
 re-merge the staged input after emptying and let the guard fire on their own staged diff. Staging convention
 for the driver: pure-input relations stage the DIFF; input+head relations stage the FULL new input.
 
-**BENCHMARKED (`incremental/harness/bench.py`).** In-process update vs full recompute, both producing
-identical resident relations: ~5x on a tiny state (2 creatures), ~1.38x on a ~30-creature state, roughly
-independent of change locality. The cap is FIXED OVERHEAD, not dirty-set size: (a) the guard evaluates a
-clean-condition over each stratum's dependency diffs for ALL ~250 strata every update; (b) each recomputed
-stratum copies its whole relation (the erase scratch old->diff_minus + the conservative new->diff_plus
-publish). On an already-fast in-process recompute (~0.13ms) that overhead dominates the skip savings; the win
-widens on larger/more-expensive states.
+**BENCHMARKED (`incremental/harness/bench.py`) — CRITICAL FINDING: the recompute-based update does not scale.**
+In-process update vs full recompute (identical resident relations), tap 1 creature, sweeping state size:
+```
+  2 creatures ( 16 facts): 5.3x     30 creatures (156 facts): 1.3x     100 creatures (506 facts): 0.97x (slower!)
+ 10 creatures ( 56 facts): 2.4x     60 creatures (306 facts): 1.1x
+```
+Real engine states are ~485 facts, so at realistic scale the update is no faster than (slightly slower than)
+a full recompute. Root cause: each DIRTY stratum does O(|R|) overhead that scales with the relation size — the
+erase scratch (copy R->diff_minus then erase, ~2x O(|R|)) and the conservative publish (copy R->diff_plus) —
+on top of the recompute. As relations grow with the state, this per-dirty-stratum copy cost exceeds the
+clean-stratum skip savings. Selective-stratum helps only when relations are small.
 
-REMAINING — throughput optimization + integration; correctness is done end to end:
-1. **Cheaper dirty signal / guard** (to approach Phase-0 ~3-4x): replace the whole-relation publish with a
-   per-stratum nullary "ran" flag (removes one O(relation) copy per dirty stratum), and make the guard check
-   one flag instead of many emptiness checks.
-2. **Phase 6 integration**: wire `update` into `engine_inproc` as the engine's delta path (stage per the
-   input+head convention, executeSubroutine("update"), purge), so the search actually uses it.
+REMAINING — the throughput win needs the overhead removed (correctness is done end to end):
+1. **SWAP-based clear** instead of erase-scratch: recompute into a temp, `ram::Swap` with R, clear the temp
+   (a temp's purge is unconditional even in a subroutine). Removes the ~2x O(|R|) erase copy — the dominant
+   cost. Highest-value next step.
+2. **Per-stratum nullary "ran" flag** instead of the whole-relation publish — removes the O(|R|) publish; the
+   guard checks one flag per dependency instead of two emptiness checks.
+3. **The deeper fix**: a DELTA-based update for non-monotone strata (the paper's three-term update with
+   negation), which is O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per
+   dirty stratum; only delta evaluation breaks that — this is the real elastic win, and the hard core deferred
+   earlier.
+4. Phase 6 integration into `engine_inproc` — only worthwhile once 1–2 (or 3) make the update a win at scale.
 2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
    monotone strata (uncommon; the engine uses recompute anyway).
 3. Cheaper dirty signal — the conservative whole-relation publish copies the relation to diff each recompute;

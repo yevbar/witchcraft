@@ -6,18 +6,23 @@ Measures, for a resident engine instance, the median time to advance state N -> 
 
 Both produce identical resident relations (asserted). The ratio is the selective-stratum speedup.
 
-FINDINGS (Mac, in-process):
-  - The speedup grows with state size and shrinks with the fixed per-update overhead. On a tiny state
-    (2 creatures) it is ~5x; on a ~30-creature state it is ~1.3x, roughly independent of how localized the
-    change is (tap 1 creature vs add 1 creature vs life change all ~1.3x).
-  - The cap is fixed overhead, not dirty-set size: (a) the guard evaluates a clean-condition (emptiness checks
-    over each stratum's dependency diffs) for ALL ~250 strata every update; (b) each recomputed stratum copies
-    its whole relation (the erase scratch old->diff_minus, plus the conservative new->diff_plus publish). On an
-    already-fast in-process recompute (~0.13ms) that overhead dominates the skip savings.
-  - Optimization path to approach the Phase-0 ~3-4x: a cheap per-stratum "ran" flag instead of the
-    whole-relation publish (removes one O(relation) copy per dirty stratum), and a cheaper guard (one flag
-    check instead of many emptiness checks). The win should also widen on larger states where the recompute
-    cost dominates the fixed overhead.
+FINDINGS (Mac, in-process) — the speedup SHRINKS as the state grows:
+      2 creatures ( 16 facts): ~5.3x       30 creatures (156 facts): ~1.3x
+     10 creatures ( 56 facts): ~2.4x       60 creatures (306 facts): ~1.1x
+                                          100 creatures (506 facts): ~0.97x  (SLOWER than recompute)
+  Real engine states are ~485 facts, so AT REALISTIC SCALE the recompute-based update is not a win.
+  Root cause: each DIRTY stratum does O(|R|) overhead that scales with the relation's size —
+    (a) the erase scratch (copy R->diff_minus, then erase, ~2x O(|R|), with the costlier btree_delete erase),
+    (b) the conservative publish (copy R->diff_plus, O(|R|)),
+  on top of the recompute itself. As relations grow with the state, this per-dirty-stratum copy cost exceeds
+  what is saved by skipping clean strata. The win is real only when relations are small.
+  Optimization path (needed for a real win at scale):
+    1. SWAP-based clear instead of erase-scratch: recompute into a temp, ram::Swap it with R, clear the temp
+       (a temp's purge is unconditional even in a subroutine) — removes the ~2x O(|R|) erase copy.
+    2. A per-stratum nullary "ran" flag instead of the whole-relation publish — removes the O(|R|) publish.
+    3. The deeper fix: a DELTA-based update for non-monotone strata (the paper's three-term update with
+       negation), which is O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per
+       dirty stratum; only delta evaluation breaks that.
 
 Run: python3 incremental/harness/bench.py  (compiles the 328-relation engine once, ~40s)
 """
@@ -116,11 +121,13 @@ def main():
         print(f"  {label:28s} correct={'✓' if ok else 'FAIL'}  update={um:.3f}ms  recompute={rm:.3f}ms  "
               f"speedup={rm/um:.2f}x")
 
-    for n in (2, 30):
+    print("  state size sweep (tap 1 creature; the win shrinks as relations grow):")
+    for n in (2, 10, 30, 60, 100):
         base = make_state(n)
         tap = {k: set(v) for k, v in base.items()}
         tap["tapped"].add(("cr0",))
-        run(base, tap, f"{n} creatures, tap (1 fact)")
+        nf = sum(len(v) for v in base.values())
+        run(base, tap, f"{n} creatures (~{nf} facts)")
     h.close()
     return 0
 
