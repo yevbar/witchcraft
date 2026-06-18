@@ -19,7 +19,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _TGT, _LIB_OWNER, _mana_production
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _kw_list, _TGT, _LIB_OWNER, _mana_production
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -1610,6 +1610,25 @@ class _ToEffect(Transformer):
     def pbody(self, *toks):
         return _Body(" ".join(str(t) for t in toks))
 
+    @staticmethod
+    def _lose_abilities_eff(subj, body):
+        # '<permanent> loses all [other] abilities / this ability / <kw-list> [until end of turn]' (§613.6) —
+        # the EXACT `_lose_abilities` / `_lose_specific` templates: lose_abilities(-, _target(subj), <extra>)
+        # where extra is '-' (all abilities), 'this_ability', or the '_'-joined §702 keyword list. The
+        # subject must be a clean `_TGT`; a kw-list that isn't ALL §702 keywords (e.g. an 'or' list) abstains.
+        if subj is None:
+            return None
+        s = subj.strip()
+        if not _AT_TGT.match(s):
+            return None
+        b = re.sub(r"\s+until end of turn$", "", body.strip(), flags=re.I).strip().lower()
+        if re.match(r"^all(?: other)? abilities$", b):
+            return Effect("lose_abilities", "-", _target(s))
+        if b == "this ability":
+            return Effect("lose_abilities", "-", _target(s), "this_ability")
+        kws = _kw_list(b)
+        return Effect("lose_abilities", "-", _target(s), "_".join(kws)) if kws else None
+
     def pcount(self, *args):
         subj = next((str(a) for a in args if isinstance(a, _Subj)), None)
         body = next((str(a) for a in args if isinstance(a, _Body)), "")
@@ -1617,6 +1636,10 @@ class _ToEffect(Transformer):
         g = _PVERB.get(verb)
         if g is None:
             return None
+        if verb in ("loses", "lose"):          # §613.6 ABILITY removal routes here via PVERB 'lose[s]' but
+            la = self._lose_abilities_eff(subj, body)   # the subject is a PERMANENT and the body is abilities,
+            if la is not None:                 # not a player-count amount -> handle before the player gate
+                return la
         if subj is not None and not _PLAYER.match(subj.strip()):
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()

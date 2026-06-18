@@ -1429,21 +1429,11 @@ def _gain_all_creature_types(m):
     return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
 
 
-@_t(rf"^({_TGT}) loses? all (?:other )?abilities(?: until end of turn)?$")
-def _lose_abilities(m):
-    """'<target> loses all abilities [until end of turn]' — a §613.6 ability-removal effect."""
-    return Effect("lose_abilities", "-", _target(m.group(1)))
-
-
-@_t(rf"^({_TGT}) loses? (this ability|[\w, ]+?)(?: until end of turn)?$")
-def _lose_specific(m):
-    """'<target> loses this ability / <keyword(s)>' — a §613.6 removal of a specific ability/keyword.
-    Only fires when each named item is a §702 keyword (or the self-reference 'this ability')."""
-    what = m.group(2).strip().lower()
-    if what == "this ability":
-        return Effect("lose_abilities", "-", _target(m.group(1)), "this_ability")
-    kws = _kw_list(what)
-    return Effect("lose_abilities", "-", _target(m.group(1)), "_".join(kws)) if kws else None
+# _lose_abilities / _lose_specific: migrated to card_lark (the `pcount` transformer's `_lose_abilities_eff`
+# branch — §613.6 ability removal routes there via PVERB 'lose[s]', handled before the player-count gate:
+# 'all [other] abilities' / 'this ability' / a §702 keyword list via the shared `_kw_list`). lark-first
+# grounds every lose-abilities clause IDENTICALLY (migrate_check lose_abilities = 33/33, 0 DIFFERS,
+# 0 ABSTAINS); both templates RETIRED, proven byte-identical by a full-corpus parse_clause snapshot.
 
 
 @_t(rf"^(?:({_TGT}) )?enters with (\w+) (?:additional )?([+-]\d+/[+-]\d+|[\w]+) counters? on it$")
