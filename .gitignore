@@ -21,3 +21,6 @@ venv/
 mtgjson
 mtgjson/
 datalog/cards.dl
+
+# ReBeL training output artifacts
+rebel_runs/
