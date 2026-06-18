@@ -743,6 +743,9 @@ from card_effects import _TGT as _BCM_TGT_SRC
 _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
 # DRAW <N> cards for each <X> — `_draw_foreach`'s exact pattern (count-scaled draw); re-applied to src by pcount.
 _DFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (a card|\w+) cards? for each (.+?)$", re.I)
+# DRAW/MILL dynamic amount-expr — `_flow_amount`'s exact pattern (up-to-N / equal-to-X /
+# as-many-as-X / half-X). Re-applied to src by pcount; reproduces its amt logic byte-for-byte.
+_FLOW_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (up to \w+ cards?|cards? equal to .+?|as many cards as .+?|half(?: of)? .+?)$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1947,6 +1950,24 @@ class _ToEffect(Transformer):
                     g2 = fm.group(2)
                     base = "1" if g2 in ("a", "a card") else (str(_amount(g2)) if _amount(g2) is not None else ground.slug(g2))
                     return Effect("draw", base + "_per_" + ground.slug(fm.group(3)), _target(fm.group(1) or "you"))
+        if verb in ("draw", "draws", "mill", "mills"):   # DRAW/MILL dynamic amount-expr (§120/§614) —
+            src = getattr(self, "_src", None)            # 'up to N' / 'cards equal to X' / 'as many cards
+            if src is not None:                          # as X' / 'half [of] X'; reproduce `_flow_amount`
+                fm = _FLOW_RE.match(src.strip())
+                if fm:
+                    expr = fm.group(3).strip()
+                    mm = re.match(r"up to (\w+) cards?$", expr, re.I)
+                    if mm:
+                        n = _amount(mm.group(1))
+                        amt = "up_to_" + (str(n) if n is not None else ground.slug(mm.group(1)))
+                    elif re.match(r"cards? equal to ", expr, re.I):
+                        amt = "equal_to_" + ground.slug(re.sub(r"^cards? equal to ", "", expr, flags=re.I))
+                    elif re.match(r"as many cards as ", expr, re.I):
+                        amt = "as_many_as_" + ground.slug(re.sub(r"^as many cards as ", "", expr, flags=re.I))
+                    else:
+                        amt = "half_" + ground.slug(re.sub(r"^half(?: of)? ", "", expr, flags=re.I))
+                    rv = "draw" if fm.group(2).lower().startswith("draw") else "mill"
+                    return Effect(rv, amt, _target(fm.group(1) or "you"))
         if subj is not None and not _PLAYER.match(subj.strip()):
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
