@@ -1445,10 +1445,9 @@ def _discard_that(m):
     return Effect("discard", "that_amount", _target(m.group(1)))
 
 
-@_t(rf"^({_TGT}) is goaded$")
-def _is_goaded(m):
-    """'<creature> is goaded' — the §701.38 goad keyword action applied as a continuous effect."""
-    return Effect("goad", "-", _target(m.group(1)))
+# _is_goaded: migrated to card_lark (`gdclause` — the GOADED 'is goaded' bigram + subject span). lark-first
+# grounds it IDENTICALLY (migrate_check goad = 0 DIFFERS, 0 ABSTAINS); RETIRED, proven byte-identical by a
+# full-corpus parse_clause snapshot with it removed.
 
 
 @_t(rf"^remove ({_TGT}) from combat$")

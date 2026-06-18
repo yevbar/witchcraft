@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -198,6 +198,18 @@ xtbody: (WORD | QUANT | NUM)+                                                // 
 // on a compound/run-on object. exile(-, _target(obj), 'until_self_leaves'). NEGATIVE priority.
 xlclause.-2: EXILE xlobj XLEAVES             -> exileuntil
 xlobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+                          // the object NP (validated _TGT)
+
+// MONSTROSITY (§701.x) — 'Monstrosity <N>' (the shared `_kwaction_n` keyword-action-with-number leaf,
+// for this verb): a distinctive MONSTROSITY terminal + a count token -> monstrosity(<n>, you). FLIP-ONLY
+// (the `_kwaction_n` catch-all stays for the other keyword actions). The count is restricted to the
+// template's own (\d+|one..five|x) set, abstaining otherwise.
+msclause.-2: MONSTROSITY msnum               -> monstrosity_v
+msnum: NUM | QUANT                                                           // the count ('3'/'two'/'x'); validated
+
+// GOAD (passive, §701.38) — '<creature> is goaded' (the dedicated `_goaded` template): the distinctive
+// GOADED bigram ('is goaded') anchors a leading subject SPAN -> goad(-, _target(subj)). Subject _TGT or abstain.
+gdclause.-2: gdsubj GOADED                   -> goaded_v
+gdsubj: (WORD | QUANT | NUM)+                                                // the goaded creature (validated _TGT)
 
 // RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
 // existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
@@ -509,6 +521,8 @@ EXILE.3: /\bexiles?\b/                // 'exile …' — leading §701.x exile v
 XLIB.5: /\blibrar(?:y|ies)\b/         // 'library'/'libraries' — the trailing anchor of `_exile_top` (outranks ZONE so xtbody stops here; re-validated in the transformer)
 XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the distinctive `_exile_until` trailing anchor ('until ~ leaves the battlefield')
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
+MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
+GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -750,6 +764,7 @@ _RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
 # template's own `(\d+|one|two|three|x)` set, so a count outside it (e.g. 'four') abstains to the regex.
 _SK_BODY = re.compile(r"^(?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$", re.I)
 _AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
+_MS_NUM = re.compile(r"^(?:\d+|one|two|three|four|five|x)$", re.I)   # monstrosity count (the `_kwaction_n` set)
 
 # MUST_ATTACK / MUST_BLOCK body validators — the `_must_attack` / `_must_block_tgt` / `_must_block_able`
 # template patterns MINUS the trailing ' if able' (the grammar's MRABLE terminal already consumed it),
@@ -1169,6 +1184,14 @@ class _AsKind(str):    # amass army-type span (askind) — slugged into the effe
 
 
 class _AsNum(str):     # amass count token (asnum) — validated against the template's (\d+|one|two|three|x)
+    pass
+
+
+class _MsNum(str):     # monstrosity count token (msnum) — validated against (\d+|one..five|x)
+    pass
+
+
+class _GdSubj(str):    # the goaded creature span (gdsubj) — validated _TGT
     pass
 
 
@@ -2398,6 +2421,29 @@ class _ToEffect(Transformer):
             return None
         n = _amount(str(num).strip())
         return Effect("amass", n if n is not None else 1, "you", ground.slug(str(kind)))
+
+    # --- MONSTROSITY (§701.x) / GOAD passive (§701.38) ------------------------
+    def msnum(self, tok):
+        return _MsNum(str(tok))
+
+    def monstrosity_v(self, *args):
+        # 'Monstrosity <N>' — the `_kwaction_n` leaf for this verb: monstrosity(<n>, you). Count restricted
+        # to the template's (\d+|one..five|x) set; anything else abstains.
+        num = next((a for a in args if isinstance(a, _MsNum)), None)
+        if num is None or not _MS_NUM.match(str(num).strip()):
+            return None
+        n = _amount(str(num).strip())
+        return Effect("monstrosity", n if n is not None else "-", "you")
+
+    def gdsubj(self, *toks):
+        return _GdSubj(" ".join(str(t) for t in toks))
+
+    def goaded_v(self, *args):
+        # '<creature> is goaded' — the EXACT `_goaded` template: goad(-, _target(subj)). Subject _TGT or abstain.
+        subj = next((a for a in args if isinstance(a, _GdSubj)), None)
+        if subj is None or not _AT_TGT.match(str(subj).strip()):
+            return None
+        return Effect("goad", "-", _target(str(subj).strip()))
 
     # --- COPY (§707) ----------------------------------------------------------
     def cpbody(self, *toks):
