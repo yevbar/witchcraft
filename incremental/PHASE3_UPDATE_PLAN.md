@@ -154,9 +154,20 @@ Verified (`test_selective.py`): changing one of two independent chains recompute
 other (its diff stays empty), outputs correct, parity both backends, engine codegens. This is the ~3-4x
 throughput lever (Phase 0: median move dirties ~26% of strata).
 
-REMAINING — purely THROUGHPUT now, correctness is done:
-1. **Phase 6**: wire `update` into `engine_inproc.mtg_run_delta` (stage diff_plus/diff_minus, call
-   executeSubroutine("update"), purge staging) + benchmark the real states/sec gain.
+**VALIDATED ON THE REAL ENGINE (Phase 6, correctness).** The full 328-relation engine program compiles with
+`--incremental` (~40s) and the incremental `update` == a fresh recompute over real game-state transitions
+(`test_engine.py`): negation, aggregates, recursion, propositions and input+head relations all correct. Two
+codegen/correctness bugs were fixed getting here: (a) nullary (proposition) heads — souffle hoists their insert
+out of the body scan, so @iteration must be constant, not body-dependent; (b) input+head relations
+(SHIM_INPUTS — both `.input` and rule-defined) — the recompute emptied them and dropped their input facts, so
+re-merge the staged input after emptying and let the guard fire on their own staged diff. Staging convention
+for the driver: pure-input relations stage the DIFF; input+head relations stage the FULL new input.
+
+REMAINING — purely THROUGHPUT now, correctness is done end to end:
+1. **Phase 6 integration + benchmark**: wire `update` into `engine_inproc` (a delta path that stages
+   diff_plus/diff_minus per the convention above, calls executeSubroutine("update"), purges staging) and
+   measure the real states/sec gain vs the current full-recompute delta path. The harness already proves it
+   correct; this makes it the engine's actual evaluation path and quantifies the search-depth payoff.
 2. True incremental recursive (DRed + re-discovery inside the fixpoint) — an optimization for recursive
    monotone strata (uncommon; the engine uses recompute anyway).
 3. Cheaper dirty signal — the conservative whole-relation publish copies the relation to diff each recompute;
