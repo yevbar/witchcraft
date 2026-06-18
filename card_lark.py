@@ -731,6 +731,9 @@ _BCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]
 # BECOMES a/an <color(s)> <type> (e.g. 'is a black Zombie') — `_becomes_color_type`'s exact pattern
 # (color-anchored); re-applied to src by bctype_v as a fallback after _BCT_RE (matching the regex chain order).
 _BCCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ((?:white|blue|black|red|green|colorless)(?: (?:and )?(?:white|blue|black|red|green|colorless))* [\w' -]+?)(?: in addition to its other (?:types and colors|colors and types|types|colors))?(?: until end of turn)?$", re.I)
+# BECOMES a/an <X> in addition to (its|their) other [creature|land] types|colors -> added_<X> (`_type_add`).
+from card_effects import _COPULA_RUNON as _BT_RUNON
+_BTA_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2331,6 +2334,12 @@ class _ToEffect(Transformer):
         m = _BCCT_RE.match(src.strip())
         if m:
             return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)))
+        # FALLBACK 2 (`_type_add`, after the two above per the regex chain order): 'a/an <X> in addition to
+        # (its|their) other [creature|land] types|colors' -> 'added_'+slug(X) (subtype / plural-'their' /
+        # 'colors' adds). Replicate the template's own object guard (compound / embedded copula run-on).
+        m = _BTA_RE.match(src.strip())
+        if m and not (_is_compound_object(m.group(2)) or _BT_RUNON.search(m.group(2))):
+            return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
         return None
 
     def bcmtail(self, *toks):
