@@ -30,7 +30,9 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)                                       # so `import deck_evaluator` (repo root) works
 JDK = os.environ.get("JDK", "/home/zucc/opt/jdk-17.0.13+11")
 FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
-FATJAR = f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar"
+# Default to the from-source build path under $FORGE; override with $FATJAR for an installed Forge release
+# (e.g. an installer's forge-gui-desktop-<ver>-jar-with-dependencies.jar), whose layout differs.
+FATJAR = os.environ.get("FATJAR", f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar")
 OUT = "/tmp/forge_tournament_out"
 # Optional Forge JVM heap cap, e.g. JVM_HEAP=4g -> -Xmx4g. Empty (default) = let the JVM self-size to ~25% of
 # RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
@@ -77,7 +79,9 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
                            env=dict(os.environ, **(bot_env or {})))
     time.sleep(1.2)
     props = " ".join(f"-D{k}={v}" for k, v in jprops.items())
-    env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
+    # From-source assets live at $FORGE/forge-gui/; an installed release keeps res/ elsewhere — override
+    # with $FORGE_ASSETS (the directory CONTAINING res/, e.g. the installer's top-level dir).
+    env = dict(os.environ, FORGE_ASSETS=os.environ.get("FORGE_ASSETS", f"{FORGE}/forge-gui/"))
     cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'-DbotHost=127.0.0.1 -DbotPort={port} {props} -cp "{FATJAR}:{OUT}" {main_class}')
     r = sh(cmd, env=env)
