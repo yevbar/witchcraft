@@ -175,18 +175,28 @@ def main():
     print(f"    contain aggregate (own clauses):   {has_agg}")
     print(f"  EDB (extensional input) relations:   {len(edb)}")
     print()
-    print("  DELTA-eligible closure (buildable TODAY — neg-free ∧ agg-free ∧ non-rec ∧ deps eligible):")
-    print(f"    strata:    {len(delta):4d} / {n_idb}  ({100*len(delta)/n_idb:.0f}% of IDB strata)")
-    print(f"    relations: {rels_in(delta):4d} / {rels_in(idb_sccs)}")
-    print()
-    print("  IDEAL closure (IF negation-delta machinery existed — agg-free ∧ non-rec ∧ deps eligible):")
+    print("  LIVE delta-eligible closure (matches the C++: agg-free ∧ non-rec ∧ deps eligible — negation is")
+    print("  handled by the negation-delta rules, so only aggregates and recursion force a recompute):")
     print(f"    strata:    {len(ideal):4d} / {n_idb}  ({100*len(ideal)/n_idb:.0f}% of IDB strata)")
     print(f"    relations: {rels_in(ideal):4d} / {rels_in(idb_sccs)}")
+    print(f"  (neg-free-only closure, for reference: {len(delta)} strata — what was eligible before negation-delta)")
+    print(f"  Strata blocked from delta (recursion/aggregate, or downstream of one): {n_idb - len(ideal)}")
     print()
-    # What blocks the rest? The first non-eligible dependency layer is the useful target.
-    blocked_by_neg = [s for s in idb_sccs if s not in delta and s in ideal]
-    print(f"  Strata blocked from `delta` ONLY by negation (would unlock with negation-delta): {len(blocked_by_neg)}")
-    print(f"  Strata blocked even in `ideal` (recursion/aggregate, or downstream of one):      {n_idb - len(ideal)}")
+
+    # INVARIANT GUARD: actual-diff staging of input+head (SHIM_INPUTS) relations is correct ONLY if every such
+    # relation is delta-eligible (the update never empties it, so it never needs the full input re-merged). If a
+    # future rule change makes one non-eligible, full-input staging would be required for it again.
+    heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
+    input_and_head = sorted((edb & heads))
+    bad = [r for r in input_and_head if rel2scc.get(r) is not None and rel2scc[r] not in ideal
+           and not all_edb(rel2scc[r])]
+    print(f"  INVARIANT — input+head (SHIM_INPUTS) relations: {len(input_and_head)}, "
+          f"delta-eligible: {len(input_and_head) - len(bad)}")
+    if bad:
+        print(f"  ✗ WARNING: {len(bad)} input+head relations are NOT delta-eligible — actual-diff staging is")
+        print(f"    UNSOUND for them (they get recomputed/emptied); they need full-input staging: {bad[:8]}")
+    else:
+        print("  ✓ all input+head relations are delta-eligible — actual-diff staging is sound for every relation")
     return 0
 
 

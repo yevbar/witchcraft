@@ -253,6 +253,24 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   downstream of one). The engine's aggregate strata (P/T sums, counts over all creatures) are likely the
   EXPENSIVE ones, so even perfect O(diff) on the other 102 may be capped at a modest speedup. PROFILE the
   per-stratum update cost before investing more in diff-driven negation-delta.
+- **PROFILED (souffle --profile on a 100-creature bootstrap) — the cap is NOT aggregates.** Cost is spread out
+  (hottest relation 13%; aggregates only 17% of runtime, negation 25%). A single move dirties ~35% of strata
+  (115/328) — the dirty ones are the expensive part (~78% of a full recompute). The REAL diff for a move is
+  tiny: a tap published ~0 derived diff; the apparent "300 diff tuples" were entirely the full-input staging of
+  the three 100-row input+head P/T relations.
+- **DONE — ACTUAL-DIFF STAGING of input+head relations (the big win: ~1.3x -> ~2.3x at 506 facts).** The
+  full-input staging convention (stage the whole input of each input+head/SHIM_INPUTS relation every move) was
+  a recompute-path workaround; it forced the entire P/T / type input chain to re-process every move. But ALL 69
+  input+head relations are delta-eligible (verified), so the update applies their diff IN PLACE and never empties
+  them — actual-diff staging (stage only changed rows, like any EDB relation) is correct. This is a DRIVER/
+  staging change, NOT an engine codegen change. Validated correct on real transitions (test_engine, update ==
+  recompute) and the synthetic sweeps. Benchmark: TAP 506 facts 1.27x -> 2.26x, ADD-CREATURE 1.29x -> 1.93x,
+  and 3-10x at smaller scales. `analyze_delta_eligibility.py` now asserts the invariant (all input+head
+  delta-eligible) so a future rule change that breaks it is caught.
+- **NEXT levers (in priority order):** (1) diff-driven negation-delta (the filter-flip is still O(|body|);
+  synthetic-positive-clause + DeltaRewriter scan-redirect makes it O(diff)) — now worth doing since the
+  staging drag is gone; (2) wire the `update` into the real `engine_inproc` driver with actual-diff staging
+  (Phase 3d); (3) the 62 recompute strata (aggregates + downstream) — aggregate-delta is the remaining frontier.
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.

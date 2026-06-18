@@ -6,11 +6,16 @@ Measures, for a resident engine instance, the median time to advance state N -> 
 
 Both produce identical resident relations (asserted). The ratio is the selective-stratum speedup.
 
-FINDINGS (Mac, in-process) — the speedup still shrinks as the state grows, but is now a WIN at scale:
-      2 creatures ( 16 facts): ~6.6x       30 creatures (156 facts): ~1.8x
-     10 creatures ( 56 facts): ~3.3x       60 creatures (306 facts): ~1.4x
-                                          100 creatures (506 facts): ~1.3x  (was ~0.97x — now faster)
-  Real engine states are ~485 facts, so AT REALISTIC SCALE the recompute-based update is now ~1.3x.
+FINDINGS (Mac, in-process) — the speedup shrinks as the state grows but is a solid WIN at scale:
+      2 creatures ( 16 facts): ~9.8x       30 creatures (156 facts): ~4.0x
+     10 creatures ( 56 facts): ~7.2x       60 creatures (306 facts): ~3.0x
+                                          100 creatures (506 facts): ~2.3x (tap) / ~1.9x (add-creature)
+  Real engine states are ~485 facts, so AT REALISTIC SCALE the update is now ~2x faster than recompute.
+  The big lever was ACTUAL-DIFF STAGING of input+head (SHIM_INPUTS) relations (see stage() below): staging
+  their full input every move (the old convention) forced the entire input chain — e.g. the 100-row P/T
+  relations — to re-process, roughly HALVING the speedup (~1.3x -> ~2.3x at 506 facts). All input+head
+  relations are delta-eligible, so the update applies their diff in place; full-input staging was only ever
+  needed for the recompute path. (analyze_delta_eligibility.py guards the invariant.)
   Two overhead removals lifted it from ~0.97x to ~1.3x at 506 facts (DONE):
     (a) SWAP-based clear instead of erase-scratch: recompute into a @swap temp, ram::Swap it with R, clear the
         temp (a temp's purge is unconditional even in a subroutine) — removed the ~2x O(|R|) erase copy.
@@ -73,26 +78,19 @@ def main():
 
     src = engine_native._wrapper(RULES, engine_native._edb(RULES))
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
-    heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
-    inh = set(engine_native._edb(RULES)) & heads
     allpurge = [f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls]
 
     def stage(a, b):
+        # Actual-diff staging for EVERY relation, input+head included: all SHIM_INPUTS relations are
+        # delta-eligible, so the update applies their diff in place and never needs the full input re-merged.
         st = {}
         for rel in set(a) | set(b):
-            if rel in inh:
-                if b.get(rel):
-                    st[f"diff_plus_{rel}"] = b[rel]
-                d = a.get(rel, set()) - b.get(rel, set())
-                if d:
-                    st[f"diff_minus_{rel}"] = d
-            else:
-                p = b.get(rel, set()) - a.get(rel, set())
-                m = a.get(rel, set()) - b.get(rel, set())
-                if p:
-                    st[f"diff_plus_{rel}"] = p
-                if m:
-                    st[f"diff_minus_{rel}"] = m
+            p = b.get(rel, set()) - a.get(rel, set())
+            m = a.get(rel, set()) - b.get(rel, set())
+            if p:
+                st[f"diff_plus_{rel}"] = p
+            if m:
+                st[f"diff_minus_{rel}"] = m
         return st
 
     print("compiling engine with --incremental ...")

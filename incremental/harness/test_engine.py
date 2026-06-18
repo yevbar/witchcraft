@@ -5,10 +5,12 @@ state, stages the input diff to a second state, runs the incremental `update`, a
 relations equal a from-scratch recompute of the second state. This exercises the whole machinery at engine
 scale: negation, aggregates, recursion, propositions, and the input+head (SHIM_INPUTS) relations.
 
-Staging convention (mirrors what the engine_inproc driver must do):
-  - pure-input (EDB) relations: stage the DIFF (diff_plus = added, diff_minus = removed);
-  - input+head relations (both .input and rule-defined): stage the FULL new input (the recompute empties the
-    relation and re-merges the staged input before re-deriving).
+Staging convention (mirrors what the engine_inproc driver must do): stage the ACTUAL diff for EVERY relation
+(diff_plus = added rows, diff_minus = removed rows), input+head (SHIM_INPUTS) relations included. All input+head
+relations are delta-eligible, so the update applies their diff in place and never empties them — full-input
+staging (the old convention) is unnecessary and forces the whole input chain (e.g. the 100-row P/T relations)
+to re-process every move, which roughly halved the speedup. See analyze_delta_eligibility.py for the invariant
+check that all input+head relations are eligible.
 
 Slow (compiles a 328-relation program, ~40s); skips cleanly if the toolchain can't build.
 """
@@ -36,8 +38,6 @@ def main():
 
     src = engine_native._wrapper(RULES, engine_native._edb(RULES))
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
-    heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
-    input_and_head = set(engine_native._edb(RULES)) & heads
 
     def fd(state):
         return {rel: set(rows) for rel, rows in _facts_key(state)}
@@ -48,20 +48,17 @@ def main():
         s0, s1 = fd(STATES[i]), fd(STATES[j])
         h = harness.Harness(src, incremental=True)
         h.bootstrap(s0)
+        # Stage the ACTUAL diff for every relation, input+head included: all input+head (SHIM_INPUTS) relations
+        # are delta-eligible, so the update never empties them and never needs the full input re-merged — the
+        # delta path applies the diff in place. (Full-input staging was only needed for the recompute path.)
         stage = {}
         for rel in set(s0) | set(s1):
-            if rel in input_and_head:
-                if s1.get(rel, set()):
-                    stage[f"diff_plus_{rel}"] = s1[rel]
-                if s0.get(rel, set()) - s1.get(rel, set()):
-                    stage[f"diff_minus_{rel}"] = s0[rel] - s1[rel]
-            else:
-                p = s1.get(rel, set()) - s0.get(rel, set())
-                m = s0.get(rel, set()) - s1.get(rel, set())
-                if p:
-                    stage[f"diff_plus_{rel}"] = p
-                if m:
-                    stage[f"diff_minus_{rel}"] = m
+            p = s1.get(rel, set()) - s0.get(rel, set())
+            m = s0.get(rel, set()) - s1.get(rel, set())
+            if p:
+                stage[f"diff_plus_{rel}"] = p
+            if m:
+                stage[f"diff_minus_{rel}"] = m
         h.insert(stage)
         h.update()
         h.purge([f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls])
