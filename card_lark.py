@@ -740,12 +740,22 @@ _BCM_REM = re.compile(r"^(?: with [\w, ]+?)?(?: until end of turn)?$", re.I)
 # legitimate `_TGT` (faithful-or-abstain). In production the wrapper chain peels the lead and re-feeds
 # the clean residue, so abstaining here loses nothing.
 from card_effects import _TGT as _BCM_TGT_SRC
+from card_effects import _that_amt as _that_amt   # 'twice/half that much [plus N]' amount slug — reused, not re-derived
 _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
 # DRAW <N> cards for each <X> — `_draw_foreach`'s exact pattern (count-scaled draw); re-applied to src by pcount.
 _DFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (a card|\w+) cards? for each (.+?)$", re.I)
 # DRAW/MILL dynamic amount-expr — `_flow_amount`'s exact pattern (up-to-N / equal-to-X /
 # as-many-as-X / half-X). Re-applied to src by pcount; reproduces its amt logic byte-for-byte.
 _FLOW_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (up to \w+ cards?|cards? equal to .+?|as many cards as .+?|half(?: of)? .+?)$", re.I)
+# GAIN/LOSE life dynamic amounts — exact patterns of `_gain_foreach`/`_gain_life_equal`/`_that_gain`
+# (gain routes to the grant rule) and `_lose_life_equal`/`_lose_half`/`_lose_that_much` (lose routes to
+# pcount via the PVERB terminal). Re-applied to src; reproduce each template's amount slug byte-for-byte.
+_GFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?gains? (\w+) life for each (.+?)$", re.I)
+_GLE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?gains? life equal to (.+?)$", re.I)
+_GTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?gains? (twice |half )?that much life( plus \w+| minus \w+)?$", re.I)
+_LLE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? life equal to (.+?)$", re.I)
+_LHF_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? half (?:your |their |his or her |its )?life(?:,? rounded (up|down))?$", re.I)
+_LTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? (twice |half )?that much life( plus \w+| minus \w+)?$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1830,6 +1840,23 @@ class _ToEffect(Transformer):
         dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
         if phrase is None:
             return None
+        # 'gain(s)' dynamic life amounts (§119) — 'N life for each X' / 'life equal to X' / '[twice|half]
+        # that much life [plus N]'. These route to gclause (gain ∉ PVERB) but the plain-life branch below
+        # only handles a bare numeric amount; reproduce `_gain_foreach`/`_gain_life_equal`/`_that_gain` from src.
+        src = getattr(self, "_src", None)
+        if src is not None:
+            s = src.strip()
+            m = _GFE_RE.match(s)
+            if m:
+                n = _amount(m.group(2))
+                amt = (str(n) if n is not None else ground.slug(m.group(2))) + "_per_" + ground.slug(m.group(3))
+                return Effect("gain_life", amt, _target(m.group(1) or "you"))
+            m = _GLE_RE.match(s)
+            if m:
+                return Effect("gain_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
+            m = _GTM_RE.match(s)
+            if m:
+                return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
         # 'gain(s) <amount> life' is gain_life — the 'gain(s)' verb is now owned by this rule (removed
         # from PVERB to kill the pcount<->grant ambiguity). Reproduce pcount's gain_life tuple exactly;
         # abstain on a duration/perpetual or a non-player subject (pcount's domain handles only those).
@@ -1968,6 +1995,20 @@ class _ToEffect(Transformer):
                         amt = "half_" + ground.slug(re.sub(r"^half(?: of)? ", "", expr, flags=re.I))
                     rv = "draw" if fm.group(2).lower().startswith("draw") else "mill"
                     return Effect(rv, amt, _target(fm.group(1) or "you"))
+        if verb in ("lose", "loses"):                    # LOSE life dynamic amounts (§119) — 'life equal to
+            src = getattr(self, "_src", None)            # X' / 'half [poss] life[, rounded]' / '[twice|half]
+            if src is not None:                          # that much life [plus N]'; reproduce `_lose_*` exactly
+                s = src.strip()
+                m = _LHF_RE.match(s)
+                if m:
+                    amt = "half" + ("_rounded_" + m.group(2) if m.group(2) else "")
+                    return Effect("lose_life", amt, _target(m.group(1) or "you"))
+                m = _LLE_RE.match(s)
+                if m:
+                    return Effect("lose_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
+                m = _LTM_RE.match(s)
+                if m:
+                    return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
         if subj is not None and not _PLAYER.match(subj.strip()):
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
