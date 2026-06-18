@@ -759,6 +759,9 @@ _LTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? (twice |half )?that 
 # PUT a number of <kind> counters on <obj> equal to <X> — `_put_counter_equal`'s exact pattern (count-scaled
 # counters). Re-applied to src by putctr; the 'a number of' kind makes the span logic abstain, so own it here.
 _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$", re.I)
+# CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
+# Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
+_CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1782,9 +1785,15 @@ class _ToEffect(Transformer):
         if spec is None or count is None:
             return None
         sl = spec.lower()
-        # 'create a number of <spec> tokens equal to <X>' is the count-scaled _create_equal template
-        # (the count word is 'a' and the spec starts 'number of …') — defer to the regex.
+        # 'create a number of <spec> tokens equal to <X>' is the count-scaled _create_equal template (the
+        # count word is 'a' and the spec starts 'number of …'); reproduce it from src. _create_equal only
+        # matches a 'you'/implicit creator, so a non-you creator still abstains here (regex chain owns it).
         if sl.startswith("number of"):
+            src = getattr(self, "_src", None)
+            if src is not None:
+                m = _CEQ_RE.match(src.strip())
+                if m:
+                    return Effect("create", "equal_to_" + ground.slug(m.group(2)), "token", ground.slug(m.group(1)))
             return None
         # 'create a token that's a copy of …' / 'X tokens that are copies of …' is the _create_copy
         # template; here cspec greedily ran past the real boundary to a LATER 'token' (e.g. 'artifact
