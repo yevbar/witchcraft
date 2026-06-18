@@ -42,7 +42,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -122,6 +122,15 @@ bchtail: MDUR                                          // optional 'until end of
 // An `_is_compound_object(src)` guard defers run-ons.
 bctclause.-2: bcmtgt BCM_COP QUANT ctrest             -> bctype_v
 ctrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+
+
+// BASE POWER AND TOUGHNESS (§208/§613.3) — the base-P/T-set family, anchored on the highly distinctive
+// BASEPT phrase 'base power and toughness'. The transformer re-matches src against the three templates in
+// the regex chain's order: `_becomes_base_pt` ('becomes a <type> with base P/T' -> base_pt_<type>) ->
+// `_base_pt_perpetual` ('perpetually has base P/T' -> base_pt, perpetual) -> `_base_pt` ('has/have/with
+// base P/T' -> base_pt). `_is_compound_object(src)` guard defers run-ons (the `_base_pt_compound` cases).
+bptclause.-2: bptpre BASEPT bptpost                   -> basept_v
+bptpre: (WORD | QUANT | NUM | BCM_COP | TOPREP)+
+bptpost: (BCM_PT | PTDELTA | WORD | QUANT | NUM | MDUR | BOUND | TOPREP | ZONE | EQUALTO)+
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -608,6 +617,7 @@ COUNTER.4: /\bcounters?\b/
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
+BASEPT.6: /\bbase power and toughness\b/   // §208/§613.3 base-P/T-set anchor (distinctive)
 BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
@@ -734,6 +744,11 @@ _BCCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ((?:whi
 # BECOMES a/an <X> in addition to (its|their) other [creature|land] types|colors -> added_<X> (`_type_add`).
 from card_effects import _COPULA_RUNON as _BT_RUNON
 _BTA_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$", re.I)
+# BASE-P/T-set family — `_becomes_base_pt` / `_base_pt_perpetual` / `_base_pt` exact patterns (re-applied
+# to src by basept_v in that precedence order).
+_BBPT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness ([\dxX]+/[\dxX]+)(?: in addition to (?:its|their) other (?:colors and types|types and colors|creature types|types|colors))?(?: until end of turn| for as long as (.+?))?$", re.I)
+_BPTP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") perpetually (?:has|have) base power and toughness ([\dxX]+/[\dxX]+)$", re.I)
+_BPT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:has|have|with) base power and toughness ([\dxX]+/[\dxX]+)(?: until end of turn| until your next (?:turn|upkeep)| until the end of your next upkeep)?$", re.I)
 
 
 def _bcm_g3(tail: str):
@@ -2340,6 +2355,35 @@ class _ToEffect(Transformer):
         m = _BTA_RE.match(src.strip())
         if m and not (_is_compound_object(m.group(2)) or _BT_RUNON.search(m.group(2))):
             return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+        return None
+
+    def bptpre(self, *toks):
+        return None                                # value unused; the clause is re-matched from src
+
+    def bptpost(self, *toks):
+        return None
+
+    def basept_v(self, *args):
+        # base-P/T set, anchored on 'base power and toughness' — re-match src against the three templates in
+        # the regex chain's precedence: `_becomes_base_pt` -> `_base_pt_perpetual` -> `_base_pt`. Run-on guarded.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        src = src.strip()
+        if _is_compound_object(src):
+            return None
+        # the P/T amount is the RAW capture (not slugged), so restore the canonical uppercase 'X' the regex
+        # sees on the original-case clause (src is lowercased here): 'x/x' -> 'X/X', digits unchanged.
+        m = _BBPT_RE.match(src)                     # 'becomes a <type> with base P/T' -> base_pt_<type>
+        if m:
+            cond = "for_as_long_as_" + ground.slug(m.group(4)) if m.group(4) else "-"
+            return Effect("becomes", m.group(3).upper(), _target(m.group(1)), "base_pt_" + ground.slug(m.group(2)), cond)
+        m = _BPTP_RE.match(src)                     # 'perpetually has base P/T' -> base_pt, perpetual
+        if m:
+            return Effect("becomes", m.group(2).upper(), _target(m.group(1)), "base_pt", "perpetual")
+        m = _BPT_RE.match(src)                      # 'has/have/with base P/T' -> base_pt
+        if m:
+            return Effect("becomes", m.group(2).upper(), _target(m.group(1)), "base_pt")
         return None
 
     def bcmtail(self, *toks):
