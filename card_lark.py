@@ -665,12 +665,20 @@ _CHS_TGT = re.compile(r"(?i)^(?:" + _TGT + r")$")
 
 # REVEAL frame regexes — the EXACT fixed frames of the regex templates this rule replaces. The lark rule
 # only certifies the clause starts with 'reveal[s]' (and optionally a player subject); the faithful body
-# parse is these frames, so the grounded tuple is byte-identical to `_reveal_top`/`_subject_reveal_top`/
-# `_reveal_hand`. Anything outside these frames (the open-ended `_reveal_generic`/`_reveal_among`/
-# `_subject_obj_verb` slugs) is left to the regex (abstain) — faithful-or-abstain.
+# parse is these frames, so the grounded tuple is byte-identical to the regex templates. The structured
+# 'top N cards of <owner> library' / 'their hand' frames are tried first; the open-ended GENERIC object
+# slugs (`_reveal_among`/`_reveal_generic` imperative, `_subject_obj_verb` subject-form) follow, each
+# reproducing the template's exact slug/placement (object in TARGET='you' for imperative; object in
+# TARGET + by_<player> in EXTRA for an explicit subject). A compound run-on object abstains -> regex.
 _RV_TOP = re.compile(r"^the top (?:(\w+) )?cards? of ([\w' ]+?) librar(?:y|ies)$", re.I)          # _reveal_top
 _RV_SUBJ_TOP = re.compile(r"^the top (?:(\w+) )?cards? of (?:their|its owner's|your) library$", re.I)  # _subject_reveal_top body
 _RV_SUBJ_HAND = re.compile(r"^their hand$", re.I)                                                  # _reveal_hand body
+_RV_AMONG = re.compile(r"^(?:a|an|one|up to \w+) ([\w ]+?) from among them$", re.I)                # _reveal_among body
+# `_verb_target` (`^(\w+) (<_TGT>)$`) is registered BEFORE `_reveal_among`/`_reveal_generic`, so an
+# imperative 'reveal <obj>' whose obj is a clean `_TGT` ('reveal it', 'reveal that card', 'reveal each of
+# those cards') grounds there FIRST as reveal(-, _target(obj)) — target-form, NOT the generic you/EXTRA
+# form. We must try this _TGT shape ahead of the generic slug to stay byte-identical to the regex chain.
+_RV_VT = re.compile(rf"^({_TGT})$", re.I)                                                          # _verb_target obj
 
 # PREVENT_DAMAGE operand validators — the `_fog`/`_prevent` templates split at the structural DMG
 # ('damage') terminal the GRAMMAR now owns into a leading `pvpre` span and a trailing `pvtail` span, each
@@ -2124,19 +2132,40 @@ class _ToEffect(Transformer):
         body = next((str(a) for a in args if isinstance(a, _RvBody)), None)
         if body is None:
             return None
+        # The RVREVEAL Token is kept raw so the object span is sliced from the ORIGINAL (lowercased) source
+        # by its end position — byte-identical to the regex's `.+?`/`[\w ]+?` capture, unaffected by any
+        # token re-spacing in the rejoined `body`.
+        vtok = next((a for a in args if not isinstance(a, (_RvSubj, _RvBody))
+                     and str(a).rstrip("s").lower() == "reveal"), None)
+        src = getattr(self, "_src", None)
+        obj = (src[vtok.end_pos:].strip() if src is not None and vtok is not None
+               and getattr(vtok, "end_pos", None) is not None else None)
         body = body.strip().lower()
         if subj is None:
-            # IMPERATIVE 'reveal the top N cards of <owner> library' (_reveal_top). Other imperative
-            # 'reveal <object>' shapes (_reveal_generic/_reveal_among) carry an open `.+?` slug -> abstain.
+            # IMPERATIVE. (1) the structured 'reveal the top N cards of <owner> library' frame (_reveal_top);
             m = _RV_TOP.match(body)
-            if not m:
+            if m:
+                n = _amount(m.group(1)) if m.group(1) else 1
+                if n is not None:                  # a non-numeric count word means _reveal_top abstains and
+                    owner = m.group(2).strip().lower()   # the template chain falls through to _reveal_generic
+                    tgt = "top_of_library" if owner == "your" else "top_of_" + ground.slug(owner) + "_library"
+                    return Effect("reveal", n, tgt)
+            if obj is None:
                 return None
-            n = _amount(m.group(1)) if m.group(1) else 1
-            if n is None:
-                return None                        # non-numeric count word -> regex's _reveal_generic owns it
-            owner = m.group(2).strip().lower()
-            tgt = "top_of_library" if owner == "your" else "top_of_" + ground.slug(owner) + "_library"
-            return Effect("reveal", n if n is not None else 1, tgt)
+            # (2) obj is a clean `_TGT` ('reveal it/that card/each of those cards') -> `_verb_target` form
+            # (target=slug, EXTRA='-'), which the regex chain reaches BEFORE _reveal_among/_reveal_generic.
+            if _RV_VT.match(obj):
+                if _is_compound_object(obj):
+                    return None                    # _verb_target abstains on run-on -> chain also abstains
+                return Effect("reveal", "-", _target(obj))
+            # (3) 'reveal a/an/one/up to N <kind> from among them' (_reveal_among) — slug the inner kind only.
+            am = _RV_AMONG.match(obj)
+            if am:
+                return Effect("reveal", "-", "you", ground.slug(am.group(1)))
+            # (4) GENERIC 'reveal <object>' (_reveal_generic) — faithful slug, compound-guarded.
+            if _is_compound_object(obj):
+                return None                        # object runs into a 2nd effect -> regex owns the whole
+            return Effect("reveal", "-", "you", ground.slug(obj))
         # SUBJECT-FORM. Only a clean closed player phrase (faithful; a swallowed/compound subject abstains).
         s = subj.strip().lower()
         if not _PLAYER.match(s):
@@ -2147,7 +2176,11 @@ class _ToEffect(Transformer):
             return Effect("reveal", n if n is not None else 1, _target(s))
         if _RV_SUBJ_HAND.match(body):              # '<player> reveals their hand'
             return Effect("reveal", "-", _target(s), "hand")
-        return None                                # any other subject-reveal slug -> regex (_subject_obj_verb)
+        # GENERIC subject-form '<player> reveals <object>' (_subject_obj_verb): object in TARGET, by_<player>
+        # in EXTRA; compound-guarded. The object span is sliced from src (not the subject-stripped body).
+        if obj is None or _is_compound_object(obj):
+            return None
+        return Effect("reveal", "-", _target(obj), "by_" + _target(s))
 
     # --- PREVENT_DAMAGE -------------------------------------------------------
     def pvpre(self, *toks):
