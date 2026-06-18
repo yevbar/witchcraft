@@ -69,9 +69,11 @@ def _bot_policy_name(bot) -> str:
 def play_forge(bot="engine", *, witch_deck: str = "vanilla", opp_deck: str = "vanilla",
                timeout: int = 300, recompile: bool = True) -> dict:
     """Run ONE game refereed by Forge (the source of truth): the witchcraft bot seat (driven by `bot`) vs
-    Forge's own AI (the "forge player"). Returns Forge's verdict — {winner, turns, wall_ms, bot_policy,
-    forge_ai_seat, source_of_truth='forge', modeled_frac, endorsed_frac}. `witch_deck`/`opp_deck` are
-    ForgeVsBot archetypes ('vanilla', 'infect', …). Raises RuntimeError if Forge isn't installed.
+    Forge's own AI (the "forge player"). `bot` is 'engine'|'random', a witchcraft Player, OR a TRAINED VALUE
+    NET (a rebel_train.NetValue) — the net is saved to disk and the bot process drives the seat with it (the
+    'net' policy: reconstruct + 1-ply net-rank the plays). Returns Forge's verdict — {winner, turns, wall_ms,
+    bot_policy, forge_ai_seat, source_of_truth='forge', modeled_frac, endorsed_frac}. `witch_deck`/`opp_deck`
+    are ForgeVsBot archetypes ('vanilla', 'infect', …). Raises RuntimeError if Forge isn't installed.
 
     Heavy: spins up the JVM (and can stall on long games); set $JVM_HEAP / $GAME_TIMEOUT on small hosts."""
     rt = _orch()
@@ -79,12 +81,20 @@ def play_forge(bot="engine", *, witch_deck: str = "vanilla", opp_deck: str = "va
         raise RuntimeError(
             f"Forge not available — need the JDK at {rt.JDK}/bin/java and the fatjar at {rt.FATJAR}. "
             f"Set $JDK / $FORGE, or build the Forge fatjar (see forge_integration/RUNNING.md).")
-    which = _bot_policy_name(bot)
+    if hasattr(bot, "net"):                                  # a trained value net (rebel_train.NetValue)
+        import tempfile                                      # save it where the bot subprocess can load it
+        path = os.path.join(tempfile.gettempdir(), "rebel_forge_vnet")
+        bot.net.save(path)
+        which = "net"
+        bot_env = {"MTG_POLICY": "net", "MTG_VALUE_NET": path + ".npz"}
+    else:
+        which = _bot_policy_name(bot)
+        bot_env = {"MTG_POLICY": which}
     if recompile:
         rt.compile_harnesses()
     port = rt.free_port(8800)
     res = rt.run_game("ForgeVsBot", {"witchDeck": witch_deck, "oppDeck": opp_deck},
-                      port, timeout=timeout, bot_env={"MTG_POLICY": which})
+                      port, timeout=timeout, bot_env=bot_env)
     return {
         "winner": res["winner"],                 # Forge's RESULT verdict — the source of truth
         "turns": res["turns"],

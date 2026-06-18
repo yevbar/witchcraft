@@ -238,6 +238,30 @@ value_fn.net.save("vnet")                         # ...and TinyValueNet.load("vn
 `(X, y)` (target = the deciding seat's eventual outcome) from any data-generating policy (default random
 self-play, cheap). A more ReBeL-faithful target is the CFR root value under ReBeL self-play — heavier, optional.
 
+### Training run on a fixed pairing, with periodic Forge checks
+
+```python
+from witchcraft.rebel_train import train_loop
+out = train_loop(rounds=10, train_decks=("mono_green_landfall", "mono_white_soldiers"),
+                 forge_every=3, save_path="rebel_vnet")     # alice=green (trains), bob=white (random)
+out["history"]   # per round: data size, ReBeL(net) win-rate vs random, and (every 3rd) the vs-Forge result
+```
+
+Fixed known decks make the determinization belief exact ("perfect information to train against"). Each round
+generates self-play data on the pairing, refits the net, saves it, and evaluates ReBeL(net) vs random; every
+`forge_every` rounds it also benchmarks the net against Forge (if installed). And you can fire that off
+directly — the trained net plays a Forge seat (Forge = source of truth) via a reconstruct + 1-ply net-rank
+policy:
+
+```python
+from witchcraft.rebel_train import TinyValueNet, NetValue
+from witchcraft.benchmark import benchmark_vs_forge
+benchmark_vs_forge(NetValue(TinyValueNet.load("rebel_vnet")), games=5, timeout=300)
+```
+
+(Forge games are heavy and can stall on a small box — use a generous `timeout` / the Mac Mini; the Forge deck
+is a ForgeVsBot archetype, a cross-domain check rather than the exact training deck.)
+
 ## Variants
 
 ```python

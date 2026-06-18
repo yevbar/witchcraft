@@ -16,7 +16,13 @@ import forge_bridge as fb
 
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 which = os.environ.get("MTG_POLICY", "engine").lower()
-policy = fb.RandomPolicy() if which == "random" else fb.EnginePolicy()
+if which == "net":                                          # the trained ReBeL value net drives the seat
+    from witchcraft.rebel_forge import policy_from_env
+    policy = policy_from_env()
+elif which == "random":
+    policy = fb.RandomPolicy()
+else:
+    policy = fb.EnginePolicy()
 player = fb.ForgePlayer(policy=policy, name=f"witchcraft-{which}")
 
 _dumped = [False]

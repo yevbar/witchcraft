@@ -188,3 +188,64 @@ def train(games: int = 40, *, hidden: int = 24, epochs: int = 200, lr: float = 0
     net = TinyValueNet(X.shape[1], hidden=hidden, seed=seed).fit(X, Y, epochs=epochs, lr=lr,
                                                                  seed=seed, verbose=verbose)
     return NetValue(net)
+
+
+# --------------------------------------------------------------------------------------------------------
+# Self-play training run on a fixed deck pairing, with periodic Forge comparison.
+# --------------------------------------------------------------------------------------------------------
+
+def _eval_vs_random(value_fn, decks, games, rebel_kwargs, seed):
+    """Win-rate of ReBeL(value_fn) at the FIXED training seat ('alice') vs RandomPlayer ('bob') over the
+    pairing — no seat swap (decks are seat-specific). Returns alice's win fraction."""
+    from .rebel import ReBeLPlayer
+    wins = 0
+    for i in range(games):
+        reb = ReBeLPlayer(value_fn=value_fn, seed=seed + i, **rebel_kwargs)
+        players = {"alice": reb, "bob": RandomPlayer(seed=1000 + i)}
+        with contextlib.redirect_stdout(io.StringIO()):
+            g = _play(players, decks, variant="two-player", seed=seed + i)
+        wins += (g.winner() == "alice")
+    return round(wins / games, 3) if games else 0.0
+
+
+def train_loop(rounds: int = 8, *, train_decks=("mono_green_landfall", "mono_white_soldiers"),
+               games_per_round: int = 24, eval_games: int = 8, epochs: int = 150, hidden: int = 24,
+               lr: float = 0.05, forge_every: int = 3, forge_games: int = 3, forge_witch_deck: str = "vanilla",
+               save_path: str = "rebel_vnet", seed: int = 0, rebel_kwargs=None, verbose: bool = True):
+    """Self-play training run on a FIXED two-deck pairing — the training seat ('alice') is the first deck
+    (e.g. mono_green_landfall), the opponent ('bob') the second (e.g. mono_white_soldiers). Each round:
+    accumulate self-play data on the pairing, (re)fit the value net, save it, and evaluate ReBeL(net) vs a
+    random opponent on the pairing. Every `forge_every` rounds (if Forge is installed) it ALSO benchmarks the
+    current net against Forge's AI (Forge = source of truth). Returns {'value_fn', 'history', 'save_path'}.
+
+    Fixed known decks make the determinization belief exact ('perfect information to train against'). CPU-only;
+    tune rounds/games/epochs and `rebel_kwargs` (the ReBeL search budget used at eval) to your time budget."""
+    from .decks import load_deck
+    rebel_kwargs = rebel_kwargs or dict(worlds=3, iterations=30, depth=3, action_cap=5, time_budget=1.5)
+    decks = {"alice": load_deck(train_decks[0]), "bob": load_deck(train_decks[1])}
+    X_all = np.empty((0, FEATURES)); Y_all = np.empty((0, 1))
+    history, vf = [], None
+    for r in range(rounds):
+        X, Y = generate(games_per_round, decks=decks, variant="two-player", seed=seed + r * 1000)
+        X_all, Y_all = np.vstack([X_all, X]), np.vstack([Y_all, Y])
+        net = TinyValueNet(FEATURES, hidden=hidden, seed=seed).fit(X_all, Y_all, epochs=epochs, lr=lr, seed=seed)
+        net.save(save_path)
+        vf = NetValue(net)
+        wr = _eval_vs_random(vf, decks, eval_games, rebel_kwargs, seed=seed + r)
+        rec = {"round": r, "data": int(len(Y_all)), "win_rate_vs_random": wr}
+        if forge_every and (r + 1) % forge_every == 0:
+            try:
+                from . import forge as wf
+                if wf.forge_available():
+                    from .benchmark import benchmark_vs_forge
+                    rec["forge"] = benchmark_vs_forge(vf, games=forge_games, witch_deck=forge_witch_deck,
+                                                      opp_deck=forge_witch_deck, timeout=120)
+            except Exception as e:
+                rec["forge_error"] = str(e)[:120]
+        history.append(rec)
+        if verbose:
+            extra = ""
+            if "forge" in rec:
+                f = rec["forge"]; extra = f"  | vs Forge: {f['bot_wins']}/{f['games']} (modeled {f['mirror_modeled_frac']})"
+            print(f"round {r}: data={rec['data']:5}  ReBeL(net) vs random = {wr:.2f}{extra}", flush=True)
+    return {"value_fn": vf, "history": history, "save_path": save_path}

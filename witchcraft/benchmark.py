@@ -103,7 +103,7 @@ def benchmark_vs_forge(bot="engine", *, games: int = 5, witch_deck: str = "vanil
     wall = time.perf_counter() - t0
     avg = lambda xs: round(sum(xs) / len(xs), 3) if xs else None
     return {
-        "games": games, "bot": bot if isinstance(bot, str) else getattr(bot, "name", "player"),
+        "games": games, "bot": bot if isinstance(bot, str) else ("net" if hasattr(bot, "net") else getattr(bot, "name", "player")),
         "source_of_truth": "forge",
         "bot_wins": bot_wins, "forge_wins": forge_wins, "inconclusive": inconclusive,
         "bot_win_rate": round(bot_wins / games, 3) if games else 0.0,
