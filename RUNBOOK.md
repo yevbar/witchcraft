@@ -33,11 +33,12 @@ Check: `cmake --version` (≥3.15), `bison --version` (≥3.2), `g++ --version` 
 
 ## 1. Clone + the souffle submodule
 
-The engine fork is the submodule `third_party/souffle` (`github.com/yevbar/souffle`). Its `.gitmodules` URL is
-SSH (`git@github.com:yevbar/souffle.git`) — either have SSH access to that repo, or rewrite to HTTPS first:
+The engine fork is the submodule `third_party/souffle` (`github.com/yevbar/souffle`, a **public** repo). The
+`--incremental` engine lives on its `elastic-incremental-engine` branch; `.gitmodules` points at it over **HTTPS**,
+so no SSH key is needed:
 ```bash
-git config submodule.third_party/souffle.url https://github.com/yevbar/souffle.git   # if no SSH key
-git submodule update --init third_party/souffle
+git submodule sync third_party/souffle           # only if you cloned BEFORE the HTTPS fix (refreshes cached URL)
+git submodule update --init third_party/souffle  # fetches the pinned engine commit over HTTPS
 ```
 > Only `third_party/souffle` is needed. `third_party/souffle-elastic` (the 2019 davidwzhao fork) is a
 > reference-algorithm copy and can be left uninitialized.
