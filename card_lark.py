@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -210,6 +210,19 @@ msnum: NUM | QUANT                                                           // 
 // GOADED bigram ('is goaded') anchors a leading subject SPAN -> goad(-, _target(subj)). Subject _TGT or abstain.
 gdclause.-2: gdsubj GOADED                   -> goaded_v
 gdsubj: (WORD | QUANT | NUM)+                                                // the goaded creature (validated _TGT)
+
+// FLIP_COIN (§701.x) — 'Flip a coin [until you lose a flip]' (the `_flip` template). The whole phrase is
+// one distinctive FLIPCOIN terminal (the optional 'until you lose a flip' is part of it, so the clause
+// must BE the phrase or no parse) -> flip_coin(<until_lose|->, you). POSITIVE priority: the 'until you
+// LOSE a flip' tail otherwise lets `pcount` (PVERB 'lose') win the ambiguity and abstain; the distinctive
+// whole-phrase FLIPCOIN terminal makes the positive priority safe (only a flip-a-coin clause matches).
+fcclause.2: FLIPCOIN                          -> flipcoin
+
+// FIGHT each other (§701.12 reciprocal) — '[then] <creatures> fight each other' (the `_fight_each`
+// template). The distinctive trailing FIGHTEACH bigram anchors a leading subject SPAN (validated _TGT,
+// a leading 'then' stripped) -> fight(-, _target(subj), 'each_other'). Distinct from FG_FIGHTS ('fights').
+feclause.-2: fesubj FIGHTEACH                -> fighteach
+fesubj: (WORD | QUANT | NUM)+                                                // the fighting creatures (validated _TGT, 'then' stripped)
 
 // RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
 // existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
@@ -523,6 +536,8 @@ XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the dis
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
+FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
+FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -1192,6 +1207,10 @@ class _MsNum(str):     # monstrosity count token (msnum) — validated against (
 
 
 class _GdSubj(str):    # the goaded creature span (gdsubj) — validated _TGT
+    pass
+
+
+class _FeSubj(str):    # the 'fight each other' subject span (fesubj) — validated _TGT, leading 'then' stripped
     pass
 
 
@@ -2444,6 +2463,25 @@ class _ToEffect(Transformer):
         if subj is None or not _AT_TGT.match(str(subj).strip()):
             return None
         return Effect("goad", "-", _target(str(subj).strip()))
+
+    # --- FLIP_COIN / FIGHT-each-other -----------------------------------------
+    def flipcoin(self, tok):
+        # 'Flip a coin [until you lose a flip]' — the EXACT `_flip` template.
+        return Effect("flip_coin", "until_lose" if "until you lose a flip" in str(tok).lower() else "-", "you")
+
+    def fesubj(self, *toks):
+        return _FeSubj(" ".join(str(t) for t in toks))
+
+    def fighteach(self, *args):
+        # '[then] <creatures> fight each other' — the EXACT `_fight_each` template: fight(-, _target(subj),
+        # 'each_other'). The optional leading 'then' is stripped (the regex's `(?:then )?`); subject _TGT or abstain.
+        subj = next((a for a in args if isinstance(a, _FeSubj)), None)
+        if subj is None:
+            return None
+        s = re.sub(r"^then ", "", str(subj).strip(), flags=re.I).strip()
+        if not _AT_TGT.match(s):
+            return None
+        return Effect("fight", "-", _target(s), "each_other")
 
     # --- COPY (§707) ----------------------------------------------------------
     def cpbody(self, *toks):

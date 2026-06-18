@@ -978,9 +978,9 @@ def _pay(m):
     return Effect("pay", ground.slug(m.group(2)), _target(m.group(1) or "you"), extra)
 
 
-@_t(r"^flip a coin( until you lose a flip)?$")
-def _flip(m):
-    return Effect("flip_coin", "until_lose" if m.group(1) else "-", "you")
+# _flip: migrated to card_lark (`fcclause` — the whole-phrase FLIPCOIN terminal). lark-first grounds it
+# IDENTICALLY (migrate_check flip_coin = 0 DIFFERS, 0 ABSTAINS); RETIRED, proven byte-identical by a
+# full-corpus parse_clause snapshot with it removed.
 
 
 @_t(rf"^({_TGT}) blocks ({_TGT}) (?:this turn |this combat )?if able$")
@@ -1476,10 +1476,9 @@ def _have_fight(m):
     return Effect("fight", "-", _target(m.group(1)), _target(m.group(2)))
 
 
-@_t(rf"^(?:then )?({_TGT}) fight each other$")
-def _fight_each(m):
-    """'<those creatures> fight each other' — a reciprocal §701.12 fight."""
-    return Effect("fight", "-", _target(m.group(1)), "each_other")
+# _fight_each: migrated to card_lark (`feclause` — the FIGHTEACH 'fight each other' bigram + subject span,
+# leading 'then' stripped). lark-first grounds it IDENTICALLY (migrate_check fight = 0 DIFFERS, 0 ABSTAINS);
+# RETIRED, proven byte-identical by a full-corpus parse_clause snapshot with it removed.
 
 
 # _phase: migrated to card_lark (the `pfclause` TRUE-grammar production — distinctive PHASE terminal splits
