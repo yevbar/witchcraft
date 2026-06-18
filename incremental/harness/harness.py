@@ -86,8 +86,11 @@ class Harness:
                 if g.returncode != 0 or not gen.exists():
                     raise RuntimeError(f"souffle codegen failed:\n{g.stderr}")
                 cxx = shutil.which("g++") or shutil.which("clang++")
+                # `-w` (inhibit all warnings) is portable across GCC and clang; the souffle-generated code is
+                # huge and warns a lot. (`-Wno-everything` is clang-only — it would not suppress GCC's warnings
+                # on the Linux build, and GCC notes it as unrecognized.)
                 cmd = [cxx, "-O2", "-std=c++17", "-fPIC", "-shared", "-D__EMBEDDED_SOUFFLE__",
-                       f"-isystem{_INCLUDE}", "-Wno-everything", "-pthread",
+                       f"-isystem{_INCLUDE}", "-w", "-pthread",
                        str(gen), str(_SHIM), "-o", str(lib)]
                 c = subprocess.run(cmd, capture_output=True, text=True)
                 if c.returncode != 0 or not lib.exists():

@@ -6,7 +6,9 @@ affected by an input change instead of recomputing from scratch. It is byte-iden
 supports game-tree-search rollback. Full overview: **`incremental/README.md`**.
 
 These steps reproduce the build and the test suite on a fresh machine. **Linux-first** (the Mac Mini target runs
-Linux); macOS notes inline. Run everything from the repo root unless noted. Python is **stdlib-only** (no `pip`).
+Linux); macOS notes inline. Run everything from the repo root unless noted. Python is **stdlib-only** (no `pip`),
+and **no separate Soufflé install is needed** — both the incremental engine *and* the recompute backends (the
+byte-identity baseline) use the in-repo fork built in step 2 (it does standard, non-incremental codegen too).
 
 ---
 

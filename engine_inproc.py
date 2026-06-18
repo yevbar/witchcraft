@@ -160,7 +160,7 @@ _NO_DELTA = bool(os.environ.get("MTG_NO_DELTA"))                  # force full l
 
 def _compile_lib(name: str, gen_cpp: Path, lib: Path) -> bool:
     """Compile the souffle-generated C++ + the shim into a shared library (embedded, no main). Mirrors
-    engine_native._compile's flags (the de-duped include root, -Wno-everything) plus -fPIC -shared and
+    engine_native._compile's flags (the de-duped include root, -w to silence warnings) plus -fPIC -shared and
     -D__EMBEDDED_SOUFFLE__ (drops the generated main(), registers the ProgramFactory)."""
     inc = engine_native._souffle_include()
     if inc is None:
@@ -172,7 +172,7 @@ def _compile_lib(name: str, gen_cpp: Path, lib: Path) -> bool:
     shim = gen_cpp.with_name("mtg_inproc_shim.cpp")
     shim.write_text(_SHIM_CPP)
     cmd = [cxx, "-O2", "-std=c++17", "-fPIC", "-shared", "-D__EMBEDDED_SOUFFLE__",
-           f"-isystem{inc}", "-Wno-everything", "-pthread",
+           f"-isystem{inc}", "-w", "-pthread",   # -w (not clang-only -Wno-everything) so GCC also stays quiet
            str(gen_cpp), str(shim), "-o", str(lib)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.returncode == 0 and lib.exists()
@@ -207,7 +207,7 @@ def build() -> tuple | None:
             dl = Path(d) / f"{name}.dl"
             gen = Path(d) / f"{name}.cpp"
             dl.write_text(src)
-            g = subprocess.run(["souffle", str(dl), "-g", str(gen)], capture_output=True, text=True)
+            g = subprocess.run([engine_native._souffle_bin(), str(dl), "-g", str(gen)], capture_output=True, text=True)
             if g.returncode != 0 or not gen.exists() or not _compile_lib(name, gen, lib):
                 _FAILED = True
                 return None

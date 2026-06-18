@@ -29,6 +29,15 @@ from pathlib import Path
 
 _SRC = Path("datalog/engine_rules.dl")
 _CACHE_DIR = Path(tempfile.gettempdir())
+# The in-repo souffle fork. The recompute backends prefer it (it does standard, non-incremental codegen too),
+# so the whole driver runs from one `build_souffle.sh` build — no separate SYSTEM souffle install needed.
+_FORK = Path(__file__).resolve().parent / "third_party" / "souffle"
+
+
+def _souffle_bin() -> str:
+    """The fork binary if built, else `souffle` on PATH."""
+    b = _FORK / "build" / "src" / "souffle"
+    return str(b) if b.exists() else "souffle"
 
 # resolved once: (binary_path, edb_relations) or (None, None) if the toolchain can't build it.
 _BUILD: tuple | None = None
@@ -57,6 +66,7 @@ def _souffle_include() -> Path | None:
     """A de-duplicated souffle header root: a temp `inc/souffle/` of symlinks to the real headers,
     minus the nested `souffle/souffle/` copy some installs ship (which collides on re-include)."""
     hit = next((p for p in (
+        _FORK / "src" / "include",                       # the in-repo fork headers (self-contained handoff)
         Path("/opt/homebrew/opt/souffle/include"),
         Path("/usr/local/include"), Path("/usr/include"),
     ) if (p / "souffle" / "CompiledSouffle.h").exists()), None)
@@ -76,7 +86,7 @@ def _compile(dl: Path, binp: Path) -> bool:
     """Compile a .dl to the native binary `binp`. Try souffle's own `-o` (works where compiled mode is
     healthy, e.g. Linux); fall back to manual codegen + clang/g++ for installs whose `-o` is broken."""
     # 1) the standard path: souffle generates C++ and builds the binary itself.
-    r = subprocess.run(["souffle", str(dl), "-o", str(binp)], capture_output=True, text=True)
+    r = subprocess.run([_souffle_bin(), str(dl), "-o", str(binp)], capture_output=True, text=True)
     if r.returncode == 0 and binp.exists():
         return True
     # 2) fallback: generate C++ ourselves and compile it with a sane include order.
@@ -85,10 +95,10 @@ def _compile(dl: Path, binp: Path) -> bool:
     if inc is None or cxx is None:
         return False
     cpp = binp.with_suffix(".cpp")
-    g = subprocess.run(["souffle", str(dl), "-g", str(cpp)], capture_output=True, text=True)
+    g = subprocess.run([_souffle_bin(), str(dl), "-g", str(cpp)], capture_output=True, text=True)
     if g.returncode != 0:
         return False
-    cmd = [cxx, "-O2", "-std=c++17", f"-isystem{inc}", "-Wno-everything", str(cpp), "-o", str(binp)]
+    cmd = [cxx, "-O2", "-std=c++17", f"-isystem{inc}", "-w", str(cpp), "-o", str(binp)]  # -w: portable (GCC+clang)
     if platform.system() == "Darwin":                    # match the active SDK, not whatever brew baked in
         sdk = subprocess.run(["xcrun", "--show-sdk-path"], capture_output=True, text=True).stdout.strip()
         if sdk:
