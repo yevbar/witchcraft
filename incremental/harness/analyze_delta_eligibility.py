@@ -183,20 +183,36 @@ def main():
     print(f"  Strata blocked from delta (recursion/aggregate, or downstream of one): {n_idb - len(ideal)}")
     print()
 
-    # INVARIANT GUARD: actual-diff staging of input+head (SHIM_INPUTS) relations is correct ONLY if every such
-    # relation is delta-eligible (the update never empties it, so it never needs the full input re-merged). If a
-    # future rule change makes one non-eligible, full-input staging would be required for it again.
+    # STAGING SET — which input+head (SHIM_INPUTS) relations need FULL-input staging. The AUTHORITATIVE source is
+    # the update RAM, not this SCC analysis: a relation is on the RECOMPUTE path (swap-cleared + re-merged from
+    # diff_plus, so it needs the full input re-staged) iff the RAM emits `SWAP (R, @swap_R)`. The SCC closure
+    # above is only a *predictor* of that set — and it has a blind spot: relations absent from the scc-graph
+    # parse (e.g. propositions, or anything the dot output collapses) were silently treated as eligible, which is
+    # exactly the has_trigger bug that drifted the demo. So we read the RAM and CROSS-CHECK the SCC prediction
+    # against it, surfacing any disagreement (especially relations the SCC parse never saw).
     heads = set(re.findall(r"^(\w+)\(", RULES, re.M))
     input_and_head = sorted((edb & heads))
-    bad = [r for r in input_and_head if rel2scc.get(r) is not None and rel2scc[r] not in ideal
-           and not all_edb(rel2scc[r])]
-    print(f"  INVARIANT — input+head (SHIM_INPUTS) relations: {len(input_and_head)}, "
-          f"delta-eligible: {len(input_and_head) - len(bad)}")
-    if bad:
-        print(f"  ✗ WARNING: {len(bad)} input+head relations are NOT delta-eligible — actual-diff staging is")
-        print(f"    UNSOUND for them (they get recomputed/emptied); they need full-input staging: {bad[:8]}")
+    ram = subprocess.run([str(_SOUFFLE), "--incremental", "--show=initial-ram", path],
+                         capture_output=True, text=True).stdout
+    recompute_rels = set(re.findall(r"SWAP \((\w+), @swap_", ram))  # ground truth: needs FULL staging
+    need_full = sorted(r for r in input_and_head if r in recompute_rels)
+    eligible = sorted(r for r in input_and_head if r not in recompute_rels)
+    print(f"  STAGING (authoritative, from update RAM) — input+head (SHIM_INPUTS) relations: {len(input_and_head)}")
+    print(f"    delta-eligible (actual-diff staging):     {len(eligible)}")
+    print(f"    on recompute path (FULL-input staging):   {len(need_full)}  {need_full[:8]}")
+    # cross-check: does the SCC closure predict the same set the RAM dictates?
+    scc_predicts_full = {r for r in input_and_head
+                         if rel2scc.get(r) is not None and rel2scc[r] not in ideal and not all_edb(rel2scc[r])}
+    missing_from_scc = [r for r in need_full if rel2scc.get(r) is None]
+    mispredicted = sorted((scc_predicts_full ^ set(need_full)))
+    if missing_from_scc:
+        print(f"  ⚠ SCC-parse BLIND SPOT: {len(missing_from_scc)} recompute relations are absent from the "
+              f"scc-graph parse and would be misjudged eligible by SCC analysis alone: {missing_from_scc[:8]}")
+    if mispredicted:
+        print(f"  ⚠ SCC closure disagrees with the RAM on {len(mispredicted)} relations: {mispredicted[:8]}")
+        print("    (the RAM is authoritative; this is why engine_incremental/bench/test_engine read SWAP, not SCC)")
     else:
-        print("  ✓ all input+head relations are delta-eligible — actual-diff staging is sound for every relation")
+        print("  ✓ SCC closure matches the RAM-authoritative recompute set exactly")
     return 0
 
 
