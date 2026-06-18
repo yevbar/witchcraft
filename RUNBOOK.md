@@ -64,7 +64,13 @@ The per-program engine `.so` (the souffle-generated C++ + the ctypes shim `incre
 compiled **on demand** by the harness with `g++`/`clang++`, then cached in `/tmp` by content hash. **The first
 test that touches it pays a one-time ~4–7 min compile; everything after is fast.**
 
-Run the full suite (correctness + the search/perf benchmarks):
+**Quick smoke test first** (~10s, a small program — confirms the fork + your C++ toolchain compile a working
+`.so` *before* the full engine's one-time ~4–7 min compile):
+```bash
+python3 incremental/harness/test_harness.py    # expect: HARNESS BOOTSTRAP: PASS ✓
+```
+
+Then the full suite (correctness + the search/perf benchmarks):
 ```bash
 bash incremental/run_tests.sh
 ```
