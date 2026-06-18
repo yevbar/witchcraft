@@ -77,6 +77,54 @@ def main():
     else:
         print(f"  delete WITH alternative support: twohop(1,3) survives via re-derivation ✓  (twohop={sorted(got['twohop'])})")
 
+    # Case 3: recursive deletion (transitive closure). Deleting a middle edge must retract the transitive
+    # paths that depended on it.
+    TC = """\
+.decl edge(a:number, b:number)
+.input edge
+.decl path(a:number, b:number)
+.output path
+path(x, y) :- edge(x, y).
+path(x, y) :- path(x, z), edge(z, y).
+"""
+    def fresh_tc(edges):
+        h = harness.Harness(TC, incremental=True)
+        h.bootstrap({"edge": edges})
+        d = h.dump(["path"])
+        h.close()
+        return d["path"]
+    chain = {("1", "2"), ("2", "3"), ("3", "4")}
+    h = harness.Harness(TC, incremental=True)
+    h.bootstrap({"edge": chain})
+    h.insert({"diff_minus_edge": {("2", "3")}})
+    h.update()
+    h.purge(["diff_minus_edge", "diff_plus_edge", "diff_minus_path", "diff_plus_path"])
+    got = h.dump(["path"])["path"]
+    h.close()
+    want = fresh_tc(chain - {("2", "3")})
+    if got != want:
+        print(f"  recursive deletion FAIL: update={sorted(got)} fresh={sorted(want)}")
+        ok = False
+    else:
+        print(f"  recursive deletion (transitive closure): update==recompute ✓  (path={sorted(got)})")
+
+    # Case 4: combined insert + delete in one update (non-recursive).
+    full = {("1", "2"), ("2", "3"), ("3", "4"), ("4", "5")}
+    h = harness.Harness(HOPS, incremental=True)
+    h.bootstrap({"edge": full})
+    h.insert({"diff_minus_edge": {("3", "4")}, "diff_plus_edge": {("5", "6")}})
+    h.update()
+    h.purge(["diff_minus_edge", "diff_plus_edge", "diff_minus_twohop", "diff_plus_twohop",
+             "diff_minus_threehop", "diff_plus_threehop"])
+    got = h.dump(["twohop", "threehop"])
+    h.close()
+    want = fresh((full - {("3", "4")}) | {("5", "6")})
+    if got != want:
+        print(f"  combined insert+delete FAIL: update={got} fresh={want}")
+        ok = False
+    else:
+        print("  combined insert+delete in one update: update==recompute ✓")
+
     print("DRED DELETION:", "PASS ✓" if ok else "FAIL ✗")
     return 0 if ok else 1
 

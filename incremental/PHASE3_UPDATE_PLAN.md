@@ -132,8 +132,17 @@ erase `diff_minus` from extensional relations, and `generateIncrementalDelete` (
 erase → re-derive survivors) for non-recursive intensional relations. Verified (`test_deletion.py`): deleting
 an edge removes dependents, AND a tuple with an alternative derivation SURVIVES (multi-support re-discovery —
 twohop(1,3) survives deleting edge(2,3) via 1→9→3). update == recompute, parity in both backends, engine
-codegens. REMAINING in 3c: recursive deletion (generateIncrementalDelete handles non-recursive only;
-recursive strata need DRed within the fixpoint), and combined insert+delete in one update.
+codegens. **Recursive deletion + combined insert/delete now also done**: generateIncrementalRecursive handles
+both signs by recompute (publish old→diff_minus, erase, re-run from-scratch fixpoint, publish new→diff_plus) —
+correct for insert and delete, but it trades the recursive seeded-fixpoint insertion incrementality for
+correctness (recursive monotone strata recompute). Verified: recursive transitive-closure deletion and
+combined insert+delete in one update both == recompute.
+**Monotone incremental is now feature-complete**: insertion (non-recursive delta-only + recursive recompute),
+deletion (non-recursive DRed with re-discovery + recursive recompute), combined, both backends.
+REMAINING for the engine: (1) true incremental recursive (DRed + re-discovery inside the fixpoint — an
+optimization, not correctness); (2) **NEGATION soundness** — the engine is non-monotone (recompute fallback);
+making it incremental needs the cross-sign negation propagation (a negated atom's insertions drive head
+deletions and vice versa), which the erase + diff_plus/diff_minus machinery now supports building.
 
 ### (historical) 3c blocker — erase-over-aux-relations [RESOLVED above]
 The DRed-style deletion code is in (dormant, not wired into `update`): `diff_minus_<R>` relations,

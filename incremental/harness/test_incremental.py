@@ -99,8 +99,8 @@ def main():
         print(f"  tc FAIL: update={sorted(got.get('path',set()))} fresh={sorted(want.get('path',set()))}")
         ok = False
     else:
-        print(f"  tc (seeded recursive fixpoint): update==recompute ✓  (path has {len(got.get('path',set()))} tuples, "
-              f"incl. multi-hop)")
+        print(f"  tc (recursive recompute, insert+delete safe): update==recompute ✓  (path has "
+              f"{len(got.get('path',set()))} tuples, incl. multi-hop)")
 
     print("INCREMENTAL INSERTION:", "PASS ✓" if ok else "FAIL ✗")
     return 0 if ok else 1
