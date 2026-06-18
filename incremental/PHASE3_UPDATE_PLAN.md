@@ -226,19 +226,33 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   cheap near-EDB ones; making them O(diff) doesn't move the total. The precise re-derive is a real algorithmic
   improvement (true O(diff) deletion re-derive, benefits monotone programs) and a PREREQUISITE for the lever
   below, but the engine win requires making the negation strata delta too.
-- **THE lever for the engine — NEGATION-DELTA** (make the recompute strata O(diff)). For a non-recursive
-  stratum `H :- B…, !N…`, seed the three-term update from negation sign-flips too, at RAM level (avoiding the
-  AST-analysis blocker — see below):
-    - OVER-DELETE via a negated atom that NEWLY became true: translate the clause, rewrite the j-th
-      `Filter(Negation(ExistenceCheck(N, vals)))` → `Filter(ExistenceCheck(diff_plus_N, vals))` and the head
-      Insert → `diff_minus_H`. (H was valid when N was absent; N now present ⇒ over-delete candidate.) Then the
-      candidate-restricted re-derive above re-checks survivors.
-    - INSERT via a negated atom that became false: keep the `!N` check (true now) AND add
-      `Filter(ExistenceCheck(diff_minus_N, vals))`, head Insert → `diff_plus_H`. (N just removed ⇒ H newly
-      derivable.)
-  All negated-atom variables are bound by positive body scans (groundedness), so the rewrite only swaps a
-  condition — no new generator needed. This unlocks the 41 negation-blocked strata (→ 62% closure) and is what
-  should finally move the engine benchmark. Recursion stays on recompute (only 1 recursive SCC).
+- **DONE (correct, but O(|body|) not O(diff)) — NEGATION-DELTA via filter-flip** (`generateNegationOverDelete`
+  / `generateNegationInsert` + `NegOverDeleteRewriter` / `NegInsertRewriter`). For a non-recursive stratum
+  `H :- B…, !N…` the three-term update is now seeded from negation sign-flips, at RAM level (no AST-analysis
+  blocker): OVER-DELETE rewrites the j-th `Filter(Negation(ExistenceCheck(N, vals)))` →
+  `Filter(ExistenceCheck(diff_plus_N, vals))`, head Insert → `diff_minus_H`; INSERT keeps `!N` AND adds
+  `ExistenceCheck(diff_minus_N, vals)`, head Insert → `diff_plus_H`. The eligibility closure was relaxed to
+  admit negation (only aggregates+recursion still force recompute), so the engine now routes **102/164 strata**
+  (62%) to the delta path. Verified correct: `test_negation` (single + two-level stratified sign-flips both ==
+  recompute), `test_engine` (update == recompute on real transitions), full suite, both backends. A subtle
+  bug was fixed: the rewriter must call `node->apply(*this)` (visiting the Insert NODE to rename its head), not
+  `clone(getOperation())->apply()` (which visits only the Insert's children) — otherwise the over-delete
+  inserts into the full relation instead of `diff_minus_H`.
+  **BUT benchmark-neutral (~1.27x):** the generated rule keeps the POSITIVE body atom as the driving scan and
+  the flipped negation as a membership *filter* — `for x in base: if diff_plus_N(x)` — so it is O(|base|), the
+  same magnitude as recompute, NOT O(|diff_plus_N|). The negated atom is an existence check, not a scan, so the
+  diff does not drive the iteration.
+- **NEXT — make negation-delta DIFF-DRIVEN (the actual O(diff)).** The diff must be the OUTER scan. Reuse the
+  proven `generateDeltaRules`/`DeltaRewriter` scan-redirect: for the j-th negated atom, build a SYNTHETIC clause
+  with `!N` replaced by a POSITIVE `N` atom (real relation name ⇒ no analysis blocker), translate it so `N`
+  becomes a SCAN, then redirect that scan to `diff_plus_N` (over-delete, head → `diff_minus_H`) or `diff_minus_N`
+  (insert, head → `diff_plus_H`, plus a `!N` filter). Then iteration is driven by the small diff. Targeting:
+  rewrite the scan whose relation == N's concrete name (unambiguous when N is not also a positive body atom;
+  fall back to recompute otherwise).
+- **CAVEAT to verify first — the aggregate/recursive cap.** 62 strata recompute regardless (aggregate or
+  downstream of one). The engine's aggregate strata (P/T sums, counts over all creatures) are likely the
+  EXPENSIVE ones, so even perfect O(diff) on the other 102 may be capped at a modest speedup. PROFILE the
+  per-stratum update cost before investing more in diff-driven negation-delta.
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
