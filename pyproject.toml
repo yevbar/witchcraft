@@ -20,3 +20,6 @@ Homepage = "https://github.com/yevbar/mtg_parser"
 # native-build strategy for the souffle .so. See PACKAGING.md. Until then, run from the repository root.
 [tool.setuptools]
 packages = ["witchcraft"]
+
+[tool.setuptools.package-data]
+witchcraft = ["decks/*.txt"]                # bundled limited-style deck lists (load_deck)

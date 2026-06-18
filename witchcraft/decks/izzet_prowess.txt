@@ -1,0 +1,15 @@
+# Izzet (UR) Prowess — 40-card limited-style pool
+# Cheap creatures + a high spell count; each noncreature spell pumps prowess.
+3 Monastery Swiftspear
+2 Soul-Scar Mage
+2 Stormchaser Mage
+2 Sprite Dragon
+2 Kiln Fiend
+3 Lightning Bolt
+2 Shock
+2 Lightning Strike
+2 Opt
+2 Consider
+1 Crash Through
+9 Island
+8 Mountain

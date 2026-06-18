@@ -1,0 +1,19 @@
+# Mono-Green Landfall — 40-card limited-style pool
+# Lands trigger landfall payoffs; ramp + Evolving Wilds for extra triggers.
+2 Llanowar Elves
+2 Lotus Cobra
+2 Scute Mob
+2 Grazing Gladehart
+2 Territorial Baloth
+1 Snapping Sailback
+2 Grove Rumbler
+1 Tireless Tracker
+1 Rampaging Baloths
+1 Sakura-Tribe Elder
+2 Adventuring Gear
+1 Cultivate
+1 Rampant Growth
+1 Khalni Heart Expedition
+2 Evolving Wilds
+1 Khalni Garden
+16 Forest

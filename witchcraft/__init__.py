@@ -32,9 +32,11 @@ from .game import Game, DEMO_DECKS                                      # noqa: 
 from .players import Player, RandomPlayer, GreedyPlayer, play           # noqa: E402
 from .forge import play_forge, forge_available                         # noqa: E402  (lazy JVM tooling inside)
 from .benchmark import benchmark, benchmark_vs_forge                    # noqa: E402
+from .decks import load_deck, parse_deck, bundled_decks                 # noqa: E402
 
 __all__ = ["Game", "DEMO_DECKS", "Player", "RandomPlayer", "GreedyPlayer", "play",
            "play_forge", "forge_available", "benchmark", "benchmark_vs_forge",
+           "load_deck", "parse_deck", "bundled_decks",
            "new_game", "self_play", "demo", "engine_available", "__version__"]
 __version__ = "0.1.0"
 

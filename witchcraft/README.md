@@ -205,6 +205,29 @@ result = play({"alice": RandomPlayer(), "bob": RandomPlayer()},
               _setup.COMMANDER_DECKS, variant="commander", commanders=_setup.COMMANDERS)  # players, any variant
 ```
 
+## Decks (human-readable lists)
+
+Deck lists are plain text — `N Card Name` or just `Card Name`, one per line (`#`/`//` comments and blank
+lines ignored). The names are the **human-readable oracle names the engine resolves directly** (no slug/encode
+step), so you can hand-write a `.txt` and read it line by line.
+
+```python
+import witchcraft
+witchcraft.bundled_decks()                          # ['izzet_prowess', 'mono_black_zombies',
+                                                    #  'mono_green_landfall', 'selesnya_landfall']
+deck = witchcraft.load_deck("mono_green_landfall")  # bundled name -> flat list ['Forest', 'Forest', ...]
+deck = witchcraft.load_deck("/path/to/my.txt")      # ...or any file path
+
+g = witchcraft.Game({"alice": witchcraft.load_deck("izzet_prowess"),
+                     "bob":   witchcraft.load_deck("mono_black_zombies")})
+witchcraft.benchmark(MyBot(), decks={"alice": witchcraft.load_deck("selesnya_landfall"),
+                                     "bob":   witchcraft.load_deck("selesnya_landfall")})
+```
+
+Four 40-card, limited-style pools ship with the package (`witchcraft/decks/*.txt`): **mono_green_landfall**,
+**selesnya_landfall** (GW go-wide), **izzet_prowess** (UR spells), **mono_black_zombies**. MTGO/Arena/.dck
+exports also parse (the loader skips `[Section]` headers and `Name=`/metadata lines).
+
 ## Forge as the source of truth
 
 The default engine is witchcraft (our datalog rules referee). For a mode where **Forge** is authoritative and
