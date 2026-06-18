@@ -8,6 +8,42 @@ produce the IDB for `E\E⁻ ∪ E⁺` **without recomputing from scratch**, via 
 **Oracle (unchanged, non-negotiable):** `Update(Bootstrap(E), (E⁻,E⁺)) == Bootstrap(E\E⁻ ∪ E⁺)`, byte-identical,
 both backends. This is Theorem 3.5 and equals the engine's existing `delta==full` parity test.
 
+> 🔬 **PHASE 8 — PROFILED THE PERF CEILING; the hotspot is CHAIN-BLOCKED.** `profile_strata.py` (committed)
+> ranks the strata that run on a move by recompute cost: ONE relation, `cond_met`, dominates every move type
+> (41–63%). It is ~10×(controlled permanents) — ~10 "global" conditions (life≥20, untapped, empty graveyard…)
+> each true for every source — and recomputes wholesale because a few of its ~30 clauses use a `count`
+> aggregate, even though those clauses contribute ~0 tuples. The fix (mixed-stratum delta + a precise-publish to
+> unblock `cond_met`'s recompute deps — the `copy_ts = max T:{…}` → `has_type` → `cond_met` chain) was
+> IMPLEMENTED and MEASURED in full (Phase 8b) and is **DECISIVELY a dead end**: `cond_met` did become delta, but
+> the result is a NET PERF REGRESSION at every scale (TAP 506f **1.6x** vs the clean **2.3x**; ADD **1.4x** vs
+> **2.0x**) AND buggy (precise-publish makes the `__agg_subclause*` aggregate-body relations delta-eligible and
+> their delta-deletion drops nothing on creature removal → the demo diverges; `test_engine`'s two transitions
+> miss it). The broad precise-publish overhead (an O(|R|) diff per recompute stratum each move + delta machinery
+> on dozens of cheap strata) more than offsets the `cond_met` saving even though it was 63% of recompute |R| —
+> confirming the precise-publish lesson a THIRD time. Full write-up in `incremental/experiments/README.md`.
+> **The ~2x clean merge-back is the better engine; the perf ceiling is settled and the `cond_met` hotspot is not
+> worth optimizing this way.**
+
+> 🔬 **PHASE 10 — WHERE THE ELASTIC ENGINE HELPS THE *REAL* SEARCH (a state-size crossover).** The repo already
+> has a real search layer (`search.py`: `legal_moves`/`apply`/`find_loop`), built on `driver.run`. Wiring it onto
+> the incremental backend (`MTG_INCREMENTAL`) and benchmarking (`incremental/harness/search_bench.py`): the
+> incremental engine has a higher PER-CALL overhead (stage diff, dump dirty, purge, ctypes) than inproc's
+> delta-input recompute, repaid only on EXPENSIVE recomputes — so there's a CROSSOVER at ~250 facts (~50
+> permanents): board=0 (21f) **0.57x**, board=20 (121f) 0.93x, board=50 (271f) **1.03x**, board=100 (521f)
+> **1.14x**. The sorcery-speed move space keeps search positions small, so the elastic engine helps the search
+> only on WIDE-BOARD (late-game) positions, and even then modestly (≤1.14x, far below the single-move 2x — the
+> per-node overhead is paid at every node). A restore-to-node variant (small backtrack diffs) does NOT help; the
+> cost is per-call overhead, not diff size. **Takeaway:** the elastic engine is a single-move accelerator for
+> large states, not a universal search speedup; the search regime that benefits is wide boards, and the per-call
+> Python overhead is the lever to cut if search throughput on large states matters.
+
+> ✅ **PHASE 7 — GAME-TREE SEARCH PRIMITIVES (push/pop/branch).** The `update` subroutine is direction-agnostic:
+> staging a move's INVERSE diff rolls the resident relations back to the parent state byte-identically, at
+> O(diff), with no full snapshot. So the engine is a search substrate — from a state, push a move, evaluate the
+> child, pop to try the next. `engine_incremental.push/pop/branch`; validated in test_branching against the
+> recompute oracle (flat branching, nested descend/unwind, ctx-mgr). This is the "elastic" payoff: bidirectional
+> movement through the state tree, each ply O(diff). No souffle change — rollback reuses the update subroutine.
+
 > ✅ **CORRECTNESS — the incremental update is now byte-identical to a full recompute across an entire real
 > demo game (27 engine calls), and the demo plays byte-identically through driver.py with MTG_INCREMENTAL=1.**
 > The marathon of bugs (all found by wiring engine_incremental into the demo) is closed. Root causes, in order
@@ -16,11 +52,16 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > STAGING of input+head (SHIM_INPUTS) relations is UNSOUND.** Not all input+head relations are delta-eligible:
 > has_trigger depends on a non-eligible relation (loses_abilities via `!loses_abilities`) so it is on the
 > RECOMPUTE path, which swap-clears it and re-merges only `diff_plus` — actual-diff staging dropped its
-> unchanged input facts. Fix: stage the FULL new input for input+head relations (engine_incremental._stage,
-> test_engine, bench). **The earlier "~2.3x at 506 facts" was on this BROKEN engine; the CORRECT engine is ~0.7x
-> at 506 facts** (full-input staging re-inflates the input chain). NEXT (perf): stage actual-diff for ELIGIBLE
-> input+head and full only for the few RECOMPUTE ones — needs the eligibility set plumbed to the driver (and the
-> analyze_delta_eligibility invariant, which wrongly claimed ALL input+head eligible, corrected).
+> unchanged input facts. Fix: stage the FULL new input for input+head relations on the recompute path
+> (engine_incremental._stage, test_engine, bench).
+>
+> ✅ **PERF RECOVERED (Phase 3e) — CORRECT AND FAST.** Blanket FULL-input staging for ALL input+head was correct
+> but ~0.7x (re-inflated the input chain). Narrowing FULL staging to just the RECOMPUTE input+head (21 of 69;
+> read authoritatively from the update RAM's `SWAP (R, @swap_R)`, not the SCC closure which over-predicts
+> eligibility) and giving the other 48 cheap actual-diff staging restores the win WHILE staying byte-identical:
+> TAP 506 facts **2.4x** (10x small-scale), ADD-CREATURE 506 facts **2.0x**, demo still byte-identical (27
+> calls). `engine_incremental._INH = input_and_head & _recompute_relations(src)`; bench/test_engine mirror it;
+> analyze_delta_eligibility now reads the RAM and cross-checks the SCC closure (which mispredicts all 21).
 >
 > (historical) ⚠️ **CORRECTNESS STATUS (critical, found by wiring engine_incremental into a real demo game): the update is
 > NOT yet correct for the full engine.** The `test_engine` oracle (only 2 transitions on simple static states)
@@ -39,10 +80,29 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > re-derive cleans up. Demo now plays through ~11 engine calls (was 9). test_nullary + test_simultaneous_delete
 > (nullary case) pass.
 >
-> STILL OPEN (two distinct issues):
+> ✅ **FIXED (Phase 6) — data-carrying simultaneous deletion** (the (1) below), via MERGE-BACK. Before the
+> per-atom over-delete (generateDeltaRules over diff_minus), each positive dependency is temporarily restored to
+> its OLD state: stage diff_minus_d \ d (the truly-deleted tuples — survivors re-derived by d's own delete are
+> already back in d) into the dep's free @swap_d scratch and merge it in; run the k per-atom versions (non-target
+> atoms now read old); then erase exactly the staged tuples to restore new state. The union over the k versions =
+> the join over the OLD database (the exact deletion delta) — same result as a 2^k-1 subset enumeration but only
+> k versions, so NO codegen blow-up and NO body-size cap (full closure eligibility). A dependency of a
+> delta-eligible stratum is itself eligible (delta) or EDB, so its @swap_d is always free to borrow. Helpers:
+> positiveDeleteDeps + generateSetDifference. All 9 harness tests PASS (incl. test_simultaneous_delete
+> nullary+data, test_engine); demo byte-identical; perf-NEUTRAL (TAP 2.3x / ADD 2.0x at 506 facts).
+> (Interim: a 2^k-1 subset-enumeration impl — generateOverDeleteRules + SubsetDeltaRewriter + kOverDeleteAtomCap —
+> was correct but bloated codegen and needed a body-size cap; merge-back superseded it.) The old
+> conservative-projection plan below is superseded.
+>
+> ❌ **REJECTED (Phase 6) — precise-publish** (have recompute strata publish a precise diff so eligibility jumps
+> to 98% of IDB strata). Correct but a NET PERF LOSS (2.4x→1.7x) + 7 min compile: the 58 unlocked strata are the
+> cheap near-EDB ones where delta machinery costs more than recompute. Full write-up + recoverable patch in
+> `incremental/experiments/`. The 98% is a strata-COUNT ceiling, not a perf ceiling.
+>
+> (historical) STILL OPEN (two distinct issues):
 > (1) **Data-carrying simultaneous deletion** (test_simultaneous_delete data case). Same DRed gap; the fix is a
 >     conservative over-delete that PROJECTS each head-covering body atom's diff_minus to the head (and falls
->     back to recompute for cross-product rules where no single atom covers the head).
+>     back to recompute for cross-product rules where no single atom covers the head). [SUPERSEDED — see FIXED above.]
 > (2) **has_trigger drift at demo step 11 — a PUZZLE worth a fresh look.** The full-resident sequential run
 >     drifts (has_trigger under-derives a tuple that was true and should stay), BUT the ISOLATED single update
 >     (bootstrap step10 → update step11) is CORRECT, and the detector flags no drift before step 11. Ruled out:

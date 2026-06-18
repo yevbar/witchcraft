@@ -6,15 +6,26 @@ Measures, for a resident engine instance, the median time to advance state N -> 
 
 Both produce identical resident relations (asserted). The ratio is the selective-stratum speedup.
 
-FINDINGS (Mac, in-process). ⚠️ CORRECTNESS-FIRST UPDATE: the earlier "~2.3x at 506 facts" was measured with
-ACTUAL-DIFF staging of input+head (SHIM_INPUTS) relations, which is UNSOUND — NOT all input+head relations are
-delta-eligible (e.g. has_trigger depends on a non-eligible relation and is on the RECOMPUTE path, which swap-
-clears it and re-merges only the diff, silently dropping unchanged input facts; the demo game drifted). The
-correct convention (now in stage() + engine_incremental._stage) stages the FULL new input for input+head
-relations, which re-introduces the input-chain re-processing and makes the driver ~0.7x at 506 facts — i.e.
-SLOWER than engine_inproc when CORRECT. The perf is recoverable by staging actual-diff for ELIGIBLE input+head
-and full only for the (few) RECOMPUTE input+head — TODO, needs the eligibility set plumbed to the driver.
-  (historical, on the unsound actual-diff staging: 2cr 9.8x, 10cr 7.2x, 30cr 4.0x, 60cr 3.0x, 100cr 2.3x.)
+FINDINGS (Mac, in-process). CORRECT AND FAST: staging actual-diff for ELIGIBLE input+head and FULL new input
+only for the (few) RECOMPUTE input+head (those with a `SWAP (R, @swap_R)` in the update RAM — e.g. has_trigger,
+which depends on a non-eligible relation and is swap-cleared + re-merged from diff_plus, so actual-diff would
+silently drop its unchanged input facts and drift the demo). The recompute set is read from the update RAM here
+(matches engine_incremental._recompute_relations). This is both byte-identical to recompute AND recovers the
+speedup that the (briefly-shipped, unsound) blanket actual-diff staging had:
+    TAP sweep:          2cr 10.0x, 10cr 7.4x, 30cr 4.5x, 60cr 3.1x, 100cr 2.4x  (all correct=✓)
+    ADD-CREATURE sweep: 2cr 5.7x,  10cr 4.9x, 30cr 3.3x, 60cr 2.4x, 100cr 2.0x  (all correct=✓)
+  (The intermediate FULL-staging-for-ALL-input+head convention was correct but ~0.7x — it re-inflated the whole
+  input chain every move; narrowing FULL staging to the recompute set is what recovers the win.)
+
+  CORRECTNESS (Phase 6): SIMULTANEOUS multi-atom deletion is retracted correctly via MERGE-BACK — before the
+  per-atom over-delete, each positive dependency is temporarily restored to its OLD state (current ∪
+  truly-deleted, staged through the dep's @swap scratch) so non-target atoms read old; the union over the k
+  versions = the join over the old database (the exact deletion delta). Fixes the long-standing data-carrying
+  xfail (test_simultaneous_delete). Perf-NEUTRAL (numbers above hold), full closure eligibility (no body-size
+  cap), k versions not 2^k-1. (The interim 2^k-1 subset enumeration was correct but bloated codegen + needed a
+  cap; merge-back supersedes it.)
+  REJECTED: precise-publish (expand eligibility to 98% by having recompute strata publish a precise diff) — it is
+  correct but a NET PERF LOSS (2.4x->1.7x) + 7 min compile; see incremental/experiments/README.md.
   Two overhead removals lifted it from ~0.97x to ~1.3x at 506 facts (DONE):
     (a) SWAP-based clear instead of erase-scratch: recompute into a @swap temp, ram::Swap it with R, clear the
         temp (a temp's purge is unconditional even in a subroutine) — removed the ~2x O(|R|) erase copy.
@@ -39,7 +50,9 @@ Run: python3 incremental/harness/bench.py  (compiles the 328-relation engine onc
 
 import re
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -77,7 +90,16 @@ def main():
 
     src = engine_native._wrapper(RULES, engine_native._edb(RULES))
     decls = re.findall(r"^\.decl\s+(\w+)", RULES, re.M)
-    inh = set(engine_native._edb(RULES)) & set(re.findall(r"^(\w+)\(", RULES, re.M))  # input+head — staged FULL
+    # input+head relations need FULL staging only when they're on the RECOMPUTE path (swap-clear + re-merge
+    # diff_plus). The eligible ones take actual-diff staging — that's the perf recovery. Authoritative source:
+    # the update RAM's `SWAP (R, @swap_R)` statements (see engine_incremental._recompute_relations).
+    with tempfile.NamedTemporaryFile("w", suffix=".dl", delete=False) as _f:
+        _f.write(src)
+        _rampath = _f.name
+    rr = subprocess.run([str(harness._SOUFFLE), "--incremental", "--show=initial-ram", _rampath],
+                        capture_output=True, text=True)
+    recompute = set(re.findall(r"SWAP \((\w+), @swap_", rr.stdout))
+    inh = (set(engine_native._edb(RULES)) & set(re.findall(r"^(\w+)\(", RULES, re.M))) & recompute
     allpurge = [f"diff_{s}_{r}" for s in ("plus", "minus") for r in decls] + [f"__dirty_{r}" for r in decls]
 
     def stage(a, b):
