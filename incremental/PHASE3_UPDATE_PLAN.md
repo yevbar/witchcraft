@@ -267,10 +267,24 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   recompute) and the synthetic sweeps. Benchmark: TAP 506 facts 1.27x -> 2.26x, ADD-CREATURE 1.29x -> 1.93x,
   and 3-10x at smaller scales. `analyze_delta_eligibility.py` now asserts the invariant (all input+head
   delta-eligible) so a future rule change that breaks it is caught.
-- **NEXT levers (in priority order):** (1) diff-driven negation-delta (the filter-flip is still O(|body|);
-  synthetic-positive-clause + DeltaRewriter scan-redirect makes it O(diff)) — now worth doing since the
-  staging drag is gone; (2) wire the `update` into the real `engine_inproc` driver with actual-diff staging
-  (Phase 3d); (3) the 62 recompute strata (aggregates + downstream) — aggregate-delta is the remaining frontier.
+- **TRIED & REVERTED — outer-driven (O(diff)) positive delta.** The positive delta rules are O(diff) only when
+  the changed atom is the OUTER scan; for an inner-scan atom (`for x in base: range diff_minus_b(x)`) they are
+  O(|body|). Built a RAM-level transform to HOIST the chosen scan to the outermost position (translating a
+  reordered AST clause is blocked — it loses node-keyed numeric-constant types; and naive RAM hoisting corrupts
+  joins because souffle's tuple id == nesting depth, so it needs a tuple-id REMAP across all TupleElements).
+  Got it correct (all oracles + engine pass, joins included) — but it was **benchmark-NEUTRAL** (~2.2x tap /
+  ~1.9x add, unchanged). After the staging fix the positive-delta inner-scans simply are not the bottleneck,
+  and realistic game-tree moves are SMALL diffs (so O(diff) vs O(|body|) rarely bites). Reverted to keep the
+  branch lean (the ~90 lines of chain-decomposition + tuple-id remapping bought no measured gain). LESSON: the
+  remaining O(|R|)-ish scaling is in the RECOMPUTE strata (aggregates + recursion) and the O(|body|) NEGATION
+  filter-flip rules, not positive delta.
+- **NEXT levers (in priority order):** (1) the 62 recompute strata — these dominate the remaining cost; the 3
+  aggregate strata (P/T sums/counts) + their downstream are the target, so AGGREGATE-DELTA is the frontier;
+  (2) wire the `update` into the real `engine_inproc` driver with actual-diff staging (Phase 3d) so the 2.26x
+  is realized in the game engine, not just the harness; (3) diff-driven negation-delta — deprioritized: it has
+  the same outer-scan obstacle as positive delta (the negated atom must become an outer scan over diff_plus_N),
+  and positive delta being neutral suggests negation diff-driving would be too, unless profiling shows the
+  negation filter-flip O(|body|) scans are individually hot.
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
