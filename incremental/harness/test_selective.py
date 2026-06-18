@@ -47,8 +47,9 @@ def main():
     h.update()
     da = h.dump(["derivedA"]).get("derivedA", set())
     db = h.dump(["derivedB"]).get("derivedB", set())
-    ran_a = bool(h.dump(["diff_minus_derivedA"]).get("diff_minus_derivedA", set()))
-    ran_b = bool(h.dump(["diff_minus_derivedB"]).get("diff_minus_derivedB", set()))
+    # A stratum that runs sets its __dirty flag; a skipped one leaves it empty.
+    ran_a = bool(h.dump(["__dirty_derivedA"]).get("__dirty_derivedA", set()))
+    ran_b = bool(h.dump(["__dirty_derivedB"]).get("__dirty_derivedB", set()))
     h.purge(ALL_DIFFS)
     h.close()
 

@@ -163,17 +163,17 @@ out of the body scan, so @iteration must be constant, not body-dependent; (b) in
 re-merge the staged input after emptying and let the guard fire on their own staged diff. Staging convention
 for the driver: pure-input relations stage the DIFF; input+head relations stage the FULL new input.
 
-**BENCHMARKED (`incremental/harness/bench.py`) — CRITICAL FINDING: the recompute-based update does not scale.**
-In-process update vs full recompute (identical resident relations), tap 1 creature, sweeping state size:
+**BENCHMARKED (`incremental/harness/bench.py`) — now a WIN at realistic scale (~1.3x at 506 facts).**
+In-process update vs full recompute (identical resident relations), tap 1 creature, sweeping state size
+(after the swap-clear + __dirty overhead removals below):
 ```
-  2 creatures ( 16 facts): 5.3x     30 creatures (156 facts): 1.3x     100 creatures (506 facts): 0.97x (slower!)
- 10 creatures ( 56 facts): 2.4x     60 creatures (306 facts): 1.1x
+  2 creatures ( 16 facts): 6.6x     30 creatures (156 facts): 1.8x     100 creatures (506 facts): 1.3x
+ 10 creatures ( 56 facts): 3.3x     60 creatures (306 facts): 1.4x
 ```
-Real engine states are ~485 facts, so at realistic scale the update is no faster than (slightly slower than)
-a full recompute. Root cause: each DIRTY stratum does O(|R|) overhead that scales with the relation size — the
-erase scratch (copy R->diff_minus then erase, ~2x O(|R|)) and the conservative publish (copy R->diff_plus) —
-on top of the recompute. As relations grow with the state, this per-dirty-stratum copy cost exceeds the
-clean-stratum skip savings. Selective-stratum helps only when relations are small.
+Real engine states are ~485 facts, so at realistic scale the update is now ~1.3x faster than a full recompute
+(was ~0.97x — slightly slower — before the two overhead removals). The win still shrinks with state size
+because each DIRTY stratum still RECOMPUTES its whole relation (O(|R|)); the saving comes from skipping the
+clean strata. Breaking the per-dirty O(|R|) floor needs the delta-based update below.
 
 PROGRESS on the throughput overhead (correctness is done end to end):
 - **DONE — nullary __dirty "ran" flag** replaces the whole-relation publish; the guard checks one flag per
@@ -181,11 +181,14 @@ PROGRESS on the throughput overhead (correctness is done end to end):
   the guard checks. Benchmark improved across the sweep (30 creatures 1.33x->1.47x; 100 creatures/506 facts
   0.97x->1.05x). NB the flag is NOT @-prefixed — an @-temporary is removed by a RAM transform as unused; the
   driver purges it like the diff relations.
-- **BLOCKED — SWAP-based clear** (the dominant erase-scratch cost). std::swap exchanges the relation objects
-  but the RelationWrapper backing getRelation does NOT follow, so the driver reads the wrong object after a
-  swap. Swap is only safe for unexposed @delta/@new temporaries. A different cheap clear for an EXPOSED
-  relation is needed (e.g. teach the synthesiser to also swap the wrappers, or a wrapper-aware bulk-clear);
-  until then the erase-scratch (~2x O(|R|)) remains and caps the win at ~1.05x on realistic states.
+- **DONE — SWAP-based clear** (removes the dominant erase-scratch cost). The recompute clears a relation by
+  evaluating into a `@swap_<R>` temp, `ram::Swap`-ing it with <R>, then clearing the temp (a temp's purge is
+  unconditional even in a subroutine). The wrapper hazard was solved in the synthesiser: `visit_(Swap)` now
+  swaps EXPOSED (non-temp) relations by CONTENT — `std::swap(*A, *B)` exchanges the btree contents in place so
+  the RelationWrapper reference that backs getRelation stays valid; only temp/temp swaps (e.g. @delta/@new)
+  keep the cheaper pointer swap. Removed the ~2x O(|R|) erase copy; benchmark 100 creatures/506 facts
+  1.05x->1.3x, 30 creatures 1.47x->1.8x, 2 creatures 5.3x->6.6x. Selective test now detects "ran" via __dirty
+  (the swap-clear no longer populates diff_minus as the erase scratch).
 - **The real fix — DELTA-based update for non-monotone strata** (the paper's three-term update with
   negation), O(diff) not O(|R|). The recompute approach is correct but fundamentally O(|R|) per dirty stratum;
   only delta evaluation breaks that floor. This is the remaining hard core for a win at engine scale.
