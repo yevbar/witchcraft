@@ -122,7 +122,20 @@ Option 1 or 2 is likely the least code; 1 reuses the most machinery if the empty
   the full relations**, and accumulate newly-derived tuples into `diff_plus_<IDB>`. Gate: insertion-only
   deltas, `update==recompute`. (Phase 0: only ~14% of moves are insertion-only, but this is the tractable
   half and exercises the whole pipeline.)
-### 3c progress (deletion) — scaffold landed, blocked on erase-over-aux-relations
+### 3c progress (deletion) — DONE for monotone (erase-over-aux UNBLOCKED)
+DRed deletion now works for monotone programs. The erase-over-aux blocker was solved in three places:
+`synthesiser/Relation.cpp` emits `btree_delete_set` for auxiliary-arity relations marked BTREE_DELETE (same
+template signature as `btree_set`, so it composes with the @count/@iteration comparator/updater) and honors
+BTREE_DELETE through the aux branch; `interpreter/Util.h` adds the (arity, auxArity=2) BtreeDelete
+instantiations; `createRamRelation` marks relations BTREE_DELETE. The `update` applies staged deletions:
+erase `diff_minus` from extensional relations, and `generateIncrementalDelete` (over-delete candidates →
+erase → re-derive survivors) for non-recursive intensional relations. Verified (`test_deletion.py`): deleting
+an edge removes dependents, AND a tuple with an alternative derivation SURVIVES (multi-support re-discovery —
+twohop(1,3) survives deleting edge(2,3) via 1→9→3). update == recompute, parity in both backends, engine
+codegens. REMAINING in 3c: recursive deletion (generateIncrementalDelete handles non-recursive only;
+recursive strata need DRed within the fixpoint), and combined insert+delete in one update.
+
+### (historical) 3c blocker — erase-over-aux-relations [RESOLVED above]
 The DRed-style deletion code is in (dormant, not wired into `update`): `diff_minus_<R>` relations,
 `generateEraseAll` (arity+2 erase), `generateIncrementalDelete` (over-delete candidates → erase → re-derive
 survivors), and `DeltaRewriter` generalized with a scan prefix (`diff_minus_` for over-deletion). It is NOT
