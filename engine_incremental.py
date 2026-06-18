@@ -34,6 +34,7 @@ _H = None                     # the live Harness (one bootstrapped SouffleProgra
 _LOADED: dict | None = None   # {rel: frozenset(rows)} currently resident in the instance
 _OUTPUTS: list | None = None  # the .output relation names to read back
 _DECLS: list | None = None    # all declared relations (for staging-relation purge)
+_PREV_OUT: dict | None = None  # last result, carried forward and patched per move (dump only CHANGED outputs)
 _FAILED = False
 
 
@@ -52,11 +53,12 @@ def available() -> bool:
 
 def reset() -> None:
     """Drop the live instance so the next evaluate() bootstraps fresh (e.g. starting a new game / test run)."""
-    global _H, _LOADED
+    global _H, _LOADED, _PREV_OUT
     if _H is not None:
         _H.close()
     _H = None
     _LOADED = None
+    _PREV_OUT = None
 
 
 def _stage(old: dict, new: dict) -> dict:
@@ -77,19 +79,33 @@ def evaluate(fkey) -> dict:
     non-empty OUTPUT relation — same signature/return as engine_inproc.evaluate. The first call bootstraps a
     from-scratch fixpoint; each subsequent call stages the input diff from the previously-loaded state and runs
     the `update` subroutine. Raises if the library is unavailable (guard with available())."""
-    global _H, _LOADED
+    global _H, _LOADED, _PREV_OUT
     if not available():
         raise RuntimeError("incremental engine library unavailable")
     new = {rel: set(rows) for rel, rows in fkey if rows}
     if _H is None:
         _H = harness.Harness(_prepare(), incremental=True)
         _H.bootstrap(new)
+        _PREV_OUT = {rel: rows for rel, rows in _H.dump(_OUTPUTS).items() if rows}
     else:
         _H.insert(_stage(_LOADED, new))
         _H.update()
+        # Dump only the outputs whose stratum RAN (its __dirty flag is set) — the rest are unchanged, so carry
+        # them forward from the previous result. A dirty output that recomputed to empty is dropped. This is the
+        # incremental analogue of engine_inproc's full serialize: O(changed outputs), not O(all outputs).
+        dirty_flags = _H.dump([f"__dirty_{o}" for o in _OUTPUTS])
+        dirty = [o for o in _OUTPUTS if f"__dirty_{o}" in dirty_flags]
+        changed = _H.dump(dirty) if dirty else {}
         _H.purge_staging()  # clear all diff_plus_*/diff_minus_*/__dirty_* in one C++ pass
+        out = dict(_PREV_OUT)
+        for o in dirty:
+            if changed.get(o):
+                out[o] = changed[o]
+            else:
+                out.pop(o, None)
+        _PREV_OUT = out
     _LOADED = new
-    return {rel: rows for rel, rows in _H.dump(_OUTPUTS).items() if rows}
+    return dict(_PREV_OUT)
 
 
 if __name__ == "__main__":
