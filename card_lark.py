@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -223,6 +223,12 @@ fcclause.2: FLIPCOIN                          -> flipcoin
 // a leading 'then' stripped) -> fight(-, _target(subj), 'each_other'). Distinct from FG_FIGHTS ('fights').
 feclause.-2: fesubj FIGHTEACH                -> fighteach
 fesubj: (WORD | QUANT | NUM)+                                                // the fighting creatures (validated _TGT, 'then' stripped)
+
+// NUMBERED KEYWORD ACTIONS (§701.x) — '<bolster|adapt|incubate|support> <N>' (the shared `_kwaction_n`
+// leaf, for these distinctive verbs): a KWACTION_N terminal + count -> <verb>(<n>, you). FLIP-ONLY (the
+// `_kwaction_n` catch-all stays). Count restricted to the template's (\d+|one..five|x) set.
+kwnclause.-2: KWACTION_N kwnnum               -> kwaction_n
+kwnnum: NUM | QUANT                                                          // the count ('2'/'x'); validated
 
 // RETURN_TO_HAND (§614) — the dominant 'Return <object> [from <zone>] to <owner>'s hand' bounce that the
 // existing `rclause`/`ret` MISSES (its `zonephrase: TOPREP zwords? ZONE` can't carve the possessive
@@ -538,6 +544,7 @@ MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword a
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
+KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
@@ -1211,6 +1218,10 @@ class _GdSubj(str):    # the goaded creature span (gdsubj) — validated _TGT
 
 
 class _FeSubj(str):    # the 'fight each other' subject span (fesubj) — validated _TGT, leading 'then' stripped
+    pass
+
+
+class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — validated (\d+|one..five|x)
     pass
 
 
@@ -2482,6 +2493,23 @@ class _ToEffect(Transformer):
         if not _AT_TGT.match(s):
             return None
         return Effect("fight", "-", _target(s), "each_other")
+
+    # --- NUMBERED KEYWORD ACTIONS (bolster/adapt/incubate/support) ------------
+    def kwnnum(self, tok):
+        return _KwnNum(str(tok))
+
+    def kwaction_n(self, *args):
+        # '<bolster|adapt|incubate|support> <N>' — the `_kwaction_n` leaf for these verbs: <verb>(<n>, you).
+        # Count restricted to the template's (\d+|one..five|x) set; verb re-checked against keyword_actions.
+        vtok = next((str(a) for a in args if getattr(a, "type", None) == "KWACTION_N"), None)
+        num = next((a for a in args if isinstance(a, _KwnNum)), None)
+        if vtok is None or num is None or not _MS_NUM.match(str(num).strip()):
+            return None
+        v = ground.slug(vtok)
+        if v not in ground.keyword_actions():
+            return None
+        n = _amount(str(num).strip())
+        return Effect(v, n if n is not None else "-", "you")
 
     # --- COPY (§707) ----------------------------------------------------------
     def cpbody(self, *toks):
