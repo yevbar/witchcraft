@@ -135,19 +135,19 @@ def evaluate(fkey) -> dict:
     else:
         _H.insert(_stage(_LOADED, new))
         _H.update()
-        # Dump only the outputs whose stratum RAN (its __dirty flag is set) — the rest are unchanged, so carry
-        # them forward from the previous result. A dirty output that recomputed to empty is dropped. This is the
-        # incremental analogue of engine_inproc's full serialize: O(changed outputs), not O(all outputs).
-        dirty_flags = _H.dump([f"__dirty_{o}" for o in _OUTPUTS])
-        dirty = [o for o in _OUTPUTS if f"__dirty_{o}" in dirty_flags]
-        changed = _H.dump(dirty) if dirty else {}
-        _H.purge_staging()  # clear all diff_plus_*/diff_minus_*/__dirty_* in one C++ pass
+        # Collect only the outputs whose stratum RAN (their __dirty flag set) and purge staging, in ONE C++ pass
+        # (collect_dirty) — the rest are unchanged, so carry them forward from the previous result. This is the
+        # incremental analogue of engine_inproc's full serialize: O(changed outputs), not O(all outputs), and one
+        # ctypes round-trip instead of three (the dominant per-call overhead at search scale; see search_bench).
+        collected = _H.collect_dirty(_OUTPUTS)
+        dirty = {o for (o,) in collected.get("@dirty", ())}
         out = dict(_PREV_OUT)
         for o in dirty:
-            if changed.get(o):
-                out[o] = changed[o]
+            rows = collected.get(o)
+            if rows:
+                out[o] = rows
             else:
-                out.pop(o, None)
+                out.pop(o, None)  # dirty but recomputed to empty
         _PREV_OUT = out
     _LOADED = new
     return dict(_PREV_OUT)

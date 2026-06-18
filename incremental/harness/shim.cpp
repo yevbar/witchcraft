@@ -63,28 +63,37 @@ static void insert_blob(SouffleProgram* p, const char* facts) {
 // auxiliary columns; getAuxiliaryArity() is how many trailing columns to drop). Comparing data columns is
 // the oracle: incremental state and a fresh recompute must agree on the derived facts, not on internal aux.
 static bool g_include_aux = false;  // debug: include the @iteration aux column(s) in dumps
-static char* serialize(SouffleProgram* p, const std::vector<Relation*>& rels) {
-    std::string out;
-    for (Relation* r : rels) {
-        if (r == nullptr) continue;
-        const std::string name = r->getName();
-        size_t arity = g_include_aux ? r->getArity() : (r->getArity() - r->getAuxiliaryArity());
-        for (auto& tup : *r) {
-            out += name;
-            for (size_t k = 0; k < arity; k++) {
-                out += '\t';
-                char ty = *r->getAttrType(k);
-                RamDomain v = tup[k];
-                if (ty == 's') out += r->getSymbolTable().decode(v);
-                else out += std::to_string(v);
-            }
-            out += '\n';
+
+// Append relation `r`'s tuples to `out` as TSV (`name\tf1\tf2\n` per tuple), data columns only.
+static void serialize_into(std::string& out, Relation* r) {
+    if (r == nullptr) return;
+    const std::string name = r->getName();
+    size_t arity = g_include_aux ? r->getArity() : (r->getArity() - r->getAuxiliaryArity());
+    for (auto& tup : *r) {
+        out += name;
+        for (size_t k = 0; k < arity; k++) {
+            out += '\t';
+            char ty = *r->getAttrType(k);
+            RamDomain v = tup[k];
+            if (ty == 's') out += r->getSymbolTable().decode(v);
+            else out += std::to_string(v);
         }
+        out += '\n';
     }
+}
+
+static char* to_cstr(const std::string& out) {
     char* res = (char*) malloc(out.size() + 1);
     memcpy(res, out.data(), out.size());
     res[out.size()] = '\0';
     return res;
+}
+
+static char* serialize(SouffleProgram* p, const std::vector<Relation*>& rels) {
+    (void) p;
+    std::string out;
+    for (Relation* r : rels) serialize_into(out, r);
+    return to_cstr(out);
 }
 
 extern "C" {
@@ -163,6 +172,42 @@ char* h_dump(void* h, const char* names) {
         i = nl + 1;
     }
     return serialize(p, rels);
+}
+
+// Per-update collect + reset in ONE call: for each OUTPUT relation O in `names` (newline-separated) whose stratum
+// RAN this update (its `__dirty_O` is non-empty), emit a `@dirty\tO\n` marker followed by O's data tuples; then
+// purge ALL staging relations (diff_plus_*/diff_minus_*/__dirty_*). Replaces the three round-trips
+// dump(__dirty_*) + dump(dirty outputs) + h_purge_staging with one, cutting ~2 ctypes crossings and a TSV parse
+// per update — the dominant per-call overhead at search scale. The `@dirty` markers let the caller distinguish a
+// dirty-but-EMPTY output (drop it) from an unchanged one (carry forward): an output absent from the blob is
+// unchanged; one with only a marker recomputed to empty; one with data rows took those rows.
+char* h_collect_dirty(void* h, const char* names) {
+    SouffleProgram* p = (SouffleProgram*) h;
+    std::string out;
+    std::string nb(names);
+    size_t i = 0, n = nb.size();
+    while (i < n) {
+        size_t nl = nb.find('\n', i);
+        if (nl == std::string::npos) nl = n;
+        if (nl > i) {
+            std::string o = nb.substr(i, nl - i);
+            Relation* d = p->getRelation("__dirty_" + o);
+            if (d != nullptr && d->size() > 0) {  // this output's stratum ran -> it may have changed
+                out += "@dirty\t";
+                out += o;
+                out += '\n';
+                serialize_into(out, p->getRelation(o));
+            }
+        }
+        i = nl + 1;
+    }
+    for (Relation* r : p->getAllRelations()) {
+        const std::string& nm = r->getName();
+        if (nm.rfind("diff_plus_", 0) == 0 || nm.rfind("diff_minus_", 0) == 0 || nm.rfind("__dirty_", 0) == 0) {
+            r->purge();
+        }
+    }
+    return to_cstr(out);
 }
 
 }  // extern "C"

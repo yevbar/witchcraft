@@ -109,6 +109,8 @@ class Harness:
         cdll.h_dump_all.argtypes = [ctypes.c_void_p]
         cdll.h_dump.restype = ctypes.c_void_p
         cdll.h_dump.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        cdll.h_collect_dirty.restype = ctypes.c_void_p
+        cdll.h_collect_dirty.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         self._cdll = cdll
         self._h = cdll.h_create(self._name.encode())
         if not self._h:
@@ -143,6 +145,13 @@ class Harness:
         if names is None:
             return _parse(self._take(self._cdll.h_dump_all(self._h)))
         return _parse(self._take(self._cdll.h_dump(self._h, ("\n".join(names) + "\n").encode())))
+
+    def collect_dirty(self, names) -> dict:
+        """One-call per-update collect + reset (replaces dump(__dirty_*) + dump(dirty) + purge_staging): returns
+        the parsed blob — `'@dirty'` maps to the set of (output_name,) tuples whose stratum RAN, and each such
+        output that has data maps to its rows (an output in '@dirty' but absent as a key recomputed to empty);
+        all staging relations are purged C++-side in the same pass."""
+        return _parse(self._take(self._cdll.h_collect_dirty(self._h, ("\n".join(names) + "\n").encode())))
 
     def close(self):
         if self._h:
