@@ -191,11 +191,14 @@ def main():
     print(f"  (neg-free-only closure, for reference: {len(delta)} strata — what was eligible before negation-delta)")
     print(f"  Strata blocked from delta (recursion/aggregate, or downstream of one): {n_idb - len(ideal)}")
     print()
-    print("  PRECISE-PUBLISH ceiling (if recompute strata published a precise diff_plus/diff_minus from @swap_R):")
+    print("  PRECISE-PUBLISH ceiling (REJECTED experiment — see incremental/experiments/README.md):")
     print(f"    eligible strata:   {len(pubideal):4d} / {n_idb}  ({100*len(pubideal)/n_idb:.0f}% of IDB strata)")
-    print(f"    DOWNSTREAM UNLOCK: {len(downstream_unlock):4d} strata ({rels_in(downstream_unlock)} relations) move "
+    print(f"    DOWNSTREAM UNLOCK: {len(downstream_unlock):4d} strata ({rels_in(downstream_unlock)} relations) would move "
           f"from recompute O(|R|) to delta O(diff)")
     print(f"    still recompute:   {n_idb - len(pubideal)} (the {rec} recursive + {has_agg} aggregate source strata only)")
+    print("    NOTE: implemented + correct but a NET PERF LOSS (2.4x->1.7x) — the unlocked strata are the cheap")
+    print("    near-EDB ones, where delta machinery costs more than recompute. This is a strata-COUNT ceiling,")
+    print("    not a perf ceiling. Kept as analysis only; not pursued.")
     print()
 
     # STAGING SET — which input+head (SHIM_INPUTS) relations need FULL-input staging. The AUTHORITATIVE source is

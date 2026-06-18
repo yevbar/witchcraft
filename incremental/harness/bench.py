@@ -12,10 +12,18 @@ which depends on a non-eligible relation and is swap-cleared + re-merged from di
 silently drop its unchanged input facts and drift the demo). The recompute set is read from the update RAM here
 (matches engine_incremental._recompute_relations). This is both byte-identical to recompute AND recovers the
 speedup that the (briefly-shipped, unsound) blanket actual-diff staging had:
-    TAP sweep:          2cr 10.1x, 10cr 7.5x, 30cr 4.5x, 60cr 3.1x, 100cr 2.4x  (all correct=✓)
-    ADD-CREATURE sweep: 2cr 6.4x,  10cr 5.1x, 30cr 3.4x, 60cr 2.5x, 100cr 2.0x  (all correct=✓)
+    TAP sweep:          2cr 10.0x, 10cr 7.4x, 30cr 4.5x, 60cr 3.1x, 100cr 2.4x  (all correct=✓)
+    ADD-CREATURE sweep: 2cr 5.7x,  10cr 4.9x, 30cr 3.3x, 60cr 2.4x, 100cr 2.0x  (all correct=✓)
   (The intermediate FULL-staging-for-ALL-input+head convention was correct but ~0.7x — it re-inflated the whole
   input chain every move; narrowing FULL staging to the recompute set is what recovers the win.)
+
+  CORRECTNESS (Phase 6): the over-delete now enumerates non-empty SUBSETS of the deletable body atoms
+  (generateOverDeleteRules) so SIMULTANEOUS multi-atom deletion is retracted correctly — the long-standing
+  data-carrying xfail (test_simultaneous_delete) is fixed. Perf-NEUTRAL (numbers above hold). Cost: the 2^k-1
+  versions roughly double the generated C++ (~108K lines, ~4 min one-time .so compile); a merge-back
+  implementation (k versions reading old state via a temporary diff_minus re-merge) would avoid the bloat — TODO.
+  REJECTED: precise-publish (expand eligibility to 98% by having recompute strata publish a precise diff) — it is
+  correct but a NET PERF LOSS (2.4x->1.7x) + 7 min compile; see incremental/experiments/README.md.
   Two overhead removals lifted it from ~0.97x to ~1.3x at 506 facts (DONE):
     (a) SWAP-based clear instead of erase-scratch: recompute into a @swap temp, ram::Swap it with R, clear the
         temp (a temp's purge is unconditional even in a subroutine) — removed the ~2x O(|R|) erase copy.

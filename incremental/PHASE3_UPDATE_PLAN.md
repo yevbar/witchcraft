@@ -44,10 +44,25 @@ both backends. This is Theorem 3.5 and equals the engine's existing `delta==full
 > re-derive cleans up. Demo now plays through ~11 engine calls (was 9). test_nullary + test_simultaneous_delete
 > (nullary case) pass.
 >
-> STILL OPEN (two distinct issues):
+> ✅ **FIXED (Phase 6) — data-carrying simultaneous deletion** (the (1) below). The over-delete now enumerates
+> every NON-EMPTY SUBSET of a clause's deletable body atoms (generateOverDeleteRules + SubsetDeltaRewriter): the
+> subset's atoms range over their diff_minus, the rest over their current relation; the union over subsets equals
+> the join over the OLD database restricted to ≥1 deletion (the all-deleted-atoms subset reads only diff_minus,
+> so a head losing several body facts at once is caught). Bounded by kOverDeleteAtomCap (6) via
+> computeDeltaEligible — larger bodies recompute, so 2^k-1 stays ≤63 versions. test_simultaneous_delete (nullary
+> AND data) PASS; test_engine PASS; demo byte-identical; perf-NEUTRAL (TAP 2.4x / ADD 2.0x at 506 facts). Cost:
+> ~2x generated C++ (~108K lines, ~4 min one-time compile) — a merge-back impl (k versions over a temporarily
+> re-merged old state) would avoid the bloat (TODO). The old conservative-projection plan below is superseded.
+>
+> ❌ **REJECTED (Phase 6) — precise-publish** (have recompute strata publish a precise diff so eligibility jumps
+> to 98% of IDB strata). Correct but a NET PERF LOSS (2.4x→1.7x) + 7 min compile: the 58 unlocked strata are the
+> cheap near-EDB ones where delta machinery costs more than recompute. Full write-up + recoverable patch in
+> `incremental/experiments/`. The 98% is a strata-COUNT ceiling, not a perf ceiling.
+>
+> (historical) STILL OPEN (two distinct issues):
 > (1) **Data-carrying simultaneous deletion** (test_simultaneous_delete data case). Same DRed gap; the fix is a
 >     conservative over-delete that PROJECTS each head-covering body atom's diff_minus to the head (and falls
->     back to recompute for cross-product rules where no single atom covers the head).
+>     back to recompute for cross-product rules where no single atom covers the head). [SUPERSEDED — see FIXED above.]
 > (2) **has_trigger drift at demo step 11 — a PUZZLE worth a fresh look.** The full-resident sequential run
 >     drifts (has_trigger under-derives a tuple that was true and should stay), BUT the ISOLATED single update
 >     (bootstrap step10 → update step11) is CORRECT, and the detector flags no drift before step 11. Ruled out:

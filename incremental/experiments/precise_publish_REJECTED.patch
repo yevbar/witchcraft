@@ -1,0 +1,209 @@
+diff --git a/src/ast2ram/incremental/UnitTranslator.cpp b/src/ast2ram/incremental/UnitTranslator.cpp
+index f5407e8b1..e45cb1e1e 100644
+--- a/src/ast2ram/incremental/UnitTranslator.cpp
++++ b/src/ast2ram/incremental/UnitTranslator.cpp
+@@ -771,14 +771,17 @@ Own<ram::Statement> UnitTranslator::generateStratumRecompute(
+     VecOwn<ram::Statement> result;
+     const bool recursive = context->isRecursiveSCC(sccNumber);
+ 
+-    // Empty each relation cheaply: swap its contents into the @swap temp (O(1) btree swap), then bulk-purge
+-    // the temp. This avoids erasing R tuple by tuple (the dominant cost — erase is O(|R|) costly btree_delete
+-    // operations). The Swap synthesiser visitor swaps object CONTENTS for exposed relations, so getRelation
+-    // still sees the right object.
++    // Empty each relation cheaply: swap its contents into the @swap temp (O(1) btree swap). This avoids erasing
++    // R tuple by tuple (the dominant cost — erase is O(|R|) costly btree_delete operations). The Swap synthesiser
++    // visitor swaps object CONTENTS for exposed relations, so getRelation still sees the right object.
++    // When NOT publishing, the old contents are scratch — purge @swap immediately. When publishing, KEEP the old
++    // contents in @swap: generatePrecisePublish diffs main against them below, then clears @swap.
+     for (const ast::Relation* rel : scc) {
+         const std::string mainName = getConcreteRelationName(rel->getQualifiedName());
+         appendStmt(result, mk<ram::Swap>(mainName, swapName(rel)));
+-        appendStmt(result, mk<ram::Clear>(swapName(rel)));
++        if (!publish) {
++            appendStmt(result, mk<ram::Clear>(swapName(rel)));
++        }
+     }
+ 
+     // A relation that is BOTH read from input AND has rules holds (input facts ∪ derived facts). Emptying it
+@@ -802,15 +805,59 @@ Own<ram::Statement> UnitTranslator::generateStratumRecompute(
+     // whole relation to diff just to mark a change).
+     appendStmt(result, generateSetDirty(scc));
+ 
+-    // When publishing, expose the new contents as insertions for downstream incremental strata. (The old
+-    // contents already sit in diff_minus from the erase scratch above.) Without publishing, the diff_minus
+-    // scratch is simply left for the driver to purge — no downstream stratum reads it (they recompute from
+-    // the full relations).
++    // When publishing, expose a PRECISE diff (main vs the old contents in @swap) so downstream strata can stay on
++    // the O(diff) delta path instead of recomputing too — then purge the @swap scratch. Without publishing, no
++    // downstream stratum reads this one's diff; clear @swap (deferred from above) to keep the scratch empty.
+     if (publish) {
+-        for (const ast::Relation* rel : scc) {
+-            appendStmt(result, generateMergeRelations(
+-                                       rel, diffPlusName(rel), getConcreteRelationName(rel->getQualifiedName())));
+-        }
++        appendStmt(result, generatePrecisePublish(scc));
++    }
++    for (const ast::Relation* rel : scc) {
++        appendStmt(result, mk<ram::Clear>(swapName(rel)));
++    }
++    return mk<ram::Sequence>(std::move(result));
++}
++
++// Publish a precise diff of a just-recomputed stratum: diff_plus = main \ @swap (newly true), diff_minus =
++// @swap \ main (newly false), comparing on DATA columns only (the @iteration aux column is supplied free in the
++// membership test, and copied verbatim into the diff). Any staged-input residue in diff_plus/diff_minus (already
++// consumed by the input re-merge in generateStratumRecompute) is cleared first so the published diff is exact.
++Own<ram::Statement> UnitTranslator::generatePrecisePublish(const ast::RelationSet& scc) const {
++    VecOwn<ram::Statement> result;
++    for (const ast::Relation* rel : scc) {
++        const std::string mainName = getConcreteRelationName(rel->getQualifiedName());
++        const std::string swap = swapName(rel);
++        const std::string dplus = diffPlusName(rel);
++        const std::string dminus = diffMinusName(rel);
++        const std::size_t arity = rel->getArity();  // data columns; @iteration is column `arity`
++
++        // Discard staged-input residue so the published diff is exactly main vs @swap.
++        appendStmt(result, mk<ram::Clear>(dplus));
++        appendStmt(result, mk<ram::Clear>(dminus));
++
++        // For each (src, other, dest) emit: forall t in src, if t.data NOT in other -> insert t into dest.
++        auto emitDiff = [&](const std::string& src, const std::string& other, const std::string& dest) {
++            Own<ram::Condition> notInOther;
++            if (arity == 0) {
++                // Nullary: data identity is mere presence — "t.data not in other" is "other is empty".
++                notInOther = mk<ram::EmptinessCheck>(other);
++            } else {
++                VecOwn<ram::Expression> key;
++                for (std::size_t i = 0; i < arity; i++) {
++                    key.push_back(mk<ram::TupleElement>(0, i));
++                }
++                key.push_back(mk<ram::UndefValue>());  // @iteration: match on data columns only
++                notInOther = mk<ram::Negation>(mk<ram::ExistenceCheck>(other, std::move(key)));
++            }
++            VecOwn<ram::Expression> copy;
++            for (std::size_t i = 0; i < arity + 1; i++) {
++                copy.push_back(mk<ram::TupleElement>(0, i));  // all columns, including @iteration
++            }
++            appendStmt(result, mk<ram::Query>(mk<ram::Scan>(src, 0,
++                                       mk<ram::Filter>(std::move(notInOther),
++                                               mk<ram::Insert>(dest, std::move(copy))))));
++        };
++        emitDiff(mainName, swap, dplus);   // diff_plus  = main \ @swap
++        emitDiff(swap, mainName, dminus);  // diff_minus = @swap \ main
+     }
+     return mk<ram::Sequence>(std::move(result));
+ }
+@@ -865,15 +912,6 @@ std::set<std::size_t> UnitTranslator::computeDeltaEligible(
+         const std::vector<std::size_t>& sccOrdering) const {
+     const ast::Program* program = context->getProgram();
+ 
+-    // Map every relation's concrete name to its SCC index, so a clause-body dependency name can be resolved to
+-    // the stratum that produces it.
+-    std::map<std::string, std::size_t> sccOf;
+-    for (std::size_t scc : sccOrdering) {
+-        for (const ast::Relation* rel : context->getRelationsInSCC(scc)) {
+-            sccOf[getConcreteRelationName(rel->getQualifiedName())] = scc;
+-        }
+-    }
+-
+     // A stratum is "locally delta-able" iff it is non-recursive, no clause of any of its relations uses an
+     // aggregate, AND no clause has more than kOverDeleteAtomCap deletable body atoms (so the over-delete subset
+     // enumeration stays bounded — larger bodies recompute). Negation IS supported (the negation-delta rules seed
+@@ -895,22 +933,15 @@ std::set<std::size_t> UnitTranslator::computeDeltaEligible(
+         return maxDeletableBodyAtoms(context->getRelationsInSCC(scc)) <= kOverDeleteAtomCap;
+     };
+ 
+-    // Forward pass in topological order: a stratum is eligible iff it is locally delta-able AND every
+-    // dependency stratum is already eligible (EDB strata, having no dependencies, become eligible first).
++    // Eligibility is purely LOCAL: a stratum may use the delta path iff it is locally delta-able. The old
++    // dependency-closure requirement (every dep eligible-or-EDB) is gone because EVERY recompute stratum now
++    // publishes a PRECISE diff (generatePrecisePublish): a recursive/aggregate/large-body dependency hands its
++    // dependents an exact diff_plus/diff_minus just like an eligible (delta) or EDB dependency. So no stratum is
++    // blocked merely by sitting downstream of a recompute stratum — only the local aggregate/recursion/body-size
++    // block remains.
+     std::set<std::size_t> eligible;
+     for (std::size_t scc : sccOrdering) {
+-        if (!localDeltaable(scc)) {
+-            continue;
+-        }
+-        bool depsOk = true;
+-        for (const auto& dep : stratumDependencies(context->getRelationsInSCC(scc))) {
+-            auto it = sccOf.find(dep);
+-            if (it == sccOf.end() || eligible.find(it->second) == eligible.end()) {
+-                depsOk = false;
+-                break;
+-            }
+-        }
+-        if (depsOk) {
++        if (localDeltaable(scc)) {
+             eligible.insert(scc);
+         }
+     }
+@@ -961,10 +992,10 @@ Own<ram::Sequence> UnitTranslator::generateProgram(const ast::TranslationUnit& t
+         std::size_t scc = sccOrdering.at(i);
+         const auto& sccRelations = context->getRelationsInSCC(scc);
+         if (context->isRecursiveSCC(scc)) {
+-            // Recursive strata recompute (a diff-seeded fixpoint can't retract). Publish for a downstream
+-            // monotone delta stratum only when the program is monotone; the cheap __dirty flag (set inside
++            // Recursive strata recompute (a diff-seeded fixpoint can't retract). Publish a PRECISE diff so any
++            // downstream delta stratum can consume it and stay O(diff); the cheap __dirty flag (set inside
+             // generateStratumRecompute) carries the selective-stratum signal either way.
+-            appendStmt(body, guardStratum(generateStratumRecompute(sccRelations, scc, /* publish */ monotone),
++            appendStmt(body, guardStratum(generateStratumRecompute(sccRelations, scc, /* publish */ true),
+                                      stratumSignals(sccRelations)));
+         } else if (!sccRelations.empty()) {
+             const ast::Relation* rel = *sccRelations.begin();
+@@ -991,10 +1022,11 @@ Own<ram::Sequence> UnitTranslator::generateProgram(const ast::TranslationUnit& t
+                 appendStmt(body, guardStratum(mk<ram::Sequence>(std::move(idb)),
+                                          stratumSignals(sccRelations)));
+             } else {
+-                // Non-eligible intensional (negation/aggregate in its own clauses, or downstream of a recompute
+-                // stratum): recompute so sign-flips are retracted correctly (sets __dirty). No eligible stratum
+-                // depends on it, so it need not publish a precise diff.
+-                appendStmt(body, guardStratum(generateStratumRecompute(sccRelations, scc, /* publish */ false),
++                // Non-eligible intensional (aggregate in its own clauses, or a body too large for the bounded
++                // over-delete enumeration): recompute so sign-flips are retracted correctly, then publish a
++                // PRECISE diff (main vs @swap) so its downstream strata can stay on the O(diff) delta path
++                // instead of recomputing in turn. Sets __dirty for the selective signal.
++                appendStmt(body, guardStratum(generateStratumRecompute(sccRelations, scc, /* publish */ true),
+                                          stratumSignals(sccRelations)));
+             }
+         }
+diff --git a/src/ast2ram/incremental/UnitTranslator.h b/src/ast2ram/incremental/UnitTranslator.h
+index 305dd7b19..755adfea7 100644
+--- a/src/ast2ram/incremental/UnitTranslator.h
++++ b/src/ast2ram/incremental/UnitTranslator.h
+@@ -131,14 +131,27 @@ private:
+     Own<ram::Statement> generateStratumRecompute(
+             const ast::RelationSet& scc, std::size_t sccNumber, bool publish) const;
+ 
++    /**
++     * Publish a PRECISE diff of a recompute stratum so its downstream strata can stay on the O(diff) delta path
++     * instead of recomputing too. Called after the stratum is recomputed into its main relation while the OLD
++     * contents still sit in `@swap_<R>` (the swap-clear is deferred until after this). For each relation R it
++     * clears any staged-input residue in diff_plus_<R>/diff_minus_<R>, then sets
++     *   diff_plus_<R>  = main_R  \ @swap_<R>   (tuples newly TRUE),
++     *   diff_minus_<R> = @swap_<R> \ main_R    (tuples newly FALSE),
++     * comparing on the DATA columns only. This makes a recompute stratum a valid precise-diff source, so delta
++     * eligibility need not stop at it.
++     */
++    Own<ram::Statement> generatePrecisePublish(const ast::RelationSet& scc) const;
++
+     /**
+      * The set of SCC indices that may use the O(diff) delta path instead of an O(|R|) recompute, even in a
+-     * non-monotone program. A stratum is delta-eligible iff it is non-recursive, its own clauses contain no
+-     * negation and no aggregate (the delta machinery rewrites scans, not existence checks or aggregates), and
+-     * every dependency hands it a precise small diff — i.e. each dependency is an EDB input or itself lies in a
+-     * delta-eligible stratum. This is a closure over the stratum DAG, computed by a forward pass over the
+-     * topological `sccOrdering` (dependencies precede dependents). EDB strata (no clauses, no dependencies) are
+-     * trivially eligible — they publish their staged diff.
++     * non-monotone program. Eligibility is purely LOCAL: a stratum is delta-eligible iff it is non-recursive, its
++     * own clauses contain no aggregate, and no clause exceeds kOverDeleteAtomCap deletable body atoms (so the
++     * over-delete subset enumeration stays bounded). Negation is supported via the negation-delta rules. The
++     * dependency-closure condition (every dep eligible-or-EDB) is NOT required: every recompute stratum publishes
++     * a PRECISE diff (generatePrecisePublish), so a recursive/aggregate/large-body dependency hands its
++     * dependents an exact diff just like a delta or EDB dependency — nothing is blocked merely by sitting
++     * downstream of a recompute stratum.
+      */
+     std::set<std::size_t> computeDeltaEligible(const std::vector<std::size_t>& sccOrdering) const;
+ 
