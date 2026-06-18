@@ -756,6 +756,9 @@ _GTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?gains? (twice |half )?that 
 _LLE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? life equal to (.+?)$", re.I)
 _LHF_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? half (?:your |their |his or her |its )?life(?:,? rounded (up|down))?$", re.I)
 _LTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? (twice |half )?that much life( plus \w+| minus \w+)?$", re.I)
+# PUT a number of <kind> counters on <obj> equal to <X> — `_put_counter_equal`'s exact pattern (count-scaled
+# counters). Re-applied to src by putctr; the 'a number of' kind makes the span logic abstain, so own it here.
+_PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -2070,6 +2073,16 @@ class _ToEffect(Transformer):
         tgt = next((str(a) for a in args if isinstance(a, _CTarget)), None)
         if count is None or kind is None or tgt is None:
             return None
+        # 'put a number of <kind> counters on <obj> equal to <X>' (§122 count-scaled) — the 'a number of'
+        # kind/count makes the span logic below abstain (L2103/L2108); reproduce `_put_counter_equal` from src.
+        src = getattr(self, "_src", None)
+        if src is not None:
+            m = _PCE_RE.match(src.strip())
+            if m:
+                if _is_compound_object(m.group(2)):
+                    return None
+                k = m.group(1) if "/" in m.group(1) else ground.slug(m.group(1))
+                return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), k)
         # SUBJECT (regex's non-capturing '(?:<TGT> )?puts?' — DROPPED). Only own a clean player phrase;
         # a compound/wrapper subject ('each player chooses … and puts', 'may') -> abstain to the regex.
         if subj is not None:
@@ -3087,6 +3100,17 @@ class _ToEffect(Transformer):
         body = next((str(a) for a in args if isinstance(a, _PzBody)), None)
         if body is None:
             return None
+        # 'put a number of <PTDELTA> counters on <obj> equal to <X>' routes HERE (the PTDELTA kind makes the
+        # putctr cclause fail, so pzbody greedily claims it) but is a put_counter, not a zone move — reproduce
+        # `_put_counter_equal` from src before `_pz_frame` (which abstains on it). Mirror of the putctr branch.
+        src = getattr(self, "_src", None)
+        if src is not None:
+            m = _PCE_RE.match(src.strip())
+            if m:
+                if _is_compound_object(m.group(2)):
+                    return None
+                k = m.group(1) if "/" in m.group(1) else ground.slug(m.group(1))
+                return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), k)
         return _pz_frame("put " + body.strip())
 
     def pzhand(self, *args):
