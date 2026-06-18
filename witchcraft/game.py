@@ -31,11 +31,34 @@ hashable key of the whole game POSITION (for transposition tables / repetition),
 
 from __future__ import annotations
 
+import contextlib
+import os
+import warnings
+
 import driver
 import env
 import game as _setup
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
+
+
+def _select_incremental() -> bool:
+    """Route the engine through the in-process INCREMENTAL `update` backend (bootstrap once, then re-evaluate
+    only the strata an input change touches). Byte-identical to a full recompute; ~2x on large states,
+    neutral on small. Returns whether it actually engaged.
+
+    Caveat: the driver reads `MTG_INCREMENTAL` per eval, so this flips a PROCESS-GLOBAL backend selection —
+    it affects every Game in the process. That's harmless: all backends are byte-identical, so it only ever
+    changes speed, never results."""
+    import engine_incremental
+    os.environ["MTG_INCREMENTAL"] = "1"
+    if engine_incremental.available():
+        return True
+    warnings.warn(
+        "incremental=True requested, but the souffle fork isn't built on this machine — falling back to the "
+        "compiled backend (byte-identical, just not incremental). Build it with: "
+        "bash incremental/build_souffle.sh", RuntimeWarning, stacklevel=3)
+    return False
 
 
 class Game:
@@ -50,7 +73,7 @@ class Game:
     """
 
     def __init__(self, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
-                 commanders: dict | None = None, policies: dict | None = None):
+                 commanders: dict | None = None, policies: dict | None = None, incremental: bool = False):
         """Build a ready-to-play game and advance to the first real decision.
 
         decks       {player: [card names]}. Defaults to the Gruul-vs-Dimir demo decks.
@@ -59,6 +82,9 @@ class Game:
         commanders  {player: [name]} for a §903 Commander game (use variant="commander").
         policies    {player: policy} to drive the driver's INTERNAL sub-choices (targets/modes/mulligan).
                     The top-level move is always yours via push(); policies only resolve nested choices.
+        incremental select the in-process incremental engine backend (byte-identical; ~2x on large states,
+                    neutral on small). Process-global and graceful — falls back if the fork isn't built.
+                    `self.incremental` reports whether it actually engaged.
         """
         if decks is None:
             decks = DEMO_DECKS
@@ -67,6 +93,7 @@ class Game:
         self.seed = seed
         self.commanders = commanders
         self.policies = policies
+        self.incremental = _select_incremental() if incremental else False
         state = _setup.new_game(decks, variant=variant, seed=seed, policies=policies, commanders=commanders)
         self._state = env.start(state)
         self._history: list[tuple[dict, tuple]] = []     # (prior_state, move) for pop()
@@ -120,6 +147,25 @@ class Game:
     def peek(self) -> tuple:
         """The last move pushed, without undoing it."""
         return self._history[-1][1]
+
+    @contextlib.contextmanager
+    def branch(self, move: tuple, checked: bool = True):
+        """Context manager: push(move) on enter, pop() on exit — clean for recursive tree walks, and it
+        composes with key()/move_key():
+
+            for mv in g.legal_moves:
+                with g.branch(mv):
+                    score[g.move_key(mv)] = evaluate(g.key())   # g is the child here
+            # g is back at the parent here — even if evaluate() raised
+
+        This is pure state-snapshot push/pop (env.step is pure); it deliberately does NOT use the engine's
+        incremental O(diff) rollback, which measured ~1.0x for this sorcery-speed move space (the search tree
+        is too narrow to amortize — see incremental/README.md). It's ergonomics, not a perf path."""
+        self.push(move, checked=checked)
+        try:
+            yield self
+        finally:
+            self.pop()
 
     # ---- terminal / outcome -----------------------------------------------------------------------
 

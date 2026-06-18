@@ -48,9 +48,25 @@ witchcraft.Game.move_key(move)   # hashable canonical move (key a policy / visit
 g.key()                          # hashable transposition key of the POSITION (driver._facts_key)
 g.copy()                         # cheap, independent branch — push/pop without touching the parent
 g.push(move, checked=False)      # skip the legality re-check in hot loops
+
+with g.branch(move):             # push on enter, pop on exit — for recursive tree walks
+    visit(g.key())               # g is the child here; restored to the parent on exit (even on exception)
 ```
 
 `g.key()` keys a transposition table / repetition set directly; equal keys denote engine-equivalent states.
+`branch()` is pure push/pop ergonomics — it does **not** use the engine's incremental rollback (measured
+~1.0× for this sorcery-speed move space; the tree is too narrow to amortize — see `incremental/README.md`).
+
+### Engine backend
+
+```python
+g = witchcraft.Game(incremental=True)   # in-process incremental update backend; g.incremental reports if it engaged
+witchcraft.engine_available()           # 'incremental' | 'native' | 'inproc' | 'interpreter'
+```
+
+`incremental=True` is byte-identical to the default backend (verified across full games), ~2× faster on
+large states and neutral on small. It's a **process-global** selection (the driver reads it per eval) and
+degrades gracefully — if the souffle fork isn't built it warns and falls back.
 
 ## Variants
 
