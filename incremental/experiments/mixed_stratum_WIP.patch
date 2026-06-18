@@ -1,0 +1,313 @@
+diff --git a/src/ast2ram/incremental/UnitTranslator.cpp b/src/ast2ram/incremental/UnitTranslator.cpp
+index 3b3034fff..09f5e7470 100644
+--- a/src/ast2ram/incremental/UnitTranslator.cpp
++++ b/src/ast2ram/incremental/UnitTranslator.cpp
+@@ -88,6 +88,15 @@ std::string swapName(const ast::Relation* rel) {
+     return getConcreteRelationName(rel->getQualifiedName(), "@swap_");
+ }
+ 
++// True iff a clause uses an aggregate (count/sum/max/min/...). Such a clause cannot be delta-evaluated (the
++// aggregate must see the whole relation), but it can be RECOMPUTED and re-derived; the mixed-stratum path keeps
++// these clauses out of the delta generators while leaving them in the re-derive.
++bool clauseHasAggregate(const ast::Clause& clause) {
++    bool found = false;
++    visit(clause, [&](const ast::Aggregator&) { found = true; });
++    return found;
++}
++
+ // Rewrites one clause's RAM into a delta version: ranges the `target`-th scan (pre-order) over its
+ // `<scanPrefix>` relation, and redirects every insert to `<headPrefix><head relation>`. The auxiliary columns
+ // are preserved (the tuple shape is unchanged). Profile text is dropped (irrelevant to the delta rule).
+@@ -382,6 +391,9 @@ Own<ram::Statement> UnitTranslator::generateDeltaRules(const ast::Relation& rel,
+         if (!includeRecursive && context->isRecursiveClause(clause)) {
+             continue;
+         }
++        if (clauseHasAggregate(*clause)) {
++            continue;  // aggregate clauses can't be delta'd — the mixed-stratum path recomputes/re-derives them
++        }
+         // Translate the clause normally (over the real relations, so the analyses are satisfied), then emit one
+         // delta version per body atom that READS a relation — a SCAN (a data-carrying atom) or a positive
+         // NULLARY atom (an existence check) — redirecting that atom to its diff via a RAM-level rename.
+@@ -422,8 +434,9 @@ std::vector<const ast::Relation*> UnitTranslator::positiveDeleteDeps(const ast::
+     std::set<std::string> seen;
+     std::vector<const ast::Relation*> deps;
+     for (auto&& clause : context->getProgram()->getClauses(rel)) {
+-        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)) {
+-            continue;
++        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)
++                || clauseHasAggregate(*clause)) {
++            continue;  // merge-back is for the delta (simple) clauses; aggregate clauses recompute/re-derive
+         }
+         for (const auto* lit : clause->getBodyLiterals()) {
+             const auto* atom = as<ast::Atom>(lit);  // a positive body literal; negated atoms are ast::Negation
+@@ -491,6 +504,43 @@ std::set<std::string> UnitTranslator::stratumDependencies(const ast::RelationSet
+     return deps;
+ }
+ 
++std::set<std::string> UnitTranslator::clauseTypeDependencies(
++        const ast::RelationSet& scc, bool aggregateClauses) const {
++    // Dependencies (external relation names read in clause bodies) drawn ONLY from the clauses that DO / DO NOT
++    // use an aggregate — for the mixed-stratum path: aggregate-clause deps gate the recompute branch, simple-
++    // clause deps gate the delta branch.
++    std::set<std::string> sccNames;
++    for (const ast::Relation* rel : scc) {
++        sccNames.insert(getConcreteRelationName(rel->getQualifiedName()));
++    }
++    std::set<std::string> deps;
++    for (const ast::Relation* rel : scc) {
++        for (const auto* clause : context->getProgram()->getClauses(*rel)) {
++            if (clauseHasAggregate(*clause) != aggregateClauses) {
++                continue;
++            }
++            visit(*clause, [&](const ast::Atom& atom) {
++                std::string name = getConcreteRelationName(atom.getQualifiedName());
++                if (sccNames.find(name) == sccNames.end()) {
++                    deps.insert(name);
++                }
++            });
++        }
++    }
++    return deps;
++}
++
++bool UnitTranslator::hasAggregateClause(const ast::RelationSet& scc) const {
++    for (const ast::Relation* rel : scc) {
++        for (const auto* clause : context->getProgram()->getClauses(*rel)) {
++            if (clauseHasAggregate(*clause)) {
++                return true;
++            }
++        }
++    }
++    return false;
++}
++
+ Own<ram::Statement> UnitTranslator::guardStratum(
+         Own<ram::Statement> body, const std::set<std::string>& signalRelations) const {
+     // clean = every signal relation is empty (a dependency's __dirty flag, or an input relation's own staged
+@@ -506,6 +556,23 @@ Own<ram::Statement> UnitTranslator::guardStratum(
+     return mk<ram::Loop>(mk<ram::Sequence>(std::move(loopBody)));
+ }
+ 
++Own<ram::Statement> UnitTranslator::guardOnAllEmpty(
++        Own<ram::Statement> body, const std::set<std::string>& signalRelations) const {
++    // The complement of guardStratum: run `body` once iff ALL signal relations are EMPTY (clean). Used by the
++    // mixed-stratum path to take the delta branch only when no aggregate-clause dependency changed. With no
++    // signals the body always runs (vacuously clean). LOOP { EXIT(some non-empty); body; EXIT(true); }.
++    Own<ram::Condition> allEmpty = mk<ram::True>();
++    for (const auto& name : signalRelations) {
++        allEmpty = mk<ram::Conjunction>(std::move(allEmpty), mk<ram::EmptinessCheck>(name));
++    }
++    VecOwn<ram::Statement> loopBody;
++    appendStmt(loopBody, mk<ram::Exit>(mk<ram::Negation>(std::move(allEmpty))));  // some non-empty -> skip
++    appendStmt(loopBody, std::move(body));
++    appendStmt(loopBody, mk<ram::Exit>(mk<ram::True>()));
++    return mk<ram::Loop>(mk<ram::Sequence>(std::move(loopBody)));
++}
++
++
+ // The signal relations whose non-emptiness means a stratum must run: each dependency's __dirty flag, plus —
+ // for an input relation in the stratum — its own staged diff (an input change is independent of what it reads).
+ std::set<std::string> UnitTranslator::stratumSignals(const ast::RelationSet& scc) const {
+@@ -555,8 +622,9 @@ Own<ram::Statement> UnitTranslator::generateRederiveCandidates(const ast::Relati
+ Own<ram::Statement> UnitTranslator::generateNegationOverDelete(const ast::Relation& rel) const {
+     VecOwn<ram::Statement> result;
+     for (auto&& clause : context->getProgram()->getClauses(rel)) {
+-        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)) {
+-            continue;
++        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)
++                || clauseHasAggregate(*clause)) {
++            continue;  // delta/negation paths skip aggregate clauses; the mixed-stratum path re-derives them
+         }
+         auto base = context->translateNonRecursiveClause(*clause);
+         std::size_t numNeg = countNegatedAtoms(*base);
+@@ -573,8 +641,9 @@ Own<ram::Statement> UnitTranslator::generateNegationOverDelete(const ast::Relati
+ Own<ram::Statement> UnitTranslator::generateNegationInsert(const ast::Relation& rel) const {
+     VecOwn<ram::Statement> result;
+     for (auto&& clause : context->getProgram()->getClauses(rel)) {
+-        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)) {
+-            continue;
++        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)
++                || clauseHasAggregate(*clause)) {
++            continue;  // delta/negation paths skip aggregate clauses; the mixed-stratum path re-derives them
+         }
+         auto base = context->translateNonRecursiveClause(*clause);
+         std::size_t numNeg = countNegatedAtoms(*base);
+@@ -594,8 +663,9 @@ Own<ram::Statement> UnitTranslator::generateNullaryOverDelete(const ast::Relatio
+     const std::string diffMinusHead = diffMinusName(&rel);
+     std::set<std::string> seen;  // dedup body relations across clauses
+     for (auto&& clause : context->getProgram()->getClauses(rel)) {
+-        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)) {
+-            continue;
++        if (isA<ast::SubsumptiveClause>(clause) || context->isRecursiveClause(clause)
++                || clauseHasAggregate(*clause)) {
++            continue;  // delta/negation paths skip aggregate clauses; the mixed-stratum path re-derives them
+         }
+         for (const auto* lit : clause->getBodyLiterals()) {
+             // A positive body atom B contributes when it loses a tuple (diff_minus_B); a negated atom !N when
+@@ -752,6 +822,10 @@ VecOwn<ram::Relation> UnitTranslator::createRamRelations(const std::vector<std::
+     bool monotone = true;
+     visit(*program, [&](const ast::Negation&) { monotone = false; });
+     visit(*program, [&](const ast::Aggregator&) { monotone = false; });
++    // Mirror generateProgram: a MIXED stratum's delta branch erases over-delete candidates, so it too needs the
++    // deletion-capable btree (its recompute branch swap-clears, which works on any representation).
++    const std::set<std::size_t> mixed =
++            monotone ? std::set<std::size_t>{} : computeMixedEligible(sccOrdering, eligible);
+     for (std::size_t scc : sccOrdering) {
+         if (context->isRecursiveSCC(scc)) {
+             continue;  // recursive strata recompute (swap-clear), never erased
+@@ -759,7 +833,7 @@ VecOwn<ram::Relation> UnitTranslator::createRamRelations(const std::vector<std::
+         const auto& sccRels = context->getRelationsInSCC(scc);
+         for (const ast::Relation* rel : sccRels) {
+             const bool edb = program->getClauses(*rel).empty();
+-            if (edb || monotone || eligible.count(scc) != 0u) {
++            if (edb || monotone || eligible.count(scc) != 0u || mixed.count(scc) != 0u) {
+                 erasedRelations.insert(getConcreteRelationName(rel->getQualifiedName()));
+             }
+         }
+@@ -837,6 +911,61 @@ std::set<std::size_t> UnitTranslator::computeDeltaEligible(
+     return eligible;
+ }
+ 
++std::set<std::size_t> UnitTranslator::computeMixedEligible(
++        const std::vector<std::size_t>& sccOrdering, const std::set<std::size_t>& pureEligible) const {
++    // A "mixed" stratum has BOTH aggregate clauses and simple (delta-able) clauses. It can take the delta path
++    // for its SIMPLE clauses — guarded to recompute whenever an aggregate-clause dependency changes (then an
++    // aggregate's value may differ). Eligible iff non-recursive, has ≥1 aggregate clause, and every SIMPLE-clause
++    // dependency is pure-eligible or EDB (so the simple delta gets a precise diff). Aggregate-clause deps need
++    // NOT be eligible — the guard recomputes when they are dirty. A mixed stratum does NOT publish a diff on its
++    // recompute branch, so it does not unlock its downstream (it is not added to the eligible closure); both its
++    // branches leave the FULL relation correct, so downstream recompute reads it correctly either way.
++    std::map<std::string, std::size_t> sccOf;
++    for (std::size_t scc : sccOrdering) {
++        for (const ast::Relation* rel : context->getRelationsInSCC(scc)) {
++            sccOf[getConcreteRelationName(rel->getQualifiedName())] = scc;
++        }
++    }
++    std::set<std::size_t> mixed;
++    for (std::size_t scc : sccOrdering) {
++        const auto& rels = context->getRelationsInSCC(scc);
++        if (context->isRecursiveSCC(scc) || !hasAggregateClause(rels)) {
++            continue;
++        }
++        bool ok = true;
++        for (const auto& dep : clauseTypeDependencies(rels, /* aggregateClauses */ false)) {
++            auto it = sccOf.find(dep);
++            if (it == sccOf.end() || pureEligible.count(it->second) == 0u) {  // pureEligible includes EDB strata
++                ok = false;
++                break;
++            }
++        }
++        if (ok) {
++            mixed.insert(scc);
++        }
++    }
++    return mixed;
++}
++
++std::set<std::string> UnitTranslator::stratumSignalsFor(
++        const ast::RelationSet& scc, bool aggregateClauses) const {
++    // Signals gating one branch of a mixed stratum: the __dirty flags of the aggregate-clause (or simple-clause)
++    // dependencies. The simple branch additionally fires on the stratum's own staged input diff.
++    std::set<std::string> signals;
++    for (const auto& dep : clauseTypeDependencies(scc, aggregateClauses)) {
++        signals.insert("__dirty_" + dep);
++    }
++    if (!aggregateClauses) {
++        for (const ast::Relation* rel : scc) {
++            if (!context->getLoadDirectives(rel->getQualifiedName()).empty()) {
++                signals.insert(diffPlusName(rel));
++                signals.insert(diffMinusName(rel));
++            }
++        }
++    }
++    return signals;
++}
++
+ Own<ram::Sequence> UnitTranslator::generateProgram(const ast::TranslationUnit& translationUnit) {
+     // Build the normal program first; this also registers the per-stratum subroutines and sets `glb`.
+     auto ramProgram = seminaive::UnitTranslator::generateProgram(translationUnit);
+@@ -875,6 +1004,10 @@ Own<ram::Sequence> UnitTranslator::generateProgram(const ast::TranslationUnit& t
+     // eligible (preserving the original behaviour, including delta downstream of a recursive stratum that
+     // publishes); a non-monotone program upgrades just the closure.
+     const std::set<std::size_t> deltaEligible = computeDeltaEligible(sccOrdering);
++    // Mixed strata (aggregate + simple clauses): delta the simple clauses when no aggregate-clause dep changed,
++    // recompute otherwise. Only meaningful for a non-monotone program (a monotone one has no aggregates at all).
++    const std::set<std::size_t> mixedEligible =
++            monotone ? std::set<std::size_t>{} : computeMixedEligible(sccOrdering, deltaEligible);
+ 
+     VecOwn<ram::Statement> body;
+     for (std::size_t i = 0; i < sccOrdering.size(); i++) {
+@@ -910,6 +1043,26 @@ Own<ram::Sequence> UnitTranslator::generateProgram(const ast::TranslationUnit& t
+                 appendStmt(idb, generateSetDirty(sccRelations));
+                 appendStmt(body, guardStratum(mk<ram::Sequence>(std::move(idb)),
+                                          stratumSignals(sccRelations)));
++            } else if (mixedEligible.count(scc)) {
++                // MIXED stratum (aggregate + simple clauses): two mutually-exclusive guarded branches.
++                //  (a) recompute — runs iff an AGGREGATE-clause dependency is dirty (an aggregate value may have
++                //      changed); a full recompute is then correct.
++                //  (b) delta — runs iff the aggregate-clause deps are ALL clean but a SIMPLE-clause dep is dirty:
++                //      the aggregate contribution is unchanged, so delta the simple clauses. The delta generators
++                //      skip aggregate clauses; the re-derive (in generateIncrementalDelete) keeps tuples with
++                //      aggregate support. Both branches leave the FULL relation correct, so downstream — which
++                //      recomputes from it, since a mixed stratum publishes no diff — is correct either way.
++                const auto aggSignals = stratumSignalsFor(sccRelations, /* aggregateClauses */ true);
++                const auto simpleSignals = stratumSignalsFor(sccRelations, /* aggregateClauses */ false);
++                appendStmt(body, guardStratum(generateStratumRecompute(sccRelations, scc, /* publish */ false),
++                                         aggSignals));
++                VecOwn<ram::Statement> idb;
++                appendStmt(idb, generateIncrementalDelete(*rel));
++                appendStmt(idb, generateIncrementalNonRecursive(*rel));
++                appendStmt(idb, generateSetDirty(sccRelations));
++                appendStmt(body, guardOnAllEmpty(
++                                         guardStratum(mk<ram::Sequence>(std::move(idb)), simpleSignals),
++                                         aggSignals));
+             } else {
+                 // Non-eligible intensional (negation/aggregate in its own clauses, or downstream of a recompute
+                 // stratum): recompute so sign-flips are retracted correctly (sets __dirty). No eligible stratum
+diff --git a/src/ast2ram/incremental/UnitTranslator.h b/src/ast2ram/incremental/UnitTranslator.h
+index e27889c82..46cc24aa0 100644
+--- a/src/ast2ram/incremental/UnitTranslator.h
++++ b/src/ast2ram/incremental/UnitTranslator.h
+@@ -98,12 +98,26 @@ private:
+     Own<ram::Statement> guardStratum(
+             Own<ram::Statement> body, const std::set<std::string>& dependencies) const;
+ 
++    /** The complement of guardStratum: run `body` iff ALL of `signalRelations` are EMPTY (no signal changed). */
++    Own<ram::Statement> guardOnAllEmpty(
++            Own<ram::Statement> body, const std::set<std::string>& signalRelations) const;
++
+     /** The relation names a stratum reads in its clause bodies (positive and negated), excluding its own SCC. */
+     std::set<std::string> stratumDependencies(const ast::RelationSet& scc) const;
+ 
++    /** Dependencies drawn only from the stratum's AGGREGATE clauses (aggregateClauses=true) or its SIMPLE,
++     * non-aggregate clauses (false) — the mixed-stratum path gates its recompute / delta branches on these. */
++    std::set<std::string> clauseTypeDependencies(const ast::RelationSet& scc, bool aggregateClauses) const;
++
++    /** True iff any clause of any relation in the stratum uses an aggregate. */
++    bool hasAggregateClause(const ast::RelationSet& scc) const;
++
+     /** The signal relations whose non-emptiness means the stratum must run (dep __dirty flags + own input diff). */
+     std::set<std::string> stratumSignals(const ast::RelationSet& scc) const;
+ 
++    /** Like stratumSignals but restricted to the aggregate-clause / simple-clause dependencies (mixed strata). */
++    std::set<std::string> stratumSignalsFor(const ast::RelationSet& scc, bool aggregateClauses) const;
++
+     /** Set the nullary `__dirty_<R>` "ran" flag for each relation in the stratum (the cheap dirty signal). */
+     Own<ram::Statement> generateSetDirty(const ast::RelationSet& scc) const;
+ 
+@@ -141,6 +155,15 @@ private:
+      */
+     std::set<std::size_t> computeDeltaEligible(const std::vector<std::size_t>& sccOrdering) const;
+ 
++    /**
++     * SCC indices that are MIXED-eligible: non-recursive strata with BOTH aggregate and simple clauses, whose
++     * simple-clause dependencies are all pure-eligible (`pureEligible`) or EDB. Such a stratum delta-updates its
++     * simple clauses when no aggregate-clause dependency changed, and recomputes otherwise. It does not unlock
++     * its downstream (it publishes no diff on the recompute branch), so it is kept out of `pureEligible`.
++     */
++    std::set<std::size_t> computeMixedEligible(
++            const std::vector<std::size_t>& sccOrdering, const std::set<std::size_t>& pureEligible) const;
++
+     /**
+      * Re-derive ONLY the over-deleted candidates (the tuples in `diff_minus_<rel>`), not the whole relation.
+      * Each non-recursive clause is translated normally, then its head Insert is wrapped in a membership test
