@@ -11,11 +11,12 @@ agent won't:
     decision *before* damage, so the attacker never "sees" the damage it deals.)
   * Block to matter — prevent lethal, then trade up; never chump for free.
 
-The quantified scorers (`score_attack`, `score_block`, and the leaf board eval)
-live as standalone functions, parameterised by the weights `HeuristicPlayer`
-holds as class attributes — so the metrics are visible, dialable, and testable on
-their own, and the class body reads as the *strategy* (what to weigh, when to act)
-rather than the arithmetic.
+The combat scorers (`score_attack`, `score_block`) live as standalone functions
+parameterised by the weights `HeuristicPlayer` holds as class attributes — visible,
+dialable, testable on their own. The leaf board eval (`_value`) is a method: it
+reads the board through the bound seat views (`self.creatures` /
+`self.opponent.creatures`, typed `Permanent`s with `.power`), pointing the bind at
+whatever position it scores (a hypothetical child included) and restoring it after.
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -30,10 +31,10 @@ from .models import Move, Pass
 from .players import Player
 
 
-# ---- scorers (pure, tweakable) -------------------------------------------------------------------
-# The quantified heuristics, factored out of HeuristicPlayer so they can be read, tested and dialed on
-# their own. Each takes the board facts it needs plus its scoring weights; the defaults match the class
-# attributes (which is what HeuristicPlayer passes), so the functions are also usable standalone.
+# ---- combat scorers (pure, tweakable) ------------------------------------------------------------
+# The combat heuristics, factored out of HeuristicPlayer so they can be read, tested and dialed on their
+# own. Each takes the board facts it needs plus its scoring weights; the defaults match the class attributes
+# (which is what HeuristicPlayer passes), so the functions are also usable standalone.
 
 def creature_value(c) -> float:
     """A rough worth for a creature when valuing a trade: power + toughness + 1."""
@@ -77,47 +78,13 @@ def score_block(blocks, cards: dict, attackers, my_life: int, *, lethal: float =
     return prevented + w_trade * their_loss - w_trade * my_loss - lethal_pen
 
 
-def score_board(game, seat: str, *, w_life_diff: float = 0.05, w_aggro: float = 0.30,
-                w_board_power: float = 0.30, w_presence: float = 0.10, w_cards: float = 0.08) -> float:
-    """Aggression-tilted leaf board eval in [-1, 1] from `seat`'s view, read off the `Game` surface — the
-    value the develop step's 1-ply greedy maximises. Terminal states score ±1 / 0; otherwise a weighted mix
-    of life lead, pressure on the opponent (push them toward 0), board power, presence and card advantage,
-    with a low-life penalty. Weights default to HeuristicPlayer's and are passed through from its class
-    attributes; dial them here or per-call to retune the eval."""
-    if game.is_game_over():
-        w = game.winner()
-        return 1.0 if w == seat else (-1.0 if w is not None else 0.0)
-    life = game.life()
-    if seat not in life:
-        return 0.0
-    my_life = life[seat]
-    opp_life = min((v for p, v in life.items() if p != seat), default=20)
-    ctrl, pw = game.printed_control(), game.printed_power()
-    on_bf = game.battlefield_ids()
-    mine = [c for c in on_bf if ctrl.get(c) == seat]
-    theirs = [c for c in on_bf if ctrl.get(c) not in (seat, None)]
-    my_pow = sum(pw.get(c, 0) for c in mine)
-    opp_pow = sum(pw.get(c, 0) for c in theirs)
-    hands = game.hand_count()
-    my_hand = hands.get(seat, 0)
-    opp_hand = max((v for p, v in hands.items() if p != seat), default=0)
-    v = (w_life_diff * (my_life - opp_life) / 20.0
-         + w_aggro * (20 - opp_life) / 20.0
-         + w_board_power * (my_pow - opp_pow) / 10.0
-         + w_presence * (len(mine) - len(theirs)) / 6.0
-         + w_cards * (my_hand - opp_hand) / 5.0)
-    if my_life <= 5:
-        v -= 0.25
-    return max(-0.99, min(0.99, v))
-
-
 class HeuristicPlayer(Player):
     """A hand-built MTG heuristic: develop, attack with intent, block to matter. The class body is the
     strategy and its dialable metrics; the arithmetic lives in the module-level scorers above."""
 
     name = "heuristic"
 
-    # leaf board-eval weights (passed to score_board; dial to tune the eval)
+    # leaf board-eval weights (used by _value; dial to tune the eval)
     W_LIFE_DIFF = 0.05
     W_AGGRO = 0.30          # push opponent toward 0
     W_BOARD_POWER = 0.30
@@ -193,7 +160,33 @@ class HeuristicPlayer(Player):
     # ---- leaf board eval -------------------------------------------------------------------------
 
     def _value(self, game, seat: str) -> float:
-        """The leaf board eval for this player — `score_board` weighted by the class W_* attributes."""
-        return score_board(game, seat, w_life_diff=self.W_LIFE_DIFF, w_aggro=self.W_AGGRO,
-                           w_board_power=self.W_BOARD_POWER, w_presence=self.W_PRESENCE,
-                           w_cards=self.W_CARDS)
+        """Aggression-tilted board eval in [-1, 1] from `seat`'s view. Reads the board through the bound seat
+        views (`self.creatures` / `self.opponent.creatures` — typed `Permanent`s with `.power`), so the bind
+        is pointed at `game` for the read and restored afterwards (`game` may be a hypothetical child)."""
+        if game.is_game_over():
+            w = game.winner()
+            return 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+        life = game.life()
+        if seat not in life:
+            return 0.0
+        my_life = life[seat]
+        opp_life = min((v for p, v in life.items() if p != seat), default=20)
+        saved = (self._game, self._seat)
+        self.bind(game, seat)                                  # point self.creatures/.opponent at `game`
+        try:
+            my_creatures, opp_creatures = self.creatures, self.opponent.creatures
+        finally:
+            self._game, self._seat = saved
+        my_pow = sum(c.power for c in my_creatures)
+        opp_pow = sum(c.power for c in opp_creatures)
+        hands = game.hand_count()
+        my_hand = hands.get(seat, 0)
+        opp_hand = max((v for p, v in hands.items() if p != seat), default=0)
+        v = (self.W_LIFE_DIFF * (my_life - opp_life) / 20.0
+             + self.W_AGGRO * (20 - opp_life) / 20.0
+             + self.W_BOARD_POWER * (my_pow - opp_pow) / 10.0
+             + self.W_PRESENCE * (len(my_creatures) - len(opp_creatures)) / 6.0
+             + self.W_CARDS * (my_hand - opp_hand) / 5.0)
+        if my_life <= 5:
+            v -= 0.25
+        return max(-0.99, min(0.99, v))
