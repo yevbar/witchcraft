@@ -121,24 +121,31 @@ def _self_play() -> None:
     w2 = game.self_play(game.DECKS, variant="two-player", seed=7, policy=game.random_policy)
     check("self-play is reproducible (same seed -> same winner)", w == w2)
 
-    # the game is REAL: creatures get cast and combat reduces a player below zero (not a deck-out).
-    st = game.new_game(game.DECKS, variant="two-player", seed=7)
-    st["_policy"] = game.random_policy
+    # the game is REAL: creatures get cast and combat reduces a player below zero — not only deck-outs.
+    # Scan a few seeds rather than pin one: random self-play's outcome is seed-specific (some seeds deck-out),
+    # so assert the *property* (a damage kill is reachable, creatures hit the board) holds across seeds.
     import io, contextlib
-    with contextlib.redirect_stdout(io.StringIO()):
-        s = env.start(st)
-        for _ in range(4000):
-            if env.is_terminal(s):
-                break
-            acts = env.legal_actions(s)
-            if not acts:
-                break
-            s = env.step(s, game.random_policy(s, "action", acts, acts[0]))
-    bf = {c for (c,) in s.get("on_battlefield", set())}
-    loser_life = min(v for (_p, v) in s["life"])
-    check("real creatures reach the battlefield in self-play", any("bears" in c or "ogre" in c or
-          "giant" in c or "wurm" in c or "crow" in c or "drake" in c or "mummy" in c for c in bf))
-    check("the loser is reduced below zero by damage (a real kill, not a deck-out)", loser_life < 0)
+    saw_creatures = saw_kill = False
+    for seed in range(6):
+        st = game.new_game(game.DECKS, variant="two-player", seed=seed)
+        st["_policy"] = game.random_policy
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = env.start(st)
+            for _ in range(4000):
+                if env.is_terminal(s):
+                    break
+                acts = env.legal_actions(s)
+                if not acts:
+                    break
+                s = env.step(s, game.random_policy(s, "action", acts, acts[0]))
+        bf = {c for (c,) in s.get("on_battlefield", set())}
+        if any("bears" in c or "ogre" in c or "giant" in c or "wurm" in c or "crow" in c or
+               "drake" in c or "mummy" in c for c in bf):
+            saw_creatures = True
+        if min(v for (_p, v) in s["life"]) < 0:
+            saw_kill = True
+    check("real creatures reach the battlefield in self-play", saw_creatures)
+    check("a damage kill (loser below zero) is reachable in random self-play, not only deck-outs", saw_kill)
 
     # greedy and random are both complete policies over the same surface.
     wg = game.self_play(game.DECKS, variant="two-player", seed=3, policy=game.greedy_policy)
