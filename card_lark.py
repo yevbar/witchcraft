@@ -759,6 +759,10 @@ _FLOW_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (up to \w+
 # 'half(?: of)? .+?' alt would otherwise grab 'half that many cards' as half_that_many_cards instead of
 # the _that_amt 'half_that_amount'.
 _MTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (twice |half )?that many cards( plus \w+| minus \w+)?$", re.I)
+# DRAW <N> ADDITIONAL cards — `_draw_additional`'s exact pattern (extra='additional'); re-applied to src by
+# pcount, which otherwise dies on the 'additional' word (amt 'an additional' isn't a number). Reproduces the
+# regex tuple byte-for-byte: amount = _amount(count) or 1, target = _target(subj or 'you'), extra='additional'.
+_DADD_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (an|a|\w+) additional cards?$", re.I)
 # GAIN/LOSE life dynamic amounts — exact patterns of `_gain_foreach`/`_gain_life_equal`/`_that_gain`
 # (gain routes to the grant rule) and `_lose_life_equal`/`_lose_half`/`_lose_that_much` (lose routes to
 # pcount via the PVERB terminal). Re-applied to src; reproduce each template's amount slug byte-for-byte.
@@ -2045,6 +2049,13 @@ class _ToEffect(Transformer):
                 if m:
                     rv = "draw" if m.group(2).lower().startswith("draw") else "mill"
                     return Effect(rv, _that_amt(m.group(3), m.group(4)), _target(m.group(1) or "you"))
+        if verb in ("draw", "draws"):          # DRAW '<N> additional cards' (§120) — `_draw_additional`: the
+            src = getattr(self, "_src", None)  # 'additional' modifier the body strip can't number; reproduce it
+            if src is not None and "additional" in src:
+                am = _DADD_RE.match(src.strip())
+                if am:
+                    n = _amount(am.group(2))
+                    return Effect("draw", n if n is not None else 1, _target(am.group(1) or "you"), "additional")
         if verb in ("draw", "draws", "mill", "mills"):   # DRAW/MILL dynamic amount-expr (§120/§614) —
             src = getattr(self, "_src", None)            # 'up to N' / 'cards equal to X' / 'as many cards
             if src is not None:                          # as X' / 'half [of] X'; reproduce `_flow_amount`
