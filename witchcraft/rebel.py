@@ -185,8 +185,14 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
     regret: dict = {}
     stratsum: dict = {}
 
+    # Key CFR tables by (infoset, k): the infoset is a LOSSY projection of the observed view (step/life/
+    # hand/board — see _infoset), so two determinized worlds can share an infoset yet expose a different
+    # number of legal actions (e.g. mana availability isn't in the key). Keying by infoset alone sized the
+    # regret vector to whichever k was seen first, then IndexError'd when a same-infoset node had more
+    # children. (info, k) gives each action-count its own vector — an infoset with a different number of
+    # actions is genuinely a different decision.
     def strat(info, k):
-        r = regret.setdefault(info, [0.0] * k)
+        r = regret.setdefault((info, k), [0.0] * k)
         pos = [x if x > 0 else 0.0 for x in r]
         tot = sum(pos)
         return [p / tot for p in pos] if tot > 0 else [1.0 / k] * k
@@ -199,8 +205,8 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
         s = strat(info, k)
         cv = [cfr(c, agent) for c in ch]
         v = sum(s[i] * cv[i] for i in range(k))
-        r = regret.setdefault(info, [0.0] * k)
-        ss = stratsum.setdefault(info, [0.0] * k)
+        r = regret.setdefault((info, k), [0.0] * k)
+        ss = stratsum.setdefault((info, k), [0.0] * k)
         agent_node = (node["acting"] == agent)
         for i in range(k):
             r[i] += (cv[i] - v) if agent_node else (v - cv[i])      # opp is adversarial to the agent value
@@ -214,7 +220,7 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
             cfr(t, seat)
         it += 1
 
-    ss = stratsum.get(root_info, [1.0] * n)
+    ss = stratsum.get((root_info, n), [1.0] * n)         # the root has n = len(root_actions) children
     tot = sum(ss) or 1.0
     return [x / tot for x in ss]
 
