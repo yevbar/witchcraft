@@ -36,6 +36,11 @@ class Permanent(BaseModel):
     power: int = 0                                  # 0 on a non-creature (gate on is_creature for a true 0/0)
     toughness: int = 0
     keywords: list[str] = Field(default_factory=list)
+    # the card's PRINTED keyword line. Distinct from `keywords` (the derived, effective STATIC keywords like
+    # flying/haste the engine publishes to has_keyword): printed_keywords also carries triggered/"spell"
+    # keywords — prowess, storm, cascade, … — which the engine consumes from card_keyword directly and never
+    # surfaces in has_keyword. Use this to identify a card by its printed abilities (e.g. a prowess creature).
+    printed_keywords: list[str] = Field(default_factory=list)
     tapped: bool = False
     summoning_sick: bool = False
 
@@ -56,8 +61,15 @@ class Permanent(BaseModel):
         return t in self.types
 
     def has_keyword(self, kw: str) -> bool:
-        """Whether this permanent has keyword `kw` (e.g. 'flying', 'vigilance')."""
+        """Whether this permanent has effective STATIC keyword `kw` (e.g. 'flying', 'vigilance') — the
+        engine's derived has_keyword. Triggered/"spell" keywords (prowess, storm) are NOT here; use
+        `has_printed_keyword`."""
         return kw in self.keywords
+
+    def has_printed_keyword(self, kw: str) -> bool:
+        """Whether this card's PRINTED keyword line has `kw` — including triggered/"spell" keywords the
+        engine doesn't surface in has_keyword (e.g. 'prowess', 'storm', 'cascade')."""
+        return kw in self.printed_keywords
 
     @property
     def can_attack(self) -> bool:
