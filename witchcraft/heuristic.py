@@ -11,12 +11,15 @@ agent won't:
     decision *before* damage, so the attacker never "sees" the damage it deals.)
   * Block to matter — prevent lethal, then trade up; never chump for free.
 
-Non-combat priority decisions fall back to 1-ply greedy on `_value`, which is an
-aggression-tilted board eval in [-1, 1] from the acting seat's view. The eval and
-the combat logic read the board through the `Game` surface — `life()`,
-`permanents()` (typed `Permanent` views), and the cheap raw readers
-`printed_power()` / `printed_control()` / `battlefield_ids()` — rather than
-poking at engine relations directly.
+Non-combat priority decisions fall back to 1-ply greedy on `_value`, an
+aggression-tilted board eval in [-1, 1] from the acting seat's view.
+
+The combat logic reads the live board through the bound-player seat views
+(`self.creatures`, `self.opponent.creatures`, `self.life`, `self.opponent.life`)
+and inspects moves through the typed `Move` surface (`m.kind`, `m.attackers`,
+`m.blocks`, `m.card`) rather than plucking tuple slots. `_value` evaluates
+*hypothetical* child games, so it stays on explicit `Game` reads (the bound
+`self.*` views always point at the live game, which would be the wrong board).
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -27,6 +30,7 @@ from __future__ import annotations
 import env
 
 from .game import Game
+from .models import Move
 from .players import Player
 
 
@@ -42,32 +46,28 @@ class HeuristicPlayer(Player):
     W_PRESENCE = 0.10
     W_CARDS = 0.08
 
-    def choose_move(self, game) -> tuple | None:
+    def choose_move(self, game) -> Move | None:
+        self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         moves = game.legal_moves
         if not moves:
             return None
         if len(moves) == 1:
             return moves[0]
-        kinds = {m[0] for m in moves}
+        kinds = {m.kind for m in moves}
         if "attack" in kinds:
-            return self._choose_attack(game, [m for m in moves if m[0] == "attack"])
+            return self._choose_attack([m for m in moves if m.kind == "attack"])
         if "block" in kinds:
-            return self._choose_block(game, [m for m in moves if m[0] == "block"])
+            return self._choose_block(game, [m for m in moves if m.kind == "block"])
         return self._choose_develop(game, moves)
 
     # ---- combat: declare attackers ---------------------------------------------------------------
 
-    def _choose_attack(self, game, opts: list) -> tuple:
-        me = game.turn
-        opp = self._opp(game, me)
-        life = game.life()
-        my_life, opp_life = life.get(me, 20), life.get(opp, 20)
-
-        opp_blockers = [c for c in game.permanents(player=opp, type="creature") if not c.tapped]
+    def _choose_attack(self, opts: list) -> Move:
+        my_life, opp_life = self.life, self.opponent.life
+        opp_blockers = [c for c in self.opponent.creatures if not c.tapped]
         nb = len(opp_blockers)
         opp_swing = sum(c.pow for c in opp_blockers)                    # what they could hit back with
-
-        my_creatures = {c.id: c for c in game.permanents(player=me, type="creature")}
+        my_creatures = {c.id: c for c in self.creatures}
 
         def score(fs: frozenset) -> float:
             attackers = list(fs)
@@ -84,14 +84,13 @@ class HeuristicPlayer(Player):
             risk = max(0, opp_swing - my_def) * 1.5                    # potential lethal crackback
             return lethal + 2.0 * landed - risk
 
-        return max(opts, key=lambda m: score(m[1]))
+        return max(opts, key=lambda m: score(m.attackers))
 
     # ---- combat: declare blockers ----------------------------------------------------------------
 
-    def _choose_block(self, game, opts: list) -> tuple:
-        me = game.turn                                                 # defender during declare_blockers
-        my_life = game.life().get(me, 20)
-        attackers = {a for m in opts for (_b, a) in m[1]}              # every attacker that can be blocked
+    def _choose_block(self, game, opts: list) -> Move:
+        my_life = self.life                                            # I'm the defender during declare_blockers
+        attackers = {a for m in opts for (_b, a) in m.blocks}         # every attacker that can be blocked
         ap = {a: game.card(a) for a in attackers}
 
         def cval(c) -> float:                                          # rough creature worth
@@ -111,24 +110,24 @@ class HeuristicPlayer(Player):
             lethal_pen = 1000.0 if unblocked >= my_life else 0.0
             return prevented + 1.5 * their_loss - 1.5 * my_loss - lethal_pen
 
-        return max(opts, key=lambda m: score(m[1]))
+        return max(opts, key=lambda m: score(m.blocks))
 
     # ---- non-combat priority: develop the board --------------------------------------------------
 
-    def _choose_develop(self, game, moves: list) -> tuple:
-        me = game.turn
+    def _choose_develop(self, game, moves: list) -> Move:
+        me = self.seat
         # 1) always make the land drop first — free development that enables everything else
-        lands = [m for m in moves if m[0] == "cast" and self._is_land(game, m)]
+        lands = [m for m in moves if m.kind == "cast" and self._is_land(game, m)]
         if lands:
             return lands[0]
         # 2) 1-ply greedy over real actions; only act if it beats sitting still
-        nonpass = [m for m in moves if m[0] != "pass"]
+        nonpass = [m for m in moves if m.kind != "pass"]
         if not nonpass:
-            return ("pass",)
-        best, best_v = ("pass",), self._value(game, me)
+            return Move.pass_()
+        best, best_v = Move.pass_(), self._value(game, me)
         for m in nonpass:
             try:
-                child = Game.from_state(env.step(game.state, m))
+                child = Game.from_state(env.step(game.state, m))       # env.step normalises the Move to its .raw
             except Exception:
                 continue
             v = self._value(child, me)
@@ -139,13 +138,9 @@ class HeuristicPlayer(Player):
     # ---- helpers ---------------------------------------------------------------------------------
 
     @staticmethod
-    def _opp(game, me: str) -> str:
-        return next((p for p in game.players if p != me), me)
-
-    @staticmethod
-    def _is_land(game, move: tuple) -> bool:
+    def _is_land(game, move: Move) -> bool:
         try:
-            return game.card(move[2]).has_type("land")
+            return game.card(move.card).has_type("land")
         except Exception:
             return False
 

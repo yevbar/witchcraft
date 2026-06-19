@@ -43,7 +43,7 @@ import driver
 import env
 import game as _setup
 
-from .models import Permanent
+from .models import Move, Permanent
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
@@ -189,9 +189,10 @@ class Game:
     # ---- the move/turn surface --------------------------------------------------------------------
 
     @property
-    def legal_moves(self) -> list[tuple]:
-        """The action tuples you may push now (empty once the game is over)."""
-        return env.legal_actions(self._state)
+    def legal_moves(self) -> list[Move]:
+        """The `Move`s you may push now (empty once the game is over). Each wraps an engine action tuple
+        with named fields (`m.kind`, `m.attackers`, `m.card`, …); its `.raw` is what the engine consumes."""
+        return [Move.of(a) for a in env.legal_actions(self._state)]
 
     @property
     def turn(self) -> str:
@@ -217,10 +218,11 @@ class Game:
         if self._observer is not None:
             raise RuntimeError("can't push on an observation() — it's a redacted, read-only view from "
                                f"{self._observer}'s seat. Drive the full game instead.")
-        if checked and move not in self.legal_moves:
+        action = getattr(move, "raw", move)              # accept a Move or a bare action tuple
+        if checked and action not in env.legal_actions(self._state):
             raise ValueError(f"illegal move: {move!r}")
         self._history.append((self._state, move))
-        self._state = env.step(self._state, move)        # pure: leaves self._state's old object intact
+        self._state = env.step(self._state, action)      # pure: leaves self._state's old object intact
         return move
 
     def key(self) -> frozenset:
@@ -555,6 +557,7 @@ class Game:
         """A fully-hashable canonical form of an action tuple (the raw move isn't hashable — cast/activate
         carry a `{choices}` dict). Use this to key a policy / transposition / visited table on a move.
         Two moves are the same iff their move_keys are equal."""
+        move = getattr(move, "raw", move)                # accept a Move or a bare action tuple
         return tuple(tuple(sorted(x.items())) if isinstance(x, dict) else x for x in move)
 
     @staticmethod
@@ -563,6 +566,7 @@ class Game:
         pass `game.name` to render printed names ('Grizzly Bears') instead of ids ('grizzly_bears_6');
         the default leaves ids untouched. (The instance method `game.describe(move)` is the shortcut.)"""
         nm = namer or (lambda x: x)
+        move = getattr(move, "raw", move)                # accept a Move or a bare action tuple
         kind = move[0]
         if kind == "cast":
             _, ap, spell, ch = move
