@@ -117,8 +117,14 @@ class HeuristicPlayer(Player):
 
     name = "heuristic"
 
-    # combat scorer weights (dial to tune aggression / risk tolerance). The leaf board-eval weights live as
-    # score_board's default arguments (the develop step calls it with the defaults).
+    # leaf board-eval weights (passed to score_board; dial to tune the eval)
+    W_LIFE_DIFF = 0.05
+    W_AGGRO = 0.30          # push opponent toward 0
+    W_BOARD_POWER = 0.30
+    W_PRESENCE = 0.10
+    W_CARDS = 0.08
+
+    # combat scorer weights (dial to tune aggression / risk tolerance)
     LETHAL = 1000.0         # overwhelming bonus (attack) / penalty (block) for a lethal swing
     W_DAMAGE = 2.0          # value per point of damage an attack lands
     W_CRACKBACK = 1.5       # penalty weight on a lethal-looking crackback
@@ -187,5 +193,7 @@ class HeuristicPlayer(Player):
     # ---- leaf board eval -------------------------------------------------------------------------
 
     def _value(self, game, seat: str) -> float:
-        """The leaf board eval for this player — `score_board` at its default weights."""
-        return score_board(game, seat)
+        """The leaf board eval for this player — `score_board` weighted by the class W_* attributes."""
+        return score_board(game, seat, w_life_diff=self.W_LIFE_DIFF, w_aggro=self.W_AGGRO,
+                           w_board_power=self.W_BOARD_POWER, w_presence=self.W_PRESENCE,
+                           w_cards=self.W_CARDS)
