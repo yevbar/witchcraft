@@ -744,6 +744,10 @@ _BCM_REM = re.compile(r"^(?: with [\w, ]+?)?(?: until end of turn)?$", re.I)
 from card_effects import _TGT as _BCM_TGT_SRC
 from card_effects import _that_amt as _that_amt   # 'twice/half that much [plus N]' amount slug — reused, not re-derived
 _BCM_TGT = re.compile(r"(?:" + _BCM_TGT_SRC + r")$", re.I)
+# `_damage_self` (deal_teq 'itself' branch): the regex's g1 is `({_TGT})` — the SOURCE creature, which is
+# also the (self-)target. Anchor the dsrc span on the EXACT shared `_TGT` noun phrase so a card-name /
+# wrapper-swallowed source abstains exactly as the regex does (faithful-or-abstain).
+_DSELF_TGT = re.compile(r"^(?:" + _BCM_TGT_SRC + r")$", re.I)
 # DRAW <N> cards for each <X> — `_draw_foreach`'s exact pattern (count-scaled draw); re-applied to src by pcount.
 _DFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (a card|\w+) cards? for each (.+?)$", re.I)
 # DRAW/MILL dynamic amount-expr — `_flow_amount`'s exact pattern (up-to-N / equal-to-X /
@@ -1704,7 +1708,15 @@ class _ToEffect(Transformer):
             return None
         amt, tgt = amt.strip(), tgt.strip()
         if tgt == "itself":
-            return None                 # 'X deals damage to itself equal to Y' is _damage_self (source-as-target); abstain
+            # 'X deals damage to itself equal to Y' -> `_damage_self`: the SOURCE (dsrc) is the self-target,
+            # extra='itself'. Reproduce the regex byte-for-byte: target=_target(g1), amount=equal_to_<slug(g2)>.
+            src = next((str(a) for a in args if isinstance(a, _Subj)), None)
+            if src is None:
+                return None
+            src = src.strip()
+            if not amt or self._coord(amt) or not _DSELF_TGT.match(src):
+                return None             # coordinated amount (lossy) or non-_TGT source -> abstain (regex serves)
+            return Effect("deal_damage", "equal_to_" + ground.slug(amt), _target(src), "itself")
         if not amt or not tgt or self._coord(amt) or self._coord(tgt) or self._tgt_wrapped(tgt):
             return None
         if " to " in tgt and "up to" not in tgt:
