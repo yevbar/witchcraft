@@ -753,6 +753,12 @@ _DFE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (a card|\w+) cards? 
 # DRAW/MILL dynamic amount-expr — `_flow_amount`'s exact pattern (up-to-N / equal-to-X /
 # as-many-as-X / half-X). Re-applied to src by pcount; reproduces its amt logic byte-for-byte.
 _FLOW_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (up to \w+ cards?|cards? equal to .+?|as many cards as .+?|half(?: of)? .+?)$", re.I)
+# DRAW/MILL 'that many cards' anaphoric amount — `_draw_that_many`/`_mill_that_many`'s exact (symmetric)
+# pattern (amount via _that_amt: [twice|half] that many [plus|minus N]). MUST be tried BEFORE _FLOW_RE in
+# pcount: the regex chain has `_{draw,mill}_that_many` ahead of `_flow_amount`, and _FLOW_RE's
+# 'half(?: of)? .+?' alt would otherwise grab 'half that many cards' as half_that_many_cards instead of
+# the _that_amt 'half_that_amount'.
+_MTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (twice |half )?that many cards( plus \w+| minus \w+)?$", re.I)
 # GAIN/LOSE life dynamic amounts — exact patterns of `_gain_foreach`/`_gain_life_equal`/`_that_gain`
 # (gain routes to the grant rule) and `_lose_life_equal`/`_lose_half`/`_lose_that_much` (lose routes to
 # pcount via the PVERB terminal). Re-applied to src; reproduce each template's amount slug byte-for-byte.
@@ -2032,6 +2038,13 @@ class _ToEffect(Transformer):
                     g2 = fm.group(2)
                     base = "1" if g2 in ("a", "a card") else (str(_amount(g2)) if _amount(g2) is not None else ground.slug(g2))
                     return Effect("draw", base + "_per_" + ground.slug(fm.group(3)), _target(fm.group(1) or "you"))
+        if verb in ("draw", "draws", "mill", "mills"):   # DRAW/MILL 'that many cards' anaphoric amount (§107.3)
+            src = getattr(self, "_src", None)            # — reproduce `_{draw,mill}_that_many` ([twice|half] that
+            if src is not None:                          # many [plus|minus N]). BEFORE _FLOW_RE: regex tries
+                m = _MTM_RE.match(src.strip())           # the *_that_many templates ahead of _flow_amount.
+                if m:
+                    rv = "draw" if m.group(2).lower().startswith("draw") else "mill"
+                    return Effect(rv, _that_amt(m.group(3), m.group(4)), _target(m.group(1) or "you"))
         if verb in ("draw", "draws", "mill", "mills"):   # DRAW/MILL dynamic amount-expr (§120/§614) —
             src = getattr(self, "_src", None)            # 'up to N' / 'cards equal to X' / 'as many cards
             if src is not None:                          # as X' / 'half [of] X'; reproduce `_flow_amount`
