@@ -77,20 +77,48 @@ def score_block(blocks, cards: dict, attackers, my_life: int, *, lethal: float =
     return prevented + w_trade * their_loss - w_trade * my_loss - lethal_pen
 
 
+def score_board(game, seat: str, *, w_life_diff: float = 0.05, w_aggro: float = 0.30,
+                w_board_power: float = 0.30, w_presence: float = 0.10, w_cards: float = 0.08) -> float:
+    """Aggression-tilted leaf board eval in [-1, 1] from `seat`'s view, read off the `Game` surface — the
+    value the develop step's 1-ply greedy maximises. Terminal states score ±1 / 0; otherwise a weighted mix
+    of life lead, pressure on the opponent (push them toward 0), board power, presence and card advantage,
+    with a low-life penalty. Weights default to HeuristicPlayer's and are passed through from its class
+    attributes; dial them here or per-call to retune the eval."""
+    if game.is_game_over():
+        w = game.winner()
+        return 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+    life = game.life()
+    if seat not in life:
+        return 0.0
+    my_life = life[seat]
+    opp_life = min((v for p, v in life.items() if p != seat), default=20)
+    ctrl, pw = game.printed_control(), game.printed_power()
+    on_bf = game.battlefield_ids()
+    mine = [c for c in on_bf if ctrl.get(c) == seat]
+    theirs = [c for c in on_bf if ctrl.get(c) not in (seat, None)]
+    my_pow = sum(pw.get(c, 0) for c in mine)
+    opp_pow = sum(pw.get(c, 0) for c in theirs)
+    hands = game.hand_count()
+    my_hand = hands.get(seat, 0)
+    opp_hand = max((v for p, v in hands.items() if p != seat), default=0)
+    v = (w_life_diff * (my_life - opp_life) / 20.0
+         + w_aggro * (20 - opp_life) / 20.0
+         + w_board_power * (my_pow - opp_pow) / 10.0
+         + w_presence * (len(mine) - len(theirs)) / 6.0
+         + w_cards * (my_hand - opp_hand) / 5.0)
+    if my_life <= 5:
+        v -= 0.25
+    return max(-0.99, min(0.99, v))
+
+
 class HeuristicPlayer(Player):
     """A hand-built MTG heuristic: develop, attack with intent, block to matter. The class body is the
     strategy and its dialable metrics; the arithmetic lives in the module-level scorers above."""
 
     name = "heuristic"
 
-    # leaf board-eval weights (the _value scorer — tilted toward pressuring the opponent)
-    W_LIFE_DIFF = 0.05
-    W_AGGRO = 0.30          # push opponent toward 0
-    W_BOARD_POWER = 0.30
-    W_PRESENCE = 0.10
-    W_CARDS = 0.08
-
-    # combat scorer weights (dial to tune aggression / risk tolerance)
+    # combat scorer weights (dial to tune aggression / risk tolerance). The leaf board-eval weights live as
+    # score_board's default arguments (the develop step calls it with the defaults).
     LETHAL = 1000.0         # overwhelming bonus (attack) / penalty (block) for a lethal swing
     W_DAMAGE = 2.0          # value per point of damage an attack lands
     W_CRACKBACK = 1.5       # penalty weight on a lethal-looking crackback
@@ -159,30 +187,5 @@ class HeuristicPlayer(Player):
     # ---- leaf board eval -------------------------------------------------------------------------
 
     def _value(self, game, seat: str) -> float:
-        """Aggression-tilted board eval in [-1, 1] from `seat`'s view, read off the `Game` surface. Stays a
-        method (not a free scorer) because it evaluates a whole `Game` and weighs against the class W_*."""
-        if game.is_game_over():
-            w = game.winner()
-            return 1.0 if w == seat else (-1.0 if w is not None else 0.0)
-        life = game.life()
-        if seat not in life:
-            return 0.0
-        my_life = life[seat]
-        opp_life = min((v for p, v in life.items() if p != seat), default=20)
-        ctrl, pw = game.printed_control(), game.printed_power()
-        on_bf = game.battlefield_ids()
-        mine = [c for c in on_bf if ctrl.get(c) == seat]
-        theirs = [c for c in on_bf if ctrl.get(c) not in (seat, None)]
-        my_pow = sum(pw.get(c, 0) for c in mine)
-        opp_pow = sum(pw.get(c, 0) for c in theirs)
-        hands = game.hand_count()
-        my_hand = hands.get(seat, 0)
-        opp_hand = max((v for p, v in hands.items() if p != seat), default=0)
-        v = (self.W_LIFE_DIFF * (my_life - opp_life) / 20.0
-             + self.W_AGGRO * (20 - opp_life) / 20.0
-             + self.W_BOARD_POWER * (my_pow - opp_pow) / 10.0
-             + self.W_PRESENCE * (len(mine) - len(theirs)) / 6.0
-             + self.W_CARDS * (my_hand - opp_hand) / 5.0)
-        if my_life <= 5:
-            v -= 0.25
-        return max(-0.99, min(0.99, v))
+        """The leaf board eval for this player — `score_board` at its default weights."""
+        return score_board(game, seat)
