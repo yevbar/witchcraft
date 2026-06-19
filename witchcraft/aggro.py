@@ -26,4 +26,4 @@ class AggroPlayer(Player):
         if p.spells:  return p.spells[0]                    # else cast a spell,
         if p.attacks: return max(p.attacks, key=lambda m: len(m.attackers))   # else swing with everything,
         if p.blocks:  return min(p.blocks, key=lambda m: len(m.blocks))       # else never block — keep racing,
-        return p.passes[0] if p.passes else (p[0] if p else None)            # else pass.
+        return p.pass_()                                                      # else pass.
