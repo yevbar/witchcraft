@@ -1663,12 +1663,30 @@ def _untapped_sources(state: dict, ap: str) -> list[tuple[str, str | None]]:
     return out
 
 
+def _put_land_in_play(state: dict, ap: str, land: str) -> None:
+    """Move a SPECIFIC land from ap's hand onto the battlefield and fire its §603 landfall (just_entered) —
+    no land-drop allowance bookkeeping and no pool refresh. The shared core of the auto land drop
+    (_develop_mana) and the explicit ('play', ap, land) action (_play_land)."""
+    state["in_hand"].discard((ap, land))
+    state["on_battlefield"].add((land,))
+    state.setdefault("printed_control", set()).add((ap, land))
+    print(f"    {ap} plays land {land}")
+    # §603 LANDFALL — a played land enters without using the stack, so signal just_entered(land) so the
+    # engine fires 'whenever a land you control enters' triggers, apply them, then clear the signal.
+    state.setdefault("just_entered", set()).add((land,))
+    _apply_effects(state, *_pending_both(state))
+    state["just_entered"].discard((land,))
+
+
 def _develop_mana(state: dict, ap: str) -> None:
     """Driver-side §305 land mechanics the datalog engine leaves to the apply-and-loop. Play ONE land
     this turn (§305.2) from the active player's hand, then refresh its COLORED mana pool (§106) from the
     untapped lands it controls — each contributes one mana of its produced color (land_produces). The
     engine authors casting legality (can_cast/can_afford over mana_pool); this only stocks the pool. A
-    flat mana_available count is kept in sync for the legacy fallback / cache continuity."""
+    flat mana_available count is kept in sync for the legacy fallback / cache continuity.
+
+    This is the AUTO land drop (the engine picks the land); for agent-driven land plays the env surfaces an
+    explicit ('play', ap, land) action wired to `_play_land` and skips this (see env._develop_if_main)."""
     played = state.setdefault("_land_played", set())          # driver bookkeeping; not a souffle relation
 
     def _play_one() -> bool:                                   # play one land from hand; False if none left
@@ -1676,15 +1694,7 @@ def _develop_mana(state: dict, ap: str) -> None:
                      if p == ap and (s, "land") in state.get("spell_type", set())), None)
         if not land:
             return False
-        state["in_hand"].discard((ap, land))
-        state["on_battlefield"].add((land,))
-        state.setdefault("printed_control", set()).add((ap, land))
-        print(f"    {ap} plays land {land}")
-        # §603 LANDFALL — a played land enters without using the stack, so signal just_entered(land) so the
-        # engine fires 'whenever a land you control enters' triggers, apply them, then clear the signal.
-        state.setdefault("just_entered", set()).add((land,))
-        _apply_effects(state, *_pending_both(state))
-        state["just_entered"].discard((land,))
+        _put_land_in_play(state, ap, land)
         return True
 
     if (ap,) not in played:                                    # §305.2 the one base land drop
@@ -1725,6 +1735,31 @@ def _grant_extra_land(state: dict, ap: str, n: int = 1) -> None:
     """One-shot 'play an additional land this turn' (§116.2a): bump ap's extra-land grant for this turn."""
     g = state.setdefault("_extra_land_grants", {})
     g[ap] = g.get(ap, 0) + n
+
+
+def _land_drops_remaining(state: dict, ap: str) -> int:
+    """§305.2 how many more lands ap may play this turn: the one base drop (unless already used) plus any
+    extra-land allowance (Exploration/Azusa statics + one-shot grants) not yet spent. The budget the
+    explicit ('play', ap, land) env action is offered against."""
+    base = 0 if (ap,) in state.get("_land_played", set()) else 1
+    allow = _static_extra_lands(state, ap) + state.get("_extra_land_grants", {}).get(ap, 0)
+    extra = max(0, allow - state.get("_extra_lands_used", {}).get(ap, 0))
+    return base + extra
+
+
+def _play_land(state: dict, ap: str, land: str) -> None:
+    """§305 play a CHOSEN land from ap's hand — the explicit, agent-driven counterpart to the auto land drop
+    in _develop_mana. Put it in play and fire landfall, consume one land-drop allowance (the base drop
+    first, then an extra), and refresh the mana pool so the new land's mana is immediately castable. The
+    caller (env) is responsible for only offering this while `_land_drops_remaining` > 0."""
+    _put_land_in_play(state, ap, land)
+    played = state.setdefault("_land_played", set())
+    if (ap,) not in played:
+        played.add((ap,))
+    else:
+        used = state.setdefault("_extra_lands_used", {})
+        used[ap] = used.get(ap, 0) + 1
+    _refresh_mana_pool(state, ap)
 
 
 def _controls_any_source(state: dict, ap: str) -> bool:

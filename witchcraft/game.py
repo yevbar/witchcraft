@@ -160,7 +160,8 @@ class Game:
     """
 
     def __init__(self, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
-                 commanders: dict | None = None, policies: dict | None = None, incremental: bool = False):
+                 commanders: dict | None = None, policies: dict | None = None, incremental: bool = False,
+                 explicit_lands: bool = False):
         """Build a ready-to-play game and advance to the first real decision.
 
         decks       {player: [card names]}. Defaults to the Gruul-vs-Dimir demo decks.
@@ -172,6 +173,11 @@ class Game:
         incremental select the in-process incremental engine backend (byte-identical; ~2x on large states,
                     neutral on small). Process-global and graceful — falls back if the fork isn't built.
                     `self.incremental` reports whether it actually engaged.
+        explicit_lands  surface the §305 land drop as an agent action: `legal_moves` offers ('play', player,
+                    land) moves (Move.kind == "play") and the engine stops auto-playing lands, so a policy
+                    chooses whether/which/when to play lands (e.g. to sequence landfall triggers). Off by
+                    default — the engine plays one land per turn for you, which a basic-lands deck needn't
+                    care about. The flag rides on the state, so clone()/serialize() preserve it.
         """
         if decks is None:
             decks = DEMO_DECKS
@@ -183,7 +189,10 @@ class Game:
         self.incremental = _select_incremental() if incremental else False
         self._observer: str | None = None                # set on observation() views (a redacted, read-only Game)
         state = _setup.new_game(decks, variant=variant, seed=seed, policies=policies, commanders=commanders)
+        if explicit_lands:
+            state["_explicit_lands"] = True              # read by env.legal_actions / _develop_if_main / step
         self._state = env.start(state)
+        self.explicit_lands = bool(self._state.get("_explicit_lands"))
         self._history: list[tuple[dict, tuple]] = []     # (prior_state, move) for pop()
 
     # ---- the move/turn surface --------------------------------------------------------------------
@@ -191,8 +200,13 @@ class Game:
     @property
     def legal_moves(self) -> list[Move]:
         """The `Move`s you may push now (empty once the game is over). Each wraps an engine action tuple
-        with named fields (`m.kind`, `m.attackers`, `m.card`, …); its `.raw` is what the engine consumes."""
-        return [Move.of(a) for a in env.legal_actions(self._state)]
+        with named fields (`m.kind`, `m.attackers`, `m.card`, …); its `.raw` is what the engine consumes.
+        Printed types (read cheaply off `printed_type`) are threaded in so a land drop surfaces as
+        `kind == "play"` and `m.card.type` is populated."""
+        types: dict[str, list[str]] = {}
+        for (c, t) in self._state.get("printed_type", ()):
+            types.setdefault(c, []).append(t)
+        return [Move.of(a, types) for a in env.legal_actions(self._state)]
 
     @property
     def turn(self) -> str:
@@ -510,6 +524,7 @@ class Game:
         g = Game.__new__(Game)
         g.decks, g.variant, g.seed = self.decks, self.variant, self.seed
         g.commanders, g.policies, g.incremental = self.commanders, self.policies, self.incremental
+        g.explicit_lands = self.explicit_lands
         g._observer = self._observer
         g._state = self._state
         g._history = list(self._history)
@@ -531,6 +546,7 @@ class Game:
         g.seed = g._state.get("_seed", 0)
         g.decks = g.commanders = g.policies = None
         g.incremental = _select_incremental() if incremental else False
+        g.explicit_lands = bool(g._state.get("_explicit_lands"))
         g._observer = None
         return g
 

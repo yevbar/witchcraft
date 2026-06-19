@@ -234,7 +234,8 @@ class RandomPlayer(Player):
 
 
 def play(players: dict, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
-         commanders: dict | None = None, incremental: bool = False, max_moves: int = 4000) -> "Game":
+         commanders: dict | None = None, incremental: bool = False, max_moves: int = 4000,
+         explicit_lands: bool = False) -> "Game":
     """Play a full game to a terminal state with each seat driven by its `Player`, returning the finished
     `Game` (read `.outcome()` / `.winner()` / `.result()`). `players` is `{seat: Player}` (e.g.
     `{"alice": RandomPlayer(), "bob": MyHeuristic()}`); a seat with no Player falls to the engine default.
@@ -244,7 +245,7 @@ def play(players: dict, decks: dict | None = None, *, variant: str = "default", 
     decide, not a global policy. (London mulligan resolves with the engine default — keep — before play.)"""
     policies = {seat: p.as_policy() for seat, p in players.items()}
     g = Game(decks, variant=variant, seed=seed, commanders=commanders,
-             policies=policies, incremental=incremental)
+             policies=policies, incremental=incremental, explicit_lands=explicit_lands)
     for _ in range(max_moves):
         if g.is_game_over() or not g.legal_moves:
             break

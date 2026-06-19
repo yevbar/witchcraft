@@ -22,7 +22,7 @@ import time
 
 def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-player", seed: int = 0,
               decks: dict | None = None, commanders: dict | None = None, incremental: bool = False,
-              max_moves: int = 4000, swap_seats: bool = True) -> dict:
+              max_moves: int = 4000, swap_seats: bool = True, explicit_lands: bool = False) -> dict:
     """Play `player` vs `opponent` (default RandomPlayer) over `games` witchcraft self-play games and report
     `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result),
     and each game uses a distinct seed (`seed + i`). Returns
@@ -46,7 +46,7 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):                # the engine narrates each step — mute it
             g = play(players, decks, variant=variant, seed=seed + i, commanders=commanders,
-                     incremental=incremental, max_moves=max_moves)
+                     incremental=incremental, max_moves=max_moves, explicit_lands=explicit_lands)
         w = g.winner()
         total_turns += g.turn_number
         if w == mine:

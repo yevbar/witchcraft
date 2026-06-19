@@ -117,7 +117,7 @@ class HeuristicPlayer(Player):
     def _choose_develop(self, game, moves: list) -> Move:
         me = self.seat
         # 1) always make the land drop first — free development that enables everything else
-        lands = [m for m in moves if m.kind == "cast" and self._is_land(game, m)]
+        lands = [m for m in moves if m.kind == "play" and m.card.type == "land"]
         if lands:
             return lands[0]
         # 2) 1-ply greedy over real actions; only act if it beats sitting still
@@ -136,13 +136,6 @@ class HeuristicPlayer(Player):
         return best
 
     # ---- helpers ---------------------------------------------------------------------------------
-
-    @staticmethod
-    def _is_land(game, move: Move) -> bool:
-        try:
-            return game.card(move.card).has_type("land")
-        except Exception:
-            return False
 
     def _value(self, game, seat: str) -> float:
         """Aggression-tilted board eval in [-1, 1] from `seat`'s view, read off the `Game` surface."""

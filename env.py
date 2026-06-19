@@ -347,7 +347,14 @@ def legal_actions(state: dict) -> list[tuple]:
         probe = _clone(state); probe["has_priority"] = {(ap,)}
         castable = sorted(s for (p, s) in driver.run(probe, ["can_cast"])["can_cast"] if p == ap)
         actions: list[tuple] = []
+        explicit = state.get("_explicit_lands")
+        if explicit:                                          # §305 opt-in: land drops are the agent's choice
+            for land in _playable_lands(state, ap):
+                actions.append(("play", ap, land))
+        land_t = state.get("spell_type", set())
         for spell in castable:
+            if explicit and (spell, "land") in land_t:        # lands are offered as ('play', …), not cast
+                continue
             for ch in _cast_choices(state, spell):
                 actions.append(("cast", ap, spell, ch))
         for cmd in driver.can_cast_commander(state, ap):     # §903.6 — cast the commander from the command zone
@@ -368,8 +375,24 @@ def legal_actions(state: dict) -> list[tuple]:
 # ---- step ---------------------------------------------------------------------------------------------
 
 def _develop_if_main(state: dict) -> None:
-    if _step(state) in _MAIN:
-        _quiet(driver._develop_mana, state, _active(state))     # §305 land drop + mana refresh on phase entry
+    if _step(state) not in _MAIN:
+        return
+    ap = _active(state)
+    if state.get("_explicit_lands"):
+        # opt-in: the agent plays its own lands via the ('play', …) action — just stock the pool from the
+        # lands already in play (don't auto-drop, so holding/sequencing land plays stays the agent's call).
+        _quiet(driver._refresh_mana_pool, state, ap)
+    else:
+        _quiet(driver._develop_mana, state, ap)                 # §305 auto land drop + mana refresh on phase entry
+
+
+def _playable_lands(state: dict, ap: str) -> list:
+    """§305 the lands in ap's hand it may still play this turn (explicit-lands mode), sorted — empty once
+    the land-drop allowance is spent."""
+    if driver._land_drops_remaining(state, ap) <= 0:
+        return []
+    return sorted(s for (p, s) in state.get("in_hand", set())
+                  if p == ap and (s, "land") in state.get("spell_type", set()))
 
 
 def _advance_one(state: dict) -> None:
@@ -464,6 +487,9 @@ def step(state: dict, action: tuple) -> dict:
             # when a source actually entered — never after a ritual, so floating mana (Dark Ritual) survives.
             if _source_ids(s, ap) - srcs_before:
                 driver._refresh_mana_pool(s, ap)
+        elif kind == "play":                                    # §305 explicit land drop (opt-in agency)
+            _, ap, land = action
+            driver._play_land(s, ap, land)
         elif kind == "cast_commander":                          # §903.6 — cast commander from the command zone
             _, ap, cmd = action
             driver._develop_mana(s, ap)                         # §305 land drop + mana (mirrors _cast_phase entry)
