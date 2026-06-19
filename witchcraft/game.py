@@ -420,6 +420,11 @@ class Game:
             "colors": _group(o["printed_color"]),
             "tapped": {c for (c,) in s.get("tapped", set())},
             "sick": {c for (c,) in s.get("_sick", set())},
+            # printed keywords: the card's PRINTED keyword line (incl. triggered/“spell” keywords like
+            # prowess/storm that the engine consumes from card_keyword directly and never publishes to the
+            # derived has_keyword). Keyed by card slug, joined to instances via instance_of.
+            "instance_of": dict(s.get("instance_of", set())),
+            "printed_kw": _group(s.get("card_keyword", set())),
         }
 
     def _view(self, card_id: str, ctx: dict, zone: str | None = "?") -> Permanent:
@@ -436,6 +441,7 @@ class Game:
             power=ctx["power"].get(card_id, 0),               # non-creatures read 0 (gate on is_creature)
             toughness=ctx["toughness"].get(card_id, 0),
             keywords=ctx["keywords"].get(card_id, []),
+            printed_keywords=ctx["printed_kw"].get(ctx["instance_of"].get(card_id), []),
             tapped=card_id in ctx["tapped"],
             summoning_sick=card_id in ctx["sick"],
         )
