@@ -251,11 +251,11 @@ class Priority:
         """The pass move (`kind == "pass"`), if passing is legal here."""
         return self.of("pass")
 
-    def pass_(self):
-        """The "do nothing" move — the safe fallback for a policy out of better ideas. The literal pass if
-        it's legal here, else the first available move (e.g. the no-attack / no-block option at a combat
-        declaration, where there is no explicit pass), else None when there are no moves. Named `pass_`
-        because `pass` is a Python keyword."""
+    def skip(self):
+        """The "do nothing" move — the safe fallback for a policy out of better ideas: skip this decision by
+        taking the minimal option. The literal pass if it's legal here, else the first available move (e.g.
+        the no-attack / no-block option at a combat declaration, where there is no explicit pass), else None
+        when there are no moves. (Named `skip`, not `pass`, because `pass` is a Python keyword.)"""
         if self.passes:
             return self.passes[0]
         return self.moves[0] if self.moves else None
