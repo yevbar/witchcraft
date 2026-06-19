@@ -116,9 +116,12 @@ class HeuristicPlayer(Player):
 
     def _choose_develop(self, game, moves: list) -> Move:
         me = self.seat
-        # 1) always make the land drop first — free development that enables everything else
-        lands = [m for m in moves if m.kind == "play" and m.card.type == "land"]
+        # 1) always make the land drop first — free development that enables everything else.
+        #    Play NON-BASIC lands before basics: basics are the most fungible (any deck can fetch/replay
+        #    them), so spend the scarcer, ability-bearing nonbasics first and keep basics in reserve.
+        lands = [m for m in moves if m.kind == "play" and m.card.has_type("land")]
         if lands:
+            lands.sort(key=lambda m: m.card.is_basic)              # False (nonbasic) sorts before True (basic)
             return lands[0]
         # 2) 1-ply greedy over real actions; only act if it beats sitting still
         nonpass = [m for m in moves if m.kind != "pass"]

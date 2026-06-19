@@ -76,6 +76,7 @@ class CardRef(BaseModel):
 
     id: str
     types: tuple[str, ...] = ()
+    supertypes: tuple[str, ...] = ()               # §205.4 'basic'/'legendary'/'snow'/… (from has_supertype)
 
     @property
     def type(self) -> str | None:
@@ -86,6 +87,11 @@ class CardRef(BaseModel):
     def has_type(self, t: str) -> bool:
         """Whether this card has printed type `t` among all its types."""
         return t in self.types
+
+    @property
+    def is_basic(self) -> bool:
+        """§205.4 a basic land — carries the 'basic' supertype (Forest/Island/… and snow basics)."""
+        return "basic" in self.supertypes
 
     def __str__(self) -> str:
         return self.id
@@ -122,16 +128,17 @@ class Move(BaseModel):
     ability: Any = None                # the raw ability row, for an 'activate' move
 
     @classmethod
-    def of(cls, action, types: dict | None = None) -> "Move":
+    def of(cls, action, types: dict | None = None, supertypes: dict | None = None) -> "Move":
         """Wrap an engine action tuple into a typed Move (idempotent if `action` is already a Move). `types`
-        maps card id -> its printed types; pass it (as `Game.legal_moves` does) so a land drop surfaces as
-        `kind == "play"` and `m.card.type` is populated."""
+        / `supertypes` map card id -> its printed types / supertypes; pass them (as `Game.legal_moves` does)
+        so a land drop surfaces as `kind == "play"` and `m.card.type` / `m.card.is_basic` are populated."""
         if isinstance(action, cls):
             return action
         types = types or {}
+        supertypes = supertypes or {}
 
         def ref(cid):
-            return CardRef(id=cid, types=tuple(types.get(cid, ())))
+            return CardRef(id=cid, types=tuple(types.get(cid, ())), supertypes=tuple(supertypes.get(cid, ())))
 
         kind = action[0]
         if kind == "play":                                      # explicit §305 land drop (opt-in env mode)

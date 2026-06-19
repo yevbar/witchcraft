@@ -206,7 +206,10 @@ class Game:
         types: dict[str, list[str]] = {}
         for (c, t) in self._state.get("printed_type", ()):
             types.setdefault(c, []).append(t)
-        return [Move.of(a, types) for a in env.legal_actions(self._state)]
+        supers: dict[str, list[str]] = {}
+        for (c, s) in self._state.get("has_supertype", ()):       # §205.4 basic/legendary/snow/…
+            supers.setdefault(c, []).append(s)
+        return [Move.of(a, types, supers) for a in env.legal_actions(self._state)]
 
     @property
     def turn(self) -> str:
