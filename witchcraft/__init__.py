@@ -29,13 +29,15 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from .game import Game, DEMO_DECKS                                      # noqa: E402
+from .models import Move, Pass, Permanent, CardRef                      # noqa: E402
 from .players import Player, RandomPlayer, GreedyPlayer, play           # noqa: E402
 from .forge import play_forge, forge_available                         # noqa: E402  (lazy JVM tooling inside)
 from .benchmark import benchmark, benchmark_vs_forge                    # noqa: E402
 from .decks import load_deck, parse_deck, bundled_decks                 # noqa: E402
 from .rebel import ReBeLPlayer, heuristic_value                        # noqa: E402
 
-__all__ = ["Game", "DEMO_DECKS", "Player", "RandomPlayer", "GreedyPlayer", "play",
+__all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
+           "Player", "RandomPlayer", "GreedyPlayer", "play",
            "ReBeLPlayer", "heuristic_value",
            "play_forge", "forge_available", "benchmark", "benchmark_vs_forge",
            "load_deck", "parse_deck", "bundled_decks",

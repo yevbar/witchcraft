@@ -167,14 +167,14 @@ class Move(BaseModel):
             return cls.model_construct(kind=kind, raw=action)
         return cls.model_construct(kind=kind, raw=tuple(action))         # unknown kind — still carries raw
 
-    @classmethod
-    def pass_(cls) -> "Move":
-        """The pass-priority move, `("pass",)`."""
-        return cls.model_construct(kind="pass", raw=_PASS)
-
     def __getitem__(self, i):
         """Back-compat: index the underlying action tuple, so `m[0] == m.kind`, `m[1]`/`m[2]` as before."""
         return self.raw[i]
 
     def __len__(self) -> int:
         return len(self.raw)
+
+
+# The pass-priority move, `("pass",)`. A frozen singleton (Move is immutable, so it's safe to share) — import
+# and return it directly: `from witchcraft.models import Move, Pass` then `return Pass`.
+Pass = Move.of(_PASS)

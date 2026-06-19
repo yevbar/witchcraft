@@ -30,7 +30,7 @@ from __future__ import annotations
 import env
 
 from .game import Game
-from .models import Move
+from .models import Move, Pass
 from .players import Player
 
 
@@ -126,8 +126,8 @@ class HeuristicPlayer(Player):
         # 2) 1-ply greedy over real actions; only act if it beats sitting still
         nonpass = [m for m in moves if m.kind != "pass"]
         if not nonpass:
-            return Move.pass_()
-        best, best_v = Move.pass_(), self._value(game, me)
+            return Pass
+        best, best_v = Pass, self._value(game, me)
         for m in nonpass:
             try:
                 child = Game.from_state(env.step(game.state, m))       # env.step normalises the Move to its .raw
