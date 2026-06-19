@@ -20,8 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class Permanent(BaseModel):
     """A card/permanent's derived characteristics in some zone — the `Game.card()` / `Game.permanents()`
-    view as a typed object. Fields that don't apply (e.g. `controller` off the battlefield, `power` on a
-    non-creature) are None / [] / False, matching the engine's "absent" reading."""
+    view as a typed object. Fields that don't apply (e.g. `controller` off the battlefield) are None / [] /
+    False; `power`/`toughness` read 0 on a non-creature (use `is_creature` to tell a real 0/0 apart)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -33,8 +33,8 @@ class Permanent(BaseModel):
     subtypes: list[str] = Field(default_factory=list)
     colors: list[str] = Field(default_factory=list)
     is_creature: bool = False
-    power: int | None = None
-    toughness: int | None = None
+    power: int = 0                                  # 0 on a non-creature (gate on is_creature for a true 0/0)
+    toughness: int = 0
     keywords: list[str] = Field(default_factory=list)
     tapped: bool = False
     summoning_sick: bool = False
@@ -43,12 +43,12 @@ class Permanent(BaseModel):
 
     @property
     def pow(self) -> int:
-        """Power as a number, treating "no power" (non-creatures) as 0 — the common `c.power or 0` idiom."""
+        """Short alias of `power` (non-creatures read 0)."""
         return self.power or 0
 
     @property
     def tou(self) -> int:
-        """Toughness as a number, treating "no toughness" as 0."""
+        """Short alias of `toughness` (non-creatures read 0)."""
         return self.toughness or 0
 
     def has_type(self, t: str) -> bool:

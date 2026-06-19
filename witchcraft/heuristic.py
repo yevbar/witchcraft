@@ -66,21 +66,21 @@ class HeuristicPlayer(Player):
         my_life, opp_life = self.life, self.opponent.life
         opp_blockers = [c for c in self.opponent.creatures if not c.tapped]
         nb = len(opp_blockers)
-        opp_swing = sum(c.pow for c in opp_blockers)                    # what they could hit back with
+        opp_swing = sum(c.power for c in opp_blockers)                    # what they could hit back with
         my_creatures = {c.id: c for c in self.creatures}
 
         def score(fs: frozenset) -> float:
             attackers = list(fs)
             if not attackers:
                 return -1.0                                            # passing up an attack is rarely right vs random
-            powers = sorted((my_creatures[a].pow for a in attackers if a in my_creatures), reverse=True)
+            powers = sorted((my_creatures[a].power for a in attackers if a in my_creatures), reverse=True)
             # worst case: opponent blocks our nb biggest attackers; the rest get through
             unblocked = sum(powers[nb:]) if nb < len(powers) else 0
             landed = min(unblocked, opp_life)
             lethal = 1000.0 if unblocked >= opp_life else 0.0
             # crackback: attackers are tapped and can't block next turn
             staying = [c for cid, c in my_creatures.items() if cid not in fs and not c.tapped]
-            my_def = my_life + sum(c.tou for c in staying)
+            my_def = my_life + sum(c.toughness for c in staying)
             risk = max(0, opp_swing - my_def) * 1.5                    # potential lethal crackback
             return lethal + 2.0 * landed - risk
 
@@ -94,19 +94,19 @@ class HeuristicPlayer(Player):
         ap = {a: game.card(a) for a in attackers}
 
         def cval(c) -> float:                                          # rough creature worth
-            return c.pow + c.tou + 1.0
+            return c.power + c.toughness + 1.0
 
         def score(fs: frozenset) -> float:
             blocked = {a for (_b, a) in fs}
             prevented = their_loss = my_loss = 0.0
             for (b, a) in fs:
                 ac, bc = ap[a], game.card(b)
-                prevented += ac.pow
-                if bc.pow >= ac.tou:
+                prevented += ac.power
+                if bc.power >= ac.toughness:
                     their_loss += cval(ac)
-                if ac.pow >= bc.tou:
+                if ac.power >= bc.toughness:
                     my_loss += cval(bc)
-            unblocked = sum(ap[a].pow for a in attackers if a not in blocked)
+            unblocked = sum(ap[a].power for a in attackers if a not in blocked)
             lethal_pen = 1000.0 if unblocked >= my_life else 0.0
             return prevented + 1.5 * their_loss - 1.5 * my_loss - lethal_pen
 

@@ -433,8 +433,8 @@ class Game:
             subtypes=ctx["subtypes"].get(card_id, []),
             colors=ctx["colors"].get(card_id, []),
             is_creature=card_id in ctx["creatures"],
-            power=ctx["power"].get(card_id),
-            toughness=ctx["toughness"].get(card_id),
+            power=ctx["power"].get(card_id, 0),               # non-creatures read 0 (gate on is_creature)
+            toughness=ctx["toughness"].get(card_id, 0),
             keywords=ctx["keywords"].get(card_id, []),
             tapped=card_id in ctx["tapped"],
             summoning_sick=card_id in ctx["sick"],
@@ -444,7 +444,7 @@ class Game:
         """The derived characteristics of a single card/permanent (any zone) as a `Permanent` — the
         `piece_at` analog (id, zone, controller, types, subtypes, colors, is_creature, power, toughness,
         keywords, tapped, summoning_sick). Fields that don't apply (e.g. controller off the battlefield)
-        are None/[]/False."""
+        are None/[]/False; power/toughness read 0 on a non-creature."""
         return self._view(card_id, self._char_context())
 
     def permanents(self, player: str | None = None, type: str | None = None) -> list[Permanent]:
