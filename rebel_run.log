@@ -1,0 +1,8 @@
+== ReBeL training ==
+  out=/home/zucc/witchcraft/rebel_runs/rebel_vnet.npz
+  decks=['mono_green_landfall', 'mono_white_soldiers']
+  rounds=500 games/round=24 epochs=150 forge=True
+round 0: data=  440  (train)
+round 1: data=  956  (train)
+round 2: data= 1431  (train)
+round 3: data= 1865  (train)

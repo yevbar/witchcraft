@@ -43,6 +43,8 @@ import driver
 import env
 import game as _setup
 
+from .models import Permanent
+
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
 _SERIAL_FORMAT = "witchcraft-game/1"
@@ -297,9 +299,33 @@ class Game:
     def battlefield(self) -> dict[str, str]:
         """{permanent: controller} for everything on the battlefield (§403), using the engine's derived
         control (so control-changing effects are reflected, not just printed control)."""
-        on_bf = {c for (c,) in self._state.get("on_battlefield", set())}
+        on_bf = self.battlefield_ids()
         controls = driver.run(self._state, ["controls"])["controls"]
         return {c: p for (p, c) in controls if c in on_bf}
+
+    def battlefield_ids(self) -> set[str]:
+        """The ids of everything on the battlefield (§403), read straight off the `on_battlefield` relation
+        — no engine eval. The cheap counterpart to `battlefield()` when you only need membership."""
+        return {c for (c,) in self._state.get("on_battlefield", set())}
+
+    def printed_power(self) -> dict[str, int]:
+        """{card: printed power} from the `printed_power` relation — a cheap raw read (no engine eval, so it
+        does NOT reflect +1/+1 counters or anthem effects; use `card().power` for effective power). Spans all
+        zones, not just the battlefield. Non-integer powers (e.g. '*') are coerced to 0."""
+        pw: dict[str, int] = {}
+        for row in self._state.get("printed_power", ()):
+            if len(row) >= 2:
+                try:
+                    pw[row[0]] = int(row[1])
+                except (ValueError, TypeError):
+                    pw[row[0]] = 0
+        return pw
+
+    def printed_control(self) -> dict[str, str]:
+        """{card: controller} from the `printed_control` relation — a cheap raw read (no engine eval, so it
+        reflects printed/owner control, not control-changing effects; use `battlefield()` for derived
+        control). The relation's rows are (player, card); this indexes them card -> controller."""
+        return {c: p for (p, c) in self._state.get("printed_control", set()) if c}
 
     def hand(self, player: str | None = None) -> list[str] | dict[str, list[str]]:
         """The cards in hand (§402) — a player's list if `player` is given, else {player: [cards]}."""
@@ -377,39 +403,41 @@ class Game:
             "sick": {c for (c,) in s.get("_sick", set())},
         }
 
-    def _view(self, card_id: str, ctx: dict, zone: str | None = "?") -> dict:
-        return {
-            "id": card_id,
-            "name": self.name(card_id),
-            "zone": self._zone_of(card_id) if zone == "?" else zone,
-            "controller": ctx["controller"].get(card_id),
-            "types": ctx["types"].get(card_id, []),
-            "subtypes": ctx["subtypes"].get(card_id, []),
-            "colors": ctx["colors"].get(card_id, []),
-            "is_creature": card_id in ctx["creatures"],
-            "power": ctx["power"].get(card_id),
-            "toughness": ctx["toughness"].get(card_id),
-            "keywords": ctx["keywords"].get(card_id, []),
-            "tapped": card_id in ctx["tapped"],
-            "summoning_sick": card_id in ctx["sick"],
-        }
+    def _view(self, card_id: str, ctx: dict, zone: str | None = "?") -> Permanent:
+        # model_construct: the engine context is already well-typed, so skip re-validation in this hot path.
+        return Permanent.model_construct(
+            id=card_id,
+            name=self.name(card_id),
+            zone=self._zone_of(card_id) if zone == "?" else zone,
+            controller=ctx["controller"].get(card_id),
+            types=ctx["types"].get(card_id, []),
+            subtypes=ctx["subtypes"].get(card_id, []),
+            colors=ctx["colors"].get(card_id, []),
+            is_creature=card_id in ctx["creatures"],
+            power=ctx["power"].get(card_id),
+            toughness=ctx["toughness"].get(card_id),
+            keywords=ctx["keywords"].get(card_id, []),
+            tapped=card_id in ctx["tapped"],
+            summoning_sick=card_id in ctx["sick"],
+        )
 
-    def card(self, card_id: str) -> dict:
-        """The derived characteristics of a single card/permanent (any zone) — the `piece_at` analog:
-        {id, zone, controller, types, subtypes, colors, is_creature, power, toughness, keywords, tapped,
-        summoning_sick}. Fields that don't apply (e.g. controller off the battlefield) are None/[]/False."""
+    def card(self, card_id: str) -> Permanent:
+        """The derived characteristics of a single card/permanent (any zone) as a `Permanent` — the
+        `piece_at` analog (id, zone, controller, types, subtypes, colors, is_creature, power, toughness,
+        keywords, tapped, summoning_sick). Fields that don't apply (e.g. controller off the battlefield)
+        are None/[]/False."""
         return self._view(card_id, self._char_context())
 
-    def permanents(self, player: str | None = None, type: str | None = None) -> list[dict]:
-        """Characteristic views for everything on the battlefield (§403), one engine eval for all of them.
+    def permanents(self, player: str | None = None, type: str | None = None) -> list[Permanent]:
+        """`Permanent` views for everything on the battlefield (§403), one engine eval for all of them.
         Optionally filter by `player` (controller) and/or by printed `type` (e.g. 'creature', 'land')."""
         ctx = self._char_context()
         views = [self._view(c, ctx, zone="battlefield")
                  for (c,) in sorted(self._state.get("on_battlefield", set()))]
         if player is not None:
-            views = [v for v in views if v["controller"] == player]
+            views = [v for v in views if v.controller == player]
         if type is not None:
-            views = [v for v in views if type in v["types"]]
+            views = [v for v in views if type in v.types]
         return views
 
     # ---- readable names (recover "Grizzly Bears" from 'grizzly_bears_6') --------------------------
