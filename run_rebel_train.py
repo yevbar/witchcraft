@@ -45,9 +45,11 @@ def main(argv=None) -> int:
     p.add_argument("--decks", nargs=2, metavar=("ALICE", "BOB"),
                    default=["mono_green_landfall", "mono_white_soldiers"],
                    help="the fixed training pairing (alice=trained seat, bob=random opp)")
-    p.add_argument("--benchmark-every", type=int, default=4,
-                   help="run the (heavier) eval every N rounds; 0 disables")
+    p.add_argument("--benchmark-every", type=int, default=20,
+                   help="run the cheap vs-random eval every N rounds; 0 disables")
     p.add_argument("--eval-games", type=int, default=8, help="games per vs-random benchmark")
+    p.add_argument("--forge-every", type=int, default=100,
+                   help="run the heavy Forge test every N rounds (its own cadence); 0 disables")
     p.add_argument("--no-forge", action="store_true", help="never call Forge, even if installed")
     p.add_argument("--forge-games", type=int, default=3, help="games per Forge benchmark")
     p.add_argument("--forge-timeout", type=int, default=300, help="per-Forge-game timeout (s)")
@@ -96,6 +98,7 @@ def main(argv=None) -> int:
         benchmark_every=args.benchmark_every,
         eval_games=args.eval_games,
         forge=not args.no_forge,
+        forge_every=args.forge_every,
         forge_games=args.forge_games,
         forge_timeout=args.forge_timeout,
         save_path=out,

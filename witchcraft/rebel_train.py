@@ -210,17 +210,19 @@ def _eval_vs_random(value_fn, decks, games, rebel_kwargs, seed):
 
 def train_loop(rounds: int = 12, *, train_decks=("mono_green_landfall", "mono_white_soldiers"),
                games_per_round: int = 24, epochs: int = 150, hidden: int = 24, lr: float = 0.05,
-               benchmark_every: int = 4, eval_games: int = 8, forge: bool = True, forge_games: int = 3,
-               forge_timeout: int = 300, forge_witch_deck: str = "vanilla", save_path: str = "rebel_vnet",
-               seed: int = 0, rebel_kwargs=None, verbose: bool = True):
+               benchmark_every: int = 4, eval_games: int = 8, forge: bool = True, forge_every: int = 100,
+               forge_games: int = 3, forge_timeout: int = 300, forge_witch_deck: str = "vanilla",
+               save_path: str = "rebel_vnet", seed: int = 0, rebel_kwargs=None, verbose: bool = True):
     """Self-play training run on a FIXED two-deck pairing. The training seat ('alice', the first deck — e.g.
     mono_green_landfall) plays **self-play against a RANDOM opponent** ('bob', the second deck — e.g.
     mono_white_soldiers): cheaply, with a value-greedy agent that improves as the net does. EVERY round just
     generates that data, refits the value net, and saves it.
 
-    BENCHMARKS are infrequent (every `benchmark_every` rounds): there it evaluates ReBeL(net) vs a random
-    opponent, and THEN — only at the benchmark — tests the net against Forge's AI (Forge = source of truth,
-    if installed). Returns {'value_fn', 'history', 'save_path'}.
+    BENCHMARKS run on TWO independent cadences. The cheap vs-random eval runs every `benchmark_every` rounds.
+    The heavy Forge test (Forge = source of truth, if installed) runs LESS often — every `forge_every` rounds —
+    so there is longer uninterrupted self-play between the expensive Forge rounds. Set `forge_every` to a
+    multiple of `benchmark_every` to get a vs-random read on the same round as each Forge test. Returns
+    {'value_fn', 'history', 'save_path'}.
 
     Fixed known decks make the determinization belief exact ('perfect information to train against'). CPU-only;
     training rounds are light (no search), the Forge benchmark is the only heavy/infrequent step."""
@@ -244,25 +246,30 @@ def train_loop(rounds: int = 12, *, train_decks=("mono_green_landfall", "mono_wh
         net.save(save_path)
         vf = NetValue(net)
         rec = {"round": r, "data": int(len(Y_all))}
-        # --- BENCHMARK (infrequent): eval vs random, THEN test against Forge ---
+        # --- vs-RANDOM BENCHMARK (cheap, frequent): every `benchmark_every` rounds ---
         if benchmark_every and (r + 1) % benchmark_every == 0:
             rec["win_rate_vs_random"] = _eval_vs_random(vf, decks, eval_games, rebel_kwargs, seed=seed + r)
-            if forge:
-                try:
-                    from . import forge as wf
-                    if wf.forge_available():
-                        from .benchmark import benchmark_vs_forge
-                        rec["forge"] = benchmark_vs_forge(vf, games=forge_games, witch_deck=forge_witch_deck,
-                                                          opp_deck=forge_witch_deck, timeout=forge_timeout)
-                except Exception as e:
-                    rec["forge_error"] = str(e)[:120]
+        # --- FORGE TEST (heavy, infrequent): every `forge_every` rounds, on its own cadence ---
+        if forge and forge_every and (r + 1) % forge_every == 0:
+            try:
+                from . import forge as wf
+                if wf.forge_available():
+                    from .benchmark import benchmark_vs_forge
+                    rec["forge"] = benchmark_vs_forge(vf, games=forge_games, witch_deck=forge_witch_deck,
+                                                      opp_deck=forge_witch_deck, timeout=forge_timeout)
+            except Exception as e:
+                rec["forge_error"] = str(e)[:120]
         history.append(rec)
         if verbose:
+            parts = [f"round {r}: data={rec['data']:5}"]
             if "win_rate_vs_random" in rec:
-                f = rec.get("forge")
-                fx = f"  THEN vs Forge: {f['bot_wins']}/{f['games']} (modeled {f['mirror_modeled_frac']})" if f else ""
-                print(f"round {r}: data={rec['data']:5}  [BENCHMARK] ReBeL(net) vs random = "
-                      f"{rec['win_rate_vs_random']:.2f}{fx}", flush=True)
-            else:
-                print(f"round {r}: data={rec['data']:5}  (train)", flush=True)
+                parts.append(f"ReBeL(net) vs random = {rec['win_rate_vs_random']:.2f}")
+            if "forge" in rec:
+                f = rec["forge"]
+                parts.append(f"vs Forge: {f['bot_wins']}/{f['games']} (modeled {f['mirror_modeled_frac']})")
+            elif "forge_error" in rec:
+                parts.append(f"forge_error: {rec['forge_error']}")
+            if "win_rate_vs_random" not in rec and "forge" not in rec and "forge_error" not in rec:
+                parts.append("(train)")
+            print("  ".join(parts), flush=True)
     return {"value_fn": vf, "history": history, "save_path": save_path}
