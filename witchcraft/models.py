@@ -190,3 +190,78 @@ class Move(BaseModel):
 # The pass-priority move, `("pass",)`. A frozen singleton (Move is immutable, so it's safe to share) — import
 # and return it directly: `from witchcraft.models import Move, Pass` then `return Pass`.
 Pass = Move.of(_PASS)
+
+
+class Priority:
+    """The decision facing the player who has priority right now — the legal `Move`s, pre-sliced by kind.
+
+    `game.priority` returns this instead of a bare list, so a policy reads like a checklist of what you
+    *could* do rather than re-filtering `legal_moves` by `m.kind` every time:
+
+        p = game.priority
+        if p.lands:   return p.lands[0]          # play a land
+        if p.spells:  return p.spells[0]         # cast a spell
+        if p.attacks: return p.attacks[-1]       # swing
+
+    Each slice (`lands`/`spells`/`abilities`/`attacks`/`blocks`/`passes`) is a list of `Move`s, computed
+    once on first access. The object also behaves like the move list it wraps — iterable, indexable,
+    `len()`-able, and truthy when there's anything to do — so it drops in wherever `legal_moves` was used.
+    `p.player` is whose priority it is."""
+
+    __slots__ = ("player", "moves", "_cache")
+
+    def __init__(self, player: str, moves: list):
+        self.player = player
+        self.moves = moves
+        self._cache: dict = {}
+
+    def of(self, *kinds: str) -> list:
+        """The moves whose `kind` is one of `kinds` (computed once per kind-set)."""
+        if kinds not in self._cache:
+            self._cache[kinds] = [m for m in self.moves if m.kind in kinds]
+        return self._cache[kinds]
+
+    @property
+    def lands(self) -> list:
+        """The land drops (`kind == "play"`)."""
+        return self.of("play")
+
+    @property
+    def spells(self) -> list:
+        """The spells you can cast (`kind` in `cast` / `cast_commander`)."""
+        return self.of("cast", "cast_commander")
+
+    @property
+    def abilities(self) -> list:
+        """The activated abilities (`kind == "activate"`)."""
+        return self.of("activate")
+
+    @property
+    def attacks(self) -> list:
+        """The declare-attackers options (`kind == "attack"`)."""
+        return self.of("attack")
+
+    @property
+    def blocks(self) -> list:
+        """The declare-blockers options (`kind == "block"`)."""
+        return self.of("block")
+
+    @property
+    def passes(self) -> list:
+        """The pass move (`kind == "pass"`), if passing is legal here."""
+        return self.of("pass")
+
+    def __iter__(self):
+        return iter(self.moves)
+
+    def __len__(self) -> int:
+        return len(self.moves)
+
+    def __getitem__(self, i):
+        return self.moves[i]
+
+    def __bool__(self) -> bool:
+        return bool(self.moves)
+
+    def __repr__(self) -> str:
+        return f"<Priority {self.player!r}: {len(self.moves)} moves>"

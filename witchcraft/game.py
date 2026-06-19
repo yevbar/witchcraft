@@ -43,7 +43,7 @@ import driver
 import env
 import game as _setup
 
-from .models import Move, Permanent
+from .models import Move, Permanent, Priority
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
@@ -210,6 +210,14 @@ class Game:
         for (c, s) in self._state.get("has_supertype", ()):       # §205.4 basic/legendary/snow/…
             supers.setdefault(c, []).append(s)
         return [Move.of(a, types, supers) for a in env.legal_actions(self._state)]
+
+    @property
+    def priority(self) -> Priority:
+        """The current decision as a `Priority` view — `legal_moves` pre-sliced by kind, for the player to
+        act now. Sugar for policy code: `p = game.priority; if p.lands: ...; if p.spells: ...` reads like a
+        checklist instead of re-filtering by `m.kind`. Behaves like the move list it wraps (iterable/
+        indexable/`len`/truthy)."""
+        return Priority(self.turn, self.legal_moves)
 
     @property
     def turn(self) -> str:
