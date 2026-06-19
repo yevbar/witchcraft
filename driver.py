@@ -67,18 +67,24 @@ def _choose(state: dict, key: str, options, default):
     """The single seam EVERY player decision routes through — so the shim is a referee, not a hardcoded
     player. `options` is the legal set (for enumeration by a search/policy layer); `default` is the greedy
     pick this codebase has always used. Resolution order:
-      * state['_policy'](state, key, options, default) -> choice   (an external policy, e.g. a net/MCTS)
-      * state['_forced'][key]                                      (a specific choice search.apply injects)
+      * state['_forced'][key]                                      (a SPECIFIC per-step choice env.step /
+                                                                    search.apply injects — authoritative)
+      * state['_policy'](state, key, options, default) -> choice   (the general policy, e.g. a net/MCTS)
       * default                                                    (the greedy heuristic — unchanged play)
-    A forced choice is validated against `options` when options is a concrete collection (else trusted)."""
-    pol = state.get("_policy")
-    if pol is not None:
-        return pol(state, key, options, default)
+    `_forced` is checked FIRST so a choice pinned for THIS step wins over the general `_policy`. It matters
+    when both are present: env.step realizes a chosen top-level move (an attack/block set, a cast's
+    mode/target) by setting `_forced`, while `play()` installs the seat's policy as `_policy` to resolve the
+    OTHER sub-choices. With `_policy` first, its default silently overrode the injected combat declaration —
+    the engine attacked with all eligible regardless of what the player chose. A forced choice is validated
+    against `options` when options is a concrete collection (else trusted)."""
     forced = state.get("_forced")
     if forced and key in forced:
         choice = forced[key]
         if options is None or choice in options:
             return choice
+    pol = state.get("_policy")
+    if pol is not None:
+        return pol(state, key, options, default)
     return default
 
 
