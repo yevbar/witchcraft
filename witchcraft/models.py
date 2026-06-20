@@ -301,9 +301,10 @@ class PriorityOption(Enum):
     BLOCKS = "blocks"
     SKIP = "skip"
 
-    def pick(self, priority: "Priority"):
+    def pick(self, game, priority: "Priority"):
         """The move this option contributes from `priority`, or None when its category is empty (SKIP only
-        empties when there are no moves at all)."""
+        empties when there are no moves at all). `game` is accepted for a uniform interface with
+        `ScoredOption` (a bare option ignores it — its pick is a fixed default)."""
         if self is PriorityOption.SKIP:
             return priority.skip()
         moves = getattr(priority, self.value)
@@ -314,3 +315,41 @@ class PriorityOption(Enum):
         if self is PriorityOption.BLOCKS:
             return min(moves, key=lambda m: len(m.blocks))       # the lightest block
         return moves[0]
+
+    def prefer(self, preference, floor: float | None = None) -> "ScoredOption":
+        """Attach a preference to this option: `Do.ATTACKS.prefer(self.attack_choice)`. In `game.prioritize`,
+        the category's move that MAXIMISES `preference(game, move)` is chosen (instead of the option's fixed
+        default pick). `preference` is a `(game, move) -> float`; a bound method `self.attack_choice` fits
+        directly. With a `floor`, the option only contributes when its best move's score is STRICTLY above
+        `floor` — else the category is skipped and `prioritize` falls through (e.g. `floor=0.0` over a
+        score that's an improvement-over-passing delta = 'only act if it beats doing nothing')."""
+        return ScoredOption(self, preference, floor)
+
+
+class ScoredOption:
+    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.prefer(preference)`.
+    In `game.prioritize`, it contributes the move in its category that maximises `preference(game, move)`
+    (or None when the category is empty), so the policy reads as an ordered list of scored preferences:
+
+        game.prioritize(Do.LANDS, Do.SPELLS.prefer(self.develop_choice),
+                        Do.ATTACKS.prefer(self.attack_choice), Do.SKIP)
+
+    The preference is a `(game, move) -> float`; a bound method `self.<name>_choice` slots in directly."""
+
+    __slots__ = ("option", "preference", "floor")
+
+    def __init__(self, option: "PriorityOption", preference, floor: float | None = None):
+        self.option = option
+        self.preference = preference
+        self.floor = floor
+
+    def pick(self, game, priority: "Priority"):
+        """The category's move maximising `preference(game, move)` — or None if the category is empty, or
+        (when a `floor` is set) if even the best move's score doesn't clear it."""
+        moves = getattr(priority, self.option.value)
+        if not moves:
+            return None
+        score, best = max(((self.preference(game, m), m) for m in moves), key=lambda t: t[0])
+        if self.floor is not None and score <= self.floor:
+            return None
+        return best
