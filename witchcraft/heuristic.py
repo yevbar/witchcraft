@@ -65,7 +65,7 @@ class HeuristicPlayer(Player):
 
     def _choose_attack(self, opts: list) -> Move:
         my_life, opp_life = self.life, self.opponent.life
-        opp_blockers = [c for c in self.opponent.creatures if not c.tapped]
+        opp_blockers = self.opponent.blockers                          # their untapped creatures
         n_blockers = len(opp_blockers)
         opp_swing = sum(c.power for c in opp_blockers)                  # what they could hit back with
         my_creatures = {c.id: c for c in self.creatures}
