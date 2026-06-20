@@ -2437,6 +2437,28 @@ class _ToEffect(Transformer):
         tail = next((str(a) for a in args if isinstance(a, _NsTail)), None)
         if subj is None or verb is None:
             return None
+        # NS_CANT (high-prio) steals "can't" corpus-wide, so '<player NP> who can't loses N life' — where
+        # "can't" is a RELATIVE-CLAUSE modifier (an elided 'who can't <prior action>'), NOT a combat
+        # prohibition — routes here instead of pcount/lose_life. Detect the real lose_life shape via a src
+        # re-match of the `_lose*` templates and ground it (byte-for-byte), before the cant-combat frames.
+        src = getattr(self, "_src", None)
+        if src is not None:
+            s = src.strip()
+            m = _LOSE_TGT_RE.match(s)
+            if m:
+                n = _amount(m.group(2))
+                if n is not None:
+                    return Effect("lose_life", n, _target(m.group(1)))
+            m = _LHF_RE.match(s)
+            if m:
+                return Effect("lose_life", "half" + ("_rounded_" + m.group(2) if m.group(2) else ""),
+                              _target(m.group(1) or "you"))
+            m = _LLE_RE.match(s)
+            if m:
+                return Effect("lose_life", "equal_to_" + ground.slug(m.group(2)), _target(m.group(1) or "you"))
+            m = _LTM_RE.match(s)
+            if m:
+                return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
         rest = verb.strip() + (" " + tail.strip() if tail is not None else "")
         return _ns_cant(subj.strip().lower(), rest.strip().lower())
 
