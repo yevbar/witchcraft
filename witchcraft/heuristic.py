@@ -11,12 +11,10 @@ agent won't:
     decision *before* damage, so the attacker never "sees" the damage it deals.)
   * Block to matter — prevent lethal, then trade up; never chump for free.
 
-The combat scorers (`score_attack`, `score_block`) live as standalone functions
-parameterised by the weights `HeuristicPlayer` holds as class attributes — visible,
-dialable, testable on their own. The leaf board eval (`_value`) is a method: it
-reads the board through the bound seat views (`self.creatures` /
-`self.opponent.creatures`, typed `Permanent`s with `.power`), pointing the bind at
-whatever position it scores (a hypothetical child included) and restoring it after.
+The scorers (`_score_attack`, `_score_block`, the leaf eval `_value`) are methods on
+`HeuristicPlayer`: each reads its dialable weights straight off `self` (the `W_*` /
+`LETHAL` class attributes) and the board through the bound seat views, so the call
+sites stay compact — no weights threaded through as arguments.
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -31,56 +29,9 @@ from .models import Move, Pass
 from .players import Player
 
 
-# ---- combat scorers (pure, tweakable) ------------------------------------------------------------
-# The combat heuristics, factored out of HeuristicPlayer so they can be read, tested and dialed on their
-# own. Each takes the board facts it needs plus its scoring weights; the defaults match the class attributes
-# (which is what HeuristicPlayer passes), so the functions are also usable standalone.
-
-def creature_value(c) -> float:
-    """A rough worth for a creature when valuing a trade: power + toughness + 1."""
-    return c.power + c.toughness + 1.0
-
-
-def score_attack(attackers, my_creatures: dict, n_blockers: int, opp_life: int, opp_swing: int,
-                 my_life: int, *, lethal: float = 1000.0, w_damage: float = 2.0,
-                 w_crackback: float = 1.5) -> float:
-    """Value of declaring `attackers` (a set of my creature ids; `my_creatures` maps id -> Permanent).
-    Rewards damage that lands under a worst-case block (opponent blocks our biggest `n_blockers` attackers,
-    the rest connect) and an outright lethal swing; penalises a lethal-looking crackback from the untapped
-    creatures we'd leave home. An empty attack scores -1 (passing up an attack is rarely right vs random)."""
-    if not attackers:
-        return -1.0
-    powers = sorted((my_creatures[a].power for a in attackers if a in my_creatures), reverse=True)
-    unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
-    landed = min(unblocked, opp_life)
-    staying = [c for cid, c in my_creatures.items() if cid not in attackers and not c.tapped]
-    my_def = my_life + sum(c.toughness for c in staying)
-    risk = max(0, opp_swing - my_def) * w_crackback
-    return (lethal if unblocked >= opp_life else 0.0) + w_damage * landed - risk
-
-
-def score_block(blocks, cards: dict, attackers, my_life: int, *, lethal: float = 1000.0,
-                w_trade: float = 1.5) -> float:
-    """Value of a `blocks` assignment (a set of (blocker, attacker) id pairs; `cards` maps every id ->
-    Permanent). Rewards damage prevented and trading up (their_loss), discounts losing our own creatures
-    (my_loss), and hard-penalises leaving a lethal amount of damage unblocked."""
-    blocked = {a for (_b, a) in blocks}
-    prevented = their_loss = my_loss = 0.0
-    for (b, a) in blocks:
-        ac, bc = cards[a], cards[b]
-        prevented += ac.power
-        if bc.power >= ac.toughness:
-            their_loss += creature_value(ac)
-        if ac.power >= bc.toughness:
-            my_loss += creature_value(bc)
-    unblocked = sum(cards[a].power for a in attackers if a not in blocked)
-    lethal_pen = lethal if unblocked >= my_life else 0.0
-    return prevented + w_trade * their_loss - w_trade * my_loss - lethal_pen
-
-
 class HeuristicPlayer(Player):
     """A hand-built MTG heuristic: develop, attack with intent, block to matter. The class body is the
-    strategy and its dialable metrics; the arithmetic lives in the module-level scorers above."""
+    strategy and its dialable metrics; the scoring arithmetic lives in the `_score_*` methods below."""
 
     name = "heuristic"
 
@@ -118,9 +69,25 @@ class HeuristicPlayer(Player):
         opp_blockers = [c for c in self.opponent.creatures if not c.tapped]
         opp_swing = sum(c.power for c in opp_blockers)                  # what they could hit back with
         my_creatures = {c.id: c for c in self.creatures}
-        return max(opts, key=lambda m: score_attack(
-            m.attackers, my_creatures, len(opp_blockers), opp_life, opp_swing, my_life,
-            lethal=self.LETHAL, w_damage=self.W_DAMAGE, w_crackback=self.W_CRACKBACK))
+        return max(opts, key=lambda m: self._score_attack(
+            m.attackers, my_creatures, len(opp_blockers), opp_life, opp_swing, my_life))
+
+    def _score_attack(self, attackers, my_creatures: dict, n_blockers: int, opp_life: int, opp_swing: int,
+                      my_life: int) -> float:
+        """Value of declaring `attackers` (a set of my creature ids; `my_creatures` maps id -> Permanent).
+        Rewards damage that lands under a worst-case block (opponent blocks our biggest `n_blockers`
+        attackers, the rest connect) and an outright lethal swing; penalises a lethal-looking crackback from
+        the untapped creatures we'd leave home. An empty attack scores -1 (passing up an attack is rarely
+        right vs random). Weights: self.LETHAL / W_DAMAGE / W_CRACKBACK."""
+        if not attackers:
+            return -1.0
+        powers = sorted((my_creatures[a].power for a in attackers if a in my_creatures), reverse=True)
+        unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
+        landed = min(unblocked, opp_life)
+        staying = [c for cid, c in my_creatures.items() if cid not in attackers and not c.tapped]
+        my_def = my_life + sum(c.toughness for c in staying)
+        risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
+        return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
 
     # ---- combat: declare blockers ----------------------------------------------------------------
 
@@ -128,8 +95,30 @@ class HeuristicPlayer(Player):
         my_life = self.life                                            # I'm the defender during declare_blockers
         attackers = {a for m in opts for (_b, a) in m.blocks}         # every attacker that can be blocked
         cards = {cid: game.card(cid) for m in opts for pair in m.blocks for cid in pair}
-        return max(opts, key=lambda m: score_block(
-            m.blocks, cards, attackers, my_life, lethal=self.LETHAL, w_trade=self.W_TRADE))
+        return max(opts, key=lambda m: self._score_block(m.blocks, cards, attackers, my_life))
+
+    def _score_block(self, blocks, cards: dict, attackers, my_life: int) -> float:
+        """Value of a `blocks` assignment (a set of (blocker, attacker) id pairs; `cards` maps every id ->
+        Permanent). Rewards damage prevented and trading up (their_loss), discounts losing our own creatures
+        (my_loss), and hard-penalises leaving a lethal amount of damage unblocked. Weights: self.LETHAL /
+        W_TRADE."""
+        blocked = {a for (_b, a) in blocks}
+        prevented = their_loss = my_loss = 0.0
+        for (b, a) in blocks:
+            ac, bc = cards[a], cards[b]
+            prevented += ac.power
+            if bc.power >= ac.toughness:
+                their_loss += self._creature_value(ac)
+            if ac.power >= bc.toughness:
+                my_loss += self._creature_value(bc)
+        unblocked = sum(cards[a].power for a in attackers if a not in blocked)
+        lethal_pen = self.LETHAL if unblocked >= my_life else 0.0
+        return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
+
+    @staticmethod
+    def _creature_value(c) -> float:
+        """A rough worth for a creature when valuing a trade: power + toughness + 1."""
+        return c.power + c.toughness + 1.0
 
     # ---- non-combat priority: develop the board --------------------------------------------------
 
