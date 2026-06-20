@@ -301,9 +301,10 @@ class PriorityOption(Enum):
     BLOCKS = "blocks"
     SKIP = "skip"
 
-    def pick(self, priority: "Priority"):
+    def pick(self, game, priority: "Priority"):
         """The move this option contributes from `priority`, or None when its category is empty (SKIP only
-        empties when there are no moves at all)."""
+        empties when there are no moves at all). `game` is accepted for a uniform interface with
+        `ScoredOption` (a bare option ignores it — its pick is a fixed default)."""
         if self is PriorityOption.SKIP:
             return priority.skip()
         moves = getattr(priority, self.value)
@@ -314,3 +315,34 @@ class PriorityOption(Enum):
         if self is PriorityOption.BLOCKS:
             return min(moves, key=lambda m: len(m.blocks))       # the lightest block
         return moves[0]
+
+    def with_(self, preference) -> "ScoredOption":
+        """Attach a preference to this option: `Do.ATTACKS.with_(my_attack_score)`. In `game.prioritize`,
+        the category's move that MAXIMISES `preference(game, move)` is chosen (instead of the option's fixed
+        default pick). `preference` is a `(game, move) -> float`; a bound method `self.attack_preference`
+        fits directly. (Named `with_` — `with` is a Python keyword.)"""
+        return ScoredOption(self, preference)
+
+
+class ScoredOption:
+    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.with_(preference)`.
+    In `game.prioritize`, it contributes the move in its category that maximises `preference(game, move)`
+    (or None when the category is empty), so the policy reads as an ordered list of scored preferences:
+
+        game.prioritize(Do.LANDS, Do.SPELLS.with_(self.develop_preference),
+                        Do.ATTACKS.with_(self.attack_preference), Do.SKIP)
+
+    The preference is a `(game, move) -> float`; a bound method `self.<name>_preference` slots in directly."""
+
+    __slots__ = ("option", "preference")
+
+    def __init__(self, option: "PriorityOption", preference):
+        self.option = option
+        self.preference = preference
+
+    def pick(self, game, priority: "Priority"):
+        """The category's move maximising `preference(game, move)`, or None if the category is empty."""
+        moves = getattr(priority, self.option.value)
+        if not moves:
+            return None
+        return max(moves, key=lambda m: self.preference(game, m))

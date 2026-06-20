@@ -43,7 +43,7 @@ import driver
 import env
 import game as _setup
 
-from .models import Move, Permanent, Priority, PriorityOption
+from .models import Move, Permanent, Priority, PriorityOption, ScoredOption
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
@@ -219,19 +219,20 @@ class Game:
         indexable/`len`/truthy)."""
         return Priority(self.turn, self.legal_moves)
 
-    def prioritize(self, *options: PriorityOption) -> Move | None:
+    def prioritize(self, *options) -> Move | None:
         """Return the move from the first `PriorityOption` whose category has one, trying `options` in the
         order given — a whole policy expressed as one declarative call:
 
             game.prioritize(PriorityOption.LANDS, PriorityOption.SPELLS, PriorityOption.ATTACKS,
                             PriorityOption.BLOCKS, PriorityOption.SKIP)
 
-        The argument order IS the strategy ('try a land, then a spell, then attack, …'). Each option picks
-        the most forward move in its category (widest attack, lightest block, else the first). Falls back to
-        `skip()` (do nothing) if none of the listed options apply."""
+        The argument order IS the strategy ('try a land, then a spell, then attack, …'). A bare option picks
+        the most forward move in its category (widest attack, lightest block, else the first); an option with
+        a preference — `Do.ATTACKS.with_(score)` (a `ScoredOption`) — picks the category's max-scoring move.
+        Falls back to `skip()` (do nothing) if none of the listed options apply."""
         p = self.priority
         for opt in options:
-            move = opt.pick(p)
+            move = opt.pick(self, p)              # uniform pick(game, priority) on both PriorityOption + ScoredOption
             if move is not None:
                 return move
         return p.skip()

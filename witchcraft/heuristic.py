@@ -11,9 +11,11 @@ agent won't:
     decision *before* damage, so the attacker never "sees" the damage it deals.)
   * Block to matter — prevent lethal, then trade up; never chump for free.
 
-The combat scorers are local `score(...)` closures inside `_choose_attack` / `_choose_block`: each closes
-over the turn's facts (my creatures, the opponent's blockers, the life totals) and the dialable weights on
-`self`, so the `score` itself takes only the move's attack/block set. The leaf eval `_value` stays a method.
+`choose_move` is a single declarative `game.prioritize(...)` — try a land, else the best spell, else the
+best attack, else the best block, else pass — where each category carries a `preference` (a
+`(game, move) -> float` scorer). `prioritize` picks the max-scoring move in the first non-empty category, so
+the *order of the arguments is the strategy* and the per-move scorers (`attack_preference` /
+`block_preference` / `develop_preference`, over the leaf eval `_value`) are the *metrics*.
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -24,13 +26,13 @@ from __future__ import annotations
 import env
 
 from .game import Game
-from .models import Move, Pass
+from .models import Move, PriorityOption
 from .players import Player
 
 
 class HeuristicPlayer(Player):
-    """A hand-built MTG heuristic: develop, attack with intent, block to matter. The class body is the
-    strategy and its dialable metrics; each combat decision scores its options with a local `score` closure."""
+    """A hand-built MTG heuristic: develop, attack with intent, block to matter. `choose_move` declares the
+    strategy as one prioritized list of scored preferences; the `*_preference` methods are the metrics."""
 
     name = "heuristic"
 
@@ -49,96 +51,67 @@ class HeuristicPlayer(Player):
 
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
-        moves = game.legal_moves
-        if not moves:
-            return None
-        if len(moves) == 1:
-            return moves[0]
-        kinds = {m.kind for m in moves}
-        if "attack" in kinds:
-            return self._choose_attack([m for m in moves if m.kind == "attack"])
-        if "block" in kinds:
-            return self._choose_block(game, [m for m in moves if m.kind == "block"])
-        return self._choose_develop(game, moves)
+        Do = PriorityOption
+        return game.prioritize(
+            Do.LANDS,                                       # play a land if one's available,
+            Do.SPELLS.with_(self.develop_preference),       # else the best spell by 1-ply board value,
+            Do.ATTACKS.with_(self.attack_preference),       # else the best attack declaration,
+            Do.BLOCKS.with_(self.block_preference),         # else the best block assignment,
+            Do.SKIP,                                        # else pass.
+        )
 
-    # ---- combat: declare attackers ---------------------------------------------------------------
+    # ---- preferences (score ONE move; game.prioritize picks the max in each category) -------------
 
-    def _choose_attack(self, opts: list) -> Move:
-        my_life, opp_life = self.life, self.opponent.life
+    def attack_preference(self, game, move) -> float:
+        """Value of declaring `move`'s attackers: damage that lands under a worst-case block (they block our
+        biggest, the rest connect) plus an outright lethal swing, minus a lethal-looking crackback from the
+        untapped creatures we'd leave home. Empty attack scores -1 (passing up an attack is rarely right)."""
+        attackers = move.attackers
+        if not attackers:
+            return -1.0
         opp_blockers = self.opponent.blockers                          # their untapped creatures
         n_blockers = len(opp_blockers)
         opp_swing = sum(c.power for c in opp_blockers)                  # what they could hit back with
+        my_life, opp_life = self.life, self.opponent.life
+        powers = sorted((c.power for c in self.creatures if c.id in attackers), reverse=True)
+        unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
+        landed = min(unblocked, opp_life)
+        staying = [c for c in self.creatures if c.id not in attackers and not c.tapped]
+        my_def = my_life + sum(c.toughness for c in staying)
+        risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
+        return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
 
-        def score(attackers) -> float:
-            """Value of declaring `attackers`: damage that lands under a worst-case block (they block our
-            biggest `n_blockers`, the rest connect) plus an outright lethal swing, minus a lethal-looking
-            crackback from the untapped creatures we'd leave home. Empty attack scores -1 (passing up an
-            attack is rarely right vs random)."""
-            if not attackers:
-                return -1.0
-            powers = sorted((c.power for c in self.creatures if c.id in attackers), reverse=True)
-            unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
-            landed = min(unblocked, opp_life)
-            staying = [c for c in self.creatures if c.id not in attackers and not c.tapped]
-            my_def = my_life + sum(c.toughness for c in staying)
-            risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
-            return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
-
-        return max(opts, key=lambda m: score(m.attackers))
-
-    # ---- combat: declare blockers ----------------------------------------------------------------
-
-    def _choose_block(self, game, opts: list) -> Move:
+    def block_preference(self, game, move) -> float:
+        """Value of `move`'s block assignment: damage prevented and trading up (their_loss), minus losing our
+        own creatures (my_loss), minus a hard penalty for leaving a lethal amount unblocked. The attacking
+        creatures come from the engine state (so an unblockable attacker's damage still counts)."""
         my_life = self.life                                            # I'm the defender during declare_blockers
-        attackers = {a for m in opts for (_b, a) in m.blocks}         # every attacker that can be blocked
-        cards = {cid: game.card(cid) for m in opts for pair in m.blocks for cid in pair}
+        attackers = {a for (a, _d) in game.state.get("attacks", set())}
+        blocks = move.blocks
+        blocked = {a for (_b, a) in blocks}
+        prevented = their_loss = my_loss = 0.0
+        for (b, a) in blocks:
+            ac, bc = game.card(a), game.card(b)
+            prevented += ac.power
+            if bc.power >= ac.toughness:
+                their_loss += self._creature_value(ac)
+            if ac.power >= bc.toughness:
+                my_loss += self._creature_value(bc)
+        unblocked = sum(game.card(a).power for a in attackers if a not in blocked)
+        lethal_pen = self.LETHAL if unblocked >= my_life else 0.0
+        return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
 
-        def cval(c) -> float:                                          # a rough creature worth for a trade
-            return c.power + c.toughness + 1.0
+    def develop_preference(self, game, move) -> float:
+        """Value of a non-combat play `move`: the board eval of the position it leads to (1-ply greedy)."""
+        try:
+            child = Game.from_state(env.step(game.state, move.raw))    # env.step normalises the Move to .raw
+        except Exception:
+            return float("-inf")
+        return self._value(child, self.seat)
 
-        def score(blocks) -> float:
-            """Value of a `blocks` assignment: damage prevented and trading up (their_loss), minus losing
-            our own creatures (my_loss), minus a hard penalty for leaving a lethal amount unblocked."""
-            blocked = {a for (_b, a) in blocks}
-            prevented = their_loss = my_loss = 0.0
-            for (b, a) in blocks:
-                ac, bc = cards[a], cards[b]
-                prevented += ac.power
-                if bc.power >= ac.toughness:
-                    their_loss += cval(ac)
-                if ac.power >= bc.toughness:
-                    my_loss += cval(bc)
-            unblocked = sum(cards[a].power for a in attackers if a not in blocked)
-            lethal_pen = self.LETHAL if unblocked >= my_life else 0.0
-            return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
-
-        return max(opts, key=lambda m: score(m.blocks))
-
-    # ---- non-combat priority: develop the board --------------------------------------------------
-
-    def _choose_develop(self, game, moves: list) -> Move:
-        me = self.seat
-        # 1) always make the land drop first — free development that enables everything else.
-        #    Play NON-BASIC lands before basics: basics are the most fungible (any deck can fetch/replay
-        #    them), so spend the scarcer, ability-bearing nonbasics first and keep basics in reserve.
-        lands = [m for m in moves if m.kind == "play" and m.card.has_type("land")]
-        if lands:
-            lands.sort(key=lambda m: m.card.is_basic)              # False (nonbasic) sorts before True (basic)
-            return lands[0]
-        # 2) 1-ply greedy over real actions; only act if it beats sitting still
-        nonpass = [m for m in moves if m.kind != "pass"]
-        if not nonpass:
-            return Pass
-        best, best_v = Pass, self._value(game, me)
-        for m in nonpass:
-            try:
-                child = Game.from_state(env.step(game.state, m))       # env.step normalises the Move to its .raw
-            except Exception:
-                continue
-            v = self._value(child, me)
-            if v > best_v:
-                best_v, best = v, m
-        return best
+    @staticmethod
+    def _creature_value(c) -> float:                                   # a rough creature worth for a trade
+        return c.power + c.toughness + 1.0
 
     # ---- leaf board eval -------------------------------------------------------------------------
 
