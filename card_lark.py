@@ -771,6 +771,10 @@ _DRAW_TGT_RE = re.compile(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) dra
 # opponent who can't', 'each opponent with no cards in hand', 'any number of target players each'). Re-applied
 # to src by pcount; same _TGT span as the regex -> grounds exactly what `_lose` does, byte-for-byte.
 _LOSE_TGT_RE = re.compile(rf"^({_TGT}) loses? (\w+) life$", re.I)
+# <subj> gains N life — `_gain`'s exact pattern, for an EXPLICIT _TGT subject the grant rule's plain gain
+# branch rejects (it only grounds `_PLAYER` subjects). 'any number of target players each gain 6 life',
+# 'each player who … gains 1 life'. Re-matched on src in the grant transformer -> byte-for-byte `_gain`.
+_GAIN_TGT_RE = re.compile(rf"^({_TGT}) gains? (\w+) life$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -1952,6 +1956,11 @@ class _ToEffect(Transformer):
             m = _GTM_RE.match(s)
             if m:
                 return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+            m = _GAIN_TGT_RE.match(s)         # '<player NP> gains N life' — explicit _TGT subject the plain
+            if m and not _PLAYER.match(m.group(1).strip()):   # branch below rejects (broad/relative-clause NP);
+                n = _amount(m.group(2))       # reproduce `_gain` byte-for-byte (plain _PLAYER subjects below)
+                if n is not None:
+                    return Effect("gain_life", n, _target(m.group(1)))
         # 'gain(s) <amount> life' is gain_life — the 'gain(s)' verb is now owned by this rule (removed
         # from PVERB to kill the pcount<->grant ambiguity). Reproduce pcount's gain_life tuple exactly;
         # abstain on a duration/perpetual or a non-player subject (pcount's domain handles only those).
