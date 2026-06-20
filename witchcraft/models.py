@@ -13,6 +13,7 @@ AttributeError at the call site, not a silent `None`. Views are read-only snapsh
 """
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -274,3 +275,36 @@ class Priority:
 
     def __repr__(self) -> str:
         return f"<Priority {self.player!r}: {len(self.moves)} moves>"
+
+
+class PriorityOption(Enum):
+    """A category of action you can take with priority — the building block for declaratively ordering a
+    policy via `game.prioritize(...)`:
+
+        game.prioritize(PriorityOption.LANDS, PriorityOption.SPELLS, PriorityOption.ATTACKS,
+                        PriorityOption.BLOCKS, PriorityOption.SKIP)
+
+    returns the first available move from the first listed category, so the argument order *is* the whole
+    strategy. Each option contributes the most forward move in its category — the widest attack, the
+    lightest block, otherwise the first option — and SKIP contributes the do-nothing move (`Priority.skip`)."""
+
+    LANDS = "lands"
+    SPELLS = "spells"
+    ABILITIES = "abilities"
+    ATTACKS = "attacks"
+    BLOCKS = "blocks"
+    SKIP = "skip"
+
+    def pick(self, priority: "Priority"):
+        """The move this option contributes from `priority`, or None when its category is empty (SKIP only
+        empties when there are no moves at all)."""
+        if self is PriorityOption.SKIP:
+            return priority.skip()
+        moves = getattr(priority, self.value)
+        if not moves:
+            return None
+        if self is PriorityOption.ATTACKS:
+            return max(moves, key=lambda m: len(m.attackers))    # commit: swing with the most creatures
+        if self is PriorityOption.BLOCKS:
+            return min(moves, key=lambda m: len(m.blocks))       # the lightest block
+        return moves[0]

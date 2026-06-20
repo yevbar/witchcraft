@@ -1,10 +1,10 @@
 """witchcraft.aggro — the simplest possible beatdown bot.
 
-`AggroPlayer` does one thing, relentlessly: develop, then attack. Its whole policy is a short checklist you
-could read out loud — play a land, cast a spell, swing with everything, never block, otherwise pass — read
-straight off `game.priority` (the legal moves pre-sliced by kind). No board evaluation, no scoring, no
-lookahead, no weights. It is deliberately dumb (a real heuristic holds back, blocks to trade up, and picks
-its spots — see `HeuristicPlayer`); the point is that the entire strategy is five lines.
+`AggroPlayer` does one thing, relentlessly: develop, then attack. Its whole policy is a single priority
+order, declared with `game.prioritize(...)` — play a land, else cast a spell, else swing with everything,
+else (never really) block, else pass. No board evaluation, no scoring, no lookahead, no weights. It is
+deliberately dumb (a real heuristic holds back, blocks to trade up, and picks its spots — see
+`HeuristicPlayer`); the point is that the entire strategy is one readable line.
 
     from witchcraft import benchmark
     from witchcraft.aggro import AggroPlayer
@@ -12,6 +12,7 @@ its spots — see `HeuristicPlayer`); the point is that the entire strategy is f
 """
 from __future__ import annotations
 
+from .models import PriorityOption as Do
 from .players import Player
 
 
@@ -21,9 +22,5 @@ class AggroPlayer(Player):
     name = "aggro"
 
     def choose_move(self, game):
-        p = game.priority                                   # what can I do right now?
-        if p.lands:   return p.lands[0]                     # play a land if I can,
-        if p.spells:  return p.spells[0]                    # else cast a spell,
-        if p.attacks: return max(p.attacks, key=lambda m: len(m.attackers))   # else swing with everything,
-        if p.blocks:  return min(p.blocks, key=lambda m: len(m.blocks))       # else never block — keep racing,
-        return p.skip()                                                       # else pass.
+        # In priority order: play a land, then cast a spell, then swing, then (barely) block, else pass.
+        return game.prioritize(Do.LANDS, Do.SPELLS, Do.ATTACKS, Do.BLOCKS, Do.SKIP)

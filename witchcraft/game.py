@@ -43,7 +43,7 @@ import driver
 import env
 import game as _setup
 
-from .models import Move, Permanent, Priority
+from .models import Move, Permanent, Priority, PriorityOption
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
@@ -218,6 +218,23 @@ class Game:
         checklist instead of re-filtering by `m.kind`. Behaves like the move list it wraps (iterable/
         indexable/`len`/truthy)."""
         return Priority(self.turn, self.legal_moves)
+
+    def prioritize(self, *options: PriorityOption) -> Move | None:
+        """Return the move from the first `PriorityOption` whose category has one, trying `options` in the
+        order given — a whole policy expressed as one declarative call:
+
+            game.prioritize(PriorityOption.LANDS, PriorityOption.SPELLS, PriorityOption.ATTACKS,
+                            PriorityOption.BLOCKS, PriorityOption.SKIP)
+
+        The argument order IS the strategy ('try a land, then a spell, then attack, …'). Each option picks
+        the most forward move in its category (widest attack, lightest block, else the first). Falls back to
+        `skip()` (do nothing) if none of the listed options apply."""
+        p = self.priority
+        for opt in options:
+            move = opt.pick(p)
+            if move is not None:
+                return move
+        return p.skip()
 
     @property
     def turn(self) -> str:
