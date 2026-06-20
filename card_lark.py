@@ -785,6 +785,11 @@ _GAIN_TGT_RE = re.compile(rf"^({_TGT}) gains? (\w+) life$", re.I)
 # <subj> mills N cards — `_mill`'s exact pattern, for a _TGT subject pcount's player-gate rejects ('any number
 # of target players each mill two cards'). Re-applied to src by pcount; same _TGT span -> byte-for-byte `_mill`.
 _MILL_TGT_RE = re.compile(rf"^({_TGT}) mills? (a card|\w+) cards?$", re.I)
+# TAP/UNTAP <obj> — `_taputap`'s exact pattern: an optional leading subject (DROPPED) + tap/untap + the object
+# `({_TGT})`, where _TGT spans a 'with <counter>' / 'that has …' RIDER and a subject-prefixed '<player> untaps
+# <their permanents>'. The imperative leaf abstains on those (the _WITHCTR guard / no leading-subject form); a
+# src re-match here reproduces the WHOLE-NP target byte-for-byte. group1=verb, group2=object.
+_TAPUNTAP_RE = re.compile(rf"^(?:{_TGT} )?(tap|untap)s? ({_TGT})$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -1676,6 +1681,11 @@ class _ToEffect(Transformer):
         quant, _zone, otext = self._assemble(rest)
         if otext is None:
             return None
+        if verb in ("tap", "untap", "taps", "untaps"):   # `_taputap`: tap/untap whose object _TGT spans a
+            src = getattr(self, "_src", None)            # 'with <counter>'/'that has …' RIDER (the guards below
+            tm = _TAPUNTAP_RE.match(src.strip()) if src is not None else None   # would abstain on it). Reproduce
+            if tm:                                       # the whole-NP target byte-for-byte before the guards.
+                return Effect(tm.group(1).lower(), "-", _target(tm.group(2)))
         if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext) or _MULTICLAUSE.search(otext):
             return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
