@@ -774,6 +774,11 @@ _DRAW_TGT_RE = re.compile(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) dra
 # (690) in the chain, but their patterns are disjoint ('your hand' ∉ _discard_set's set), so order is moot.
 _DH_RE = re.compile(r"^discard your hand$", re.I)
 _DSET_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (their hand|those cards|that card|all the cards in their hand)$", re.I)
+# '[then] <player> may have you draw N cards' — the §603 causative the regex grounds LOSSILY via `_draw_tgt`
+# (subject='target_opponent_may_have_you', dropping that YOU are the drawer). This is a FAITHFUL IMPROVEMENT,
+# not a byte-identical flip: ground the actual drawer ('you') + the directing player as extra='by_<player>'
+# (mirrors deal_damage `_have_deal`'s extra='by_<src>'). Routes to the grant rule (GVERB 'have'); handled there.
+_HAVE_DRAW_RE = re.compile(rf"^(?:then )?({_TGT}) may have you draws? (a card|\w+) cards?$", re.I)
 # GAIN/LOSE life dynamic amounts — exact patterns of `_gain_foreach`/`_gain_life_equal`/`_that_gain`
 # (gain routes to the grant rule) and `_lose_life_equal`/`_lose_half`/`_lose_that_much` (lose routes to
 # pcount via the PVERB terminal). Re-applied to src; reproduce each template's amount slug byte-for-byte.
@@ -1922,6 +1927,12 @@ class _ToEffect(Transformer):
         src = getattr(self, "_src", None)
         if src is not None:
             s = src.strip()
+            m = _HAVE_DRAW_RE.match(s)         # '[then] <player> may have you draw N cards' (§603 causative) —
+            if m:                             # FAITHFUL: YOU are the drawer; the player just directs it (extra)
+                amt = m.group(2)
+                n = 1 if amt in ("a", "a card") else _amount(amt)
+                if n is not None:
+                    return Effect("draw", n, "you", "by_" + _target(m.group(1)))
             m = _GFE_RE.match(s)
             if m:
                 n = _amount(m.group(2))
