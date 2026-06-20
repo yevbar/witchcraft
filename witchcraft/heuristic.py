@@ -11,12 +11,9 @@ agent won't:
     decision *before* damage, so the attacker never "sees" the damage it deals.)
   * Block to matter — prevent lethal, then trade up; never chump for free.
 
-The combat scorers (`score_attack`, `score_block`) live as standalone functions
-parameterised by the weights `HeuristicPlayer` holds as class attributes — visible,
-dialable, testable on their own. The leaf board eval (`_value`) is a method: it
-reads the board through the bound seat views (`self.creatures` /
-`self.opponent.creatures`, typed `Permanent`s with `.power`), pointing the bind at
-whatever position it scores (a hypothetical child included) and restoring it after.
+The combat scorers are local `score(...)` closures inside `_choose_attack` / `_choose_block`: each closes
+over the turn's facts (my creatures, the opponent's blockers, the life totals) and the dialable weights on
+`self`, so the `score` itself takes only the move's attack/block set. The leaf eval `_value` stays a method.
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -31,56 +28,9 @@ from .models import Move, Pass
 from .players import Player
 
 
-# ---- combat scorers (pure, tweakable) ------------------------------------------------------------
-# The combat heuristics, factored out of HeuristicPlayer so they can be read, tested and dialed on their
-# own. Each takes the board facts it needs plus its scoring weights; the defaults match the class attributes
-# (which is what HeuristicPlayer passes), so the functions are also usable standalone.
-
-def creature_value(c) -> float:
-    """A rough worth for a creature when valuing a trade: power + toughness + 1."""
-    return c.power + c.toughness + 1.0
-
-
-def score_attack(attackers, my_creatures: dict, n_blockers: int, opp_life: int, opp_swing: int,
-                 my_life: int, *, lethal: float = 1000.0, w_damage: float = 2.0,
-                 w_crackback: float = 1.5) -> float:
-    """Value of declaring `attackers` (a set of my creature ids; `my_creatures` maps id -> Permanent).
-    Rewards damage that lands under a worst-case block (opponent blocks our biggest `n_blockers` attackers,
-    the rest connect) and an outright lethal swing; penalises a lethal-looking crackback from the untapped
-    creatures we'd leave home. An empty attack scores -1 (passing up an attack is rarely right vs random)."""
-    if not attackers:
-        return -1.0
-    powers = sorted((my_creatures[a].power for a in attackers if a in my_creatures), reverse=True)
-    unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
-    landed = min(unblocked, opp_life)
-    staying = [c for cid, c in my_creatures.items() if cid not in attackers and not c.tapped]
-    my_def = my_life + sum(c.toughness for c in staying)
-    risk = max(0, opp_swing - my_def) * w_crackback
-    return (lethal if unblocked >= opp_life else 0.0) + w_damage * landed - risk
-
-
-def score_block(blocks, cards: dict, attackers, my_life: int, *, lethal: float = 1000.0,
-                w_trade: float = 1.5) -> float:
-    """Value of a `blocks` assignment (a set of (blocker, attacker) id pairs; `cards` maps every id ->
-    Permanent). Rewards damage prevented and trading up (their_loss), discounts losing our own creatures
-    (my_loss), and hard-penalises leaving a lethal amount of damage unblocked."""
-    blocked = {a for (_b, a) in blocks}
-    prevented = their_loss = my_loss = 0.0
-    for (b, a) in blocks:
-        ac, bc = cards[a], cards[b]
-        prevented += ac.power
-        if bc.power >= ac.toughness:
-            their_loss += creature_value(ac)
-        if ac.power >= bc.toughness:
-            my_loss += creature_value(bc)
-    unblocked = sum(cards[a].power for a in attackers if a not in blocked)
-    lethal_pen = lethal if unblocked >= my_life else 0.0
-    return prevented + w_trade * their_loss - w_trade * my_loss - lethal_pen
-
-
 class HeuristicPlayer(Player):
     """A hand-built MTG heuristic: develop, attack with intent, block to matter. The class body is the
-    strategy and its dialable metrics; the arithmetic lives in the module-level scorers above."""
+    strategy and its dialable metrics; each combat decision scores its options with a local `score` closure."""
 
     name = "heuristic"
 
@@ -115,12 +65,26 @@ class HeuristicPlayer(Player):
 
     def _choose_attack(self, opts: list) -> Move:
         my_life, opp_life = self.life, self.opponent.life
-        opp_blockers = [c for c in self.opponent.creatures if not c.tapped]
+        opp_blockers = self.opponent.blockers                          # their untapped creatures
+        n_blockers = len(opp_blockers)
         opp_swing = sum(c.power for c in opp_blockers)                  # what they could hit back with
-        my_creatures = {c.id: c for c in self.creatures}
-        return max(opts, key=lambda m: score_attack(
-            m.attackers, my_creatures, len(opp_blockers), opp_life, opp_swing, my_life,
-            lethal=self.LETHAL, w_damage=self.W_DAMAGE, w_crackback=self.W_CRACKBACK))
+
+        def score(attackers) -> float:
+            """Value of declaring `attackers`: damage that lands under a worst-case block (they block our
+            biggest `n_blockers`, the rest connect) plus an outright lethal swing, minus a lethal-looking
+            crackback from the untapped creatures we'd leave home. Empty attack scores -1 (passing up an
+            attack is rarely right vs random)."""
+            if not attackers:
+                return -1.0
+            powers = sorted((c.power for c in self.creatures if c.id in attackers), reverse=True)
+            unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
+            landed = min(unblocked, opp_life)
+            staying = [c for c in self.creatures if c.id not in attackers and not c.tapped]
+            my_def = my_life + sum(c.toughness for c in staying)
+            risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
+            return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
+
+        return max(opts, key=lambda m: score(m.attackers))
 
     # ---- combat: declare blockers ----------------------------------------------------------------
 
@@ -128,8 +92,27 @@ class HeuristicPlayer(Player):
         my_life = self.life                                            # I'm the defender during declare_blockers
         attackers = {a for m in opts for (_b, a) in m.blocks}         # every attacker that can be blocked
         cards = {cid: game.card(cid) for m in opts for pair in m.blocks for cid in pair}
-        return max(opts, key=lambda m: score_block(
-            m.blocks, cards, attackers, my_life, lethal=self.LETHAL, w_trade=self.W_TRADE))
+
+        def cval(c) -> float:                                          # a rough creature worth for a trade
+            return c.power + c.toughness + 1.0
+
+        def score(blocks) -> float:
+            """Value of a `blocks` assignment: damage prevented and trading up (their_loss), minus losing
+            our own creatures (my_loss), minus a hard penalty for leaving a lethal amount unblocked."""
+            blocked = {a for (_b, a) in blocks}
+            prevented = their_loss = my_loss = 0.0
+            for (b, a) in blocks:
+                ac, bc = cards[a], cards[b]
+                prevented += ac.power
+                if bc.power >= ac.toughness:
+                    their_loss += cval(ac)
+                if ac.power >= bc.toughness:
+                    my_loss += cval(bc)
+            unblocked = sum(cards[a].power for a in attackers if a not in blocked)
+            lethal_pen = self.LETHAL if unblocked >= my_life else 0.0
+            return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
+
+        return max(opts, key=lambda m: score(m.blocks))
 
     # ---- non-combat priority: develop the board --------------------------------------------------
 
