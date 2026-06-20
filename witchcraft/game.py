@@ -228,7 +228,7 @@ class Game:
 
         The argument order IS the strategy ('try a land, then a spell, then attack, …'). A bare option picks
         the most forward move in its category (widest attack, lightest block, else the first); an option with
-        a preference — `Do.ATTACKS.with_(score)` (a `ScoredOption`) — picks the category's max-scoring move.
+        a preference — `Do.ATTACKS.prefer(self.attack_choice)` (a `ScoredOption`) — picks the category's max-scoring move.
         Falls back to `skip()` (do nothing) if none of the listed options apply."""
         p = self.priority
         for opt in options:

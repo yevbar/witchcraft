@@ -14,8 +14,8 @@ agent won't:
 `choose_move` is a single declarative `game.prioritize(...)` — try a land, else the best spell, else the
 best attack, else the best block, else pass — where each category carries a `preference` (a
 `(game, move) -> float` scorer). `prioritize` picks the max-scoring move in the first non-empty category, so
-the *order of the arguments is the strategy* and the per-move scorers (`attack_preference` /
-`block_preference` / `develop_preference`, over the leaf eval `_value`) are the *metrics*.
+the *order of the arguments is the strategy* and the per-move scorers (`attack_choice` /
+`block_choice` / `develop_choice`, over the leaf eval `_value`) are the *metrics*.
 
     from witchcraft import benchmark
     from witchcraft.heuristic import HeuristicPlayer
@@ -32,7 +32,7 @@ from .players import Player
 
 class HeuristicPlayer(Player):
     """A hand-built MTG heuristic: develop, attack with intent, block to matter. `choose_move` declares the
-    strategy as one prioritized list of scored preferences; the `*_preference` methods are the metrics."""
+    strategy as one prioritized list of scored preferences; the `*_choice` methods are the metrics."""
 
     name = "heuristic"
 
@@ -54,15 +54,15 @@ class HeuristicPlayer(Player):
         Do = PriorityOption
         return game.prioritize(
             Do.LANDS,                                       # play a land if one's available,
-            Do.SPELLS.with_(self.develop_preference),       # else the best spell by 1-ply board value,
-            Do.ATTACKS.with_(self.attack_preference),       # else the best attack declaration,
-            Do.BLOCKS.with_(self.block_preference),         # else the best block assignment,
+            Do.SPELLS.prefer(self.develop_choice),       # else the best spell by 1-ply board value,
+            Do.ATTACKS.prefer(self.attack_choice),       # else the best attack declaration,
+            Do.BLOCKS.prefer(self.block_choice),         # else the best block assignment,
             Do.SKIP,                                        # else pass.
         )
 
-    # ---- preferences (score ONE move; game.prioritize picks the max in each category) -------------
+    # ---- choices (score ONE move; game.prioritize picks the max in each category) ----------------
 
-    def attack_preference(self, game, move) -> float:
+    def attack_choice(self, game, move) -> float:
         """Value of declaring `move`'s attackers: damage that lands under a worst-case block (they block our
         biggest, the rest connect) plus an outright lethal swing, minus a lethal-looking crackback from the
         untapped creatures we'd leave home. Empty attack scores -1 (passing up an attack is rarely right)."""
@@ -81,7 +81,7 @@ class HeuristicPlayer(Player):
         risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
         return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
 
-    def block_preference(self, game, move) -> float:
+    def block_choice(self, game, move) -> float:
         """Value of `move`'s block assignment: damage prevented and trading up (their_loss), minus losing our
         own creatures (my_loss), minus a hard penalty for leaving a lethal amount unblocked. The attacking
         creatures come from the engine state (so an unblockable attacker's damage still counts)."""
@@ -101,7 +101,7 @@ class HeuristicPlayer(Player):
         lethal_pen = self.LETHAL if unblocked >= my_life else 0.0
         return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
 
-    def develop_preference(self, game, move) -> float:
+    def develop_choice(self, game, move) -> float:
         """Value of a non-combat play `move`: the board eval of the position it leads to (1-ply greedy)."""
         try:
             child = Game.from_state(env.step(game.state, move.raw))    # env.step normalises the Move to .raw

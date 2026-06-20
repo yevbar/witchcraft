@@ -316,23 +316,23 @@ class PriorityOption(Enum):
             return min(moves, key=lambda m: len(m.blocks))       # the lightest block
         return moves[0]
 
-    def with_(self, preference) -> "ScoredOption":
-        """Attach a preference to this option: `Do.ATTACKS.with_(my_attack_score)`. In `game.prioritize`,
+    def prefer(self, preference) -> "ScoredOption":
+        """Attach a preference to this option: `Do.ATTACKS.prefer(self.attack_choice)`. In `game.prioritize`,
         the category's move that MAXIMISES `preference(game, move)` is chosen (instead of the option's fixed
-        default pick). `preference` is a `(game, move) -> float`; a bound method `self.attack_preference`
-        fits directly. (Named `with_` — `with` is a Python keyword.)"""
+        default pick). `preference` is a `(game, move) -> float`; a bound method `self.attack_choice`
+        fits directly."""
         return ScoredOption(self, preference)
 
 
 class ScoredOption:
-    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.with_(preference)`.
+    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.prefer(preference)`.
     In `game.prioritize`, it contributes the move in its category that maximises `preference(game, move)`
     (or None when the category is empty), so the policy reads as an ordered list of scored preferences:
 
-        game.prioritize(Do.LANDS, Do.SPELLS.with_(self.develop_preference),
-                        Do.ATTACKS.with_(self.attack_preference), Do.SKIP)
+        game.prioritize(Do.LANDS, Do.SPELLS.prefer(self.develop_choice),
+                        Do.ATTACKS.prefer(self.attack_choice), Do.SKIP)
 
-    The preference is a `(game, move) -> float`; a bound method `self.<name>_preference` slots in directly."""
+    The preference is a `(game, move) -> float`; a bound method `self.<name>_choice` slots in directly."""
 
     __slots__ = ("option", "preference")
 
