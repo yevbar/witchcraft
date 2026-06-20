@@ -77,6 +77,12 @@ class Permanent(BaseModel):
         """A rough 'could be declared as an attacker' read: an untapped, non-sick creature."""
         return self.is_creature and not self.tapped and not self.summoning_sick
 
+    @property
+    def can_block(self) -> bool:
+        """A rough 'could be declared as a blocker' read: an untapped creature. (Summoning sickness does
+        NOT stop a creature from blocking — only attacking — so it isn't checked here.)"""
+        return self.is_creature and not self.tapped
+
 
 class CardRef(BaseModel):
     """A light, typed reference to the card a `Move` acts on: its id plus printed types, both read cheaply

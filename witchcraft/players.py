@@ -35,6 +35,7 @@ _SEAT_VIEW = {
     "life":         lambda g, s: g.life().get(s, 0),
     "battlefield":  lambda g, s: g.permanents(player=s),
     "creatures":    lambda g, s: g.permanents(player=s, type="creature"),
+    "blockers":     lambda g, s: [c for c in g.permanents(player=s, type="creature") if c.can_block],
     "lands":        lambda g, s: g.permanents(player=s, type="land"),
     "hand":         lambda g, s: g.hand(s),
     "hand_size":    lambda g, s: g.hand_count(s),
@@ -50,7 +51,7 @@ class SeatView:
     in sync with the game. `view.seat` is the seat name; `view.permanents(type=...)` filters by printed type.
 
         opp = player.opponent                              # a SeatView
-        [c for c in opp.creatures if not c.tapped]         # the opponent's untapped blockers
+        opp.blockers                                       # the opponent's creatures available to block
     """
 
     __slots__ = ("game", "seat")
@@ -167,6 +168,11 @@ class Player:
     def creatures(self) -> list["Permanent"]:
         """My creatures on the battlefield."""
         return self.me.creatures
+
+    @property
+    def blockers(self) -> list["Permanent"]:
+        """My creatures available to block — the untapped ones (`self.opponent.blockers` for theirs)."""
+        return self.me.blockers
 
     @property
     def graveyard(self) -> list[str]:
