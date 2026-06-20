@@ -3496,6 +3496,12 @@ def parse_clause_lark(clause: str):
         s = s[1:].strip()                       # structural noise — strip it so the option body parses (the
         if not s:                               # regex leaf eats it via its '.+?' source; this matches that)
             return None
+    if s.endswith('"') and s.count('"') % 2 == 1:   # an ORPHAN closing quote left by a split out of a quoted
+        s = s[:-1].rstrip(".").strip()              # granted ability ('… you gain life equal to X."') — structural
+                                                    # noise. Gated on an ODD '"' count so a BALANCED quote (the
+                                                    # whole '~ gains "flying"' grant) is untouched. The regex slugs
+                                                    # the stray '"' away too, so this matches it (or improves on a
+                                                    # garbage grounding like 'regenerate ~."' -> '' vs 'self').
     if s.startswith("return ") and _ret_ambiguous(s):
         return None                            # ambiguous from/to split — defer to regex
     try:
