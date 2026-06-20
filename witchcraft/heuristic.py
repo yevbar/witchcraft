@@ -68,7 +68,6 @@ class HeuristicPlayer(Player):
         opp_blockers = self.opponent.blockers                          # their untapped creatures
         n_blockers = len(opp_blockers)
         opp_swing = sum(c.power for c in opp_blockers)                  # what they could hit back with
-        my_creatures = {c.id: c for c in self.creatures}
 
         def score(attackers) -> float:
             """Value of declaring `attackers`: damage that lands under a worst-case block (they block our
@@ -77,10 +76,10 @@ class HeuristicPlayer(Player):
             attack is rarely right vs random)."""
             if not attackers:
                 return -1.0
-            powers = sorted((my_creatures[a].power for a in attackers if a in my_creatures), reverse=True)
+            powers = sorted((c.power for c in self.creatures if c.id in attackers), reverse=True)
             unblocked = sum(powers[n_blockers:]) if n_blockers < len(powers) else 0
             landed = min(unblocked, opp_life)
-            staying = [c for cid, c in my_creatures.items() if cid not in attackers and not c.tapped]
+            staying = [c for c in self.creatures if c.id not in attackers and not c.tapped]
             my_def = my_life + sum(c.toughness for c in staying)
             risk = max(0, opp_swing - my_def) * self.W_CRACKBACK
             return (self.LETHAL if unblocked >= opp_life else 0.0) + self.W_DAMAGE * landed - risk
