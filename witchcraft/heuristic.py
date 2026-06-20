@@ -52,14 +52,21 @@ class HeuristicPlayer(Player):
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         return game.prioritize(
-            Do.LANDS,                                       # play a land if one's available,
-            Do.SPELLS.prefer(self.develop_choice),       # else the best spell by 1-ply board value,
-            Do.ATTACKS.prefer(self.attack_choice),       # else the best attack declaration,
-            Do.BLOCKS.prefer(self.block_choice),         # else the best block assignment,
-            Do.SKIP,                                        # else pass.
+            Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
+            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best spell, only if it beats passing,
+            Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
+            Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
+            Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
+            Do.SKIP,                                            # else pass.
         )
 
     # ---- choices (score ONE move; game.prioritize picks the max in each category) ----------------
+
+    def land_choice(self, game, move) -> float:
+        """Prefer NON-BASIC lands first: basics are the most fungible (any deck can fetch/replay them), so
+        spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
+        explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
+        return 0.0 if move.card.is_basic else 1.0
 
     def attack_choice(self, game, move) -> float:
         """Value of declaring `move`'s attackers: damage that lands under a worst-case block (they block our
@@ -101,12 +108,14 @@ class HeuristicPlayer(Player):
         return prevented + self.W_TRADE * their_loss - self.W_TRADE * my_loss - lethal_pen
 
     def develop_choice(self, game, move) -> float:
-        """Value of a non-combat play `move`: the board eval of the position it leads to (1-ply greedy)."""
+        """How much a non-combat play `move` IMPROVES the board: _value(after the play) - _value(now), via a
+        1-ply lookahead. A value-negative play scores < 0, so the `floor=0.0` in choose_move skips it (and
+        the chain falls through to passing) — the old 'only act if it beats sitting still' gate."""
         try:
             child = Game.from_state(env.step(game.state, move.raw))    # env.step normalises the Move to .raw
         except Exception:
             return float("-inf")
-        return self._value(child, self.seat)
+        return self._value(child, self.seat) - self._value(game, self.seat)
 
     @staticmethod
     def _creature_value(c) -> float:                                   # a rough creature worth for a trade
