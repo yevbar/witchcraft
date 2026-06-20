@@ -774,6 +774,10 @@ _DRAW_TGT_RE = re.compile(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) dra
 # (690) in the chain, but their patterns are disjoint ('your hand' ∉ _discard_set's set), so order is moot.
 _DH_RE = re.compile(r"^discard your hand$", re.I)
 _DSET_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (their hand|those cards|that card|all the cards in their hand)$", re.I)
+# DISCARD '[twice|half] that many cards [plus|minus N]' anaphoric amount — `_discard_that_many`'s exact pattern
+# (amount via _that_amt; the trailing 'at random' rider is DROPPED, as the regex does). pcount routes discard
+# here but dies on `_amount('that many')`=None. Re-applied to src; reproduces the tuple byte-for-byte.
+_DTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (twice |half )?that many cards( plus \w+| minus \w+)?(?: at random)?$", re.I)
 # '[then] <player> may have you draw N cards' — the §603 causative the regex grounds LOSSILY via `_draw_tgt`
 # (subject='target_opponent_may_have_you', dropping that YOU are the drawer). This is a FAITHFUL IMPROVEMENT,
 # not a byte-identical flip: ground the actual drawer ('you') + the directing player as extra='by_<player>'
@@ -2119,6 +2123,9 @@ class _ToEffect(Transformer):
                 m = _DSET_RE.match(s)
                 if m:
                     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
+                m = _DTM_RE.match(s)         # '[twice|half] that many cards [plus|minus N] [at random]'
+                if m:
+                    return Effect("discard", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
         if subj is not None and not _PLAYER.match(subj.strip()):
             if verb in ("draw", "draws"):      # `_draw_tgt`: a draw whose subject is a _TGT the player-gate
                 _src = getattr(self, "_src", None)  # rejects (quantified players / 'each player who …'); the
