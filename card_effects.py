@@ -312,10 +312,10 @@ def _scry(m):
 # regex template was dead code (gate: surveil DIFFERS=0/ABSTAINS=0), removed. No regex left for surveil.
 
 
-@_t(rf"^(?:({_TGT}) )?mills? (a card|\w+) cards?$")
-def _mill(m):
-    n = 1 if m.group(2) == "a card" else _amount(m.group(2))
-    return Effect("mill", n, _target(m.group(1) or "you")) if n is not None else None
+# _mill: migrated to card_lark (the `pcount` PVERB 'mill[s]' path + the broad-subject `_MILL_TGT_RE` branch).
+# lark-first grounds every mill clause IDENTICALLY (migrate_check mill = 0 DIFFERS, 0 ABSTAINS); RETIRED, proven
+# behaviour-neutral by a full "mill"-clause parse_clause before/after snapshot. (`_flow_amount` below still owns
+# the mill 'up to / equal to / as many as / half' dynamic amounts — shared with draw, so it stays.)
 
 
 @_t(rf"^(?:{_TGT} )?(tap|untap)s? ({_TGT})$")
@@ -812,11 +812,8 @@ def _draw_that_many(m):
     return Effect("draw", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
 
 
-@_t(rf"^(?:({_TGT}) )?mills? (twice |half )?that many cards( plus \w+| minus \w+)?$")
-def _mill_that_many(m):
-    """'<player> mills that many cards' — the count is an anaphoric 'that many' (a just-named amount,
-    §107.3), mirroring _draw_that_many. Subject defaults to you."""
-    return Effect("mill", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+# _mill_that_many: migrated to card_lark (the `pcount` mill 'that many' branch, `_MTM_RE`). RETIRED with `_mill`
+# above — lark grounds it identically; snapshot byte-identical.
 
 
 @_t(rf"^(?:({_TGT}) )?discards? (twice |half )?that many cards( plus \w+| minus \w+)?(?: at random)?$")
