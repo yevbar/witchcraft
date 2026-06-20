@@ -767,6 +767,10 @@ _DADD_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (an|a|\w+) addition
 # (quantified players / 'each player who …' / the lossy compound-as-draw leaf). Re-applied to src by pcount;
 # uses the SAME _TGT span as the regex so it grounds exactly what `_draw_tgt` does, byte-for-byte.
 _DRAW_TGT_RE = re.compile(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) draws? (a) card$", re.I)
+# <subj> loses N life — `_lose`'s exact pattern, for a _TGT subject pcount's player-gate rejects ('each
+# opponent who can't', 'each opponent with no cards in hand', 'any number of target players each'). Re-applied
+# to src by pcount; same _TGT span as the regex -> grounds exactly what `_lose` does, byte-for-byte.
+_LOSE_TGT_RE = re.compile(rf"^({_TGT}) loses? (\w+) life$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -2136,6 +2140,13 @@ class _ToEffect(Transformer):
                     n = 1 if amt in ("a", "a card") else _amount(amt)
                     if n is not None:
                         return Effect("draw", n, _target(who))
+            if verb in ("lose", "loses"):      # `_lose`: a lose_life whose subject is a _TGT the player-gate
+                _src = getattr(self, "_src", None)   # rejects ('each opponent who can't loses N life'); the
+                lm = _LOSE_TGT_RE.match(_src.strip()) if _src is not None else None   # regex grounds it here too
+                if lm:
+                    n = _amount(lm.group(2))
+                    if n is not None:
+                        return Effect("lose_life", n, _target(lm.group(1)))
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
         if "for each" in body or body.endswith("per turn") or " per " in body:
