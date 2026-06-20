@@ -26,7 +26,7 @@ from __future__ import annotations
 import env
 
 from .game import Game
-from .models import Move, PriorityOption
+from .models import Move, PriorityOption as Do
 from .players import Player
 
 
@@ -51,7 +51,6 @@ class HeuristicPlayer(Player):
 
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
-        Do = PriorityOption
         return game.prioritize(
             Do.LANDS,                                       # play a land if one's available,
             Do.SPELLS.prefer(self.develop_choice),       # else the best spell by 1-ply board value,
