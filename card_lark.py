@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | osclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -53,6 +53,12 @@ litclause: LITEFFECT                                          -> lit
 LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
+// SUBJECT-PREFIXED tap/untap (§701.20): '<player> taps/untaps <obj>' — the `_taputap` leading-subject form
+// (subject DROPPED). The bare imperative `oclause` is verb-first, so these PARSE-FAIL; this production carries
+// a leading subject SPAN (ossubj) and the transformer re-matches `_taputap` on src (its `(?:{_TGT} )?` drops +
+// validates the subject). NEGATIVE priority; tap/untap only (other OVERBs have no subject-drop template -> abstain).
+osclause.-2: ossubj OVERB quant? objall trailer?  -> tapuntap_subj
+ossubj: (WORD | QUANT | NUM)+                     // leading actor NP before the object verb (validated via _taputap)
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
@@ -1675,6 +1681,21 @@ class _ToEffect(Transformer):
         # CONSISTENT (faithful-replacement): object stops at from/to; source -> extra; dest -> verb.
         extra = ("from_" + src.zone) if (src and src.zone) else "-"
         return Effect(zone.verb, "-", _target(otext), extra)
+
+    def ossubj(self, *toks):
+        return _Subj(" ".join(str(t) for t in toks))   # leading actor span (dropped; subject validated via _taputap on src)
+
+    def tapuntap_subj(self, *args):
+        # '<player> taps/untaps <obj>' — the subject-prefixed `_taputap` form (subject DROPPED). Re-match
+        # `_taputap` on src (its `(?:{_TGT} )?` validates + drops the leading subject) and ground the object
+        # byte-for-byte. tap/untap only: other OVERBs have no subject-drop template, so a non-match abstains.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _TAPUNTAP_RE.match(src.strip())
+        if m:
+            return Effect(m.group(1).lower(), "-", _target(m.group(2)))
+        return None
 
     def imperative(self, verb, *rest):
         verb = str(verb).lower()
