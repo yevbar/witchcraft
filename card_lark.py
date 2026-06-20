@@ -782,6 +782,9 @@ _LOSE_TGT_RE = re.compile(rf"^({_TGT}) loses? (\w+) life$", re.I)
 # branch rejects (it only grounds `_PLAYER` subjects). 'any number of target players each gain 6 life',
 # 'each player who … gains 1 life'. Re-matched on src in the grant transformer -> byte-for-byte `_gain`.
 _GAIN_TGT_RE = re.compile(rf"^({_TGT}) gains? (\w+) life$", re.I)
+# <subj> mills N cards — `_mill`'s exact pattern, for a _TGT subject pcount's player-gate rejects ('any number
+# of target players each mill two cards'). Re-applied to src by pcount; same _TGT span -> byte-for-byte `_mill`.
+_MILL_TGT_RE = re.compile(rf"^({_TGT}) mills? (a card|\w+) cards?$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -2187,6 +2190,13 @@ class _ToEffect(Transformer):
                     n = _amount(lm.group(2))
                     if n is not None:
                         return Effect("lose_life", n, _target(lm.group(1)))
+            if verb in ("mill", "mills"):      # `_mill`: a mill whose subject is a _TGT the player-gate rejects
+                _src = getattr(self, "_src", None)   # ('any number of target players each mill N cards')
+                mm = _MILL_TGT_RE.match(_src.strip()) if _src is not None else None
+                if mm:
+                    n = 1 if mm.group(2) == "a card" else _amount(mm.group(2))
+                    if n is not None:
+                        return Effect("mill", n, _target(mm.group(1)))
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
         if "for each" in body or body.endswith("per turn") or " per " in body:
