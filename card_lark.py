@@ -763,6 +763,13 @@ _MTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (twice |hal
 # pcount, which otherwise dies on the 'additional' word (amt 'an additional' isn't a number). Reproduces the
 # regex tuple byte-for-byte: amount = _amount(count) or 1, target = _target(subj or 'you'), extra='additional'.
 _DADD_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (an|a|\w+) additional cards?$", re.I)
+# DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
+# `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
+# discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
+# Re-applied to src; reproduce each template byte-for-byte. `_discard_hand` (570) precedes `_discard_set`
+# (690) in the chain, but their patterns are disjoint ('your hand' ∉ _discard_set's set), so order is moot.
+_DH_RE = re.compile(r"^discard your hand$", re.I)
+_DSET_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (their hand|those cards|that card|all the cards in their hand)$", re.I)
 # GAIN/LOSE life dynamic amounts — exact patterns of `_gain_foreach`/`_gain_life_equal`/`_that_gain`
 # (gain routes to the grant rule) and `_lose_life_equal`/`_lose_half`/`_lose_that_much` (lose routes to
 # pcount via the PVERB terminal). Re-applied to src; reproduce each template's amount slug byte-for-byte.
@@ -2088,6 +2095,15 @@ class _ToEffect(Transformer):
                 m = _LTM_RE.match(s)
                 if m:
                     return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+        if verb in ("discard", "discards"):              # DISCARD whole-hand / referenced-set (§701.8) —
+            src = getattr(self, "_src", None)            # reproduce `_discard_hand` / `_discard_set` (the body
+            if src is not None:                          # is 'your hand'/'their hand'/'those cards'/…, not 'N cards')
+                s = src.strip()
+                if _DH_RE.match(s):
+                    return Effect("discard", "all", "you")
+                m = _DSET_RE.match(s)
+                if m:
+                    return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
         if subj is not None and not _PLAYER.match(subj.strip()):
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
