@@ -763,6 +763,10 @@ _MTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?(draws?|mills?) (twice |hal
 # pcount, which otherwise dies on the 'additional' word (amt 'an additional' isn't a number). Reproduces the
 # regex tuple byte-for-byte: amount = _amount(count) or 1, target = _target(subj or 'you'), extra='additional'.
 _DADD_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?draws? (an|a|\w+) additional cards?$", re.I)
+# <subj> draws N cards — `_draw_tgt`'s exact pattern, for a _TGT subject pcount's player-gate rejects
+# (quantified players / 'each player who …' / the lossy compound-as-draw leaf). Re-applied to src by pcount;
+# uses the SAME _TGT span as the regex so it grounds exactly what `_draw_tgt` does, byte-for-byte.
+_DRAW_TGT_RE = re.compile(rf"^({_TGT}) draws? (a card|\w+) cards?$|^({_TGT}) draws? (a) card$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -2105,6 +2109,15 @@ class _ToEffect(Transformer):
                 if m:
                     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
         if subj is not None and not _PLAYER.match(subj.strip()):
+            if verb in ("draw", "draws"):      # `_draw_tgt`: a draw whose subject is a _TGT the player-gate
+                _src = getattr(self, "_src", None)  # rejects (quantified players / 'each player who …'); the
+                dm = _DRAW_TGT_RE.match(_src.strip()) if _src is not None else None   # regex grounds it here too
+                if dm:
+                    who = dm.group(1) if dm.group(1) else dm.group(3)
+                    amt = dm.group(2) if dm.group(1) else dm.group(4)
+                    n = 1 if amt in ("a", "a card") else _amount(amt)
+                    if n is not None:
+                        return Effect("draw", n, _target(who))
             return None                        # greedy psubj swallowed non-player text -> abstain
         body = body.strip().lower()
         if "for each" in body or body.endswith("per turn") or " per " in body:
