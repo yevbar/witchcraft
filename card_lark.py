@@ -791,6 +791,19 @@ _GAIN_TGT_RE = re.compile(rf"^({_TGT}) gains? (\w+) life$", re.I)
 # <subj> mills N cards — `_mill`'s exact pattern, for a _TGT subject pcount's player-gate rejects ('any number
 # of target players each mill two cards'). Re-applied to src by pcount; same _TGT span -> byte-for-byte `_mill`.
 _MILL_TGT_RE = re.compile(rf"^({_TGT}) mills? (a card|\w+) cards?$", re.I)
+_LEADING_EFFECT_VERB = re.compile(
+    r"^(?:destroys?|exiles?|taps?|untaps?|sacrifices?|returns?|puts?|creates?|counters?|deals?|draws?|"
+    r"discards?|mills?|gains?|loses?|searches?|shuffles?|scry|scries|surveils?|attaches?|distributes?|"
+    r"regenerates?|reveals?|proliferates?)\b", re.I)
+def _compound_subj(s):
+    """True when a captured `({_TGT})` 'subject' actually spans a PRECEDING clause (a compound, e.g. 'destroy
+    target creature an opponent controls and you' from 'destroy … and you gain N life') rather than a clean
+    player NP. The permissive _TGT in the broad-subject `_*_TGT_RE` branches lets it swallow the whole run-on,
+    grounding it lossily (a cross-verb DIFFERS — lark says gain_life, regex says destroy). The tell is a LEADING
+    EFFECT VERB: a real player NP never starts with one (it starts each/any/target/a/all/that/its/you/the…),
+    whereas the swallowed clause does. NB: a bare ' and ' is NOT used — it wrongly rejects valid relative-clause
+    subjects ('each opponent who controls an artifact and a creature'). Production _smart_splits the real compound."""
+    return bool(_LEADING_EFFECT_VERB.match(s.strip().lower()))
 # TAP/UNTAP <obj> — `_taputap`'s exact pattern: an optional leading subject (DROPPED) + tap/untap + the object
 # `({_TGT})`, where _TGT spans a 'with <counter>' / 'that has …' RIDER and a subject-prefixed '<player> untaps
 # <their permanents>'. The imperative leaf abstains on those (the _WITHCTR guard / no leading-subject form); a
@@ -2022,7 +2035,8 @@ class _ToEffect(Transformer):
             if m:
                 return Effect("gain_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
             m = _GAIN_TGT_RE.match(s)         # '<player NP> gains N life' — explicit _TGT subject the plain
-            if m and not _PLAYER.match(m.group(1).strip()):   # branch below rejects (broad/relative-clause NP);
+            if m and not _PLAYER.match(m.group(1).strip()) and not _compound_subj(m.group(1)):   # broad/rel-clause NP,
+                                              # NOT a '<clause> and you gain N life' run-on (the plain branch below)
                 n = _amount(m.group(2))       # reproduce `_gain` byte-for-byte (plain _PLAYER subjects below)
                 if n is not None:
                     return Effect("gain_life", n, _target(m.group(1)))
@@ -2208,7 +2222,7 @@ class _ToEffect(Transformer):
             if verb in ("draw", "draws"):      # `_draw_tgt`: a draw whose subject is a _TGT the player-gate
                 _src = getattr(self, "_src", None)  # rejects (quantified players / 'each player who …'); the
                 dm = _DRAW_TGT_RE.match(_src.strip()) if _src is not None else None   # regex grounds it here too
-                if dm:
+                if dm and not _compound_subj(dm.group(1) or dm.group(3) or ""):   # not a '<clause> and you draws' run-on
                     who = dm.group(1) if dm.group(1) else dm.group(3)
                     amt = dm.group(2) if dm.group(1) else dm.group(4)
                     n = 1 if amt in ("a", "a card") else _amount(amt)
@@ -2217,14 +2231,14 @@ class _ToEffect(Transformer):
             if verb in ("lose", "loses"):      # `_lose`: a lose_life whose subject is a _TGT the player-gate
                 _src = getattr(self, "_src", None)   # rejects ('each opponent who can't loses N life'); the
                 lm = _LOSE_TGT_RE.match(_src.strip()) if _src is not None else None   # regex grounds it here too
-                if lm:
+                if lm and not _compound_subj(lm.group(1)):   # not a '<clause> and <subj> loses N life' run-on
                     n = _amount(lm.group(2))
                     if n is not None:
                         return Effect("lose_life", n, _target(lm.group(1)))
             if verb in ("mill", "mills"):      # `_mill`: a mill whose subject is a _TGT the player-gate rejects
                 _src = getattr(self, "_src", None)   # ('any number of target players each mill N cards')
                 mm = _MILL_TGT_RE.match(_src.strip()) if _src is not None else None
-                if mm:
+                if mm and not _compound_subj(mm.group(1)):   # not a '<clause> and <subj> mills N cards' run-on
                     n = 1 if mm.group(2) == "a card" else _amount(mm.group(2))
                     if n is not None:
                         return Effect("mill", n, _target(mm.group(1)))
@@ -2473,7 +2487,7 @@ class _ToEffect(Transformer):
         # prohibition — routes here instead of pcount/lose_life. Detect the real lose_life shape via a src
         # re-match of the `_lose*` templates and ground it (byte-for-byte), before the cant-combat frames.
         src = getattr(self, "_src", None)
-        if src is not None:
+        if src is not None and not _compound_subj(src.strip()):   # not a '<clause> and … who can't loses …' run-on
             s = src.strip()
             m = _LOSE_TGT_RE.match(s)
             if m:
