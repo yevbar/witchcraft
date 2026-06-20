@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -82,6 +82,12 @@ chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP 
       | DEALS | DMG | GETS | GVERB | PVERB | PUT | TOKEN | DIVIDED | THATMUCH | PTDELTA | MDUR | CCOUNT
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
 tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
+// CREATE a COPY token (§707) — '[<creator>] create[s] [N] token[s] that's a copy of <X>[, except <mods>]'.
+// Spec-LESS, so the normal `tclause` (which needs a cspec before TOKEN) PARSE-FAILs; the distinctive COPYTOK
+// terminal anchors it, cpobj consumes the copied object + optional ', except <mods>' (WORD eats the comma),
+// and the transformer re-matches src against `_create_copy` (`_CCP_RE`) for a byte-identical tuple.
+tcpclause.-2: ccreator? CVERB CCOUNT COPYTOK cpobj  -> create_copy
+cpobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | PTDELTA | EQUALTO | MDUR)+   // copied object + 'except …' span (src-re-matched; raw)
 
 // BECOMES (the dominant 'animate to a N/N' shape): '<tgt> becomes/is/are [a] N/N <typetail>
 // [with <kw>] [until end of turn]'. We own ONLY this P/T-bearing shape (the `_becomes` template);
@@ -636,6 +642,7 @@ BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
 COPYOF.5: /\ba copy of\b/   // '<subj> becomes a copy of <X>' — §707 (the becomes-copy anchor)
+COPYTOK.6: /\btokens? that(?:'s| are) (?:a )?cop(?:y|ies) of\b/   // 'token[s] that's/are [a] copy/copies of' — the create-copy anchor (§707); priority above TOKEN/COPYOF so it claims the whole phrase
 OFCHOICE.5: /\bof your choice\b/   // '<subj> becomes the <X> of your choice' — §700.2 (becomes-choice anchor)
 MDUR.3: /\b(?:until end of turn|until end of combat|until your next turn|until end of your next turn|this turn)\b/
 DIVIDED.4: /\bdivided as you choose among\b/
@@ -806,6 +813,10 @@ _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (
 # CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
 # Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
 _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
+# CREATE [N] token(s) that's a copy of <X>[, except <mods>] — `_create_copy`'s exact pattern (§111/§707). The
+# spec-less copy shape PARSE-FAILs the normal `tclause` (empty cspec), so `tcpclause` makes it parse and this
+# re-match on src reproduces the tuple byte-for-byte: amount, extra='copy_of_<X>[_except_<mods>]', creator/cond.
+_CCP_RE = re.compile(rf"^(?:({_TGT}) )?creates? (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:,? except (?:it has |they have |it's |they're )?(.+?))?$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1854,6 +1865,26 @@ class _ToEffect(Transformer):
 
     def ctail(self, *toks):
         return _CTail(" ".join(str(t) for t in toks))
+
+    def cpobj(self, *toks):
+        return _CTail(" ".join(str(t) for t in toks))   # raw span (unused — src is re-matched); reuse _CTail
+
+    def create_copy(self, *args):
+        # '[<creator>] create[s] [N] token(s) that's a copy of <X>[, except <mods>]' — the EXACT `_create_copy`
+        # template. Re-match src against its pattern and reproduce the tuple byte-for-byte (amount / extra /
+        # creator-cond); a non-match (e.g. cpobj swallowed a run-on) abstains to the regex chain.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _CCP_RE.match(src.strip())
+        if not m:
+            return None
+        n = _amount(m.group(2))
+        amt = n if n is not None else "X"
+        extra = "copy_of_" + _target(m.group(3)) + ("_except_" + ground.slug(m.group(4)) if m.group(4) else "")
+        creator = _target(m.group(1)) if m.group(1) and m.group(1).lower() != "you" else "-"
+        cond = "creator_" + creator if creator != "-" else "-"
+        return Effect("create", amt, "token", extra, cond)
 
     def create(self, *args):
         creator = next((a for a in args if isinstance(a, _Creator)), None)
