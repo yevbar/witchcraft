@@ -5,7 +5,16 @@ regex-grounded clause in the corpus. A clause shape may be flipped to lark only 
 the regex tuple identically (and the residual disagreements are deliberately reconciled).
 """
 import sys
+import os
 import collections
+
+# The gate compares the REGEX leaf (parse_effect) vs the LARK leaf (parse_clause_lark) — neither is the
+# spaCy dependency fallback (_spacy_effect). But transpile_unit (used only to gate which clauses are
+# reachable) falls through to _spacy_effect on a handful of cards, and that lazily loads the whole
+# spaCy->thinc->torch->transformers stack (~700MiB), the dominant OOM/timeout driver on a memory-thin box.
+# Skip it: the cost is a few spacy-only-grounded cards dropped from the clause set, irrelevant to the
+# per-verb DIFFERS gate. Unset MTG_NO_SPACY to run the full reachability set on a roomier machine.
+os.environ.setdefault("MTG_NO_SPACY", "1")
 
 import ground
 import card_corpus

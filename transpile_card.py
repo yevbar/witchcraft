@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -88,6 +89,13 @@ def _spacy_effect(clause: str):
 
 @functools.lru_cache(maxsize=1)
 def _dep_nlp():
+    # MTG_NO_SPACY disables the spaCy dependency-graph fallback WITHOUT importing it. `import transpile`
+    # runs `spacy.load("en_core_web_sm")`, whose pipeline construction eagerly pulls in thinc->torch
+    # (~400MiB) + the legacy spacy-transformers entry point->HuggingFace transformers (~140MiB). That
+    # ~700MiB floor — not any parse — is what OOMs memory-thin boxes during a full corpus sweep
+    # (migrate_check), since the first card that falls through to _spacy_effect triggers the whole load.
+    if os.environ.get("MTG_NO_SPACY"):
+        return None
     try:
         import transpile
         return transpile._NLP
