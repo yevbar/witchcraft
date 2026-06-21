@@ -17,6 +17,8 @@ dependencies = []
 # parser extras explicitly: `pip install witchcraft[parser]`.
 [project.optional-dependencies]
 parser = ["networkx"]
+# Visualization of the card_synergy graph (render_full.py): community layout + plotting. Tooling only.
+viz = ["networkx", "igraph", "matplotlib"]
 
 [project.urls]
 Homepage = "https://github.com/yevbar/mtg_parser"
