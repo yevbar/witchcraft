@@ -36,6 +36,11 @@ class HeuristicPlayer(Player):
 
     name = "heuristic"
 
+    # choose_move scores land plays (Do.LANDS / land_choice), so it needs the §305 land drop surfaced as a
+    # move — the harness reads this and builds the Game with explicit_lands (else lands auto-develop and the
+    # land logic never fires).
+    wants_explicit_lands = True
+
     # leaf board-eval weights (used by _value; dial to tune the eval)
     W_LIFE_DIFF = 0.05
     W_AGGRO = 0.30          # push opponent toward 0

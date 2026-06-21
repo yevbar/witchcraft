@@ -156,12 +156,44 @@ def _purity() -> None:
           "zzz" not in src["_lib_order"]["alice"])
 
 
+def _instant_speed_window() -> None:
+    """§117.1a outside the main phases, the instant-speed window (opt-in `_instant_speed`) surfaces the
+    active player's INSTANTS but not its sorceries — the datalog `can_cast` owns the timing, the shim just
+    asks it at the extra step. Off by default the non-main step stays a no-decision pass-through."""
+    def st(step: str) -> dict:
+        s = {
+            "is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+            "current_step": {(step,)}, "life": {("alice", 20), ("bob", 20)},
+            "on_battlefield": {("mtn1",)}, "printed_control": {("alice", "mtn1")},
+            "printed_type": {("mtn1", "land")}, "land_produces": {("mtn1", "red")},
+            "instance_of": {("mtn1", "mountain"), ("blt", "bolt"), ("wr", "wrath")},
+            "spell_type": {("blt", "instant"), ("wr", "sorcery")},
+            "card_type": {("bolt", "instant"), ("wrath", "sorcery")},
+            "in_hand": {("alice", "blt"), ("alice", "wr")}, "mana_cost": {("blt", 1), ("wr", 1)},
+            "tapped": set(), "_land_played": set(),
+        }
+        return s
+
+    off = env.legal_actions(st("upkeep"))
+    check("instant_speed OFF: a non-main step is just pass", {a[0] for a in off} == {"pass"})
+
+    on = st("upkeep"); on["_instant_speed"] = True; driver._refresh_mana_pool(on, "alice")
+    casts = {a[2] for a in env.legal_actions(on) if a[0] == "cast"}
+    check("instant window surfaces the INSTANT (bolt)", "blt" in casts)
+    check("instant window withholds the SORCERY (wrath)", "wr" not in casts)
+
+    main = st("precombat_main"); main["_instant_speed"] = True; driver._refresh_mana_pool(main, "alice")
+    mcasts = {a[2] for a in env.legal_actions(main) if a[0] == "cast"}
+    check("main phase still casts BOTH instant and sorcery (sorcery speed)", {"blt", "wr"} <= mcasts)
+
+
 def run() -> None:
     _attacker_branching()
     _target_branching()
     _greedy_equivalence()
     _full_game()
     _purity()
+    _instant_speed_window()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

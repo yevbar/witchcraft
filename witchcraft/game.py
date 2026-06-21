@@ -161,7 +161,7 @@ class Game:
 
     def __init__(self, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
                  commanders: dict | None = None, policies: dict | None = None, incremental: bool = False,
-                 explicit_lands: bool = False):
+                 explicit_lands: bool = False, instant_speed: bool = False):
         """Build a ready-to-play game and advance to the first real decision.
 
         decks       {player: [card names]}. Defaults to the Gruul-vs-Dimir demo decks.
@@ -178,6 +178,12 @@ class Game:
                     chooses whether/which/when to play lands (e.g. to sequence landfall triggers). Off by
                     default — the engine plays one land per turn for you, which a basic-lands deck needn't
                     care about. The flag rides on the state, so clone()/serialize() preserve it.
+        instant_speed   open §117.1a instant-speed priority windows: outside the main phases `legal_moves`
+                    offers the active player's castable instants / instant-speed abilities (the engine's
+                    timing predicates surface only what's legal there), and the pool is restocked so they're
+                    payable. Off by default — the engine fast-forwards through non-main steps. Rides on the
+                    state like explicit_lands. (Reactive windows on the OPPONENT's turn need priority passing,
+                    not yet modeled — this opens the active player's own instant windows.)
         """
         if decks is None:
             decks = DEMO_DECKS
@@ -191,8 +197,11 @@ class Game:
         state = _setup.new_game(decks, variant=variant, seed=seed, policies=policies, commanders=commanders)
         if explicit_lands:
             state["_explicit_lands"] = True              # read by env.legal_actions / _develop_if_main / step
+        if instant_speed:
+            state["_instant_speed"] = True               # read by env.legal_actions / _has_decision / _develop_if_main
         self._state = env.start(state)
         self.explicit_lands = bool(self._state.get("_explicit_lands"))
+        self.instant_speed = bool(self._state.get("_instant_speed"))
         self._history: list[tuple[dict, tuple]] = []     # (prior_state, move) for pop()
 
     # ---- the move/turn surface --------------------------------------------------------------------
@@ -560,6 +569,7 @@ class Game:
         g.decks, g.variant, g.seed = self.decks, self.variant, self.seed
         g.commanders, g.policies, g.incremental = self.commanders, self.policies, self.incremental
         g.explicit_lands = self.explicit_lands
+        g.instant_speed = self.instant_speed
         g._observer = self._observer
         g._state = self._state
         g._history = list(self._history)
@@ -582,6 +592,7 @@ class Game:
         g.decks = g.commanders = g.policies = None
         g.incremental = _select_incremental() if incremental else False
         g.explicit_lands = bool(g._state.get("_explicit_lands"))
+        g.instant_speed = bool(g._state.get("_instant_speed"))
         g._observer = None
         return g
 

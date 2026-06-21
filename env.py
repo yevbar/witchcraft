@@ -337,53 +337,74 @@ def _face_down_actions(state: dict, ap: str) -> list[tuple]:
     return acts
 
 
+def _priority_actions(state: dict, ap: str) -> list[tuple]:
+    """The cast / commander / activated-ability actions ap may take with priority RIGHT NOW, surfaced
+    straight from the engine's timing-aware predicates — `can_cast` (§117.1a: instants any priority window,
+    noninstants only at sorcery speed), `can_cast_commander` (sorcery-speed gated) and `can_activate`
+    (`timing_blocked` gates sorcery-speed/loyalty abilities to your main phase). Because the DATALOG owns the
+    timing, this same builder is correct at EVERY step with no Python-side timing check: at instant speed the
+    engine simply returns only the instant-speed options. (Lands and §702 morph/foretell are sorcery-speed
+    surfaces the cast predicates don't cover — `legal_actions` adds those in the main phase only.)"""
+    probe = _clone(state); probe["has_priority"] = {(ap,)}
+    castable = sorted(s for (p, s) in driver.run(probe, ["can_cast"])["can_cast"] if p == ap)
+    explicit = state.get("_explicit_lands")
+    land_t = state.get("spell_type", set())
+    actions: list[tuple] = []
+    for spell in castable:
+        if explicit and (spell, "land") in land_t:            # lands are offered as ('play', …), not cast
+            continue
+        for ch in _cast_choices(state, spell):
+            actions.append(("cast", ap, spell, ch))
+    for cmd in driver.can_cast_commander(state, ap):          # §903.6 — cast the commander from the command zone
+        actions.append(("cast_commander", ap, cmd))
+    for ab in driver._activatable(state, ap):
+        for ch in _activate_choices(state, ab):
+            actions.append(("activate", ap, ab, ch))
+    return actions
+
+
 def legal_actions(state: dict) -> list[tuple]:
     """The choices available to move now, at the current decision point (post auto-advance)."""
     if is_terminal(state):
         return []
     ap = _active(state)
     step = _step(state)
-    if step in _MAIN:
-        probe = _clone(state); probe["has_priority"] = {(ap,)}
-        castable = sorted(s for (p, s) in driver.run(probe, ["can_cast"])["can_cast"] if p == ap)
-        actions: list[tuple] = []
-        explicit = state.get("_explicit_lands")
-        if explicit:                                          # §305 opt-in: land drops are the agent's choice
-            for land in _playable_lands(state, ap):
-                actions.append(("play", ap, land))
-        land_t = state.get("spell_type", set())
-        for spell in castable:
-            if explicit and (spell, "land") in land_t:        # lands are offered as ('play', …), not cast
-                continue
-            for ch in _cast_choices(state, spell):
-                actions.append(("cast", ap, spell, ch))
-        for cmd in driver.can_cast_commander(state, ap):     # §903.6 — cast the commander from the command zone
-            actions.append(("cast_commander", ap, cmd))
-        for ab in driver._activatable(state, ap):
-            for ch in _activate_choices(state, ab):
-                actions.append(("activate", ap, ab, ch))
-        actions.extend(_face_down_actions(state, ap))         # §702/§708 morph/disguise/foretell/turn-face-up
-        actions.append(("pass",))
-        return actions
     if step == "declare_attackers":
         return [("attack", s) for s in _attack_options(state, ap)]
     if step == "declare_blockers":
         return [("block", b) for b in _block_options(state, _others(state, ap)[0])]
+    if step in _MAIN:                                          # full sorcery-speed window
+        actions: list[tuple] = []
+        if state.get("_explicit_lands"):                      # §305 opt-in: land drops are the agent's choice
+            for land in _playable_lands(state, ap):
+                actions.append(("play", ap, land))
+        actions.extend(_priority_actions(state, ap))
+        actions.extend(_face_down_actions(state, ap))         # §702/§708 morph/disguise/foretell/turn-face-up
+        actions.append(("pass",))
+        return actions
+    # §117.1a INSTANT-SPEED priority window (opt-in, mirroring _explicit_lands): outside the main phases the
+    # active player may still act — the engine's can_cast/can_activate surface only the instant-speed options.
+    if state.get("_instant_speed"):
+        return _priority_actions(state, ap) + [("pass",)]
     return [("pass",)]
 
 
 # ---- step ---------------------------------------------------------------------------------------------
 
 def _develop_if_main(state: dict) -> None:
-    if _step(state) not in _MAIN:
-        return
+    step = _step(state)
     ap = _active(state)
-    if state.get("_explicit_lands"):
-        # opt-in: the agent plays its own lands via the ('play', …) action — just stock the pool from the
-        # lands already in play (don't auto-drop, so holding/sequencing land plays stays the agent's call).
+    if step in _MAIN:
+        if state.get("_explicit_lands"):
+            # opt-in: the agent plays its own lands via the ('play', …) action — just stock the pool from the
+            # lands already in play (don't auto-drop, so holding/sequencing land plays stays the agent's call).
+            _quiet(driver._refresh_mana_pool, state, ap)
+        else:
+            _quiet(driver._develop_mana, state, ap)             # §305 auto land drop + mana refresh on phase entry
+    elif state.get("_instant_speed") and step not in ("untap", "cleanup", "declare_attackers", "declare_blockers"):
+        # §500.4 the pool emptied entering this step; restock from untapped sources so the active player can
+        # actually PAY for an instant in this priority window (no auto land drop — that's sorcery speed).
         _quiet(driver._refresh_mana_pool, state, ap)
-    else:
-        _quiet(driver._develop_mana, state, ap)                 # §305 auto land drop + mana refresh on phase entry
 
 
 def _playable_lands(state: dict, ap: str) -> list:
@@ -447,6 +468,8 @@ def _has_decision(state: dict) -> bool:
         return any(_attack_options(state, _active(state)))      # always at least {none}; a real choice if eligible
     if step == "declare_blockers":
         return bool(_legal_block_pairs(state, _others(state, _active(state))[0]))
+    if state.get("_instant_speed"):                             # §117.1a a real instant-speed option in this window?
+        return len(legal_actions(state)) > 1                    # more than just ("pass",)
     return False
 
 
