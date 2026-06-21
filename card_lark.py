@@ -553,7 +553,8 @@ ctail: (WORD | NUM | QUANT | TOPREP | FROM | ZONE | DEALS | DMG | GETS | PTDELTA
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
-dsrc: (WORD | QUANT)+                   // damage source (DROPPED — implicit self, matching the regex)
+dsrc: (WORD | QUANT | COLON)+           // damage source (DROPPED — implicit self, matching the regex; COLON
+                                        // lets a non-mana activation cost 'Sacrifice ~:' be swallowed before 'deals')
 damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
 dtarget: (WORD | QUANT | NUM | ZONE | EQUALTO)+   // basic target NP (no TOPREP: internal 'to' -> abstain). 'equal to' stays content here.
 dteqtgt: (WORD | QUANT | NUM | ZONE)+   // variant target NP — stops at TOPREP and at EQUALTO (the rider boundary)
@@ -659,6 +660,8 @@ TOPREP.2: /\b(?:to|into|onto)\b/
 FROM.2: /\bfrom\b/
 ZONE.2: /\b(?:hand|battlefield|library|graveyard)\b/
 BOUND.3: /\b(?:until|unless|for each)\b/
+COLON.2: /:/                          // activation-cost separator ('<cost>: <effect>') — lets dsrc swallow a
+                                      // non-mana cost prefix (Sacrifice ~: / Tap …:) before 'deals', like the regex source
 WORD: /[\w',+\/~*-]+/
 NUM: /[0-9]+/
 
