@@ -19,6 +19,9 @@ dependencies = []
 parser = ["networkx"]
 # Visualization of the card_synergy graph (render_full.py): community layout + plotting. Tooling only.
 viz = ["networkx", "igraph", "matplotlib"]
+# Self-play learning: the numpy value net (rebel_train) and the PyTorch card-aware value net (cardnet).
+# torch is heavy and CPU-only here; the base package never imports it. `pip install witchcraft[learn]`.
+learn = ["numpy", "torch"]
 
 [project.urls]
 Homepage = "https://github.com/yevbar/mtg_parser"
