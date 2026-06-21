@@ -2074,9 +2074,15 @@ class _ToEffect(Transformer):
             t = t[:-len(" perpetually")].strip()       # '<X> perpetually gains …' -> cond=perpetual
         amount, cond = "-", "-"
         if dur is not None:
-            if perpetual or dur.strip().lower() != "until end of turn":
-                return None                            # other duration (regex slugs it, lossy) / both -> abstain
-            amount = "until_end_of_turn"
+            d = dur.strip().lower()
+            # duration -> amount slot. 'until end of turn' is unchanged (was already faithful); the non-EOT
+            # durations the regex slugs INTO the kw (lossy: 'banding_until_end_of_combat') ground faithfully
+            # here as amount='until_end_of_combat'/'until_your_next_turn'/… with a clean kw. 'this turn' is
+            # omitted (its faithful slug is ambiguous vs until_end_of_turn) -> regex chain owns it.
+            if perpetual or d not in ("until end of turn", "until end of combat",
+                                      "until your next turn", "until end of your next turn"):
+                return None
+            amount = ground.slug(d)
         elif perpetual:
             cond = "perpetual"
         return amount, cond, t
@@ -2162,6 +2168,22 @@ class _ToEffect(Transformer):
             if tt is None or not _PLAYER.match(tt):
                 return None                              # _control_subj REQUIRES a subject -> none here -> abstain
             return Effect("gain_control", "-", _target(obj), "by_" + _target(tt), dur_extra)
+        # CONDITIONAL static grant: '<X> has/gains <kw> [for ]as long as <cond>'. gkw swallows the whole
+        # '<kw> as long as <cond>' run, so the regex slugs it ALL into the keyword (garbage
+        # 'flying_as_long_as_…', cond='-'). Split it: a clean §702 keyword in the extra slot, the condition
+        # in the COND slot ('as_long_as_<cond>', mirroring modify_pt's 'for_as_long_as_<cond>'). The kw
+        # becomes a REAL keyword the engine can read; cond gates the static (cond_met — may be inert for now).
+        clm = re.match(r"^(.+?) (for as long as|as long as) (.+)$", phrase.strip(), re.I)
+        if clm:
+            ckw = _kw_ok(clm.group(1).strip())
+            if ckw and _clean_kw(ckw):
+                cres = self._grant_dur(tgt, dur)
+                if cres is not None:
+                    camount, _c0, cttext = cres
+                    if not (cttext and _TGT_BAD.search(cttext)):
+                        cwho = _target(cttext) if cttext else _target("~")
+                        ccond = ground.slug(clm.group(2)) + "_" + ground.slug(clm.group(3))
+                        return Effect("grant_keyword", camount, cwho, ckw, ccond)
         kw = _kw_ok(phrase.strip())
         if not kw or not _clean_kw(kw):
             return None                          # not a clean single §702 keyword grant -> abstain
