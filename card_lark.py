@@ -804,6 +804,11 @@ def _compound_subj(s):
     whereas the swallowed clause does. NB: a bare ' and ' is NOT used — it wrongly rejects valid relative-clause
     subjects ('each opponent who controls an artifact and a creature'). Production _smart_splits the real compound."""
     return bool(_LEADING_EFFECT_VERB.match(s.strip().lower()))
+# REGENERATE <obj> with a rider — `_generic_object_verb`'s last-resort pattern (`^(\w+) (.+?)$`, _OBJ_VERBS
+# gated by _OBJ_BAD + _is_compound_object). The imperative leaf abstains on a 'with a +1/+1 counter on it' /
+# 'that has …' rider (_WITHCTR); _generic_object_verb grounds the whole NP as the slug target. Re-match on src.
+from card_effects import _OBJ_BAD as _OBJ_BAD
+_GENOBJ_RE = re.compile(r"^(\w+) (.+?)$", re.I)
 # TAP/UNTAP <obj> — `_taputap`'s exact pattern: an optional leading subject (DROPPED) + tap/untap + the object
 # `({_TGT})`, where _TGT spans a 'with <counter>' / 'that has …' RIDER and a subject-prefixed '<player> untaps
 # <their permanents>'. The imperative leaf abstains on those (the _WITHCTR guard / no leading-subject form); a
@@ -1721,6 +1726,15 @@ class _ToEffect(Transformer):
             if tm:                                       # the whole-NP target byte-for-byte before the guards.
                 return Effect(tm.group(1).lower(), "-", _target(tm.group(2)))
         if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext) or _MULTICLAUSE.search(otext):
+            # the leaf abstains on this rider/run-on — but for regenerate the regex's last-resort
+            # `_generic_object_verb` still grounds the WHOLE NP as the slug target (when not a
+            # colon-cost/equal-to/compound). Reproduce it before deferring. (Only the rider path: a clean
+            # _TGT object like '~' is grounded by `_verb_target` via `_target` (~->self) and handled below.)
+            if verb in ("regenerate", "regenerates"):
+                src = getattr(self, "_src", None)
+                gm = _GENOBJ_RE.match(src.strip()) if src is not None else None
+                if gm and not _OBJ_BAD.search(gm.group(2)) and not _is_compound_object(gm.group(2)):
+                    return Effect("regenerate", "-", ground.slug(gm.group(2)))
             return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
             # `_sacrifice_a` (`^sacrifice (a|an|another|two|three) ([\w ~']+?)$`) supplies the count amount,
