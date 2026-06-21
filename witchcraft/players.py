@@ -88,6 +88,12 @@ class Player:
 
     name = "player"
 
+    # A policy that SEQUENCES its own land drops (its choose_move scores land plays) sets this True, so the
+    # harness builds the Game with explicit_lands — otherwise lands auto-develop and never surface as moves,
+    # and the policy's land logic is silently dead. `play()`/`benchmark()` turn explicit lands on if ANY
+    # seated player wants it; in Forge mode the seat always makes its own land drops, so it's on regardless.
+    wants_explicit_lands = False
+
     # Per-decision binding, set by `bind()` (which `play()` calls before each move): the live Game and the
     # seat this player is deciding for. The seat-scoped properties below read through these.
     _game: "Game | None" = None
@@ -250,6 +256,9 @@ def play(players: dict, decks: dict | None = None, *, variant: str = "default", 
     seam, installed on the driver's `_policy` dispatch) — so a game plays exactly as the seated agents
     decide, not a global policy. (London mulligan resolves with the engine default — keep — before play.)"""
     policies = {seat: p.as_policy() for seat, p in players.items()}
+    # a player that sequences its own lands (HeuristicPlayer) needs explicit_lands or its land logic is dead;
+    # honour that here so the caller doesn't have to remember the flag (the explicit arg still forces it on).
+    explicit_lands = explicit_lands or any(getattr(p, "wants_explicit_lands", False) for p in players.values())
     g = Game(decks, variant=variant, seed=seed, commanders=commanders,
              policies=policies, incremental=incremental, explicit_lands=explicit_lands)
     for _ in range(max_moves):
