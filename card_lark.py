@@ -1729,15 +1729,21 @@ class _ToEffect(Transformer):
             if tm:                                       # the whole-NP target byte-for-byte before the guards.
                 return Effect(tm.group(1).lower(), "-", _target(tm.group(2)))
         if _TOPLIB.match(otext) or _WITHCTR.search(otext) or _COORD.match(otext) or _MULTICLAUSE.search(otext):
-            # the leaf abstains on this rider/run-on — but for regenerate the regex's last-resort
-            # `_generic_object_verb` still grounds the WHOLE NP as the slug target (when not a
-            # colon-cost/equal-to/compound). Reproduce it before deferring. (Only the rider path: a clean
-            # _TGT object like '~' is grounded by `_verb_target` via `_target` (~->self) and handled below.)
-            if verb in ("regenerate", "regenerates"):
-                src = getattr(self, "_src", None)
-                gm = _GENOBJ_RE.match(src.strip()) if src is not None else None
-                if gm and not _OBJ_BAD.search(gm.group(2)) and not _is_compound_object(gm.group(2)):
-                    return Effect("regenerate", "-", ground.slug(gm.group(2)))
+            # the leaf abstains on this rider — but the regex's last-resort `_generic_object_verb` still
+            # grounds the WHOLE NP as the slug target for an `_OBJ_VERBS` verb (when not a colon-cost/equal-to/
+            # `if`/`unless`/compound). Reproduce it byte-for-byte before deferring: 'destroy each permanent with
+            # a doom counter on it', 'regenerate target creature with a +1/+1 counter on it', etc. (Only this
+            # rider path — a clean _TGT object like '~' has no guard match and is grounded below via `_target`
+            # ~->self, NOT slug ~->''. Em-dash/brace wrappers lex-fail upstream, never reach here.)
+            # SCOPED to destroy/regenerate: `_generic_object_verb` is the regex chain's LAST resort, but here it
+            # runs WITHOUT the specific templates first — so it must not pre-empt a verb that has one. exile
+            # (xtclause/xlclause) and the 'tap or untap' idiom (`_tap_or_untap`) DO -> they'd diverge; excluded.
+            src = getattr(self, "_src", None)
+            gm = _GENOBJ_RE.match(src.strip()) if src is not None else None
+            if gm:
+                gv = ground.slug(gm.group(1))
+                if gv in ("destroy", "regenerate") and not _OBJ_BAD.search(gm.group(2)) and not _is_compound_object(gm.group(2)):
+                    return Effect(gv, "-", ground.slug(gm.group(2)))
             return None                        # defer to the regex (better convention / coordinated verb)
         if verb == "sacrifice":
             # `_sacrifice_a` (`^sacrifice (a|an|another|two|three) ([\w ~']+?)$`) supplies the count amount,
