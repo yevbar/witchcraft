@@ -5,7 +5,16 @@ regex-grounded clause in the corpus. A clause shape may be flipped to lark only 
 the regex tuple identically (and the residual disagreements are deliberately reconciled).
 """
 import sys
+import os
 import collections
+
+# The gate compares the REGEX leaf (parse_effect) vs the LARK leaf (parse_clause_lark) — neither is the
+# spaCy dependency fallback (_spacy_effect). But transpile_unit (used only to gate which clauses are
+# reachable) falls through to _spacy_effect on a handful of cards, and that lazily loads the whole
+# spaCy->thinc->torch->transformers stack (~700MiB), the dominant OOM/timeout driver on a memory-thin box.
+# Skip it: the cost is a few spacy-only-grounded cards dropped from the clause set, irrelevant to the
+# per-verb DIFFERS gate. Unset MTG_NO_SPACY to run the full reachability set on a roomier machine.
+os.environ.setdefault("MTG_NO_SPACY", "1")
 
 import ground
 import card_corpus
@@ -15,7 +24,12 @@ from transpile_card import (transpile_unit, _sentences, _TRIG, _split_modifiers,
                             _smart_split, _mask_q, _unmask, _leading_subject, _has_leading_subject)
 import re
 
-VERBS = set(sys.argv[1:]) or {"destroy", "exile", "tap", "untap", "sacrifice", "counter", "goad", "detain"}
+# --full also Earley-parses EVERY corpus clause to report `lark-only` (net-new) — that corpus-wide sweep
+# is the ~14min cost. Default skips it: lark-parse ONLY the target verbs' regex-grounded clauses (a few
+# hundred), giving the per-verb ident/DIFFERS/ABSTAINS gate in ~1min. The net-new count is what's traded.
+FULL = "--full" in sys.argv[1:]
+VERBS = set(a for a in sys.argv[1:] if not a.startswith("-")) or \
+    {"destroy", "exile", "tap", "untap", "sacrifice", "counter", "goad", "detain"}
 
 
 def _tuple(e):
@@ -72,6 +86,8 @@ def main():
         R = parse_effect(s)              # the LEAF parser (bare clause, no wrapper chain) — what lark replaces
         rg = _tuple(R)
         in_family = R is not None and R.verb in VERBS
+        if not (in_family or FULL):      # FAST PATH: the corpus-wide Earley parse only feeds the lark-only
+            continue                     # (net-new) count, which is --full-only — skip it for the gate
         L = parse_clause_lark(s)
         lg = _tuple(L)
         if in_family:
@@ -103,7 +119,7 @@ def main():
     print(f"  lark DIFFERS         : {diff}   <- bugs to fix before flipping")
     print(f"  lark ABSTAINS        : {abst}   ({regexonly} REAL grammar gaps + {phantom} PHANTOM compounds)")
     print(f"     PHANTOM = production _smart_splits the clause into parts lark grounds (NOT a real gap)")
-    print(f"  lark-only (regex abstained entirely): {larkonly}   <- potential net-new")
+    print(f"  lark-only (regex abstained entirely): {larkonly if FULL else 'n/a — pass --full'}   <- potential net-new")
     if diffs:
         print("DIFFERENCES (lark vs regex):")
         for s, lg, rg in diffs:
