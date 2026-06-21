@@ -343,8 +343,9 @@ excbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP
 // grounds via `zonephrase` on 'to its owner's hand') — so `rhclause` must WIN the Earley forest to ground
 // the plural 'their owners' hands' that `rclause` misses. On the singular overlap ('to its owner's hand'/
 // 'to your hand') `rhclause` reproduces `rclause`'s `_bounce` tuple byte-identically, so winning is inert.
-rhclause.2: rhbody RETHAND                    -> rethand
+rhclause.2: rhbody RETHAND rhtail?            -> rethand
 rhbody: (RVERB | WORD | QUANT | NUM | ZONE | FROM | TOPREP | EQUALTO)+   // 'return[s] [<subject>] <object> [from <zone>]' (RVERB: the leading 'return' string terminal; value unused; sliced from src)
+rhtail: (WORD | NUM | QUANT | TOPREP | ZONE | FROM)+   // trailing '[at the beginning of] <step>' delayed-return timing — DROPPED (the regex `_return_zone` drops it for return_to_hand)
 
 // GRANT_COMBAT (§509/§508 combat permission) — the clean '<subj> can attack/block …' subfamily of
 // grant_ability (the `_as_though_combat` as-though-permission + `_can_block_more` multi-block templates).
@@ -3336,7 +3337,8 @@ class _ToEffect(Transformer):
             return None
         # split at the 'return[s]' verb so a leading PLAYER subject ('<player> returns <obj> …', the
         # `_return_zone` subject-first shape) is dropped exactly as that template's `(?:_TGT )?` prefix does.
-        m = re.match(r"^(.*?)returns? (.+) to (?:its owner's|your|their owners'|their owner's|their|his or her) hands?$",
+        m = re.match(r"^(.*?)returns? (.+) to (?:its owner's|your|their owners'|their owner's|their|his or her) hands?"
+                     r"(?: at the beginning of [\w' ]+?)?$",   # DROP a trailing delayed-return timing, as `_return_zone` does
                      src.strip(), re.I)
         if not m:
             return None
