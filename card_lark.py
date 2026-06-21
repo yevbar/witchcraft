@@ -2074,9 +2074,15 @@ class _ToEffect(Transformer):
             t = t[:-len(" perpetually")].strip()       # '<X> perpetually gains …' -> cond=perpetual
         amount, cond = "-", "-"
         if dur is not None:
-            if perpetual or dur.strip().lower() != "until end of turn":
-                return None                            # other duration (regex slugs it, lossy) / both -> abstain
-            amount = "until_end_of_turn"
+            d = dur.strip().lower()
+            # duration -> amount slot. 'until end of turn' is unchanged (was already faithful); the non-EOT
+            # durations the regex slugs INTO the kw (lossy: 'banding_until_end_of_combat') ground faithfully
+            # here as amount='until_end_of_combat'/'until_your_next_turn'/… with a clean kw. 'this turn' is
+            # omitted (its faithful slug is ambiguous vs until_end_of_turn) -> regex chain owns it.
+            if perpetual or d not in ("until end of turn", "until end of combat",
+                                      "until your next turn", "until end of your next turn"):
+                return None
+            amount = ground.slug(d)
         elif perpetual:
             cond = "perpetual"
         return amount, cond, t
