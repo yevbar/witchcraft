@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | osclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -94,6 +94,11 @@ tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'cre
 // and the transformer re-matches src against `_create_copy` (`_CCP_RE`) for a byte-identical tuple.
 tcpclause.-2: ccreator? CVERB CCOUNT COPYTOK cpobj  -> create_copy
 cpobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | PTDELTA | EQUALTO | MDUR)+   // copied object + 'except …' span (src-re-matched; raw)
+// CREATE a COPY token, ELIDED 'token that's' form — 'create a copy of <X>[, except <mods>]' (the
+// `_create_copy_of` template). Anchored on the EXISTING COPYOF ('a copy of') terminal (no new terminal ->
+// no lexer collision; bcpclause needs 'becomes' before COPYOF so it never claims a create clause). The
+// count 'a' is inside COPYOF, so no CCOUNT; the transformer re-matches src against `_create_copy_of`.
+tcpofclause.-2: CVERB COPYOF cpobj  -> create_copy_of
 
 // BECOMES (the dominant 'animate to a N/N' shape): '<tgt> becomes/is/are [a] N/N <typetail>
 // [with <kw>] [until end of turn]'. We own ONLY this P/T-bearing shape (the `_becomes` template);
@@ -857,6 +862,9 @@ _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)
 # spec-less copy shape PARSE-FAILs the normal `tclause` (empty cspec), so `tcpclause` makes it parse and this
 # re-match on src reproduces the tuple byte-for-byte: amount, extra='copy_of_<X>[_except_<mods>]', creator/cond.
 _CCP_RE = re.compile(rf"^(?:({_TGT}) )?creates? (a|one|two|three|x|\w+) tokens? that(?:'s| are) (?:a )?cop(?:y|ies) of ({_TGT})(?:,? except (?:it has |they have |it's |they're )?(.+?))?$", re.I)
+# CREATE [N] copy/copies of <X>[, except <mods>] — `_create_copy_of`'s exact pattern (elided 'token that's',
+# §707). Re-matched on src by `create_copy_of` for a byte-identical tuple (extra='copy_of_<X>[_except_<mods>]').
+_CCPOF_RE = re.compile(r"^create (a|one|two|three|x|\w+) cop(?:y|ies) of (.+?)(?:, except (.+?))?$", re.I)
 # BECOMES <color> — `_becomes_color`'s exact pattern (LITERAL-color slice: 'the color of your choice' is
 # omitted so it defers to the earlier-registered `_becomes_choice`). Re-applied to src by bccolor_v.
 _BCC_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) (white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?$", re.I)
@@ -1965,6 +1973,21 @@ class _ToEffect(Transformer):
         creator = _target(m.group(1)) if m.group(1) and m.group(1).lower() != "you" else "-"
         cond = "creator_" + creator if creator != "-" else "-"
         return Effect("create", amt, "token", extra, cond)
+
+    def create_copy_of(self, *args):
+        # 'create [N] copy/copies of <X>[, except <mods>]' (elided 'token that's') — the EXACT `_create_copy_of`
+        # template re-matched on src: ground.slug (NOT _target) the copied object, abstain on a compound object,
+        # 4-arg Effect (cond '-'). A non-match (creator-prefixed 'creates …', run-on) abstains to the regex chain.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _CCPOF_RE.match(src.strip())
+        if not m or _is_compound_object(m.group(2)):
+            return None
+        n = _amount(m.group(1))
+        amt = n if n is not None else "X"
+        extra = "copy_of_" + ground.slug(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
+        return Effect("create", amt, "token", extra)
 
     def create(self, *args):
         creator = next((a for a in args if isinstance(a, _Creator)), None)
