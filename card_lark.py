@@ -817,6 +817,11 @@ _GENOBJ_RE = re.compile(r"^(\w+) (.+?)$", re.I)
 # <their permanents>'. The imperative leaf abstains on those (the _WITHCTR guard / no leading-subject form); a
 # src re-match here reproduces the WHOLE-NP target byte-for-byte. group1=verb, group2=object.
 _TAPUNTAP_RE = re.compile(rf"^(?:{_TGT} )?(tap|untap)s? ({_TGT})$", re.I)
+# '<subj> enters with N [additional] <kind> counter(s) on it' — an ETB counter placement (§614/§122,
+# put_counter / cond on_enter). 'counter(s)' mis-lexes as the OVERB, so the clause routes to
+# osclause/tapuntap_subj where the tap/untap re-match abstains; a src re-match here reproduces
+# card_effects._enters_counters_eff byte-for-byte. g1=optional subject (->self), g2=count, g3=kind.
+_ENTERS_CTR_RE = re.compile(rf"^(?:({_TGT}) )?enters with (\w+) (?:additional )?([+-]\d+/[+-]\d+|[\w]+) counters? on it$", re.I)
 # DISCARD whole-hand / referenced-set — `_discard_hand` ('discard your hand' -> discard/all/you) and
 # `_discard_set` ('[<subj>] discards their hand|those cards|that card|all the cards in their hand' ->
 # discard/-/<subj>/<slug>). pcount routes 'discard' here via PVERB but abstains (the body isn't 'N cards').
@@ -1713,6 +1718,11 @@ class _ToEffect(Transformer):
         src = getattr(self, "_src", None)
         if src is None:
             return None
+        cm = _ENTERS_CTR_RE.match(src.strip())
+        if cm:                                   # '<subj> enters with N <kind> counter(s) on it' -> put_counter
+            n = _amount(cm.group(2))             # reproduce _enters_counters_eff exactly (kind: keep +P/+P, else slug)
+            kind = cm.group(3) if "/" in cm.group(3) else ground.slug(cm.group(3))
+            return Effect("put_counter", n if n is not None else 1, _target(cm.group(1) or "self"), kind, "on_enter")
         m = _TAPUNTAP_RE.match(src.strip())
         if m:
             return Effect(m.group(1).lower(), "-", _target(m.group(2)))
