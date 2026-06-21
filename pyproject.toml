@@ -12,6 +12,12 @@ license = { text = "MIT" }
 # Pure-Python and stdlib-only at the API layer; the engine backends shell out to a souffle build.
 dependencies = []
 
+# Parser/tooling side ONLY (card-text interpretation, the card_synergy buff graph) — deliberately NOT in
+# [project.dependencies], so `pip install witchcraft` stays stdlib-only for the published API. Install the
+# parser extras explicitly: `pip install witchcraft[parser]`.
+[project.optional-dependencies]
+parser = ["networkx"]
+
 [project.urls]
 Homepage = "https://github.com/yevbar/mtg_parser"
 
