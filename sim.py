@@ -36,6 +36,9 @@ def load_db():
             db.setdefault(a[0], {}).update(name=a[1])
         elif rel == "printed_keyword":
             db.setdefault(a[0], {}).setdefault("keywords", set()).add(a[1])
+        elif rel == "keyword_param":                          # §702.14 the land subtype of a landwalk (swampwalk
+            db.setdefault(a[0], {}).setdefault("keyword_param", set()).add((a[1], a[2]))  # -> landwalk/swamp), a
+            #                                                  cycling cost, etc. — carried so the runtime keeps the param.
         elif rel == "mana_ability":
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], [])
         elif rel == "adds_mana":

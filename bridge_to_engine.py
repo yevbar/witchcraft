@@ -2135,6 +2135,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_loyalty", (facts, int(c["loyalty"])))      # (driver-side: set as loyalty counters on enter)
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
         add("card_keyword", (facts, kw))
+    for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
+        add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
     if "flashback" in {str(k).lower() for k in f.get("keywords", set())}:
         add("flashback_card", (tid,))                        # §702.34 a card that natively HAS flashback (driver-side
         #                                                      filter for 'search for cards with flashback' — Quiet Speculation)

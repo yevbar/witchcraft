@@ -107,10 +107,30 @@ def _completeness_signal() -> None:
           all(str(a) == "501" for a, _d in decl))
 
 
+def _keyword_param_roundtrip() -> None:
+    """§702.14 a PARAMETERIZED keyword (landwalk's land subtype) must survive the runtime path
+    load_db -> card_facts, not just live in cards.dl. (load_db used to read printed_keyword but drop the
+    companion keyword_param row, so the bridge emitted bare 'landwalk' with no land type.)"""
+    import sim, card_corpus
+    import bridge_to_engine as bridge
+    db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    bog, _ = bridge.card_facts("Bog Wraith", "p1", "bw", db, corpus)
+    check("load_db carries keyword_param", ("landwalk", "swamp") in db.get("bog_wraith", {}).get("keyword_param", set()))
+    # card_facts feeds card-level identity keyed by the card SLUG (ONE WORLD), like card_keyword — not the instance id.
+    check("card_facts emits the landwalk land subtype (Bog Wraith -> swamp)",
+          ("bog_wraith", "landwalk", "swamp") in bog.get("keyword_param", set()))
+    isl, _ = bridge.card_facts("Rootwater Commando", "p1", "rc", db, corpus)
+    check("the param is per-card (Rootwater Commando -> island)",
+          ("rootwater_commando", "landwalk", "island") in isl.get("keyword_param", set()))
+    bears, _ = bridge.card_facts("Grizzly Bears", "p1", "gb", db, corpus)
+    check("a non-landwalk creature emits no keyword_param", not bears.get("keyword_param"))
+
+
 def run() -> None:
     _reconstruct()
     _engine_decides()
     _completeness_signal()
+    _keyword_param_roundtrip()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
