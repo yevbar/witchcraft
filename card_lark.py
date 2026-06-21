@@ -87,7 +87,7 @@ chsrest: chstok+                                  // the chosen-thing NP, opaque
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
       | DEALS | DMG | GETS | GVERB | PVERB | PUT | TOKEN | DIVIDED | THATMUCH | PTDELTA | MDUR | CCOUNT
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
-tclause: ccreator? CVERB CCOUNT cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'
+tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
 // CREATE a COPY token (§707) — '[<creator>] create[s] [N] token[s] that's a copy of <X>[, except <mods>]'.
 // Spec-LESS, so the normal `tclause` (which needs a cspec before TOKEN) PARSE-FAILs; the distinctive COPYTOK
 // terminal anchors it, cpobj consumes the copied object + optional ', except <mods>' (WORD eats the comma),
@@ -1997,7 +1997,8 @@ class _ToEffect(Transformer):
                       if not isinstance(a, (_Creator, _Spec, _FEWord, _CTail))
                       and re.fullmatch(r"(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)",
                                        str(a).lower())), None)
-        if spec is None or count is None:
+        that_many = any(str(a).lower() == "that many" for a in args)   # anaphoric §107.3 'create THAT MANY <spec> tokens'
+        if spec is None or (count is None and not that_many):
             return None
         sl = spec.lower()
         # 'create a number of <spec> tokens equal to <X>' is the count-scaled _create_equal template (the
@@ -2031,10 +2032,13 @@ class _ToEffect(Transformer):
                 cre = c
             else:
                 return None                      # non-player creator phrase -> regex chain owns it
-        n = _amount(count)
-        amt = n if n is not None else "X"        # _amount('x') -> 'X'; digits/number words -> int
-        if fe is not None:
-            amt = f"{amt}_per_{ground.slug(fe)}"  # regex keeps only the first word of 'for each X'
+        if that_many:
+            amt = "that_amount"                   # FAITHFUL anaphoric count — the regex grounds this lossily
+        else:                                     # (amount='X' + 'many_' leaked into the spec via _create_token)
+            n = _amount(count)
+            amt = n if n is not None else "X"     # _amount('x') -> 'X'; digits/number words -> int
+            if fe is not None:
+                amt = f"{amt}_per_{ground.slug(fe)}"  # regex keeps only the first word of 'for each X'
         cond = ("creator_" + _target(cre)) if cre else "-"
         return Effect("create", amt, "token", ground.slug(spec), cond)
 
