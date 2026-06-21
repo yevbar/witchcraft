@@ -43,7 +43,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -51,6 +51,12 @@ start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | t
 // to the anchored `^…$` regex, or no parse.
 litclause: LITEFFECT                                          -> lit
 LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
+// 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
+// (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
+// terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
+ceqmclause.-2: ceqmlead CEQMANA                               -> cost_eq_mana
+ceqmlead: WORD+
+CEQMANA.6: /\bcost is equal to its mana cost\b/
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
 oclause: OVERB quant? objall trailer?            -> imperative  // object verbs: object spans everything
 // SUBJECT-PREFIXED tap/untap (§701.20): '<player> taps/untaps <obj>' — the `_taputap` leading-subject form
@@ -732,6 +738,10 @@ _TGT_BAD = re.compile(
     r"destroys?|draws?|deals?|sacrifices?|adds?|attacks?|blocks?)\b|"                      # embedded verb
     r"\bas long as\b|\bas though\b|\bin addition\b|\band they\b|\band it\b|\bexcept\b|\balso\b",
     re.I)
+
+
+_KW = ground.keyword_abilities()                   # §702 roster (set) — reproduces _granted_keyword_cost's gate
+_CEQMANA_RE = re.compile(r"^the (\w+) cost is equal to its mana cost$", re.I)  # `_granted_keyword_cost`'s pattern
 
 
 def _clean_kw(extra: str) -> bool:
@@ -1632,6 +1642,21 @@ class _ToEffect(Transformer):
     def lit(self, tok):                            # §720/§701 literal keyword-action effects (see litclause)
         v = _LIT_EFFECTS.get(str(tok).strip())
         return Effect(*v) if v else None
+
+    def ceqmlead(self, *toks):
+        return _Body(" ".join(str(t) for t in toks))   # leading 'the <kw>' span (src is re-matched)
+
+    def cost_eq_mana(self, *args):
+        # 'the <keyword> cost is equal to its mana cost' — reproduce `_granted_keyword_cost` byte-for-byte:
+        # grant_keyword(<kw>, 'it', 'cost_equals_mana_cost') iff the kw is in the §702 roster, else abstain.
+        src = getattr(self, "_src", None)
+        m = _CEQMANA_RE.match(src.strip()) if src is not None else None
+        if not m:
+            return None
+        kw = ground.slug(m.group(1))
+        if kw not in _KW:
+            return None
+        return Effect("grant_keyword", kw, "it", "cost_equals_mana_cost")
 
     def quant(self, tok):
         return _Quant(str(tok))
