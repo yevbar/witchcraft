@@ -3341,6 +3341,11 @@ class _ToEffect(Transformer):
                      r"(?: at the beginning of [\w' ]+?)?$",   # DROP a trailing delayed-return timing, as `_return_zone` does
                      src.strip(), re.I)
         if not m:
+            # REVERSED phrasing 'return to <owner-hand> <object>' (`_return_zone_rev`, hand only — the other
+            # zones don't lex RETHAND so never reach here). Byte-identical: return_to_hand(-, _target(obj)).
+            rm = re.match(r"^return to [\w' ]*?hands? (.+?)$", src.strip(), re.I)
+            if rm and not _is_compound_object(rm.group(1)):
+                return Effect("return_to_hand", "-", _target(rm.group(1)))
             return None
         subj = m.group(1).strip()
         if subj and not _RH_SUBJ.match(subj):
