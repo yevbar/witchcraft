@@ -554,7 +554,7 @@ ccreator: (WORD | QUANT)+               // optional creator player phrase ('targ
 cspec: (WORD | NUM)+                    // the token descriptor (P/T + colors + types) up to 'token[s]'
 cforeach: FOREACH cfeword               // 'for each <X>' — regex keeps only the FIRST word of X
 cfeword: WORD | NUM | QUANT | PTDELTA    // first word may be a '+1/+1' counter kind (lexed as PTDELTA)
-ctail: (WORD | NUM | QUANT | TOPREP | FROM | ZONE | DEALS | DMG | GETS | PTDELTA | TOKEN | MDUR)*  -> ctail  // dropped (regex's trailing '.*')
+ctail: (WORD | NUM | QUANT | TOPREP | FROM | ZONE | DEALS | DMG | GETS | PTDELTA | TOKEN | MDUR | QUOTED)*  -> ctail  // dropped (regex's trailing '.*'); QUOTED lets 'token with "<ability>"' parse
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
 pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
@@ -2035,8 +2035,9 @@ class _ToEffect(Transformer):
         # or a sequenced second effect ('… token, then draw …') — the regex crams the whole run into
         # the spec (lossy), and lark dropping it would drop conjuncts. Abstain: regex chain owns these.
         tail = next((str(a) for a in args if isinstance(a, _CTail)), "")
-        if "," in tail or re.search(r"\bthen\b", tail):
-            return None
+        tail_uq = re.sub(r'"[^"]*"', "", tail)   # a comma/'then' INSIDE a granted quoted ability ('token with
+        if "," in tail_uq or re.search(r"\bthen\b", tail_uq):   # "When ~ dies, …"') is not a clause separator
+            return None                          # — mask quoted spans first, then detect a real multi-token list
         # CREATOR: closed player allow-list (reuse _PLAYER) — a greedy non-player prefix -> abstain.
         cre = None
         if creator is not None:
