@@ -17,7 +17,7 @@ moves it may make, and whether the game is over and who won. From that alone it 
 
     from witchcraft import benchmark
     from witchcraft.lookahead import LookaheadPlayer
-    benchmark(LookaheadPlayer(depth=10), games=10)
+    benchmark(LookaheadPlayer(depth=20), games=10)
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class LookaheadPlayer(Player):
 
     name = "lookahead"
 
-    def __init__(self, depth: int = 10, node_budget: int = 2000, seed: int | None = None):
+    def __init__(self, depth: int = 20, node_budget: int = 2000, seed: int | None = None):
         """depth: how many plies to look ahead. node_budget: max move-explorations per decision (caps
         runtime — an early-game position with no win in reach would otherwise search the full tree)."""
         self.depth = depth
