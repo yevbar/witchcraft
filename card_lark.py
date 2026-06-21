@@ -858,6 +858,12 @@ _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (
 # CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
 # Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
 _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
+# CREATE X <spec> tokens[, with <kw>], where X is <Y> — the COUNT is the variable X (literal 'x' count),
+# defined inline by the 'where X is <Y>' tail. The generic _create_token grounds it LOSSILY (amount='X',
+# dropping the def); ground amount='equal_to_<Y>' instead (same convention as _create_equal). The literal
+# 'x ' after the verb is what restricts this to a COUNT-X clause — 'creates an x/x … where x is …' (X in the
+# P/T, count='an') does NOT match, so it stays on the regex. g1=creator, g2=spec, g3=Y.
+_CWHEREX_RE = re.compile(rf"^(?:({_TGT}) )?creates? x (.+?) tokens?(?: with [^,]+)?,? where x is (.+?)$", re.I)
 # CREATE [N] token(s) that's a copy of <X>[, except <mods>] — `_create_copy`'s exact pattern (§111/§707). The
 # spec-less copy shape PARSE-FAILs the normal `tclause` (empty cspec), so `tcpclause` makes it parse and this
 # re-match on src reproduces the tuple byte-for-byte: amount, extra='copy_of_<X>[_except_<mods>]', creator/cond.
@@ -1990,6 +1996,15 @@ class _ToEffect(Transformer):
         return Effect("create", amt, "token", extra)
 
     def create(self, *args):
+        src = getattr(self, "_src", None)
+        if src is not None and (wm := _CWHEREX_RE.match(src.strip())):
+            # 'create X <spec> tokens[, with <kw>], where X is <Y>' — count IS X (regex grounds 'X' lossily).
+            # Ground amount='equal_to_<Y>' (faithful); spec/creator reproduce the base create exactly.
+            cre = wm.group(1)
+            if cre and cre.lower() != "you" and not _PLAYER.match(cre.lower()):
+                return None                          # non-player creator phrase -> regex chain owns it
+            cond = ("creator_" + _target(cre)) if (cre and cre.lower() != "you") else "-"
+            return Effect("create", "equal_to_" + ground.slug(wm.group(3)), "token", ground.slug(wm.group(2)), cond)
         creator = next((a for a in args if isinstance(a, _Creator)), None)
         spec = next((str(a) for a in args if isinstance(a, _Spec)), None)
         fe = next((str(a) for a in args if isinstance(a, _FEWord)), None)
