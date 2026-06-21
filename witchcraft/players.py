@@ -94,6 +94,11 @@ class Player:
     # seated player wants it; in Forge mode the seat always makes its own land drops, so it's on regardless.
     wants_explicit_lands = False
 
+    # A policy that acts at INSTANT speed (casts instants / activates instant-speed abilities outside its
+    # main phase) sets this True, so the harness opens §117.1a instant-speed priority windows; otherwise the
+    # engine fast-forwards through non-main steps and those options never surface. Same opt-in shape as above.
+    wants_instant_speed = False
+
     # Per-decision binding, set by `bind()` (which `play()` calls before each move): the live Game and the
     # seat this player is deciding for. The seat-scoped properties below read through these.
     _game: "Game | None" = None
@@ -247,7 +252,7 @@ class RandomPlayer(Player):
 
 def play(players: dict, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
          commanders: dict | None = None, incremental: bool = False, max_moves: int = 4000,
-         explicit_lands: bool = False) -> "Game":
+         explicit_lands: bool = False, instant_speed: bool = False) -> "Game":
     """Play a full game to a terminal state with each seat driven by its `Player`, returning the finished
     `Game` (read `.outcome()` / `.winner()` / `.result()`). `players` is `{seat: Player}` (e.g.
     `{"alice": RandomPlayer(), "bob": MyHeuristic()}`); a seat with no Player falls to the engine default.
@@ -259,8 +264,9 @@ def play(players: dict, decks: dict | None = None, *, variant: str = "default", 
     # a player that sequences its own lands (HeuristicPlayer) needs explicit_lands or its land logic is dead;
     # honour that here so the caller doesn't have to remember the flag (the explicit arg still forces it on).
     explicit_lands = explicit_lands or any(getattr(p, "wants_explicit_lands", False) for p in players.values())
+    instant_speed = instant_speed or any(getattr(p, "wants_instant_speed", False) for p in players.values())
     g = Game(decks, variant=variant, seed=seed, commanders=commanders,
-             policies=policies, incremental=incremental, explicit_lands=explicit_lands)
+             policies=policies, incremental=incremental, explicit_lands=explicit_lands, instant_speed=instant_speed)
     for _ in range(max_moves):
         if g.is_game_over() or not g.legal_moves:
             break
