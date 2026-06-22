@@ -39,10 +39,9 @@ _OP_RX, _OP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_
 # LEADING-put 'Put <obj> into <zone>' -> put_in_graveyard/put_in_hand (the registered `_put_zone`; unique).
 # `_pz_frame` in `pzput` grounds some (hand) but abstains on others (graveyard) — re-match _put_zone on src.
 _PZ_RX, _PZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_put_zone")
-# '<player> gets <n> poison/energy/experience counter(s)' -> put_counter on the PLAYER (the registered
-# `_gets_counter`; unique, faithful). The 'gets' verb (not 'put') PARSE-FAILs every production -> new
-# `pgcclause` below; the transformer re-matches `_gets_counter` on src for a byte-identical flip.
-_GETSC_RX, _GETSC_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_gets_counter")
+# '<player> gets <n> poison/energy/experience counter(s)' -> put_counter on the PLAYER. The 'gets' verb
+# (not 'put') PARSE-FAILs every other production; `pgcclause` below GROUNDS IT NATIVELY from the grammar-
+# captured count + kind (no card_effects template re-match).
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -96,9 +95,10 @@ pszbody: (WORD | QUANT | NUM | CCOUNT | FROM | ZONE | ONPREP | TOPREP | XLIB | E
 // '<player> gets <n> poison/energy/experience counter(s)' — the 'gets' verb (not 'put') PARSE-FAILs every
 // production; this owns it. Flat body; the transformer re-matches `_gets_counter` on _src (faithful flip,
 // abstains if the kind isn't a player counter). NEGATIVE priority so any competing parse wins.
-pgcclause.-2: pgcsubj GETS pgctail                -> player_gets_counter
-pgcsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'gets' (validated via _gets_counter)
-pgctail: (WORD | QUANT | NUM | COUNTER)+           // '<n> <kind> counter(s)' (src re-matched)
+pgcclause.-2: pgcsubj GETS pgccount pgckind COUNTER   -> player_gets_counter
+pgcsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'gets' (-> _target)
+pgccount: QUANT | NUM | WORD                        // 'a'/'an'/'one'/'two'/'x'/digit/word (-> _amount)
+pgckind: WORD                                       // the counter kind, validated poison|energy|experience in the xf
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
@@ -1836,17 +1836,34 @@ class _ToEffect(Transformer):
                 return e
         return None
 
+    def pgcsubj(self, *toks):
+        return _CSubj(" ".join(str(t) for t in toks))
+
+    def pgccount(self, tok):
+        return _CCount(str(tok))
+
+    def pgckind(self, tok):
+        return _CKind(str(tok))
+
     def player_gets_counter(self, *args):
-        # '<player> gets <n> poison/energy/experience counter(s)' — re-match the registered `_gets_counter`
-        # on src -> byte-identical put_counter on the player; a 'gets … counter' whose kind isn't a player
-        # counter (e.g. '+1/+1') fails _GETSC_RX and abstains to the regex.
-        src = getattr(self, "_src", None)
-        if src is None:
+        # '<player> gets <n> poison/energy/experience counter(s)' -> put_counter on the player. GROUNDED
+        # NATIVELY from the grammar-captured count + kind (no card_effects template): amount = _amount(count)
+        # (or 'X'), target = _target(subject), extra = kind. The subject must be a clean target phrase
+        # (validated against _TGT — structural, NOT a template re-match): the (WORD|QUANT|NUM)+ span otherwise
+        # over-captures a trigger/conditional/compound prefix ('When … dies, you' / 'target player draws …, and')
+        # that the regex's _TGT subject rejects. A non-player counter kind (e.g. '+1/+1') also abstains.
+        subj = next((str(a) for a in args if isinstance(a, _CSubj)), None)
+        count = next((str(a) for a in args if isinstance(a, _CCount)), None)
+        kind = next((str(a) for a in args if isinstance(a, _CKind)), None)
+        if count is None or kind is None or subj is None:
             return None
-        m = _GETSC_RX.match(src.strip())
-        if m:
-            return _GETSC_FN(m)
-        return None
+        k = kind.strip().lower()
+        if k not in ("poison", "energy", "experience"):
+            return None
+        if not re.fullmatch(_TGT, subj.strip(), re.I):       # reproduce _gets_counter's ({_TGT}) subject guard
+            return None
+        n = _amount(count.strip())
+        return Effect("put_counter", n if n is not None else "X", _target(subj.strip()), k)
 
     def tapuntap_subj(self, *args):
         # '<player> taps/untaps <obj>' — the subject-prefixed `_taputap` form (subject DROPPED). Re-match
