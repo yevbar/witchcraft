@@ -117,8 +117,11 @@ class CardValueNet(nn.Module):
     a new feature row, never a new parameter."""
 
     def __init__(self, n_obj: int = OBJ_FEATURES, n_glob: int = GLOBAL_FEATURES,
-                 embed: int = 32, hidden: int = 64):
+                 embed: int = 32, hidden: int = 64, seed: int | None = None):
         super().__init__()
+        if seed is not None:
+            torch.manual_seed(seed)             # seed BEFORE layer init -> reproducible weights (else the global
+            #                                     RNG drives nn.Linear init and training is non-deterministic)
         self.embed = embed
         self.card = nn.Sequential(nn.Linear(n_obj, embed), nn.ReLU(), nn.Linear(embed, embed), nn.ReLU())
         self.head = nn.Sequential(nn.Linear(embed * 3 + n_glob, hidden), nn.ReLU(), nn.Linear(hidden, 1))
@@ -227,7 +230,7 @@ def train(games: int = 40, *, embed: int = 32, hidden: int = 64, epochs: int = 4
     """Generate self-play data and fit a CardValueNet, returning a CardNetValue ready to pass as
     `ReBeLPlayer(value_fn=...)`. CPU-only; scale games/epochs to budget."""
     data = generate(games, decks=decks, variant=variant, seed=seed, player_factory=player_factory)
-    net = CardValueNet(embed=embed, hidden=hidden)
+    net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
     fit(net, data, epochs=epochs, lr=lr, batch=batch, seed=seed, verbose=verbose)
     return CardNetValue(net)
 
@@ -298,7 +301,7 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
     NB the greedy lookahead steps the TRUE state (a perfect-info peek in the transition; the value features
     are still the redacted belief view). The sound imperfect-info player is ReBeLPlayer (it determinizes)."""
     data: list = []
-    net = CardValueNet(embed=embed, hidden=hidden)
+    net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
     vf = None
     history = []
     for r in range(rounds):
@@ -309,7 +312,7 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
             return _ExploringValuePlayer(_vf, epsilon=epsilon, seed=seed + r * 100 + (0 if s == "alice" else 1))
         data.extend(generate(games_per_round, decks=decks, deck_pool=deck_pool, variant=variant,
                              seed=seed + r * 1000, player_factory=pf))
-        net = CardValueNet(embed=embed, hidden=hidden)          # fresh net on all accumulated data (like rebel_train)
+        net = CardValueNet(embed=embed, hidden=hidden, seed=seed)          # fresh net on all accumulated data (like rebel_train)
         fit(net, data, epochs=epochs, lr=lr, seed=seed)
         vf = CardNetValue(net)
         wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r, deck_pool=deck_pool)

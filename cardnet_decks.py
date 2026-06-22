@@ -9,6 +9,13 @@ Usage: python3 cardnet_decks.py [--deck NAME] [--rounds R] [--games N] [--epochs
 """
 from __future__ import annotations
 
+import os
+import sys
+
+if os.environ.get("PYTHONHASHSEED") != "0":           # REPRODUCIBILITY: pin set-iteration order (move enumeration /
+    os.environ["PYTHONHASHSEED"] = "0"                #   features) across processes, then re-exec once. With the
+    os.execv(sys.executable, [sys.executable, *sys.argv])  #   seeded net init this makes runs bit-identical.
+
 import argparse
 import contextlib
 import io

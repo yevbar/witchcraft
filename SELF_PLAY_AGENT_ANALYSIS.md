@@ -196,10 +196,29 @@ lookahead path (verified: same winner + 44 moves, 3.4s → 1.2s on an izzet matc
 ReBeL cross-deck eval — and the previously-unmeasurable grindy selesnya matchup — tractable. Use
 it for any future self-play/eval work.
 
-### 7.6 Known issues / next levers
+### 7.6 Reproducibility — fixed (two causes)
 
-- **Training is non-deterministic** (mix curves differ run-to-run despite `seed=0`, likely
-  torch/threading) — reproducibility is the next cleanup before further experiments.
+Runs with `seed=0` used to differ (the overnight mix curves were `[0.83,0.5,0.5]` vs
+`[0.67,0.33,0.83]`). Two independent causes, both now fixed → **bit-identical runs** (same
+curves AND same weights, verified across processes):
+
+1. **Unseeded net init.** `cn.fit` called `torch.manual_seed` *after* the net was built, so
+   `nn.Linear` init read the unseeded global RNG. Fix: `CardValueNet(seed=)` seeds *before*
+   building its layers. (This was the big one — it gave wholly different nets/curves.)
+2. **`PYTHONHASHSEED`.** Randomized set-iteration order perturbed move enumeration → slightly
+   different self-play games → different weights (curves robust but not identical; with hash
+   seed pinned, even the small round-to-round wins changed, e.g. `[0.75,0.5]` vs `[0.75,0.25]`).
+   Fix: the runner scripts pin `PYTHONHASHSEED=0` and re-exec once. (The deeper fix — sorting the
+   order-dependent set iterations in `env`/features — is left for later; pinning is the pragmatic
+   complete fix for experiment reproducibility.)
+
+`test_cardnet` guards #1 (seeded init + reproducible `fit`). All three runners are covered:
+`cardnet_decks`/`cardnet_iterate` go through the seeded `train_loop`; `cardnet_selfplay` (the A/B
+runner) also seeds its net (`CardValueNet(seed=)`) and its benchmark opponents (`RandomPlayer(seed=1000+i)`)
+— both were unseeded and are now bit-identical across two `seed=0` runs.
+
+### 7.7 Remaining levers
+
 - **Throughput** is the ceiling: izzet's instant-heavy 1-ply is ~10–30 ms × many legal moves =
   ~10–30 s/game; the incremental backend helps ~3x but `env.step` is still the hot path.
 - **Highest-leverage next step:** value-net quality (the §7.4 bottleneck), not more search.
