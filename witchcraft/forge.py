@@ -33,14 +33,28 @@ def _orch():
     return rt
 
 
-def forge_available() -> bool:
-    """True iff Forge can run here — the JDK `java` binary and the built fatjar both exist (the same paths
-    forge_integration uses; override with $JDK / $FORGE)."""
+def forge_status() -> dict:
+    """An agent-debuggable view of Forge readiness: the RESOLVED paths (after forge_integration's
+    auto-discovery of a local JDK 17 + installed fatjar) and which existence check passes — so a False
+    `available` is actionable instead of silent. Keys: available, jdk, jdk_ok, fatjar, fatjar_ok, assets,
+    headless (+ error if the orchestration import failed). Override any path with $JDK / $FATJAR / $FORGE /
+    $FORGE_ASSETS; force the display mode with $FORGE_HEADLESS."""
     try:
         rt = _orch()
-    except Exception:
-        return False
-    return os.path.exists(os.path.join(rt.JDK, "bin", "java")) and os.path.exists(rt.FATJAR)
+    except Exception as e:
+        return {"available": False, "error": f"{type(e).__name__}: {e}"}
+    jdk_ok = os.path.exists(os.path.join(rt.JDK, "bin", "java"))
+    fatjar_ok = os.path.exists(rt.FATJAR)
+    return {"available": jdk_ok and fatjar_ok, "jdk": rt.JDK, "jdk_ok": jdk_ok,
+            "fatjar": rt.FATJAR, "fatjar_ok": fatjar_ok,
+            "assets": getattr(rt, "FORGE_ASSETS", None), "headless": getattr(rt, "_HEADLESS", None)}
+
+
+def forge_available() -> bool:
+    """True iff Forge can run here — the JDK `java` binary and the built fatjar both exist. The paths are
+    auto-discovered (local JDK 17, an installed Forge fatjar); override with $JDK / $FATJAR / $FORGE. Use
+    `forge_status()` to see the resolved paths and WHY this is False."""
+    return forge_status().get("available", False)
 
 
 # The witchcraft bot seat's policy, as run_bot.py understands it (MTG_POLICY): 'engine' = the win_search
