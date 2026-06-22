@@ -28,13 +28,11 @@ import card_effects as _ce
 # so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
 _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
                         if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
-# Battlefield/hand RETURN family (§614) — the imperative/leading-subject 'Return <obj> [from <zone>] to the
-# battlefield/<owner>'s hand [riders]' the grammar's rclause/ret/rhclause can't carve (compound & comma
-# objects, dest-first 'Return to the battlefield <obj>', 'all Auras attached to …', leading-subject 'each
-# player returns …', complex riders). `_return_chain` reproduces parse_effect's LEAF choice exactly — the
-# first registered template that matches AND grounds, in registration order — and acts ONLY when that's a
-# return_to_* verb, so a non-return clause (or one a better leaf owns) falls through to the grammar untouched.
-def _return_chain(s):
+# Registered-LEAF re-match: reproduce parse_effect's leaf choice EXACTLY — the first registered template
+# that matches AND grounds, in registration order — and act ONLY when `ok(verb)` holds, so a clause a better
+# leaf owns (or an out-of-family verb) falls through to the grammar untouched. Used as a POST-grammar fallback
+# (the grammar owns what it parses) for whole families the CFG can't carve.
+def _regex_leaf(s, ok):
     for rx, fn in _ce._TEMPLATES:
         m = rx.match(s)
         if m:
@@ -43,11 +41,19 @@ def _return_chain(s):
             except Exception:
                 e = None
             if e is not None:                       # FIRST grounding template wins (== parse_effect); use it
-                return e if e.verb.startswith("return_to_") else None   # only when it's a return, else abstain
+                return e if ok(e.verb) else None    # only when the verb is in-family, else abstain
     return None
-# a leading-subject return ('<player> returns/may return …') — short subject NP then the return verb; the
-# imperative 'return …' is caught by startswith. Gates `_return_chain` so it's not run on every clause.
+# RETURN family (§614) — imperative/leading-subject 'Return <obj> [from <zone>] to the battlefield/<owner>'s
+# hand [riders]' the grammar's rclause/ret/rhclause can't carve (compound & comma objects, dest-first 'Return
+# to the battlefield <obj>', 'all Auras attached to …', leading-subject 'each player returns …', riders).
+def _return_chain(s): return _regex_leaf(s, lambda v: v.startswith("return_to_"))
+# CREATE family (§111) — imperative/leading-subject 'Create <n> <spec> token[s] [with …]' the grammar's
+# tclause can't carve (named/legendary tokens, copy-tokens, 'with <ability>', multi-token, complex specs).
+def _create_chain(s): return _regex_leaf(s, lambda v: v == "create")
+# leading-subject triggers ('<player> returns/may return …' / '<player> creates …') — short subject NP then
+# the verb; the imperative form is caught by startswith. Gate the chains so they're not run on every clause.
 _SUBJ_RET_RE = re.compile(r"^[\w' ]{1,40}? (?:may )?returns? ")
+_SUBJ_CRE_RE = re.compile(r"^[\w' ]{1,60}? (?:may )?creates? ")
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
@@ -3869,4 +3875,6 @@ def parse_clause_lark(clause: str):
                                                # battlefield to hand' better than the regex _return_zone)
     if s.startswith("return ") or _SUBJ_RET_RE.match(s):
         return _return_chain(s)                # grammar abstained on a return -> registered leaf chain fallback
-    return None                                # (the battlefield/hand family the grammar can't carve)
+    if s.startswith("create ") or _SUBJ_CRE_RE.match(s):
+        return _create_chain(s)                # grammar abstained on a create -> registered leaf chain fallback
+    return None                                # (the families the grammar can't carve)
