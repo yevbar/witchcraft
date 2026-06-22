@@ -27,9 +27,13 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
-JDK = os.environ.get("JDK", "/home/zucc/opt/jdk-17.0.13+11")
-FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
-FATJAR = f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar"
+# Reuse run_tournament's local-environment auto-discovery (JDK 17 / installed fatjar / res assets) so this
+# commander path also works off the mac-mini without hand-set $JDK/$FORGE — kept in sync by sharing the code.
+import run_tournament as _rt                                   # noqa: E402  (sibling module, same dir on path)
+JDK = _rt.JDK
+FORGE = _rt.FORGE
+FATJAR = _rt.FATJAR
+FORGE_ASSETS = _rt.FORGE_ASSETS
 OUT = "/tmp/forge_tournament_out"
 DECK_DIR = "/tmp/cedh_decks"
 LOG_DIR = "/tmp/cedh_tournament_logs"
@@ -41,7 +45,7 @@ _XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
 # -Djava.awt.headless=true. A headless Linux server tolerates it differently; a desktop host (e.g. macOS
 # with a real display) must run NON-headless so the screen device is found. Default headless (server);
 # set FORGE_HEADLESS=false on a machine that has a display. See forge_integration/RUNNING.md.
-_HEADLESS = os.environ.get("FORGE_HEADLESS", "true").lower() not in ("0", "false", "no")
+_HEADLESS = os.environ.get("FORGE_HEADLESS", _rt._HEADLESS_DEFAULT).lower() not in ("0", "false", "no")
 _HEADLESS_ARG = "-Djava.awt.headless=true " if _HEADLESS else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "1800"))    # 4-player cEDH vs Forge AI is grindy -> 30 min/game
 # §903 Commander is 40 life; keep witch decisions fast (a small lookahead — Forge owns the rules, the engine
@@ -149,7 +153,7 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     for i in range(4):
         props += [f"-Ddeck{i}={deck_paths[seat_decks[i]]}", f"-Dname{i}={seat_name[i]}",
                   f"-Dtype{i}={seat_type[i]}", f"-Dport{i}={ports[i]}"]
-    env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
+    env = dict(os.environ, FORGE_ASSETS=FORGE_ASSETS)          # discovered (from-source forge-gui/ or installed res/)
     log = f"{LOG_DIR}/game_p{port_base}.log"                   # stream Forge's live move record to a per-game log
     cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'{" ".join(props)} -cp "{FATJAR}:{OUT}" ForgeCommanderFFA > "{log}" 2>&1')
@@ -219,7 +223,7 @@ def run_duel(witch_key: str, ai_key: str, deck_paths: dict, port_base: int,
     for i in range(2):
         props += [f"-Ddeck{i}={deck_paths[seat_decks[i]]}", f"-Dname{i}={seat_name[i]}",
                   f"-Dtype{i}={seat_type[i]}", f"-Dport{i}={ports[i]}"]
-    env = dict(os.environ, FORGE_ASSETS=f"{FORGE}/forge-gui/")
+    env = dict(os.environ, FORGE_ASSETS=FORGE_ASSETS)          # discovered (from-source forge-gui/ or installed res/)
     log = f"{LOG_DIR}/duel_p{port_base}.log"
     cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'{" ".join(props)} -cp "{FATJAR}:{OUT}" ForgeCommanderFFA > "{log}" 2>&1')
