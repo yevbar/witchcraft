@@ -102,8 +102,21 @@ def units_of(card: dict) -> list[Unit]:
     return out
 
 
+_CARDS_CACHE: dict = {}                                # keyed on the corpus JSON's (mtime, size), like sim.load_db
+
+
 def load_cards() -> list[dict]:
-    return json.load(open(_CORPUS, encoding="utf-8"))
+    """The card corpus (oracle data). CACHED on the corpus file's signature — it was re-read+parsed every
+    game (alongside sim.load_db). Read-only by callers, so the shared list is safe; a corpus change re-loads."""
+    st = os.stat(_CORPUS)
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _CARDS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    cards = json.load(open(_CORPUS, encoding="utf-8"))
+    _CARDS_CACHE.clear()
+    _CARDS_CACHE[key] = cards
+    return cards
 
 
 def all_units() -> list[Unit]:

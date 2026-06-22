@@ -17,6 +17,7 @@ from pathlib import Path
 
 _DL = Path(__file__).parent / "datalog" / "cards.dl"
 _ROW = re.compile(r'^(\w+)\((.*)\)\.$')
+_DB_CACHE: dict = {}                                   # keyed on cards.dl's (mtime, size) so a rebuild auto-invalidates
 
 
 def _args(s: str):
@@ -25,7 +26,16 @@ def _args(s: str):
 
 def load_db():
     """Parse cards.dl into {cid: {keywords, mana:[(cost,colors)], abilities:{aid:{kind,cost,trigger,
-    effects:[(seq,verb,amount,target)]}}}}. The sim consumes only the relations it executes."""
+    effects:[(seq,verb,amount,target)]}}}}. The sim consumes only the relations it executes.
+
+    CACHED on cards.dl's file signature (mtime+size): re-parsing it was ~0.7s per game — pure waste in
+    self-play, where it's static. The result is READ-ONLY by every caller (verified), so the shared object is
+    safe; a build_engine rebuild changes the signature and transparently re-parses."""
+    st = _DL.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _DB_CACHE.get(key)
+    if cached is not None:
+        return cached
     db: dict = {}
     for line in _DL.read_text(encoding="utf-8").splitlines():
         m = _ROW.match(line.strip())
@@ -73,6 +83,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("static_player", set()).add(a[1])
         elif rel == "doesnt_untap":                          # §502 continuous "doesn't untap" lock (self / enchanted / equipped)
             db.setdefault(a[0], {}).setdefault("no_untap", set()).add(a[1])
+    _DB_CACHE.clear()                                    # keep only the latest signature's parse
+    _DB_CACHE[key] = db
     return db
 
 
