@@ -268,6 +268,44 @@ def _policy_head_pointer_and_M0() -> None:
     check("fit_pv co-train is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
 
 
+def _m2_root_cap_ordering() -> None:
+    """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
+    moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
+    including a pass move. Without a policy_fn it's the legacy moves[:cap]."""
+    from witchcraft.rebel import ReBeLPlayer
+
+    class FM:                                                  # minimal stand-in Move (only .kind is read)
+        def __init__(self, kind, tag):
+            self.kind, self.tag = kind, tag
+    moves = [FM("cast", i) for i in range(10)] + [FM("pass", "P")]
+    score = {7: 5.0, 3: 4.0, 5: 3.0}                          # a prior favoring moves 7, 3, 5
+    pf = lambda st, seat, ms: [score.get(m.tag, 0.0) for m in ms]
+
+    chosen = ReBeLPlayer(action_cap=4, policy_fn=pf, cap_floor=1, seed=0)._root_actions(moves, {}, "alice")
+    tags = [m.tag for m in chosen]
+    check("ordered root cap keeps EXACTLY cap actions (equal env.step budget)", len(chosen) == 4)
+    check("ordered cap keeps the highest-prior moves (7 and 3)", 7 in tags and 3 in tags)
+    check("ordered cap always includes a pass move", any(m.kind == "pass" for m in chosen))
+    leg = ReBeLPlayer(action_cap=4, seed=0)._root_actions(moves, {}, "alice")
+    check("no policy_fn -> legacy alphabetical prefix moves[:cap]", [m.tag for m in leg] == [0, 1, 2, 3])
+
+    # integration: policy_prior aligns to real moves; a policy-ordered ReBeLPlayer makes a legal decision
+    net = cn.CardPVNet(seed=0)
+    g = Game(seed=3)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for _ in range(60):
+            if g.is_game_over() or len(g.legal_moves) > 2:
+                break
+            g.push(g.legal_moves[0])
+    pri = cn.policy_prior(net)
+    check("policy_prior returns one score per legal move", len(pri(g.state, g.turn, g.legal_moves)) == len(g.legal_moves))
+    rp = ReBeLPlayer(value_fn=cn.CardNetValue(net), policy_fn=pri, action_cap=10,
+                     worlds=2, iterations=6, depth=1, time_budget=0.5, seed=0)
+    with contextlib.redirect_stdout(io.StringIO()):
+        mv = rp.choose_move(g)
+    check("policy-ordered ReBeLPlayer returns a legal move", mv in g.legal_moves)
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -302,6 +340,7 @@ def run() -> None:
     _time_preferred_target()
     _gated_replay_buffer_and_gate()
     _policy_head_pointer_and_M0()
+    _m2_root_cap_ordering()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

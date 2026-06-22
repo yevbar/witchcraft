@@ -480,6 +480,19 @@ def policy_uniform(data) -> float:
     return sum(1.0 / row[4].shape[0] for row in data) / len(data) if data else 0.0
 
 
+def policy_prior(net: CardPVNet):
+    """A `policy_fn(state, seat, moves) -> per-move prior scores` from a CardPVNet's policy head — plug into
+    `ReBeLPlayer(value_fn=CardNetValue(net), policy_fn=policy_prior(net), action_cap=14)` to ORDER the root
+    action cap by the learned policy instead of an alphabetical prefix (Phase-2 M2)."""
+    def fn(state, seat, moves):
+        objs, owner, glob = card_features(state, seat)
+        kinds, idx_lists = move_features(state, seat, moves)
+        net.eval()
+        with torch.no_grad():
+            return net.policy_logits(objs, owner, glob, kinds, idx_lists).tolist()
+    return fn
+
+
 class _ExploringValuePlayer(Player):
     """A self-play data generator: 1-ply value-greedy with epsilon-random exploration. Pure greedy is
     DETERMINISTIC — both seats on the same net would replay one identical game and yield no diversity — so

@@ -337,7 +337,7 @@ class ReBeLPlayer(Player):
 
     def __init__(self, *, worlds: int = 4, iterations: int = 100, depth: int = 3, action_cap: int = 6,
                  time_budget: float = 5.0, perfect_info: bool = False, value_fn=None,
-                 temperature: float = 0.0, seed: int | None = None):
+                 temperature: float = 0.0, seed: int | None = None, policy_fn=None, cap_floor: int = 2):
         self.worlds = worlds
         self.iterations = iterations
         self.depth = depth
@@ -346,9 +346,35 @@ class ReBeLPlayer(Player):
         self.perfect_info = perfect_info
         self.value_fn = value_fn
         self.temperature = temperature
+        # policy_fn(state, seat, moves)->per-move prior scores ORDERS the root action cap (Phase-2 M2): instead
+        # of `moves[:cap]` (an alphabetical prefix — env.legal_actions sorts by card id), keep the cap's worth
+        # of HIGHEST-prior moves so CFR sees the moves that matter. None -> the legacy alphabetical prefix.
+        self.policy_fn = policy_fn
+        self.cap_floor = cap_floor              # of the cap slots, reserve this many for pass + epsilon-random
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
         self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
+
+    def _root_actions(self, moves, state, seat):
+        """The root action set fed to CFR — exactly min(cap, #moves) actions (so the env.step budget is
+        UNCHANGED vs the legacy cap). With a `policy_fn`, the cap's slots go to the highest-prior moves instead
+        of an alphabetical prefix; invariants (so a confident-but-wrong prior can't silently prune the best
+        move): always include a `pass` move if one exists, and reserve `cap_floor` slots for ε-uniform random
+        moves. Without a `policy_fn`, returns the legacy `moves[:cap]`."""
+        cap = min(self.action_cap, len(moves))
+        if self.policy_fn is None or cap >= len(moves):
+            return list(moves[:cap])
+        scores = self.policy_fn(state, seat, moves)
+        order = sorted(range(len(moves)), key=lambda i: scores[i], reverse=True)
+        floor = max(0, min(self.cap_floor, cap - 1))                # leave room for the top-prior moves
+        keep = order[: cap - floor]                                 # the highest-prior moves
+        rest = order[cap - floor:]
+        self._rng.shuffle(rest)                                     # epsilon-uniform floor
+        chosen = keep + rest[: cap - len(keep)]
+        pass_i = next((i for i, m in enumerate(moves) if getattr(m, "kind", None) == "pass"), None)
+        if pass_i is not None and pass_i not in chosen:             # invariant: never prune the option to pass
+            chosen[-1] = pass_i                                     # swap the weakest chosen slot for pass
+        return [moves[i] for i in chosen]
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -356,7 +382,7 @@ class ReBeLPlayer(Player):
             return None
         if len(moves) == 1:
             return moves[0]
-        actions = moves[: self.action_cap]
+        actions = self._root_actions(moves, game.state, game.turn)
         deadline = time.perf_counter() + self.time_budget
         policy, value = solve(game.state, game.turn, actions, worlds=self.worlds, iterations=self.iterations,
                               depth=self.depth, action_cap=self.action_cap, value_fn=self.value_fn,
