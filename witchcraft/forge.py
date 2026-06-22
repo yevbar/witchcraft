@@ -84,8 +84,9 @@ def play_forge(bot="engine", *, witch_deck: str = "vanilla", opp_deck: str = "va
                timeout: int = 300, recompile: bool = True) -> dict:
     """Run ONE game refereed by Forge (the source of truth): the witchcraft bot seat (driven by `bot`) vs
     Forge's own AI (the "forge player"). `bot` is 'engine'|'random', a witchcraft Player, OR a TRAINED VALUE
-    NET (a rebel_train.NetValue) — the net is saved to disk and the bot process drives the seat with it (the
-    'net' policy: reconstruct + 1-ply net-rank the plays). Returns Forge's verdict — {winner, turns, wall_ms,
+    NET (a rebel_train.NetValue OR a cardnet.CardNetValue) — the net is saved to disk and the bot process
+    drives the seat with it (the 'net' policy: reconstruct + 1-ply net-rank the plays). Returns Forge's
+    verdict — {winner, turns, wall_ms,
     bot_policy, forge_ai_seat, source_of_truth='forge', modeled_frac, endorsed_frac}. `witch_deck`/`opp_deck`
     are ForgeVsBot archetypes ('vanilla', 'infect', …). Raises RuntimeError if Forge isn't installed.
 
@@ -95,12 +96,17 @@ def play_forge(bot="engine", *, witch_deck: str = "vanilla", opp_deck: str = "va
         raise RuntimeError(
             f"Forge not available — need the JDK at {rt.JDK}/bin/java and the fatjar at {rt.FATJAR}. "
             f"Set $JDK / $FORGE, or build the Forge fatjar (see forge_integration/RUNNING.md).")
-    if hasattr(bot, "net"):                                  # a trained value net (rebel_train.NetValue)
+    if hasattr(bot, "net"):                                  # a trained value net (NetValue or CardNetValue)
         import tempfile                                      # save it where the bot subprocess can load it
-        path = os.path.join(tempfile.gettempdir(), "rebel_forge_vnet")
-        bot.net.save(path)
+        if hasattr(bot.net, "state_dict"):                  # a torch CardValueNet -> cardnet.save (.pt); the bridge
+            from . import cardnet                            # loader detects the format. (rebel_forge.load_value_fn)
+            path = os.path.join(tempfile.gettempdir(), "rebel_forge_vnet.pt")
+            cardnet.save(bot.net, path)
+        else:                                               # the legacy 14-feature TinyValueNet (numpy .npz)
+            path = os.path.join(tempfile.gettempdir(), "rebel_forge_vnet")
+            bot.net.save(path); path += ".npz"
         which = "net"
-        bot_env = {"MTG_POLICY": "net", "MTG_VALUE_NET": path + ".npz"}
+        bot_env = {"MTG_POLICY": "net", "MTG_VALUE_NET": path}
     else:
         which = _bot_policy_name(bot)
         bot_env = {"MTG_POLICY": which}
