@@ -199,6 +199,30 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _gated_replay_buffer_and_gate() -> None:
+    """Phase 1: gated_train_loop uses a BOUNDED replay buffer, a frozen-best generator, and a promotion gate
+    (the Phase-0 ladder.promote) — replacing train_loop's refit-fresh-on-all. Reproducible (seeded)."""
+    out = cn.gated_train_loop(rounds=3, games_per_round=3, gate_games=4, epochs=8, buffer_rounds=1,
+                              embed=16, hidden=32, seed=0, verbose=False)
+    h = out["history"]
+    check("gated loop returns best value_fn + net + per-round history",
+          out["value_fn"] is not None and out["net"] is not None and len(h) == 3)
+    check("round 0 unconditionally seeds best (promoted, no gate played)",
+          h[0]["promoted"] is True and h[0]["gate_score"] is None)
+    check("later rounds run the promotion gate (a score in [0,1])",
+          all(isinstance(h[r]["gate_score"], float) and 0.0 <= h[r]["gate_score"] <= 1.0 for r in (1, 2)))
+    check("promotions are monotone and >=1 (round 0 always promotes)",
+          h[-1]["promotions"] >= 1 and h[0]["promotions"] <= h[1]["promotions"] <= h[2]["promotions"])
+    check("replay buffer is BOUNDED, not an accumulating pile (maxlen=1: r2 <= r0+r1; unbounded would fail)",
+          h[2]["buffer_rows"] <= h[0]["buffer_rows"] + h[1]["buffer_rows"])
+
+    def best_w():
+        r = cn.gated_train_loop(rounds=2, games_per_round=3, gate_games=4, epochs=8, buffer_rounds=2,
+                                embed=16, hidden=32, seed=1, verbose=False)
+        return torch.cat([p.flatten() for p in r["net"].parameters()])
+    check("gated_train_loop is reproducible (identical best-net weights)", torch.equal(best_w(), best_w()))
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -231,6 +255,7 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _gated_replay_buffer_and_gate()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

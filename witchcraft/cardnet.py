@@ -397,6 +397,71 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
     return {"value_fn": vf, "net": net, "history": history}
 
 
+def gated_train_loop(rounds: int = 10, *, games_per_round: int = 20, epochs: int = 60, embed: int = 32,
+                     hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None, deck_pool=None,
+                     variant: str = "two-player", seed: int = 0, buffer_rounds: int = 8, gate_games: int = 64,
+                     gate_thr: float = 0.55, gamma: float = DEFAULT_GAMMA, ladder_every: int = 0,
+                     ladder_games: int = 24, verbose: bool = True):
+    """AlphaZero-style GATED self-play (Phase 1). Replaces `train_loop`'s refit-fresh-on-ALL-data — which
+    plateaued the only metric (win_rate_vs_random) at 1.0 — with three pieces:
+
+      * a bounded REPLAY BUFFER: a deque of the last `buffer_rounds` rounds of self-play rows, so the trainee
+        fits a sliding window of RECENT data, not an ever-growing pile (on-policy drift + saturation cause).
+      * a FROZEN BEST net generates each round's games (epsilon-exploring self-play): the trainee never
+        contaminates its own training data, and data always reflects the current champion's level.
+      * a PROMOTION GATE (the Phase-0 `ladder.promote`): the freshly-fit trainee replaces best ONLY if it
+        beats best by >= `gate_thr` over `gate_games` seat-swapped games. A regressing trainee is discarded —
+        so strength is monotonic by construction (the Elo curve can only step up).
+
+    With `ladder_every>0`, rates the current best on the Elo ladder (Random=0 / Greedy / Heuristic rungs) every
+    that-many rounds — the moving metric the flat win_rate_vs_random couldn't give. The gate/ladder play FIXED
+    decks (benchmark has no deck-pool seam); only `generate` uses `deck_pool`. Trainee init + data are seeded,
+    so the loop is reproducible. Returns {value_fn (best), net (best), history}."""
+    from collections import deque
+    from .rebel import ValuePlayer
+    from . import ladder as _ladder
+    _engage_incremental()
+    buf: deque = deque(maxlen=buffer_rounds)
+    best = CardValueNet(embed=embed, hidden=hidden, seed=seed)
+    best_vf = None                                              # round 0 -> RandomPlayer bootstrap (no champion yet)
+    history, promotions = [], 0
+    for r in range(rounds):
+        def pf(s, _vf=best_vf):                                 # the FROZEN champion generates this round's data
+            if _vf is None:
+                return RandomPlayer(seed=seed + r * 7 + (0 if s == "alice" else 1))
+            return _ExploringValuePlayer(_vf, epsilon=epsilon, seed=seed + r * 100 + (0 if s == "alice" else 1))
+        buf.append(generate(games_per_round, decks=decks, deck_pool=deck_pool, variant=variant,
+                            seed=seed + r * 1000, player_factory=pf, gamma=gamma))
+        data = [row for rnd in buf for row in rnd]              # the bounded buffer (sliding window of recent rounds)
+
+        trainee = CardValueNet(embed=embed, hidden=hidden, seed=seed)   # fresh seeded init -> reproducible
+        fit(trainee, data, epochs=epochs, lr=lr, seed=seed)
+        trainee_vf = CardNetValue(trainee)
+
+        if best_vf is None:                                     # round 0: the first net unconditionally seeds best
+            promoted, score = True, None
+        else:
+            gate = _ladder.promote(ValuePlayer(trainee_vf), ValuePlayer(best_vf), n=gate_games, thr=gate_thr,
+                                   seed=seed + r, decks=decks, variant=variant)
+            promoted, score = gate["promoted"], gate["score"]
+        if promoted:
+            best, best_vf = trainee, trainee_vf
+            promotions += 1
+
+        rec = {"round": r, "buffer_rows": len(data), "promoted": promoted,
+               "gate_score": score, "promotions": promotions}
+        if ladder_every and (r % ladder_every == 0 or r == rounds - 1):
+            rec["elo"] = _ladder.ladder(ValuePlayer(best_vf), candidate_name="best",
+                                        games=ladder_games, seed=seed + r, decks=decks, variant=variant)
+        history.append(rec)
+        if verbose:
+            tag = "PROMOTED" if promoted else "kept best"
+            extra = "" if score is None else f" (gate {score:.2f})"
+            elo = f"  best Elo={rec['elo'].get('best'):+.0f}" if "elo" in rec else ""
+            print(f"  round {r}: buffer={len(data):5d}  {tag}{extra}  promotions={promotions}{elo}", flush=True)
+    return {"value_fn": best_vf, "net": best, "history": history}
+
+
 def rebel_train_loop(rounds: int = 3, *, games_per_round: int = 8, epochs: int = 50, embed: int = 32,
                      hidden: int = 64, lr: float = 1e-3, rebel_kwargs=None, decks=None, deck_pool=None,
                      variant: str = "two-player", eval_games: int = 12, seed: int = 0, verbose: bool = True):
