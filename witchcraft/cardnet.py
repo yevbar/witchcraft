@@ -166,6 +166,119 @@ class CardNetValue:
         return max(-0.99, min(0.99, v))
 
 
+# ---- pointer policy head (Phase 2) --------------------------------------------------------------------
+
+# Move-kind vocabulary for the per-move pointer feature (anything else -> "other").
+MOVE_KINDS = ("pass", "play", "cast", "cast_commander", "activate", "attack", "block", "other")
+
+
+def object_ids(state: dict, seat: str) -> list:
+    """The visible object instance-ids in `card_features` ROW ORDER (sorted own-hand + battlefields +
+    graveyards of the belief view). Lets a move's referenced cards be matched to their encoder embedding."""
+    v = observe.observe(state, seat)
+    bf = {i for (i,) in v.get("on_battlefield", ())}
+    hand = {i for (p, i) in v.get("in_hand", ()) if p == seat}
+    gy = {i for (i,) in v.get("graveyard", ())}
+    return sorted(bf | hand | gy)
+
+
+def _move_card_ids(m) -> list:
+    """The instance-ids a Move references (whose card embeddings the pointer pools): the cast/play/activate
+    card, the attackers, or the blockers — empty for pass."""
+    if m.kind == "attack":
+        return [c for c in (m.attackers or ()) if isinstance(c, str)]
+    if m.kind == "block":
+        out = []
+        for b in (m.blocks or ()):
+            out += [x for x in (b if isinstance(b, (tuple, list, frozenset, set)) else (b,)) if isinstance(x, str)]
+        return out
+    return [m.card.id] if m.card is not None else []
+
+
+def move_features(state: dict, seat: str, moves: list):
+    """Per-move pointer features for `moves` (typed `Move`s): (kinds [M, len(MOVE_KINDS)] one-hot, idx_lists —
+    for each move, the row indices (into `card_features`'s object table) of the cards it references). The net
+    mean-pools those object embeddings into the move's card signature; an empty list -> a zero embedding."""
+    pos = {cid: j for j, cid in enumerate(object_ids(state, seat))}
+    kinds = np.zeros((len(moves), len(MOVE_KINDS)), dtype=np.float32)
+    idx_lists = []
+    for j, m in enumerate(moves):
+        k = m.kind if m.kind in MOVE_KINDS else "other"
+        kinds[j, MOVE_KINDS.index(k)] = 1.0
+        idx_lists.append([pos[c] for c in _move_card_ids(m) if c in pos])
+    return kinds, idx_lists
+
+
+class CardPVNet(CardValueNet):
+    """CardValueNet + a POINTER POLICY HEAD on the SAME shared encoder. The value head is unchanged; the policy
+    head scores each PRESENT legal move by a pointer: move_row = one-hot(kind) ++ mean encoder-embedding of the
+    cards the move references; logit = MLP([pooled_state_rep ++ globals, move_row]); a softmax over the present
+    moves is the policy. Open-vocabulary and variable-arity — no fixed action index, exactly like the value
+    side keys on cards not indices. (Phase 2.)"""
+
+    def __init__(self, n_obj: int = OBJ_FEATURES, n_glob: int = GLOBAL_FEATURES, embed: int = 32,
+                 hidden: int = 64, seed: int | None = None, n_kinds: int = len(MOVE_KINDS)):
+        super().__init__(n_obj, n_glob, embed, hidden, seed)        # seeds + builds the shared encoder + value head
+        self.n_kinds = n_kinds
+        self.policy = nn.Sequential(nn.Linear(embed * 3 + n_glob + n_kinds + embed, hidden), nn.ReLU(),
+                                    nn.Linear(hidden, 1))            # pointer scorer
+
+    def _emb_and_state(self, objs, owner, glob):
+        """Per-object embeddings [N, embed] + the pooled state vector [3*embed + n_glob] (the value side's rep
+        ++ globals), sharing one encoder pass."""
+        objs_t = torch.from_numpy(objs) if isinstance(objs, np.ndarray) else objs
+        owner_t = torch.from_numpy(owner) if isinstance(owner, np.ndarray) else owner
+        glob_t = torch.from_numpy(glob) if isinstance(glob, np.ndarray) else glob
+        if objs_t.shape[0] == 0:
+            emb = objs_t.new_zeros((0, self.embed))
+            z = glob_t.new_zeros(self.embed)
+            rep = torch.cat([z, z, z])
+        else:
+            emb = self.card(objs_t)
+            mine = (owner_t > 0).float().unsqueeze(1)
+            opp = (owner_t < 0).float().unsqueeze(1)
+            msum, osum = (emb * mine).sum(0), (emb * opp).sum(0)
+            rep = torch.cat([msum, osum, msum - osum])
+        return emb, torch.cat([rep, glob_t])
+
+    def policy_logits(self, objs, owner, glob, kinds, idx_lists) -> torch.Tensor:
+        """Logits over the present moves [M] (softmax -> policy). `kinds`/`idx_lists` come from `move_features`."""
+        emb, state = self._emb_and_state(objs, owner, glob)
+        kinds_t = torch.from_numpy(kinds) if isinstance(kinds, np.ndarray) else kinds
+        rows = []
+        for j in range(len(idx_lists)):
+            idxs = idx_lists[j]
+            card_emb = emb[idxs].mean(0) if idxs else state.new_zeros(self.embed)
+            rows.append(torch.cat([state, kinds_t[j], card_emb]))
+        return self.policy(torch.stack(rows)).squeeze(-1)
+
+
+class PolicyPlayer(Player):
+    """Picks the move the POLICY HEAD ranks highest — ONE forward pass over the present moves, ZERO `env.step`
+    (GreedyValuePlayer calls env.step PER move). A near-free fast player and data generator; sub-choices fall
+    back to the engine default (the policy head ranks only top-level moves). (Phase 2.)"""
+
+    name = "policy"
+
+    def __init__(self, net: "CardPVNet", seed: int | None = None):
+        self.net = net
+        self._rng = random.Random(seed)
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        seat = game.turn
+        objs, owner, glob = card_features(game.state, seat)
+        kinds, idx_lists = move_features(game.state, seat, moves)
+        self.net.eval()
+        with torch.no_grad():
+            logits = self.net.policy_logits(objs, owner, glob, kinds, idx_lists)
+        return moves[int(torch.argmax(logits))]
+
+
 # ---- self-play data + training ------------------------------------------------------------------------
 
 def _engage_incremental() -> bool:
@@ -272,6 +385,99 @@ def train(games: int = 40, *, embed: int = 32, hidden: int = 64, epochs: int = 4
     net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
     fit(net, data, epochs=epochs, lr=lr, batch=batch, seed=seed, verbose=verbose)
     return CardNetValue(net)
+
+
+def generate_pv(games: int = 40, *, value_fn=None, decks=None, deck_pool=None, variant: str = "two-player",
+                seed: int = 0, epsilon: float = 0.25, gamma: float = DEFAULT_GAMMA, max_moves: int = 4000,
+                incremental: bool = True):
+    """Self-play data for the POLICY head (Phase 2). The generator is 1-ply GREEDY on `value_fn` (default the
+    heuristic) with epsilon EXPLORATION for state diversity; at each BRANCHING decision (>1 legal move) it
+    records (objs, owner, glob, z, kinds, idx_lists, chosen_idx), where:
+      * chosen_idx = index of the GREEDY move over the FULL legal set — the distillation target (NOT the
+        explored move actually played, and NOT capped — the head must be free to surface any legal move);
+      * z = the discounted game outcome from the deciding seat (as in `generate`).
+    Distilling the greedy choice is the cheap target (no CFR per move); a small CFR-pi slice is a later add."""
+    from .rebel import heuristic_value
+    value_fn = value_fn or heuristic_value
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    explore = random.Random(seed * 5 + 3)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        g = Game(g_decks, variant=variant, seed=seed + gi)
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                moves = g.legal_moves
+                seat = g.turn
+                if len(moves) > 1:
+                    vals = [value_fn(env.step(g.state, m), seat) for m in moves]
+                    chosen = max(range(len(moves)), key=lambda i: vals[i])    # greedy over the FULL legal set
+                    objs, owner, glob = card_features(g.state, seat)
+                    kinds, idx_lists = move_features(g.state, seat, moves)
+                    rows.append([objs, owner, glob, seat, kinds, idx_lists, chosen, g.state.get("_turn") or 0])
+                    play_i = explore.randrange(len(moves)) if explore.random() < epsilon else chosen
+                    g.push(moves[play_i])
+                else:
+                    g.push(moves[0])
+        w = g.winner()
+        end_turn = max([r[7] for r in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob, seat, kinds, idx_lists, chosen, turn_no) in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
+            data.append((objs, owner, glob, z, kinds, idx_lists, chosen))
+    return data
+
+
+def fit_pv(net: CardPVNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: int = 64,
+           policy_weight: float = 1.0, seed: int = 0, verbose: bool = False) -> CardPVNet:
+    """Co-train the VALUE head (MSE vs z) and the POINTER POLICY head (cross-entropy vs the greedy chosen_idx)
+    on the shared encoder. `data` rows: (objs, owner, glob, z, kinds, idx_lists, chosen_idx). Value is batched;
+    the policy CE is per-sample (each row has a different #moves). CPU, small. Seeded -> reproducible."""
+    torch.manual_seed(seed)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    mse = nn.MSELoss()
+    rng = np.random.default_rng(seed)
+    n = len(data)
+    net.train()
+    for ep in range(epochs):
+        idx = rng.permutation(n)
+        vt = pt = 0.0
+        for i in range(0, n, batch):
+            b = [data[j] for j in idx[i:i + batch]]
+            y = torch.tensor([row[3] for row in b], dtype=torch.float32)
+            v_loss = mse(net([(row[0], row[1], row[2]) for row in b]), y)
+            p_loss = torch.stack([
+                torch.nn.functional.cross_entropy(
+                    net.policy_logits(row[0], row[1], row[2], row[4], row[5]).unsqueeze(0),
+                    torch.tensor([row[6]])) for row in b]).mean()
+            loss = v_loss + policy_weight * p_loss
+            opt.zero_grad(); loss.backward(); opt.step()
+            vt += v_loss.item() * len(b); pt += p_loss.item() * len(b)
+        if verbose and ep % max(1, epochs // 10) == 0:
+            print(f"  epoch {ep:3d} value_mse={vt / n:.4f} policy_ce={pt / n:.4f}", flush=True)
+    return net
+
+
+def policy_top1(net: CardPVNet, data) -> float:
+    """Held-out top-1: the fraction of rows where the policy head's argmax matches the recorded greedy
+    chosen_idx. The M0 gate (>=0.45) compares this to ~mean(1/#moves) uniform (`policy_uniform`)."""
+    net.eval()
+    correct = 0
+    with torch.no_grad():
+        for row in data:
+            logits = net.policy_logits(row[0], row[1], row[2], row[4], row[5])
+            correct += int(int(torch.argmax(logits)) == row[6])
+    return correct / len(data) if data else 0.0
+
+
+def policy_uniform(data) -> float:
+    """The uniform-random top-1 baseline mean(1/#moves) over `data` — what `policy_top1` must beat."""
+    return sum(1.0 / row[4].shape[0] for row in data) / len(data) if data else 0.0
 
 
 class _ExploringValuePlayer(Player):

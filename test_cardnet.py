@@ -223,6 +223,51 @@ def _gated_replay_buffer_and_gate() -> None:
     check("gated_train_loop is reproducible (identical best-net weights)", torch.equal(best_w(), best_w()))
 
 
+def _policy_head_pointer_and_M0() -> None:
+    """Phase 2: the pointer policy head featurizes each Move (kind one-hot + referenced-card embedding), trains
+    to the greedy choice, clears the M0 gate (held-out top-1 >> uniform), and PolicyPlayer runs on ONE forward
+    pass. Co-train is reproducible."""
+    w = lambda: torch.cat([p.flatten() for p in cn.CardPVNet(seed=0).parameters()])
+    check("CardPVNet seeded init is reproducible (value + policy heads)", torch.equal(w(), w()))
+
+    g = Game(seed=3)                                           # a real branching state
+    with contextlib.redirect_stdout(io.StringIO()):
+        for _ in range(60):
+            if g.is_game_over() or len(g.legal_moves) > 2:
+                break
+            g.push(g.legal_moves[0])
+    moves, seat = g.legal_moves, g.turn
+    objs, owner, glob = cn.card_features(g.state, seat)
+    kinds, idx_lists = cn.move_features(g.state, seat, moves)
+    with torch.no_grad():
+        logits = cn.CardPVNet(seed=0).policy_logits(objs, owner, glob, kinds, idx_lists)
+    check("move_features: one-hot kinds [M, len(MOVE_KINDS)]", kinds.shape == (len(moves), len(cn.MOVE_KINDS)))
+    check("policy_logits length == #moves and softmax normalizes",
+          logits.shape[0] == len(moves) and abs(float(torch.softmax(logits, 0).sum()) - 1.0) < 1e-5)
+
+    data = cn.generate_pv(10, seed=0)                          # distill the greedy policy
+    check("generate_pv yields branching rows with in-range targets",
+          len(data) > 20 and all(0 <= row[6] < row[4].shape[0] for row in data))
+    split = int(len(data) * 0.8)
+    tr, va = data[:split], data[split:]
+    net = cn.CardPVNet(seed=0)
+    cn.fit_pv(net, tr, epochs=25, seed=0)
+    top1, uni = cn.policy_top1(net, va), cn.policy_uniform(va)
+    check(f"M0: held-out policy top-1 >= 0.45 (got {top1:.2f}, uniform {uni:.2f})", top1 >= 0.45)
+    check("policy head beats uniform clearly", top1 > uni + 0.2)
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = play({"alice": cn.PolicyPlayer(net), "bob": RandomPlayer(seed=1)}, seed=5, max_moves=4000)
+    check("PolicyPlayer (one forward pass / move) plays to a terminal result", res.is_game_over())
+
+    def trained_w():
+        n = cn.CardPVNet(seed=1)
+        cn.fit_pv(n, cn.generate_pv(4, seed=2), epochs=8, seed=1)
+        return torch.cat([p.flatten() for p in n.parameters()])
+    check("fit_pv co-train is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -256,6 +301,7 @@ def run() -> None:
     _reproducible_training()
     _time_preferred_target()
     _gated_replay_buffer_and_gate()
+    _policy_head_pointer_and_M0()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
