@@ -31,6 +31,11 @@ _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
+# SUBJECT-prefixed put-to-zone '<player> puts <obj> on top of/on the bottom of/into <zone>' -> put_on_top/
+# put_on_bottom/put_in_* with 'by_<player>'. PARSE-FAILs every production (new `pszclause` below); the
+# transformer re-matches the registered `_subject_puts` (+ `_owner_puts` 'on their choice of top/bottom').
+_SP_RX, _SP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_subject_puts")
+_OP_RX, _OP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_owner_puts")
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -54,7 +59,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -76,6 +81,11 @@ oclause: OVERB quant? objall trailer?            -> imperative  // object verbs:
 // validates the subject). NEGATIVE priority; tap/untap only (other OVERBs have no subject-drop template -> abstain).
 osclause.-2: ossubj OVERB quant? objall trailer?  -> tapuntap_subj
 ossubj: (WORD | QUANT | NUM)+                     // leading actor NP before the object verb (validated via _taputap)
+// SUBJECT-prefixed PUT-to-zone '<player> puts <obj> on top of/on the bottom of/into <zone>' (PARSE-FAILs the
+// leading-PUT pzput; mirror of osclause). Flat body span re-matched against `_subject_puts`/`_owner_puts`.
+pszclause.-2: pszsubj PUT pszbody                 -> subject_puts
+pszsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'puts' (validated via _subject_puts)
+pszbody: (WORD | QUANT | NUM | CCOUNT | FROM | ZONE | ONPREP | TOPREP | XLIB | EQUALTO | MDUR | PTDELTA)+  // object + destination (src re-matched)
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
@@ -1772,6 +1782,32 @@ class _ToEffect(Transformer):
 
     def ossubj(self, *toks):
         return _Subj(" ".join(str(t) for t in toks))   # leading actor span (dropped; subject validated via _taputap on src)
+
+    def pszsubj(self, *toks):
+        return _Subj(" ".join(str(t) for t in toks))   # leading player span (dropped; validated via _subject_puts on src)
+
+    def pszbody(self, *toks):
+        return _Body(" ".join(str(t) for t in toks))   # object + destination span (src re-matched)
+
+    def subject_puts(self, *args):
+        # '<player> puts <obj> on top of/on the bottom of/into <zone>' — re-match the registered
+        # `_subject_puts` (then `_owner_puts` 'on their choice of top/bottom') on src -> byte-identical
+        # (put_on_top/put_on_bottom/put_in_* with 'by_<player>'); a non-put-to-zone clause abstains.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        s = src.strip()
+        m = _SP_RX.match(s)
+        if m:
+            e = _SP_FN(m)
+            if e is not None:
+                return e
+        m = _OP_RX.match(s)
+        if m:
+            e = _OP_FN(m)
+            if e is not None:
+                return e
+        return None
 
     def tapuntap_subj(self, *args):
         # '<player> taps/untaps <obj>' — the subject-prefixed `_taputap` form (subject DROPPED). Re-match
