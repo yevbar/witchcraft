@@ -3893,4 +3893,16 @@ def parse_clause_lark(clause: str):
         return _create_chain(s)                # grammar abstained on a create -> registered leaf chain fallback
     if _BECOMES_RE.search(s):
         return _becomes_chain(s)               # grammar abstained on a type-change/copy 'becomes' -> leaf chain
+    # small self-contained families the regex grounds faithfully and the grammar has no production for — each
+    # gated by a TIGHT trigger and the registered-leaf chain's verb guard (a false trigger just abstains).
+    if s.startswith("roll "):                  # 'Roll a dN' / 'Roll X six-sided dice' (§720)
+        return _regex_leaf(s, lambda v: v == "roll_die")
+    if s.startswith("pay "):                    # bare 'pay {mana}' (NOT 'counter … unless … pays {N}')
+        return _regex_leaf(s, lambda v: v == "pay")
+    if s.startswith("you get ") and "{e}" in s:  # 'you get {E}{E}' / 'you get that many {E}' (§107.16 energy)
+        return _regex_leaf(s, lambda v: v == "get_energy")
+    if "spend mana as though" in s or "can be spent to cast" in s:   # §609.4 mana-as
+        return _regex_leaf(s, lambda v: v == "spend_mana_as")
+    if s.startswith("you control ") or "gains control of" in s or "gain control of" in s:   # §720 control
+        return _regex_leaf(s, lambda v: v == "gain_control")
     return None                                # (the families the grammar can't carve)
