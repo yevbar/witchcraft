@@ -19,7 +19,10 @@ Each game = a fresh bot process (run_bot.py, serves one game) + a fresh Forge JV
 from __future__ import annotations
 
 import os
+import glob
+import platform
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -28,21 +31,88 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)                                       # so `import deck_evaluator` (repo root) works
-JDK = os.environ.get("JDK", "/home/zucc/opt/jdk-17.0.13+11")
+
+
+def _exists(p):
+    return bool(p) and os.path.exists(p)
+
+
+def _discover_jdk(default: str) -> str:
+    """A JDK 17 home (containing bin/java). Priority: $JDK, the hardcoded `default` if it exists (the mac-mini
+    box), $JAVA_HOME, macOS `/usr/libexec/java_home -v 17`, then `java` on PATH. The default was mac-mini-
+    specific, so on any other machine forge_available() returned False even with a perfectly good JDK installed
+    — this discovers the local one so Forge "just works" without setting $JDK."""
+    if os.environ.get("JDK"):
+        return os.environ["JDK"]
+    if _exists(os.path.join(default, "bin", "java")):
+        return default
+    jh = os.environ.get("JAVA_HOME")
+    if _exists(os.path.join(jh or "", "bin", "java")):
+        return jh
+    try:                                                       # macOS: ask for a 17 specifically
+        out = subprocess.run(["/usr/libexec/java_home", "-v", "17"], capture_output=True, text=True, timeout=5)
+        cand = out.stdout.strip()
+        if _exists(os.path.join(cand, "bin", "java")):
+            return cand
+    except Exception:
+        pass
+    jbin = shutil.which("java")                                # last resort: whatever java is on PATH
+    if jbin:
+        return os.path.dirname(os.path.dirname(os.path.realpath(jbin)))
+    return default                                             # nothing found -> keep default so errors point somewhere
+
+
+def _discover_fatjar(forge: str, default: str) -> str:
+    """The Forge fatjar. Priority: $FATJAR, the from-source `default` if present (mac mini), then a glob over
+    standard installed-release locations (the Forge installer's `install/` dir under ~/Applications or
+    /Applications, or under $FORGE)."""
+    if os.environ.get("FATJAR"):
+        return os.environ["FATJAR"]
+    if _exists(default):
+        return default
+    pats = [os.path.join(forge, "**", "forge-gui-desktop-*-jar-with-dependencies.jar"),
+            os.path.expanduser("~/Applications/Forge/**/forge-gui-desktop-*-jar-with-dependencies.jar"),
+            "/Applications/Forge/**/forge-gui-desktop-*-jar-with-dependencies.jar"]
+    for p in pats:
+        hits = sorted(glob.glob(p, recursive=True))
+        if hits:
+            return hits[-1]                                    # latest by name
+    return default
+
+
+def _discover_assets(forge: str, fatjar: str) -> str:
+    """The dir CONTAINING Forge's `res/` assets. Priority: $FORGE_ASSETS, the from-source `$FORGE/forge-gui/`
+    if it has res/, then the fatjar's own directory (an installed release keeps res/ next to the jar)."""
+    if os.environ.get("FORGE_ASSETS"):
+        return os.environ["FORGE_ASSETS"]
+    # NB Forge concatenates "res/..." straight onto this, so it MUST end in a separator (a missing trailing
+    # slash silently breaks asset loading -> every game comes back inconclusive ~50s in).
+    src = os.path.join(forge, "forge-gui")
+    if os.path.isdir(os.path.join(src, "res")):
+        return os.path.join(src, "")
+    jdir = os.path.dirname(fatjar)
+    if os.path.isdir(os.path.join(jdir, "res")):
+        return os.path.join(jdir, "")
+    return os.path.join(src, "")                               # fall back to the source path (keeps old error text)
+
+
+JDK = _discover_jdk("/home/zucc/opt/jdk-17.0.13+11")
 FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
-# Default to the from-source build path under $FORGE; override with $FATJAR for an installed Forge release
-# (e.g. an installer's forge-gui-desktop-<ver>-jar-with-dependencies.jar), whose layout differs.
-FATJAR = os.environ.get("FATJAR", f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar")
+# Default to the from-source build path under $FORGE; auto-discover an installed Forge release elsewhere.
+FATJAR = _discover_fatjar(FORGE, f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar")
+FORGE_ASSETS = _discover_assets(FORGE, FATJAR)
 OUT = "/tmp/forge_tournament_out"
 # Optional Forge JVM heap cap, e.g. JVM_HEAP=4g -> -Xmx4g. Empty (default) = let the JVM self-size to ~25% of
 # RAM. Set this on small-memory hosts; on a beefy box leave it unset. See forge_integration/RUNNING.md.
 JVM_HEAP = os.environ.get("JVM_HEAP", "")
 _XMX = f"-Xmx{JVM_HEAP} " if JVM_HEAP else ""
 # Forge's GuiDesktop static init calls getDefaultScreenDevice(), which throws HeadlessException under
-# -Djava.awt.headless=true. A headless Linux server tolerates it; a desktop host (e.g. macOS with a display)
-# must run NON-headless so the screen device is found. Default headless (server); set FORGE_HEADLESS=false on a
-# machine that has a display. See forge_integration/RUNNING.md. (Kept in sync with run_commander_tournament.py.)
-_HEADLESS = os.environ.get("FORGE_HEADLESS", "true").lower() not in ("0", "false", "no")
+# -Djava.awt.headless=true. A headless Linux server tolerates it; a desktop host (macOS with a display) must
+# run NON-headless so the screen device is found — so DEFAULT to non-headless on macOS (Darwin) and headless
+# elsewhere (the Linux server case). Override with FORGE_HEADLESS either way. Without this, a macOS run looked
+# "available" but every game came back inconclusive (HeadlessException). (In sync with run_commander_tournament.py.)
+_HEADLESS_DEFAULT = "false" if platform.system() == "Darwin" else "true"
+_HEADLESS = os.environ.get("FORGE_HEADLESS", _HEADLESS_DEFAULT).lower() not in ("0", "false", "no")
 _HEADLESS_ARG = "-Djava.awt.headless=true " if _HEADLESS else ""
 GAME_TIMEOUT = int(os.environ.get("GAME_TIMEOUT", "300"))
 
@@ -81,7 +151,7 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
     props = " ".join(f"-D{k}={v}" for k, v in jprops.items())
     # From-source assets live at $FORGE/forge-gui/; an installed release keeps res/ elsewhere — override
     # with $FORGE_ASSETS (the directory CONTAINING res/, e.g. the installer's top-level dir).
-    env = dict(os.environ, FORGE_ASSETS=os.environ.get("FORGE_ASSETS", f"{FORGE}/forge-gui/"))
+    env = dict(os.environ, FORGE_ASSETS=FORGE_ASSETS)          # discovered: from-source forge-gui/ or the installed res/ dir
     cmd = (f'timeout {timeout} "{JDK}/bin/java" {_XMX}{_HEADLESS_ARG}'
            f'-DbotHost=127.0.0.1 -DbotPort={port} {props} -cp "{FATJAR}:{OUT}" {main_class}')
     r = sh(cmd, env=env)

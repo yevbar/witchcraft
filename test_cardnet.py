@@ -176,6 +176,29 @@ def _reproducible_training() -> None:
     check("fit() is reproducible on the same data (seed before construct)", torch.equal(trained(), trained()))
 
 
+def _time_preferred_target() -> None:
+    """The value target is TIME-DISCOUNTED: a win that lands sooner (fewer turns to the end) scores higher and
+    a loss that's delayed scores less negative, so the greedy argmax prefers faster wins / slower losses —
+    without ever flipping win/loss/draw ordering. gamma=1.0 recovers the old undiscounted {+1,-1,0}."""
+    d = cn._discounted_target
+    check("gamma=1.0 recovers the undiscounted target",
+          (d(1.0, 5, 1.0), d(-1.0, 5, 1.0), d(0.0, 5, 1.0)) == (1.0, -1.0, 0.0))
+    check("a sooner win scores higher than a later win", d(1.0, 1, 0.9) > d(1.0, 6, 0.9) > 0.0)
+    check("a delayed loss scores less negative than a near loss", d(-1.0, 6, 0.9) > d(-1.0, 1, 0.9))
+    check("ordering preserved: even a far win > draw > far loss", d(1.0, 30, 0.9) > 0.0 > d(-1.0, 30, 0.9))
+    check("a draw stays 0 at any distance", d(0.0, 9, 0.9) == 0.0)
+
+    # end-to-end through generate: gamma=1.0 leaves targets at {+1,-1,0}; gamma<1 shapes a spread of magnitudes
+    flat = cn.generate(6, seed=1, gamma=1.0)
+    check("gamma=1.0 self-play targets are exactly {+1,-1,0}",
+          {round(z, 6) for *_r, z in flat} <= {1.0, -1.0, 0.0})
+    shaped = cn.generate(6, seed=1, gamma=0.9)
+    mags = sorted({round(abs(z), 4) for *_r, z in shaped if z != 0.0})
+    check("gamma<1 produces discounted targets (some |z| < 1)", any(m < 1.0 for m in mags))
+    check("gamma<1 spreads targets across turns (>1 distinct win/loss magnitude)", len(mags) > 1)
+    check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -207,6 +230,7 @@ def run() -> None:
     _value_fn_seam_and_io()
     _value_player_drives_subchoices()
     _reproducible_training()
+    _time_preferred_target()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
