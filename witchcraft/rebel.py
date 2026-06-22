@@ -168,7 +168,7 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
     deadline = deadline if deadline is not None else (time.perf_counter() + 1e9)
     n = len(root_actions)
     if n <= 1:
-        return [1.0] * n
+        return [1.0] * n, _leaf_value(true_state, seat, value_fn)   # no decision -> just the position's leaf value
 
     # --- belief: build K world trees (the only env.step cost) ---
     if perfect_info:
@@ -217,14 +217,19 @@ def solve(true_state: dict, seat: str, root_actions: list, *, worlds=6, iteratio
 
     root_info = trees[0]["infoset"]
     it = 0
+    root_val_sum, root_val_cnt = 0.0, 0
     while it < iterations and time.perf_counter() <= deadline:
         for t in trees:
-            cfr(t, seat)
+            root_val_sum += cfr(t, seat)                 # the top-level return IS the root value this iter/world
+            root_val_cnt += 1
         it += 1
 
     ss = stratsum.get((root_info, n), [1.0] * n)         # the root has n = len(root_actions) children
     tot = sum(ss) or 1.0
-    return [x / tot for x in ss]
+    # the ReBeL VALUE TARGET: the running-average root value (CFR's average converges to the equilibrium value
+    # of this public belief state, from `seat`'s view). Returned alongside the strategy for self-play training.
+    root_value = max(-0.99, min(0.99, root_val_sum / root_val_cnt)) if root_val_cnt else 0.0
+    return [x / tot for x in ss], root_value
 
 
 # --------------------------------------------------------------------------------------------------------
@@ -343,6 +348,7 @@ class ReBeLPlayer(Player):
         self.temperature = temperature
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
+        self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -352,10 +358,11 @@ class ReBeLPlayer(Player):
             return moves[0]
         actions = moves[: self.action_cap]
         deadline = time.perf_counter() + self.time_budget
-        policy = solve(game.state, game.turn, actions, worlds=self.worlds, iterations=self.iterations,
-                       depth=self.depth, action_cap=self.action_cap, value_fn=self.value_fn,
-                       deadline=deadline, rng=self._rng, perfect_info=self.perfect_info)
+        policy, value = solve(game.state, game.turn, actions, worlds=self.worlds, iterations=self.iterations,
+                              depth=self.depth, action_cap=self.action_cap, value_fn=self.value_fn,
+                              deadline=deadline, rng=self._rng, perfect_info=self.perfect_info)
         self.last_policy = list(zip(actions, policy))
+        self.last_value = value                 # CFR root value of game.state for game.turn — the value target
         if self.temperature and self.temperature > 0:
             # softened sampling: p^(1/T) renormalized
             w = [max(p, 1e-9) ** (1.0 / self.temperature) for p in policy]

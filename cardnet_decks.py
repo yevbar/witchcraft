@@ -62,6 +62,8 @@ def main():
                     help="train against a MIX of all bundled decks (vs the single-deck mirror)")
     ap.add_argument("--rebel", action="store_true",
                     help="evaluate with ReBeLPlayer (determinize+CFR, net as leaf) instead of 1-ply ValuePlayer")
+    ap.add_argument("--rebel-train", action="store_true",
+                    help="TRAIN via ReBeL self-play (CFR root-value targets) instead of greedy self-play")
     ap.add_argument("--worlds", type=int, default=3)
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--depth", type=int, default=2)
@@ -73,18 +75,20 @@ def main():
 
     t0 = time.perf_counter()
     my = load_deck(a.deck)
-    if a.mix:
-        pool = [load_deck(n) for n in bundled_decks()]
-        print(f"training card-aware net via self-play across a MIX of {len(pool)} decks "
-              f"({a.rounds} rounds x {a.games} games)...\n", flush=True)
-        res = cn.train_loop(rounds=a.rounds, games_per_round=a.games, epochs=a.epochs,
-                            deck_pool=pool, eval_games=a.train_eval, seed=0, verbose=True)
+    decks_arg = {"deck_pool": [load_deck(n) for n in bundled_decks()]} if a.mix else {"decks": {"alice": my, "bob": my}}
+    setup = ("a MIX of all bundled decks" if a.mix else f"{a.deck} MIRROR")
+    if a.rebel_train:
+        rk = dict(worlds=a.worlds, iterations=a.iters, depth=a.depth, time_budget=a.tbudget, action_cap=5)
+        print(f"REBEL self-play training (CFR root-value targets) on {setup} "
+              f"({a.rounds} rounds x {a.games} games, slow)...\n", flush=True)
+        res = cn.rebel_train_loop(rounds=a.rounds, games_per_round=a.games, epochs=a.epochs,
+                                  rebel_kwargs=rk, eval_games=a.train_eval, seed=0, verbose=True, **decks_arg)
     else:
-        print(f"training card-aware net via self-play on {a.deck} MIRROR ({a.rounds} rounds x {a.games} games)...\n", flush=True)
+        print(f"GREEDY self-play training on {setup} ({a.rounds} rounds x {a.games} games)...\n", flush=True)
         res = cn.train_loop(rounds=a.rounds, games_per_round=a.games, epochs=a.epochs,
-                            decks={"alice": my, "bob": my}, eval_games=a.train_eval, seed=0, verbose=True)
+                            eval_games=a.train_eval, seed=0, verbose=True, **decks_arg)
     vf = res["value_fn"]
-    print(f"\nmirror self-play curve (vs Random): {[h['win_rate_vs_random'] for h in res['history']]}")
+    print(f"\ntraining curve (vs Random): {[h['win_rate_vs_random'] for h in res['history']]}")
 
     if a.rebel:
         from witchcraft.rebel import ReBeLPlayer

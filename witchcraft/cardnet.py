@@ -265,6 +265,38 @@ class _ExploringValuePlayer(Player):
         return best
 
 
+def generate_rebel(games: int = 8, *, value_fn=None, rebel_kwargs=None, decks=None, deck_pool=None,
+                   variant: str = "two-player", seed: int = 0, max_moves: int = 300):
+    """ReBeL self-play data: both seats are ReBeLPlayer (determinize + CFR) on `value_fn` as the leaf, and the
+    target for each decision is the CFR ROOT VALUE (the search-improved value of the position) — NOT the game
+    outcome. value_fn=None bootstraps round 0 from the heuristic leaf. Returns (objs, owner, glob, root_value)
+    rows. Heavier than the greedy generator (a CFR solve per decision), so keep `games` small."""
+    from .rebel import ReBeLPlayer
+    rk = rebel_kwargs or dict(worlds=3, iterations=20, depth=2, time_budget=1.0, action_cap=5)
+    pool_rng = random.Random(seed * 2 + 1)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}
+                   if deck_pool else decks)
+        players = {"alice": ReBeLPlayer(value_fn=value_fn, seed=seed + gi, **rk),
+                   "bob": ReBeLPlayer(value_fn=value_fn, seed=seed + gi + 9973, **rk)}
+        policies = {s: p.as_policy() for s, p in players.items()}
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies, incremental=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                seat = g.turn
+                pl = players[seat]
+                feats = card_features(g.state, seat)
+                pl.last_value = None                            # only record when THIS decision actually solved CFR
+                mv = pl.choose_move(g)
+                if pl.last_value is not None:
+                    data.append((feats[0], feats[1], feats[2], pl.last_value))
+                g.push(mv if mv is not None else g.legal_moves[0])
+    return data
+
+
 def _winrate_vs_random(value_fn, decks, variant, games, seed, deck_pool=None):
     """ValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game. ValuePlayer drives EVERY
     decision with the net (top-level moves AND the nested sub-choices), so gameplay is fully model-driven.
@@ -319,6 +351,32 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
         history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
         if verbose:
             print(f"  round {r}: data={len(data):5d}  ValuePlayer(card) vs Random = {wr:.2f}", flush=True)
+    return {"value_fn": vf, "net": net, "history": history}
+
+
+def rebel_train_loop(rounds: int = 3, *, games_per_round: int = 8, epochs: int = 50, embed: int = 32,
+                     hidden: int = 64, lr: float = 1e-3, rebel_kwargs=None, decks=None, deck_pool=None,
+                     variant: str = "two-player", eval_games: int = 12, seed: int = 0, verbose: bool = True):
+    """ITERATED ReBeL self-play training — the 'proper' value recipe. Round 0 bootstraps from the heuristic
+    leaf; each round runs ReBeL self-play with the CURRENT net as the leaf and regresses the net toward the
+    CFR ROOT VALUES (the search-improved value of each position), not the game outcome. Far heavier than the
+    greedy `train_loop` (a CFR solve per move), so games/rounds stay small. Returns {value_fn, net, history}.
+
+    The yardstick is still a cheap 1-ply ValuePlayer vs Random, so it's comparable to the greedy-trained nets."""
+    data: list = []
+    net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
+    vf = None                                                   # round 0: heuristic leaf
+    history = []
+    for r in range(rounds):
+        data.extend(generate_rebel(games_per_round, value_fn=vf, rebel_kwargs=rebel_kwargs, decks=decks,
+                                   deck_pool=deck_pool, variant=variant, seed=seed + r * 1000))
+        net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
+        fit(net, data, epochs=epochs, lr=lr, seed=seed)
+        vf = CardNetValue(net)
+        wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r, deck_pool=deck_pool)
+        history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
+        if verbose:
+            print(f"  round {r}: data={len(data):5d}  ReBeL-trained ValuePlayer vs Random = {wr:.2f}", flush=True)
     return {"value_fn": vf, "net": net, "history": history}
 
 
