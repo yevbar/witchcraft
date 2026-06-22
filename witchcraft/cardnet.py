@@ -23,14 +23,17 @@ PyTorch is an OPTIONAL dependency (`pip install witchcraft[learn]`); importing t
 never pulls torch. CPU-only and small by default.
 
     from witchcraft.cardnet import train
-    from witchcraft.rebel import ReBeLPlayer
+    from witchcraft.rebel import ValuePlayer, ReBeLPlayer
     vf = train(games=30, epochs=40)                 # self-play -> a card-aware value_fn
-    bot = ReBeLPlayer(value_fn=vf)                   # drop-in replacement for the tiny net
+    bot = ValuePlayer(vf)                            # the net drives EVERY decision (moves + sub-choices)
+    strong = ReBeLPlayer(value_fn=vf)               # ...or as the leaf of the full determinize+CFR search
 """
 from __future__ import annotations
 
 import contextlib
 import io
+
+import random
 
 import numpy as np
 import torch
@@ -39,7 +42,7 @@ import torch.nn as nn
 import env
 import observe
 from .game import Game
-from .players import RandomPlayer
+from .players import Player, RandomPlayer
 from . import rebel_train
 
 
@@ -220,6 +223,86 @@ def train(games: int = 40, *, embed: int = 32, hidden: int = 64, epochs: int = 4
     net = CardValueNet(embed=embed, hidden=hidden)
     fit(net, data, epochs=epochs, lr=lr, batch=batch, seed=seed, verbose=verbose)
     return CardNetValue(net)
+
+
+class _ExploringValuePlayer(Player):
+    """A self-play data generator: 1-ply value-greedy with epsilon-random exploration. Pure greedy is
+    DETERMINISTIC — both seats on the same net would replay one identical game and yield no diversity — so
+    with probability epsilon it plays a uniform-random legal move instead. Used on BOTH seats so the data is
+    balanced (games between equals), fixing the fixed-weak-opponent skew that degraded the vs-Random loop."""
+
+    name = "exploring_value"
+
+    def __init__(self, value_fn, epsilon: float = 0.25, seed: int = 0):
+        self.value_fn = value_fn
+        self.epsilon = epsilon
+        self._rng = random.Random(seed)
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        if self._rng.random() < self.epsilon:
+            return self._rng.choice(moves)
+        seat = game.turn
+        best, best_v = moves[0], float("-inf")
+        for m in moves:
+            v = self.value_fn(env.step(game.state, m), seat)
+            if v > best_v:
+                best_v, best = v, m
+        return best
+
+
+def _winrate_vs_random(value_fn, decks, variant, games, seed):
+    """ValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game. ValuePlayer drives EVERY
+    decision with the net (top-level moves AND the nested sub-choices), so gameplay is fully model-driven."""
+    from .rebel import ValuePlayer
+    from .players import play
+    wins = 0
+    for i in range(games):
+        flip = i % 2 == 1
+        gv, rp = ValuePlayer(value_fn), RandomPlayer(seed=1000 + i)
+        players = {"alice": rp, "bob": gv} if flip else {"alice": gv, "bob": rp}
+        mine = "bob" if flip else "alice"
+        with contextlib.redirect_stdout(io.StringIO()):
+            g = play(players, decks, variant=variant, seed=seed + i, max_moves=4000)
+        wins += (g.winner() == mine)
+    return round(wins / games, 3) if games else 0.0
+
+
+def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, embed: int = 32,
+               hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None,
+               variant: str = "two-player", eval_games: int = 20, seed: int = 0, verbose: bool = True):
+    """ITERATED SELF-PLAY for the card-aware net. Round 0 is random self-play; thereafter BOTH seats play the
+    CURRENT net (epsilon-exploring greedy) AGAINST ITSELF — so the data is balanced (games between equals),
+    not skewed toward easy wins over a fixed Random opponent (which degraded the earlier loop). The net is
+    refit on ALL data so far each round and its 1-ply win-rate vs Random is benchmarked as a fixed yardstick.
+    Returns {'value_fn', 'net', 'history'}.
+
+    NB the greedy lookahead steps the TRUE state (a perfect-info peek in the transition; the value features
+    are still the redacted belief view). The sound imperfect-info player is ReBeLPlayer (it determinizes)."""
+    data: list = []
+    net = CardValueNet(embed=embed, hidden=hidden)
+    vf = None
+    history = []
+    for r in range(rounds):
+        def pf(s, _vf=vf):
+            if _vf is None:                                     # round 0: no net yet -> random self-play
+                return RandomPlayer(seed=seed + r * 7 + (0 if s == "alice" else 1))
+            # SELF-PLAY: the same current net on both seats, epsilon-exploring for game diversity
+            return _ExploringValuePlayer(_vf, epsilon=epsilon, seed=seed + r * 100 + (0 if s == "alice" else 1))
+        data.extend(generate(games_per_round, decks=decks, variant=variant,
+                             seed=seed + r * 1000, player_factory=pf))
+        net = CardValueNet(embed=embed, hidden=hidden)          # fresh net on all accumulated data (like rebel_train)
+        fit(net, data, epochs=epochs, lr=lr, seed=seed)
+        vf = CardNetValue(net)
+        wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r)
+        history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
+        if verbose:
+            print(f"  round {r}: data={len(data):5d}  ValuePlayer(card) vs Random = {wr:.2f}", flush=True)
+    return {"value_fn": vf, "net": net, "history": history}
 
 
 def save(net: CardValueNet, path: str) -> None:
