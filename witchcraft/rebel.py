@@ -337,7 +337,8 @@ class ReBeLPlayer(Player):
 
     def __init__(self, *, worlds: int = 4, iterations: int = 100, depth: int = 3, action_cap: int = 6,
                  time_budget: float = 5.0, perfect_info: bool = False, value_fn=None,
-                 temperature: float = 0.0, seed: int | None = None, policy_fn=None, cap_floor: int = 2):
+                 temperature: float = 0.0, seed: int | None = None, policy_fn=None, cap_floor: int = 2,
+                 force_pass: bool = True):
         self.worlds = worlds
         self.iterations = iterations
         self.depth = depth
@@ -350,7 +351,12 @@ class ReBeLPlayer(Player):
         # of `moves[:cap]` (an alphabetical prefix — env.legal_actions sorts by card id), keep the cap's worth
         # of HIGHEST-prior moves so CFR sees the moves that matter. None -> the legacy alphabetical prefix.
         self.policy_fn = policy_fn
-        self.cap_floor = cap_floor              # of the cap slots, reserve this many for pass + epsilon-random
+        self.cap_floor = cap_floor              # of the cap slots, reserve this many for epsilon-random
+        # always keep a pass move in the ordered cap (so a wrong prior can't prune it). Correct for a WIDE cap;
+        # at a TIGHT cap it spends a precious slot on do-nothing (measured: forcing pass into cap=3 made the
+        # ordered player pass itself to death in aggro) — set False there. The alphabetical cap never has pass
+        # (it sorts last), so for an apples-to-apples ordering A/B at a tight cap, disable this.
+        self.force_pass = force_pass
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
         self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
@@ -366,14 +372,17 @@ class ReBeLPlayer(Player):
             return list(moves[:cap])
         scores = self.policy_fn(state, seat, moves)
         order = sorted(range(len(moves)), key=lambda i: scores[i], reverse=True)
-        floor = max(0, min(self.cap_floor, cap - 1))                # leave room for the top-prior moves
+        floor = max(0, min(self.cap_floor, cap // 3))               # keep the floor a MINORITY of the cap, so a
+        #                                                             tight cap stays prior-DOMINATED (a floor that
+        #                                                             rivals the cap would make 'ordered' ~random)
         keep = order[: cap - floor]                                 # the highest-prior moves
         rest = order[cap - floor:]
         self._rng.shuffle(rest)                                     # epsilon-uniform floor
         chosen = keep + rest[: cap - len(keep)]
-        pass_i = next((i for i, m in enumerate(moves) if getattr(m, "kind", None) == "pass"), None)
-        if pass_i is not None and pass_i not in chosen:             # invariant: never prune the option to pass
-            chosen[-1] = pass_i                                     # swap the weakest chosen slot for pass
+        if self.force_pass:
+            pass_i = next((i for i, m in enumerate(moves) if getattr(m, "kind", None) == "pass"), None)
+            if pass_i is not None and pass_i not in chosen:         # invariant: never prune the option to pass
+                chosen[-1] = pass_i                                 # swap the weakest chosen slot for pass
         return [moves[i] for i in chosen]
 
     def choose_move(self, game):
