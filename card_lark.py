@@ -28,6 +28,9 @@ import card_effects as _ce
 # so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
 _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
                         if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
+# 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
+# return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
+_RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -3511,6 +3514,14 @@ class _ToEffect(Transformer):
                     return None
                 k = m.group(1) if "/" in m.group(1) else ground.slug(m.group(1))
                 return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), k)
+            # REANIMATE 'put <obj> [from <zone>] onto the battlefield [riders]' -> return_to_battlefield. The
+            # `_pz_frame` below abstains on 'onto the battlefield'; reproduce the registered `_reanimate_put`
+            # verbatim (byte-identical to parse_effect).
+            pm = _RPUT_RX.match(src.strip())
+            if pm:
+                e = _RPUT_FN(pm)
+                if e is not None:
+                    return e
         return _pz_frame("put " + body.strip())
 
     def pzhand(self, *args):
