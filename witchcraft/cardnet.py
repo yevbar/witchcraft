@@ -117,21 +117,37 @@ class CardValueNet(nn.Module):
     a new feature row, never a new parameter."""
 
     def __init__(self, n_obj: int = OBJ_FEATURES, n_glob: int = GLOBAL_FEATURES,
-                 embed: int = 32, hidden: int = 64, seed: int | None = None):
+                 embed: int = 32, hidden: int = 64, seed: int | None = None,
+                 attn: bool = False, n_heads: int = 2):
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)             # seed BEFORE layer init -> reproducible weights (else the global
             #                                     RNG drives nn.Linear init and training is non-deterministic)
         self.embed = embed
         self.card = nn.Sequential(nn.Linear(n_obj, embed), nn.ReLU(), nn.Linear(embed, embed), nn.ReLU())
+        # SET-ATTENTION pool (Phase 4): objects attend across BOTH sides before pooling, so a card's embedding
+        # is contextualized by the board ("my removal vs their threat") — what the order-blind sum pool can't
+        # represent. Owner-injected (so attention distinguishes mine/opp), residual. attn=False -> the original
+        # Deep-Sets sum pool (default; existing behavior/tests unchanged).
+        self.attn = nn.MultiheadAttention(embed, n_heads, batch_first=True) if attn else None
+        self.owner_proj = nn.Linear(1, embed) if attn else None
         self.head = nn.Sequential(nn.Linear(embed * 3 + n_glob, hidden), nn.ReLU(), nn.Linear(hidden, 1))
+
+    def _encode(self, objs: torch.Tensor, owner: torch.Tensor) -> torch.Tensor:
+        """Per-object embeddings [N, embed] — shared encoder, plus cross-object set-attention when enabled."""
+        emb = self.card(objs)                                          # [N, embed]
+        if self.attn is not None and emb.shape[0] > 0:
+            x = emb + self.owner_proj(owner.unsqueeze(-1))             # owner-aware tokens
+            a, _ = self.attn(x.unsqueeze(0), x.unsqueeze(0), x.unsqueeze(0))   # attend across all objects
+            emb = emb + a.squeeze(0)                                   # residual: context-augmented card reps
+        return emb
 
     def _rep(self, objs: torch.Tensor, owner: torch.Tensor) -> torch.Tensor:
         """Pool the per-object embeddings into [my_sum, opp_sum, my-opp] (3*embed)."""
         if objs.shape[0] == 0:
             z = objs.new_zeros(self.embed)
             return torch.cat([z, z, z])
-        emb = self.card(objs)                                          # [N, embed]
+        emb = self._encode(objs, owner)
         mine = (owner > 0).float().unsqueeze(1)
         opp = (owner < 0).float().unsqueeze(1)
         m = (emb * mine).sum(0)
@@ -425,11 +441,13 @@ def rebel_train_loop(rounds: int = 3, *, games_per_round: int = 8, epochs: int =
 
 def save(net: CardValueNet, path: str) -> None:
     torch.save({"state": net.state_dict(), "embed": net.embed,
-                "head_in": net.head[0].in_features, "hidden": net.head[0].out_features}, path)
+                "head_in": net.head[0].in_features, "hidden": net.head[0].out_features,
+                "attn": net.attn is not None,
+                "n_heads": net.attn.num_heads if net.attn is not None else 2}, path)
 
 
 def load(path: str) -> CardNetValue:
     d = torch.load(path, weights_only=True)
-    net = CardValueNet(embed=d["embed"], hidden=d["hidden"])
+    net = CardValueNet(embed=d["embed"], hidden=d["hidden"], attn=d.get("attn", False), n_heads=d.get("n_heads", 2))
     net.load_state_dict(d["state"])
     return CardNetValue(net)

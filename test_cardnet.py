@@ -199,6 +199,39 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _set_attention_pool() -> None:
+    """Phase 4: the set-attention pool (objects attend across both sides before pooling) is an opt-in on
+    CardValueNet — reproducible, value-valid, empty-safe, save/load-aware, and trainable. Default attn=False
+    is the unchanged sum pool."""
+    aw = lambda: torch.cat([p.flatten() for p in cn.CardValueNet(seed=0, attn=True).parameters()])
+    check("attention net seeded init is reproducible", torch.equal(aw(), aw()))
+    check("attention net adds parameters over the sum pool",
+          sum(x.numel() for x in cn.CardValueNet(attn=True).parameters()) >
+          sum(x.numel() for x in cn.CardValueNet(attn=False).parameters()))
+    net = cn.CardValueNet(seed=0, attn=True)
+    objs, owner, glob = cn.card_features(_flyer_state(), "alice")
+    check("attention value is a scalar in [-1, 1]", -1.0 <= float(net.value_one(objs, owner, glob).detach()) <= 1.0)
+    empty = (np.zeros((0, cn.OBJ_FEATURES), np.float32), np.zeros((0,), np.float32),
+             np.zeros((cn.GLOBAL_FEATURES,), np.float32))
+    check("attention net handles an empty object set", -1.0 <= float(net.value_one(*empty).detach()) <= 1.0)
+
+    import os, tempfile
+    g = Game(seed=3)
+    v = net.value_one(*cn.card_features(g.state, g.turn))
+    p = os.path.join(tempfile.gettempdir(), "attn_rt.pt"); cn.save(net, p)
+    check("save/load round-trips an attention net (attn flag persisted)", abs(cn.load(p)(g.state, g.turn) - float(v)) < 1e-5)
+
+    data = cn.generate(6, seed=1)
+
+    def mse(n):
+        n.eval()
+        with torch.no_grad():
+            return float(((n([(o, w, gg) for (o, w, gg, _z) in data])
+                           - torch.tensor([z for (*_f, z) in data], dtype=torch.float32)) ** 2).mean())
+    before = mse(net); cn.fit(net, data, epochs=30, seed=1)
+    check("attention net training reduces MSE", mse(net) < before)
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -231,6 +264,7 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _set_attention_pool()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
