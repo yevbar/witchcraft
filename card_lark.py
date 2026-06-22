@@ -28,6 +28,23 @@ import card_effects as _ce
 # so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
 _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
                         if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
+# the GENERIC return-to-zone templates that ground the imperative battlefield returns the grammar's
+# `rclause`/`ret` can't carve (compound/comma objects, dest-first 'Return to the battlefield <obj>'). Both
+# unique. Re-matched (in parse_effect order, after _RBF) by `_rtb_chain` in parse_clause_lark -> byte-identical.
+_RZ_RX, _RZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_return_zone")
+_RZR_RX, _RZR_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_return_zone_rev")
+
+def _rtb_chain(s):
+    # re-match the registered battlefield-return templates in parse_effect order -> byte-identical. GUARDED
+    # to return_to_battlefield only: a 'to hand/library' clause that _return_zone would also ground returns
+    # None here, leaving the to-hand regex chain (rhclause/_bounce) / `ret`'s own zone logic to own it.
+    for rx, fn in ((_RBF_RX, _RBF_FN), (_RZ_RX, _RZ_FN), (_RZR_RX, _RZR_FN)):
+        m = rx.match(s)
+        if m:
+            e = fn(m)
+            if e is not None and e.verb == "return_to_battlefield":
+                return e
+    return None
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
@@ -3833,8 +3850,12 @@ def parse_clause_lark(clause: str):
                                                     # whole '~ gains "flying"' grant) is untouched. The regex slugs
                                                     # the stray '"' away too, so this matches it (or improves on a
                                                     # garbage grounding like 'regenerate ~."' -> '' vs 'self').
-    if s.startswith("return ") and _ret_ambiguous(s):
-        return None                            # ambiguous from/to split — defer to regex
+    if s.startswith("return "):
+        rtb = _rtb_chain(s)                    # the registered _return_bf/_return_zone/_return_zone_rev chain
+        if rtb is not None:                    # carves the imperative battlefield return faithfully (incl. the
+            return rtb                         # compound/comma/dest-first/rider shapes the grammar can't) ->
+        if _ret_ambiguous(s):                  # byte-identical. Guarded to battlefield only, so a 'to hand/
+            return None                        # library' return falls through to the grammar (rhclause/ret).
     try:
         tree = _PARSER.parse(s)
     except Exception:
