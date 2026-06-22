@@ -222,6 +222,55 @@ def train(games: int = 40, *, embed: int = 32, hidden: int = 64, epochs: int = 4
     return CardNetValue(net)
 
 
+def _winrate_vs_random(value_fn, decks, variant, games, seed):
+    """1-ply GreedyValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game."""
+    from .rebel import GreedyValuePlayer
+    from .players import play
+    wins = 0
+    for i in range(games):
+        flip = i % 2 == 1
+        gv, rp = GreedyValuePlayer(value_fn), RandomPlayer(seed=1000 + i)
+        players = {"alice": rp, "bob": gv} if flip else {"alice": gv, "bob": rp}
+        mine = "bob" if flip else "alice"
+        with contextlib.redirect_stdout(io.StringIO()):
+            g = play(players, decks, variant=variant, seed=seed + i, max_moves=4000)
+        wins += (g.winner() == mine)
+    return round(wins / games, 3) if games else 0.0
+
+
+def train_loop(rounds: int = 4, *, games_per_round: int = 20, epochs: int = 60, embed: int = 32,
+               hidden: int = 64, lr: float = 1e-3, decks=None, variant: str = "two-player",
+               eval_games: int = 14, seed: int = 0, verbose: bool = True):
+    """ITERATED self-play for the card-aware net. Round 0 is random self-play; thereafter the value-greedy
+    agent on the CURRENT net (vs a random opponent) generates each round's data, the net is refit on ALL data
+    so far, and its 1-ply win-rate vs Random is benchmarked — the self-play improvement curve. Returns
+    {'value_fn', 'net', 'history'}.
+
+    NB the greedy data-generator does a 1-ply lookahead over the TRUE state (a perfect-info peek in the
+    transition; the value features are still the redacted belief view) — same convention as
+    rebel_train.train_loop. The sound imperfect-info player is ReBeLPlayer (it determinizes)."""
+    from .rebel import GreedyValuePlayer
+    data: list = []
+    net = CardValueNet(embed=embed, hidden=hidden)
+    vf = None
+    history = []
+    for r in range(rounds):
+        def pf(s, _vf=vf):                                       # round 0: vf is None -> random self-play
+            if s == "alice" and _vf is not None:
+                return GreedyValuePlayer(_vf, seed=seed + r)
+            return RandomPlayer(seed=seed + r * 7 + (1 if s == "bob" else 0))
+        data.extend(generate(games_per_round, decks=decks, variant=variant,
+                             seed=seed + r * 1000, player_factory=pf))
+        net = CardValueNet(embed=embed, hidden=hidden)          # fresh net on all accumulated data (like rebel_train)
+        fit(net, data, epochs=epochs, lr=lr, seed=seed)
+        vf = CardNetValue(net)
+        wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r)
+        history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
+        if verbose:
+            print(f"  round {r}: data={len(data):5d}  Greedy(card) vs Random = {wr:.2f}", flush=True)
+    return {"value_fn": vf, "net": net, "history": history}
+
+
 def save(net: CardValueNet, path: str) -> None:
     torch.save({"state": net.state_dict(), "embed": net.embed,
                 "head_in": net.head[0].in_features, "hidden": net.head[0].out_features}, path)
