@@ -217,11 +217,39 @@ curves AND same weights, verified across processes):
 runner) also seeds its net (`CardValueNet(seed=)`) and its benchmark opponents (`RandomPlayer(seed=1000+i)`)
 — both were unseeded and are now bit-identical across two `seed=0` runs.
 
-### 7.7 Remaining levers
+### 7.7 ReBeL self-play training (CFR root-value targets) — throughput-limited
+
+The "proper" ReBeL value recipe: `rebel.solve` now also returns the CFR **root value**;
+`cardnet.generate_rebel` records `(features, root_value)` from ReBeL self-play (the
+search-improved target, not the game outcome); `cardnet.rebel_train_loop` bootstraps it
+iteratively. A/B at ~equal wall-clock (~1070s each), same mix + 16-game matchups:
+
+| matchup | GREEDY-trained (2010 samples) | REBEL-trained (243 samples) |
+|---|---|---|
+| izzet (mirror) | 0.56 | 0.44 |
+| mono_black_zombies | 0.50 | 0.31 |
+| mono_green_landfall | 0.12 | **0.19** |
+| mono_white_soldiers | 0.94 | 0.88 |
+| selesnya_landfall | 0.56 | 0.56 |
+
+**ReBeL training did not beat greedy training**, and was worse on most matchups — but the
+A/B is dominated by a **~8× data gap**: ReBeL self-play (a CFR solve per move) produces
+~8× fewer samples per unit wall-clock, so the net is starved. The per-example target is
+higher quality, but on CPU the **throughput collapse outweighs it.** Suggestive bright
+spot: ReBeL-trained edged ahead on the *hardest* matchup (landfall 0.19 vs 0.12) — where
+search-improved targets should help most — but it's within n=16 noise.
+
+Takeaway: ReBeL self-play training is **throughput-bound on CPU**; it would need a much
+faster `env.step`/solve (or a GPU value net to amortize) before the target-quality win
+shows. The cheap greedy recipe remains the better value-per-wall-clock for now.
+
+### 7.8 Remaining levers
 
 - **Throughput** is the ceiling: izzet's instant-heavy 1-ply is ~10–30 ms × many legal moves =
-  ~10–30 s/game; the incremental backend helps ~3x but `env.step` is still the hot path.
-- **Highest-leverage next step:** value-net quality (the §7.4 bottleneck), not more search.
+  ~10–30 s/game; the incremental backend helps ~3x but `env.step` is still the hot path. ReBeL
+  training (§7.7) makes this the binding constraint.
+- **Highest-leverage next step:** value-net quality (the §7.4 bottleneck) — but via the cheap
+  greedy recipe at scale (or a richer encoder), since search-target training is throughput-bound.
 
 Runners: `cardnet_selfplay.py` (A/B), `cardnet_iterate.py` (iterated self-play),
 `cardnet_decks.py` (complex-deck train + cross-deck/ReBeL eval, `--mix`/`--rebel`/cap), and the
