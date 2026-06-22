@@ -328,6 +328,53 @@ def _smart_split(s: str):
                 merged[-1] = merged[-1] + " and " + nxt
         parts += merged
     return [p for p in parts if p and p.strip()]
+
+
+_ENUM_SEP = re.compile(r"(\s*,\s+)")        # capturing comma split for the grounding-aware enumeration check
+
+
+def _enum_split(sentence: str):
+    """GROUNDING-AWARE enumeration split: 'SUBJ v1 o1, v2 o2[, then vN oN]' -> [Effect, …] ONLY when every
+    part independently grounds (the shared leading subject reattached to later parts). Splits on ', then'/'. '
+    (strong) and a BARE ', <predicate>' (verb/subject lead; a noun list 'artifact, creature, or enchantment'
+    has no predicate after the comma so it stays whole). Returns None unless it finds >=2 parts that ALL
+    ground — so a CONDITION-comma ('The next time a black source … this turn, prevent that damage') whose
+    PREFIX does not ground is left to the whole-clause grounding. SAFE BY CONSTRUCTION (no abstain, no drop):
+    used only to PREFER a faithful split over a single LOSSY whole-grounding; on any failure the caller keeps
+    the whole. (Distinct from `_smart_split`, which feeds the all-or-nothing path and runs only after the
+    whole-parse is rejected — this overrides an ACCEPTED single whole.)"""
+    # start from _smart_split (', then'/'. '/' and ' with the noun-conjunction guard) so we never produce a
+    # COARSER split than the existing path; then REFINE each part by a bare ', <predicate>' (the enumeration
+    # boundary _smart_split misses). Mirror the _smart_split path's masking (quotes + 'power and toughness').
+    masked, q = _mask_q(sentence)
+    masked = re.sub(r"power and toughness", "power\x00and\x00toughness", masked, flags=re.I)
+    base = [_unmask(p.replace("\x00", " "), q) for p in _smart_split(masked)]
+    parts = []
+    for chunk in base:
+        segs = _ENUM_SEP.split(chunk)                  # [piece, ', ', piece, ', ', …]
+        cur = segs[0]
+        for i in range(1, len(segs), 2):
+            sep, nxt = segs[i], segs[i + 1]
+            if nxt and _is_predicate(nxt):             # ', <predicate>' opens a new effect
+                parts.append(cur)
+                cur = nxt
+            else:                                      # noun-list comma — keep joined
+                cur = cur + sep + nxt
+        parts.append(cur)
+    if len(parts) < 2:
+        return None
+    subj = _leading_subject(parts[0])
+    effs = []
+    for j, p in enumerate(parts):
+        p = p.strip()
+        e = parse_clause(f"{subj} {p}") if (j > 0 and subj and not _has_leading_subject(p)) else None
+        e = e or parse_clause(p)
+        if not e:
+            return None                                # ANY part fails -> not a clean enumeration -> keep whole
+        effs.append(e)
+    return effs
+
+
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|"
                         r"waterbend|earthbend|airbend|collect)\b", re.I)
 
@@ -557,6 +604,16 @@ def _parse_body(text: str):
         # Prefer a whole-clause parse UNLESS the sentence runs on into a second effect ('… and gain
         # control of it', '… then exile it'): a single-effect whole-parse there has swallowed the
         # continuation into its target, so try the split first and only fall back if the split fails.
+        # GROUNDING-AWARE ENUM SPLIT (runs before BOTH the whole-accept and the _smart_split path, so it
+        # also covers the _is_compound_object=True ' then ' case): a whole-parse may cram a bare-comma
+        # enumeration into one lossy effect ('sacrifices A of their choice, discards B') or leave a lossy
+        # bare-comma part after a 'then'-only split. Prefer _enum_split when it grounds STRICTLY MORE parts —
+        # every part grounds, so a condition-comma prefix ('The next time X, prevent Y') yields None and the
+        # whole-parse is kept. Safe by construction: no abstain, no drop (only refines an existing grounding).
+        enum = _enum_split(sentence)
+        if multi and enum and len(enum) > len(multi):
+            out.extend(enum)
+            continue
         if multi and (len(multi) > 1 or not _is_compound_object(sentence)):
             out.extend(multi)
             continue
