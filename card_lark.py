@@ -36,6 +36,9 @@ _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ =
 # transformer re-matches the registered `_subject_puts` (+ `_owner_puts` 'on their choice of top/bottom').
 _SP_RX, _SP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_subject_puts")
 _OP_RX, _OP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_owner_puts")
+# LEADING-put 'Put <obj> into <zone>' -> put_in_graveyard/put_in_hand (the registered `_put_zone`; unique).
+# `_pz_frame` in `pzput` grounds some (hand) but abstains on others (graveyard) — re-match _put_zone on src.
+_PZ_RX, _PZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_put_zone")
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -3557,6 +3560,15 @@ class _ToEffect(Transformer):
             if pm:
                 e = _RPUT_FN(pm)
                 if e is not None:
+                    return e
+            # LEADING-put 'Put <obj> into <zone>' -> put_in_graveyard (the registered `_put_zone`). EXCLUDE the
+            # 'into <X> hand' result (put_in_hand): parse_effect ROUTES some 'Put <obj> into your hand' to an
+            # EARLIER return_to_hand template, so reproducing _put_zone's put_in_hand there cross-verb-DIFFERs
+            # (the genuine put_in_hand 'into hand' clauses already ground via `_pz_frame`). Graveyard is clean.
+            zm = _PZ_RX.match(src.strip())
+            if zm:
+                e = _PZ_FN(zm)
+                if e is not None and e.verb != "put_in_hand":
                     return e
         return _pz_frame("put " + body.strip())
 
