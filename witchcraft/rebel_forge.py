@@ -26,40 +26,69 @@ def _after_play(state: dict, seat: str, cid) -> dict:
     return s
 
 
-def net_policy(value_fn, base=None):
+class NetPolicy:
     """A forge_bridge policy `(obs, key, options, default) -> choice` that drives the PLAY decision with
-    `value_fn(state, seat)` (a NetValue or any callable) and delegates the rest to `base` (default
-    forge_bridge.greedy_policy). At the play decision it picks the offered spell/land whose 1-ply resulting
-    board the net values highest, or passes if no play beats the current value."""
-    import forge_bridge as fb
-    base = base or fb.greedy_policy
+    `value_fn(state, seat)` (a NetValue, CardNetValue, or any callable) and delegates the rest to `base`
+    (default forge_bridge.greedy_policy). At the play decision it picks the offered spell/land whose 1-ply
+    resulting board the net values highest, or passes if no play beats the current value.
 
-    def policy(obs, key, options, default):
+    It's a CLASS (not a bare closure) so it exposes `.coverage()` like RandomPolicy/EnginePolicy — `run_bot.py`
+    calls `policy.coverage()` unconditionally when dumping stats, which a closure would crash on (and which
+    previously left the net seat with no coverage record at all)."""
+
+    def __init__(self, value_fn, base=None):
+        import forge_bridge as fb
+        self.value_fn = value_fn
+        self.base = base or fb.greedy_policy
+        self.stats = {"decisions": 0, "play_decisions": 0, "net_chose_play": 0}
+
+    def __call__(self, obs, key, options, default):
+        import forge_bridge as fb
+        self.stats["decisions"] += 1
         if key != "action":
-            return base(obs, key, options, default)
+            return self.base(obs, key, options, default)
         seat = obs.get("seat")
         try:
             state, _unmodeled = fb.reconstruct(obs, seat)
         except Exception:
-            return base(obs, key, options, default)
+            return self.base(obs, key, options, default)
         plays = [o for o in options if isinstance(o, dict) and o.get("kind") in ("spell", "land")
                  and o.get("id") is not None]
         if not plays:
-            return base(obs, key, options, default)
-        best, best_v = default, value_fn(state, seat)            # passing = the current board's value
+            return self.base(obs, key, options, default)
+        self.stats["play_decisions"] += 1
+        best, best_v = default, self.value_fn(state, seat)       # passing = the current board's value
         for o in plays:
-            v = value_fn(_after_play(state, seat, o["id"]), seat)
+            v = self.value_fn(_after_play(state, seat, o["id"]), seat)
             if v > best_v:
                 best_v, best = v, o
+        if best is not default:
+            self.stats["net_chose_play"] += 1
         return best
 
-    return policy
+    def coverage(self) -> dict:
+        """A decision report for the net seat. modeled/endorsed are the engine MIRROR's job (EnginePolicy);
+        the net seat reports None/0.0 there, like RandomPolicy, but does surface its play-decision tally."""
+        s = self.stats
+        return {"policy": "net", "decisions": s["decisions"], "play_decisions": s["play_decisions"],
+                "net_chose_play": s["net_chose_play"], "modeled_frac": None, "endorsed_frac": 0.0}
+
+
+def net_policy(value_fn, base=None) -> NetPolicy:
+    """Build the net-leaf Forge policy (a `NetPolicy`; callable, with `.coverage()`)."""
+    return NetPolicy(value_fn, base)
 
 
 def load_value_fn(path: str):
-    """Load a TinyValueNet from `path` and return a NetValue callable (the ReBeL leaf)."""
-    from .rebel_train import TinyValueNet, NetValue
-    return NetValue(TinyValueNet.load(path))
+    """Load a saved value net from `path` and return a `value_fn(state, seat) -> float` leaf, DETECTING the
+    format: the legacy 14-feature TinyValueNet (numpy `.npz`) vs the card-aware CardValueNet (torch
+    `state_dict`, the current net). Previously hardcoded TinyValueNet, so the card net — saved by
+    `cardnet.save` — could not be loaded into the Forge bridge at all (it had never played Forge)."""
+    if path.endswith(".npz"):
+        from .rebel_train import TinyValueNet, NetValue
+        return NetValue(TinyValueNet.load(path))
+    from . import cardnet                                        # CardNetValue is itself a value_fn callable
+    return cardnet.load(path)
 
 
 def policy_from_env():
