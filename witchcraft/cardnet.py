@@ -168,14 +168,28 @@ class CardNetValue:
 
 # ---- self-play data + training ------------------------------------------------------------------------
 
+def _engage_incremental() -> bool:
+    """Route the engine through the in-process INCREMENTAL backend (bootstrap once, then re-evaluate only the
+    strata an input change touches) for the rest of this PROCESS, if the souffle fork is built here. It's
+    byte-identical to a full recompute — verified, and re-confirmed bit-exact for training (reproducible self-
+    play weights unchanged) — so it only ever changes speed, never results: ~1.1x on greedy self-play and more
+    under ReBeL search (many CFR evals per move amortize the bootstrap). Idempotent and QUIET — a no-op
+    returning False when the fork is absent, so callers degrade cleanly to the inproc backend (no warning)."""
+    import engine_incremental
+    import witchcraft.game as _game
+    return _game._select_incremental() if engine_incremental.available() else False
+
+
 def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
-             player_factory=None, max_moves: int = 4000):
+             player_factory=None, max_moves: int = 4000, incremental: bool = True):
     """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + the
     Monte-Carlo outcome z in {+1, -1, 0} from the deciding seat's view. Mirrors `rebel_train.generate`.
 
     `deck_pool` (a list of decks) diversifies the matchups: each game samples BOTH seats' decks from the pool
     (so the value net sees many decks vs many decks, not just one mirror) — the deck-level analog of mixing
     opponents. Falls back to the fixed `decks` when no pool is given."""
+    if incremental:
+        _engage_incremental()
     pf = player_factory or (lambda _seat: RandomPlayer())
     pool_rng = random.Random(seed * 2 + 1)                     # deterministic deck sampling, distinct from game seeds
     data = []
@@ -266,13 +280,15 @@ class _ExploringValuePlayer(Player):
 
 
 def generate_rebel(games: int = 8, *, value_fn=None, rebel_kwargs=None, decks=None, deck_pool=None,
-                   variant: str = "two-player", seed: int = 0, max_moves: int = 300):
+                   variant: str = "two-player", seed: int = 0, max_moves: int = 300, incremental: bool = True):
     """ReBeL self-play data: both seats are ReBeLPlayer (determinize + CFR) on `value_fn` as the leaf, and the
     target for each decision is the CFR ROOT VALUE (the search-improved value of the position) — NOT the game
     outcome. value_fn=None bootstraps round 0 from the heuristic leaf. Returns (objs, owner, glob, root_value)
     rows. Heavier than the greedy generator (a CFR solve per decision), so keep `games` small."""
     from .rebel import ReBeLPlayer
     rk = rebel_kwargs or dict(worlds=3, iterations=20, depth=2, time_budget=1.0, action_cap=5)
+    if incremental:
+        _engage_incremental()
     pool_rng = random.Random(seed * 2 + 1)
     data = []
     for gi in range(games):
@@ -281,7 +297,7 @@ def generate_rebel(games: int = 8, *, value_fn=None, rebel_kwargs=None, decks=No
         players = {"alice": ReBeLPlayer(value_fn=value_fn, seed=seed + gi, **rk),
                    "bob": ReBeLPlayer(value_fn=value_fn, seed=seed + gi + 9973, **rk)}
         policies = {s: p.as_policy() for s, p in players.items()}
-        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies, incremental=True)
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies)
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(max_moves):
                 if g.is_game_over() or not g.legal_moves:
@@ -303,6 +319,7 @@ def _winrate_vs_random(value_fn, decks, variant, games, seed, deck_pool=None):
     With `deck_pool`, each game samples both decks from the pool (mixed-matchup yardstick)."""
     from .rebel import ValuePlayer
     from .players import play
+    _engage_incremental()                                      # byte-identical; same yardstick, faster
     pool_rng = random.Random(seed * 3 + 2)
     wins = 0
     for i in range(games):
@@ -312,7 +329,7 @@ def _winrate_vs_random(value_fn, decks, variant, games, seed, deck_pool=None):
         mine = "bob" if flip else "alice"
         d = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
         with contextlib.redirect_stdout(io.StringIO()):
-            g = play(players, d, variant=variant, seed=seed + i, max_moves=4000)
+            g = play(players, d, variant=variant, seed=seed + i, max_moves=4000, incremental=True)
         wins += (g.winner() == mine)
     return round(wins / games, 3) if games else 0.0
 
