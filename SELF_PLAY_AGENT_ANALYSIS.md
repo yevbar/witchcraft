@@ -123,3 +123,87 @@ oracle-**text** encoding for true open-vocabulary generalization; Elo/exploitabi
   The card-aware net adds inference cost at every CFR leaf — measure it.
 - **Rules-engine completeness** remains the deepest risk (the engine is the simulator; gaps
   become agent blind spots) — but that is independent of the learning stack.
+
+---
+
+## 7. Experimental results — the card-aware value net build-out (CPU)
+
+This section logs what was actually built and measured along the recommended path (§5):
+evolve the ReBeL evaluator with a learned card representation. All runs are CPU-only on a
+laptop; samples are small, so read the *direction*, not the third decimal.
+
+### 7.1 The card-aware net beats the 14-feature net (the core claim)
+
+`witchcraft/cardnet.py` — encode each visible object from structured features + a bag-of-
+keywords, shared encoder → Deep-Sets pool per side → value head; featurized from the belief
+view (`observe.observe`) so it's determinization-consistent. Trained on **identical** self-play
+trajectories vs the numpy `TinyValueNet` (14 global features):
+
+| metric (same data) | card-aware | tiny (14 feat) |
+|---|---|---|
+| held-out sign-accuracy (calls the winner, 413 positions) | **0.741** | 0.588 |
+| held-out MSE | **0.704** | 0.953 |
+| 1-ply Greedy vs Random | **0.64** | 0.50 |
+| ReBeL head-to-head (same search, different leaf) | **0.83** | 0.17 |
+
+Reading the cards (types/keywords/stats) is a materially better value function and a better
+ReBeL leaf — the brief's central thesis, confirmed at small scale.
+
+### 7.2 Self-play training recipe — two fixes
+
+- **vs fixed Random degrades; vs SELF is stable.** An improving greedy agent trained against a
+  fixed Random opponent skews the data toward easy wins and the refit net loses calibration:
+  win-rate `0.79 → 0.57 → 0.57 → 0.36`. Switching both seats to the current net (epsilon-
+  exploring for diversity) fixes it: `0.70 → 0.80 → 0.80 → 0.80 → 0.70`.
+- **Mirror-only OVERFITS the matchup; a MIX of decks generalizes.** Trained on the izzet mirror,
+  the pilot beat Random in the mirror but lost to Random piloting aggro (soldiers 0.21, zombies
+  0.21). Sampling both seats' decks from a pool each game fixed it: soldiers `0.21 → 0.75`,
+  zombies `0.21 → 0.50` (n≈24). Green landfall stays unfavorable (~0.04–0.08): a small-creature
+  tempo deck racing a ramp deck is a structurally bad matchup.
+
+### 7.3 The model drives EVERY decision
+
+`ValuePlayer` (rebel.py) extends the 1-ply greedy to the nested sub-choices (`decide` seam:
+discard/sacrifice/…) via a forced rollout — force each option, advance to the next decision,
+score with the net. Demonstrated: at a real `cleanup_discard` it keeps a Craw Wurm (6/6) and
+pitches a Grizzly Bears (2/2), where the engine default discards the Craw Wurm. (On vanilla decks
+sub-choices are rare; this bites on richer decks.)
+
+### 7.4 ReBeL search on top ≈ 1-ply greedy — the value net is the bottleneck
+
+`--rebel` evaluates with `ReBeLPlayer` (determinize + CFR, the card net as leaf). ReBeL(izzet)
+vs Random, n=48, vs the 1-ply baseline:
+
+| matchup | 1-ply (n=24) | ReBeL (n=48) |
+|---|---|---|
+| izzet (mirror) | 0.58 | 0.56 |
+| mono_black_zombies | 0.38 | 0.50 |
+| mono_white_soldiers | 0.75 | 0.69 |
+| mono_green_landfall | 0.04 | 0.08 |
+| selesnya_landfall | (unmeasured) | 0.58 |
+
+**Search did not meaningfully beat greedy**, and the brutal landfall matchup stayed a near-auto-
+loss even with full search. Diagnosis: CFR faithfully optimizes a value function that doesn't
+understand the matchup, so it lands in the same place — **leaf-value quality, not search depth,
+is the limiting factor.** The lever is a stronger value net (longer/deeper training, oracle-text
+encoding, or true ReBeL self-play with CFR value targets), not more search.
+
+### 7.5 Faster eval substrate — the incremental backend (~2.8x, byte-identical)
+
+`engine_incremental` (engaged via `MTG_INCREMENTAL` / `Game(incremental=True)` /
+`game._select_incremental()`) is **byte-identical** and **~2.8x** faster on the probe-heavy
+lookahead path (verified: same winner + 44 moves, 3.4s → 1.2s on an izzet matchup). It made the
+ReBeL cross-deck eval — and the previously-unmeasurable grindy selesnya matchup — tractable. Use
+it for any future self-play/eval work.
+
+### 7.6 Known issues / next levers
+
+- **Training is non-deterministic** (mix curves differ run-to-run despite `seed=0`, likely
+  torch/threading) — reproducibility is the next cleanup before further experiments.
+- **Throughput** is the ceiling: izzet's instant-heavy 1-ply is ~10–30 ms × many legal moves =
+  ~10–30 s/game; the incremental backend helps ~3x but `env.step` is still the hot path.
+- **Highest-leverage next step:** value-net quality (the §7.4 bottleneck), not more search.
+
+Runners: `cardnet_selfplay.py` (A/B), `cardnet_iterate.py` (iterated self-play),
+`cardnet_decks.py` (complex-deck train + cross-deck/ReBeL eval, `--mix`/`--rebel`/cap), and the
+`train_loop`/`ValuePlayer`/`deck_pool` APIs in `witchcraft/cardnet.py` + `witchcraft/rebel.py`.
