@@ -890,6 +890,10 @@ _LTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? (twice |half )?that 
 # PUT a number of <kind> counters on <obj> equal to <X> — `_put_counter_equal`'s exact pattern (count-scaled
 # counters). Re-applied to src by putctr; the 'a number of' kind makes the span logic abstain, so own it here.
 _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$", re.I)
+# PUT X <kind> counters on <obj>, where X is <Y> — the regex `_put_counter` grounds this DOUBLY lossy
+# (amount='X' AND the ', where X is …' crammed into the target slug). Ground amount='equal_to_<Y>' + a clean
+# target (the create where-X recipe). g1=kind, g2=object, g3=Y. Optional non-capturing leading subject.
+_PCWX_RE = re.compile(rf"^(?:{_TGT} )?puts? x ([+-]\d+/[+-]\d+|[\w' -]+?) counters? on (.+?),? where x is (.+?)$", re.I)
 # CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
 # Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
 _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
@@ -2497,6 +2501,12 @@ class _ToEffect(Transformer):
                     return None
                 k = m.group(1) if "/" in m.group(1) else ground.slug(m.group(1))
                 return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), k)
+            # 'put X <kind> counters on <obj>, where X is <Y>' — the regex crams the where-clause into the
+            # target and leaves amount='X'; ground amount='equal_to_<Y>' with a CLEAN target (faithful).
+            wm = _PCWX_RE.match(src.strip())
+            if wm and not _is_compound_object(wm.group(2)):
+                k = wm.group(1) if "/" in wm.group(1) else ground.slug(wm.group(1))
+                return Effect("put_counter", "equal_to_" + ground.slug(wm.group(3)), _target(wm.group(2)), k)
         # SUBJECT (regex's non-capturing '(?:<TGT> )?puts?' — DROPPED). Only own a clean player phrase;
         # a compound/wrapper subject ('each player chooses … and puts', 'may') -> abstain to the regex.
         if subj is not None:
