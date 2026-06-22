@@ -65,7 +65,7 @@ def winrate(make_a, make_b, games: int, seed: int = 100) -> float:
     wins = 0
     for i in range(games):
         flip = i % 2 == 1
-        a, b = make_a(), make_b()
+        a, b = make_a(i), make_b(i)            # factories take the game index -> per-game seeded opponents
         players = {"alice": b, "bob": a} if flip else {"alice": a, "bob": b}
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):
@@ -93,7 +93,7 @@ def main():
     print(f"      {n} positions in {time.perf_counter()-t0:.0f}s  (train {len(tr)} / test {len(te)})", flush=True)
 
     print(f"[2/4] training card-aware net ({args.epochs} epochs) + tiny net (200 epochs)...", flush=True)
-    cnet = cn.CardValueNet()
+    cnet = cn.CardValueNet(seed=args.seed)     # seed BEFORE layer init -> reproducible weights (see cardnet.py)
     cn.fit(cnet, [card[i] for i in tr], epochs=args.epochs, seed=args.seed)
     cvf = cn.CardNetValue(cnet)
     X = np.array([tiny[i][0] for i in tr]); Y = np.array([tiny[i][1] for i in tr]).reshape(-1, 1)
@@ -111,9 +111,9 @@ def main():
     print(f"      tiny(14ft) : MSE={tmse:.3f}  sign_acc={sign_acc(tpred, zs):.3f}")
 
     print(f"[4/4] win-rate: 1-ply GreedyValuePlayer(value_fn) vs Random ({args.bench} games each)...", flush=True)
-    cwr = winrate(lambda: GreedyValuePlayer(cvf), lambda: RandomPlayer(seed=None), args.bench)
-    twr = winrate(lambda: GreedyValuePlayer(tvf), lambda: RandomPlayer(seed=None), args.bench)
-    hh = winrate(lambda: GreedyValuePlayer(cvf), lambda: GreedyValuePlayer(tvf), args.bench)
+    cwr = winrate(lambda i: GreedyValuePlayer(cvf), lambda i: RandomPlayer(seed=1000 + i), args.bench)
+    twr = winrate(lambda i: GreedyValuePlayer(tvf), lambda i: RandomPlayer(seed=1000 + i), args.bench)
+    hh = winrate(lambda i: GreedyValuePlayer(cvf), lambda i: GreedyValuePlayer(tvf), args.bench)
     print(f"      Greedy(card-aware) vs Random : {cwr:.2f}")
     print(f"      Greedy(tiny 14ft)  vs Random : {twr:.2f}")
     print(f"      Greedy(card) vs Greedy(tiny) : {hh:.2f}  (head-to-head)")

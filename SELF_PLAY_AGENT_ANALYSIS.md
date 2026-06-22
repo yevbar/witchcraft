@@ -212,7 +212,10 @@ curves AND same weights, verified across processes):
    order-dependent set iterations in `env`/features — is left for later; pinning is the pragmatic
    complete fix for experiment reproducibility.)
 
-`test_cardnet` guards #1 (seeded init + reproducible `fit`).
+`test_cardnet` guards #1 (seeded init + reproducible `fit`). All three runners are covered:
+`cardnet_decks`/`cardnet_iterate` go through the seeded `train_loop`; `cardnet_selfplay` (the A/B
+runner) also seeds its net (`CardValueNet(seed=)`) and its benchmark opponents (`RandomPlayer(seed=1000+i)`)
+— both were unseeded and are now bit-identical across two `seed=0` runs.
 
 ### 7.7 Remaining levers
 
