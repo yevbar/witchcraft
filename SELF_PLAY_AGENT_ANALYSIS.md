@@ -243,7 +243,24 @@ Takeaway: ReBeL self-play training is **throughput-bound on CPU**; it would need
 faster `env.step`/solve (or a GPU value net to amortize) before the target-quality win
 shows. The cheap greedy recipe remains the better value-per-wall-clock for now.
 
-### 7.8 Remaining levers
+### 7.8 set2seq set-encoder — assessed, rejected (don't re-try)
+
+Considered the set2seq architecture (Vinyals et al., "Order Matters: Sequence to Sequence
+for Sets"). Verdict, split by half:
+
+- **Set half — applicable, but didn't pay off.** Card zones are unordered sets, so the
+  Read-Process-Write attention pool is a legitimate, *non-blurring* upgrade over Deep-Sets
+  sum-pooling (it encodes a static state, not the tree). Implemented it as a `CardValueNet`
+  encoder option and A/B'd vs Deep-Sets on identical data: **worse held-out and ~8× slower to
+  train** (fit 102s vs 13s). Given throughput is the binding constraint (§7.7/7.8), an 8×-slower
+  encoder with no quality gain is a non-starter. (The held-out *quality* numbers were also
+  inflated by position-level leakage — same-game positions in train+test — so only the throughput
+  verdict is trustworthy; either way it's a reject.) Code reverted; keep Deep-Sets.
+- **Sequence/pointer half — rejected on principle (the caveat).** Modeling action order / the
+  navigated path inside the *value net* would blur the static state vs the search tree — a state's
+  value must be path-independent, and tree navigation is ReBeL/CFR's job, not the leaf's. Not built.
+
+### 7.9 Remaining levers
 
 - **Throughput** is the ceiling: izzet's instant-heavy 1-ply is ~10–30 ms × many legal moves =
   ~10–30 s/game; the incremental backend helps ~3x but `env.step` is still the hot path. ReBeL
