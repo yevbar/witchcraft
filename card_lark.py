@@ -39,6 +39,10 @@ _OP_RX, _OP_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_
 # LEADING-put 'Put <obj> into <zone>' -> put_in_graveyard/put_in_hand (the registered `_put_zone`; unique).
 # `_pz_frame` in `pzput` grounds some (hand) but abstains on others (graveyard) — re-match _put_zone on src.
 _PZ_RX, _PZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_put_zone")
+# '<player> gets <n> poison/energy/experience counter(s)' -> put_counter on the PLAYER (the registered
+# `_gets_counter`; unique, faithful). The 'gets' verb (not 'put') PARSE-FAILs every production -> new
+# `pgcclause` below; the transformer re-matches `_gets_counter` on src for a byte-identical flip.
+_GETSC_RX, _GETSC_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_gets_counter")
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -62,7 +66,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -89,6 +93,12 @@ ossubj: (WORD | QUANT | NUM)+                     // leading actor NP before the
 pszclause.-2: pszsubj PUT pszbody                 -> subject_puts
 pszsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'puts' (validated via _subject_puts)
 pszbody: (WORD | QUANT | NUM | CCOUNT | FROM | ZONE | ONPREP | TOPREP | XLIB | EQUALTO | MDUR | PTDELTA)+  // object + destination (src re-matched)
+// '<player> gets <n> poison/energy/experience counter(s)' — the 'gets' verb (not 'put') PARSE-FAILs every
+// production; this owns it. Flat body; the transformer re-matches `_gets_counter` on _src (faithful flip,
+// abstains if the kind isn't a player counter). NEGATIVE priority so any competing parse wins.
+pgcclause.-2: pgcsubj GETS pgctail                -> player_gets_counter
+pgcsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'gets' (validated via _gets_counter)
+pgctail: (WORD | QUANT | NUM | COUNTER)+           // '<n> <kind> counter(s)' (src re-matched)
 pclause: psubj? PVERB pbody                       -> pcount      // player-count verbs: NP is the AMOUNT
 dclause: dsrc DEALS damamt DMG TOPREP dtarget     -> deal        // '<source> deals N damage to <target>'
 mclause: mtgt GETS PTDELTA mdur?                  -> boost       // '<target> gets +N/+N [duration]'
@@ -1819,6 +1829,18 @@ class _ToEffect(Transformer):
             e = _OP_FN(m)
             if e is not None:
                 return e
+        return None
+
+    def player_gets_counter(self, *args):
+        # '<player> gets <n> poison/energy/experience counter(s)' — re-match the registered `_gets_counter`
+        # on src -> byte-identical put_counter on the player; a 'gets … counter' whose kind isn't a player
+        # counter (e.g. '+1/+1') fails _GETSC_RX and abstains to the regex.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _GETSC_RX.match(src.strip())
+        if m:
+            return _GETSC_FN(m)
         return None
 
     def tapuntap_subj(self, *args):
