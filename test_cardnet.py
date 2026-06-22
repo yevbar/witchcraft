@@ -246,8 +246,9 @@ def _policy_head_pointer_and_M0() -> None:
           logits.shape[0] == len(moves) and abs(float(torch.softmax(logits, 0).sum()) - 1.0) < 1e-5)
 
     data = cn.generate_pv(10, seed=0)                          # distill the greedy policy
-    check("generate_pv yields branching rows with in-range targets",
-          len(data) > 20 and all(0 <= row[6] < row[4].shape[0] for row in data))
+    check("generate_pv yields branching rows with valid policy-target distributions",
+          len(data) > 20 and all(row[6].shape[0] == row[4].shape[0] and abs(float(row[6].sum()) - 1.0) < 1e-4
+                                 for row in data))
     split = int(len(data) * 0.8)
     tr, va = data[:split], data[split:]
     net = cn.CardPVNet(seed=0)
@@ -304,6 +305,15 @@ def _m2_root_cap_ordering() -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         mv = rp.choose_move(g)
     check("policy-ordered ReBeLPlayer returns a legal move", mv in g.legal_moves)
+
+    # M2 lever 1: search-aligned CFR-pi data (soft targets) co-trains with greedy one-hot data
+    with contextlib.redirect_stdout(io.StringIO()):
+        rd = cn.generate_pv_rebel(1, rebel_kwargs=dict(worlds=2, iterations=4, depth=1, time_budget=0.3), seed=0)
+    check("generate_pv_rebel yields rows with valid soft (CFR) policy distributions",
+          len(rd) > 0 and all(abs(float(r[6].sum()) - 1.0) < 1e-4 and r[6].shape[0] == r[4].shape[0] for r in rd))
+    with contextlib.redirect_stdout(io.StringIO()):
+        cn.fit_pv(cn.CardPVNet(seed=0), cn.generate_pv(3, seed=1) + rd, epochs=4, seed=0)
+    check("fit_pv co-trains on MIXED greedy(one-hot) + CFR(soft) policy targets", True)
 
 
 def _rebel_value_target() -> None:

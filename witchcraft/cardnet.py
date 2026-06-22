@@ -392,11 +392,13 @@ def generate_pv(games: int = 40, *, value_fn=None, decks=None, deck_pool=None, v
                 incremental: bool = True):
     """Self-play data for the POLICY head (Phase 2). The generator is 1-ply GREEDY on `value_fn` (default the
     heuristic) with epsilon EXPLORATION for state diversity; at each BRANCHING decision (>1 legal move) it
-    records (objs, owner, glob, z, kinds, idx_lists, chosen_idx), where:
-      * chosen_idx = index of the GREEDY move over the FULL legal set — the distillation target (NOT the
-        explored move actually played, and NOT capped — the head must be free to surface any legal move);
+    records (objs, owner, glob, z, kinds, idx_lists, pi), where:
+      * pi = a ONE-HOT distribution over the FULL legal set marking the GREEDY move (NOT the explored move
+        actually played, and NOT capped — the head must be free to surface any legal move). Same soft-target
+        format as `generate_pv_rebel`'s CFR pi, so the two data sources mix in one `fit_pv`;
       * z = the discounted game outcome from the deciding seat (as in `generate`).
-    Distilling the greedy choice is the cheap target (no CFR per move); a small CFR-pi slice is a later add."""
+    Distilling the greedy choice is the CHEAP target (no CFR per move); reserve `generate_pv_rebel` (CFR pi,
+    aligned with the search) for a small slice — never the primary generator (it rides the ~8x throughput hit)."""
     from .rebel import heuristic_value
     value_fn = value_fn or heuristic_value
     if incremental:
@@ -429,15 +431,18 @@ def generate_pv(games: int = 40, *, value_fn=None, decks=None, deck_pool=None, v
         for (objs, owner, glob, seat, kinds, idx_lists, chosen, turn_no) in rows:
             sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
             z = _discounted_target(sign, end_turn - turn_no, gamma)
-            data.append((objs, owner, glob, z, kinds, idx_lists, chosen))
+            pi = np.zeros(len(kinds), dtype=np.float32); pi[chosen] = 1.0   # greedy target = one-hot distribution
+            data.append((objs, owner, glob, z, kinds, idx_lists, pi))
     return data
 
 
 def fit_pv(net: CardPVNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: int = 64,
            policy_weight: float = 1.0, seed: int = 0, verbose: bool = False) -> CardPVNet:
-    """Co-train the VALUE head (MSE vs z) and the POINTER POLICY head (cross-entropy vs the greedy chosen_idx)
-    on the shared encoder. `data` rows: (objs, owner, glob, z, kinds, idx_lists, chosen_idx). Value is batched;
-    the policy CE is per-sample (each row has a different #moves). CPU, small. Seeded -> reproducible."""
+    """Co-train the VALUE head (MSE vs z) and the POINTER POLICY head (SOFT cross-entropy vs the target
+    distribution pi) on the shared encoder. `data` rows: (objs, owner, glob, z, kinds, idx_lists, pi), where
+    pi is a distribution over the row's moves — one-hot from `generate_pv` (greedy) or the CFR avg strategy
+    from `generate_pv_rebel` (search-aligned). Value is batched; the policy term is per-sample (variable
+    #moves). CPU, small. Seeded -> reproducible."""
     torch.manual_seed(seed)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     mse = nn.MSELoss()
@@ -451,10 +456,9 @@ def fit_pv(net: CardPVNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: i
             b = [data[j] for j in idx[i:i + batch]]
             y = torch.tensor([row[3] for row in b], dtype=torch.float32)
             v_loss = mse(net([(row[0], row[1], row[2]) for row in b]), y)
-            p_loss = torch.stack([
-                torch.nn.functional.cross_entropy(
-                    net.policy_logits(row[0], row[1], row[2], row[4], row[5]).unsqueeze(0),
-                    torch.tensor([row[6]])) for row in b]).mean()
+            p_loss = torch.stack([                                       # soft CE: -sum(pi * log_softmax(logits))
+                -(torch.from_numpy(row[6]) * torch.nn.functional.log_softmax(
+                    net.policy_logits(row[0], row[1], row[2], row[4], row[5]), 0)).sum() for row in b]).mean()
             loss = v_loss + policy_weight * p_loss
             opt.zero_grad(); loss.backward(); opt.step()
             vt += v_loss.item() * len(b); pt += p_loss.item() * len(b)
@@ -464,14 +468,14 @@ def fit_pv(net: CardPVNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: i
 
 
 def policy_top1(net: CardPVNet, data) -> float:
-    """Held-out top-1: the fraction of rows where the policy head's argmax matches the recorded greedy
-    chosen_idx. The M0 gate (>=0.45) compares this to ~mean(1/#moves) uniform (`policy_uniform`)."""
+    """Held-out top-1: the fraction of rows where the policy head's argmax matches the target's argmax (the
+    greedy/CFR favorite). The M0 gate (>=0.45) compares this to ~mean(1/#moves) uniform (`policy_uniform`)."""
     net.eval()
     correct = 0
     with torch.no_grad():
         for row in data:
             logits = net.policy_logits(row[0], row[1], row[2], row[4], row[5])
-            correct += int(int(torch.argmax(logits)) == row[6])
+            correct += int(int(torch.argmax(logits)) == int(np.argmax(row[6])))
     return correct / len(data) if data else 0.0
 
 
@@ -553,6 +557,51 @@ def generate_rebel(games: int = 8, *, value_fn=None, rebel_kwargs=None, decks=No
                 mv = pl.choose_move(g)
                 if pl.last_value is not None:
                     data.append((feats[0], feats[1], feats[2], pl.last_value))
+                g.push(mv if mv is not None else g.legal_moves[0])
+    return data
+
+
+def generate_pv_rebel(games: int = 4, *, value_fn=None, rebel_kwargs=None, decks=None, deck_pool=None,
+                      variant: str = "two-player", seed: int = 0, max_moves: int = 300, incremental: bool = True):
+    """A SMALL slice of SEARCH-ALIGNED policy data (Phase-2 M2 lever 1). Both seats are ReBeLPlayer
+    (determinize + CFR) on `value_fn`, with a WIDE action_cap so CFR's average strategy spans ALL legal moves
+    (never the capped subset — the pitfall). Records (objs, owner, glob, root_value, kinds, idx_lists, pi),
+    where pi is the CFR avg strategy — a SOFT policy target aligned with what the SEARCH values (unlike the
+    greedy/heuristic one-hot of `generate_pv`). Mix a slice of this into `fit_pv` alongside the cheap greedy
+    data; NEVER make it the primary generator (CFR-per-move rides the ~8x throughput hit)."""
+    from .rebel import ReBeLPlayer
+    rk = dict(worlds=3, iterations=20, depth=2, time_budget=1.0)
+    rk.update(rebel_kwargs or {})
+    rk["action_cap"] = max(rk.get("action_cap", 64), 64)        # WIDE -> pi over every move (no cap exclusion)
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        players = {"alice": ReBeLPlayer(value_fn=value_fn, seed=seed + gi, **rk),
+                   "bob": ReBeLPlayer(value_fn=value_fn, seed=seed + gi + 9973, **rk)}
+        policies = {s: p.as_policy() for s, p in players.items()}
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies)
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                seat = g.turn
+                pl = players[seat]
+                moves = g.legal_moves                           # wide cap + no policy_fn => last_policy aligns to these
+                feats = card_features(g.state, seat)
+                kinds, idx_lists = move_features(g.state, seat, moves)
+                pl.last_policy = pl.last_value = None
+                mv = pl.choose_move(g)
+                if pl.last_policy is not None and pl.last_value is not None:
+                    pi = np.zeros(len(moves), dtype=np.float32)
+                    for j, (_a, p) in enumerate(pl.last_policy):
+                        if j < len(pi):
+                            pi[j] = p
+                    tot = pi.sum()
+                    if tot > 0:
+                        data.append((feats[0], feats[1], feats[2], pl.last_value, kinds, idx_lists, pi / tot))
                 g.push(mv if mv is not None else g.legal_moves[0])
     return data
 
