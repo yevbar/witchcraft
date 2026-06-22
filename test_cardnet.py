@@ -157,12 +157,32 @@ def _value_player_drives_subchoices() -> None:
     check("ValuePlayer plays a full game to a terminal result", g.is_game_over())
 
 
+def _reproducible_training() -> None:
+    """Training is reproducible: CardValueNet seeds torch BEFORE building its layers (else the unseeded
+    global RNG drives nn.Linear init and the net — hence the whole self-play loop — is non-deterministic)."""
+    w1 = torch.cat([p.flatten() for p in cn.CardValueNet(seed=0).parameters()])
+    w2 = torch.cat([p.flatten() for p in cn.CardValueNet(seed=0).parameters()])
+    check("CardValueNet(seed=) gives reproducible weight init", torch.equal(w1, w2))
+    check("an UNSEEDED net init is NOT pinned (the original bug)",
+          not torch.equal(torch.cat([p.flatten() for p in cn.CardValueNet().parameters()]),
+                          torch.cat([p.flatten() for p in cn.CardValueNet().parameters()])))
+    data = cn.generate(4, seed=0)
+
+    def trained():
+        net = cn.CardValueNet(seed=0)
+        cn.fit(net, data, epochs=15, seed=0)
+        return torch.cat([p.flatten() for p in net.parameters()])
+
+    check("fit() is reproducible on the same data (seed before construct)", torch.equal(trained(), trained()))
+
+
 def run() -> None:
     _features_card_aware()
     _net_value_in_range()
     _training_reduces_error()
     _value_fn_seam_and_io()
     _value_player_drives_subchoices()
+    _reproducible_training()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

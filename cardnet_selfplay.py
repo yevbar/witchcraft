@@ -10,6 +10,13 @@ CPU-only. Usage: python3 cardnet_selfplay.py [--games N] [--bench G] [--epochs E
 """
 from __future__ import annotations
 
+import os
+import sys
+
+if os.environ.get("PYTHONHASHSEED") != "0":           # reproducibility: pin set-iteration order, re-exec once
+    os.environ["PYTHONHASHSEED"] = "0"
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
 import argparse
 import contextlib
 import io
