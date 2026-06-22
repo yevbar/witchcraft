@@ -180,10 +180,33 @@ def _engage_incremental() -> bool:
     return _game._select_incremental() if engine_incremental.available() else False
 
 
+# Per-turn discount on the outcome target. gamma<1 makes a win that lands SOONER score higher (and a loss
+# that's delayed less negative), so the greedy argmax breaks ties toward FASTER wins — the fix for "waiting an
+# extra turn can mean losing". DEFAULT IS 1.0 (OFF): an A/B here found aggressive discounting (0.97) REGRESSES
+# general win-rate vs Random (0.70 -> 0.52) while gentle values (0.99/0.995) and a discounted-vs-undiscounted
+# head-to-head (0.54) sat within noise — the benefit is race-specific and the vs-Random yardstick can't see it.
+# So it's a validated, opt-in knob, not a default. Pass gamma=0.97..0.99 to generate/train_loop to enable it
+# (and validate on a deliberately tempo-critical matchup, not vs Random).
+DEFAULT_GAMMA = 1.0
+
+
+def _discounted_target(sign: float, turns_to_end: int, gamma: float) -> float:
+    """Shape the terminal outcome into a TIME-PREFERRED value: a win is worth +gamma**(turns to the end), a
+    loss -gamma**(turns to the end), a draw 0. With gamma<1 a win that lands SOONER scores higher and a loss
+    that's DELAYED scores less negative — so 1-ply argmax over next-state values prefers faster wins / slower
+    losses. Fixes the turn-agnostic {+1,-1,0} target, under which a 2-turn and a 12-turn win look identical and
+    the agent can dawdle one turn into a loss it could have pre-empted. gamma=1.0 recovers the old target
+    exactly; gamma<1 never flips win/loss/draw ordering (a far win stays positive), it only compresses toward 0
+    with distance, so the only behavioral change is the tie-break toward speed."""
+    return sign * (gamma ** max(0, turns_to_end))
+
+
 def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
-             player_factory=None, max_moves: int = 4000, incremental: bool = True):
-    """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + the
-    Monte-Carlo outcome z in {+1, -1, 0} from the deciding seat's view. Mirrors `rebel_train.generate`.
+             player_factory=None, max_moves: int = 4000, incremental: bool = True, gamma: float = DEFAULT_GAMMA):
+    """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + a TIME-
+    PREFERRED outcome target z from the deciding seat's view — +gamma**(turns until the game ends) for a win,
+    the negative for a loss, 0 for a draw (gamma<1 => quicker wins / slower losses score higher; gamma=1.0 is
+    the old undiscounted {+1,-1,0}). Mirrors `rebel_train.generate`.
 
     `deck_pool` (a list of decks) diversifies the matchups: each game samples BOTH seats' decks from the pool
     (so the value net sees many decks vs many decks, not just one mirror) — the deck-level analog of mixing
@@ -205,11 +228,13 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
                 if g.is_game_over() or not g.legal_moves:
                     break
                 seat = g.turn
-                rows.append((card_features(g.state, seat), seat))
+                rows.append((card_features(g.state, seat), seat, g.state.get("_turn") or 0))
                 g.push(players[seat].choose_move(g))
         w = g.winner()
-        for (objs, owner, glob), seat in rows:
-            z = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+        end_turn = max([t for *_r, t in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob), seat, turn_no in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
             data.append((objs, owner, glob, z))
     return data
 
@@ -336,7 +361,8 @@ def _winrate_vs_random(value_fn, decks, variant, games, seed, deck_pool=None):
 
 def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, embed: int = 32,
                hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None, deck_pool=None,
-               variant: str = "two-player", eval_games: int = 20, seed: int = 0, verbose: bool = True):
+               variant: str = "two-player", eval_games: int = 20, seed: int = 0, verbose: bool = True,
+               gamma: float = DEFAULT_GAMMA):
     """ITERATED SELF-PLAY for the card-aware net. Round 0 is random self-play; thereafter BOTH seats play the
     CURRENT net (epsilon-exploring greedy) AGAINST ITSELF — so the data is balanced (games between equals),
     not skewed toward easy wins over a fixed Random opponent (which degraded the earlier loop). The net is
@@ -360,7 +386,7 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
             # SELF-PLAY: the same current net on both seats, epsilon-exploring for game diversity
             return _ExploringValuePlayer(_vf, epsilon=epsilon, seed=seed + r * 100 + (0 if s == "alice" else 1))
         data.extend(generate(games_per_round, decks=decks, deck_pool=deck_pool, variant=variant,
-                             seed=seed + r * 1000, player_factory=pf))
+                             seed=seed + r * 1000, player_factory=pf, gamma=gamma))
         net = CardValueNet(embed=embed, hidden=hidden, seed=seed)          # fresh net on all accumulated data (like rebel_train)
         fit(net, data, epochs=epochs, lr=lr, seed=seed)
         vf = CardNetValue(net)
