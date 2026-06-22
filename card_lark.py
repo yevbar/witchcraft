@@ -28,46 +28,6 @@ import card_effects as _ce
 # so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
 _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
                         if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
-# Registered-LEAF re-match: reproduce parse_effect's leaf choice EXACTLY — the first registered template
-# that matches AND grounds, in registration order — and act ONLY when `ok(verb)` holds, so a clause a better
-# leaf owns (or an out-of-family verb) falls through to the grammar untouched. Used as a POST-grammar fallback
-# (the grammar owns what it parses) for whole families the CFG can't carve.
-def _regex_leaf(s, ok):
-    for rx, fn in _ce._TEMPLATES:
-        m = rx.match(s)
-        if m:
-            try:
-                e = fn(m)
-            except Exception:
-                e = None
-            if e is not None:                       # FIRST grounding template wins (== parse_effect); use it
-                return e if ok(e.verb) else None    # only when the verb is in-family, else abstain
-    return None
-# RETURN family (§614) — imperative/leading-subject 'Return <obj> [from <zone>] to the battlefield/<owner>'s
-# hand [riders]' the grammar's rclause/ret/rhclause can't carve (compound & comma objects, dest-first 'Return
-# to the battlefield <obj>', 'all Auras attached to …', leading-subject 'each player returns …', riders).
-def _return_chain(s): return _regex_leaf(s, lambda v: v.startswith("return_to_"))
-# CREATE family (§111) — imperative/leading-subject 'Create <n> <spec> token[s] [with …]' the grammar's
-# tclause can't carve (named/legendary tokens, copy-tokens, 'with <ability>', multi-token, complex specs).
-def _create_chain(s): return _regex_leaf(s, lambda v: v == "create")
-# BECOMES family (§613 type-changing / §707 copy) — '<subj> is/are <type> in addition to their other types',
-# 'gains all creature types', 'is every <…> type', 'is/becomes a copy of …', "isn't a creature" — copula/
-# 'gains' forms the grammar has no production for (no leading action verb). The regex grounds them faithfully.
-def _becomes_chain(s): return _regex_leaf(s, lambda v: v == "becomes")
-# leading-subject triggers ('<player> returns/may return …' / '<player> creates …') — short subject NP then
-# the verb; the imperative form is caught by startswith. Gate the chains so they're not run on every clause.
-_SUBJ_RET_RE = re.compile(r"^[\w' ]{1,40}? (?:may )?returns? ")
-_SUBJ_CRE_RE = re.compile(r"^[\w' ]{1,60}? (?:may )?creates? ")
-# becomes has no leading anchor; trigger on the distinctive type-change/copy markers (verb-guarded chain, so
-# a false trigger just abstains). Covers 'in addition to their other [creature] types', 'every <…> type',
-# 'all creature types', 'is/becomes a copy of', "isn't a creature/planeswalker", 'perpetually become'.
-_BECOMES_RE = re.compile(
-    r"in addition to (?:its|their) other (?:creature )?types"
-    r"|every (?:creature|basic land|nonbasic land|land) type"
-    r"|all creature types"
-    r"|\bis a copy of\b|\bbecomes a copy of\b"
-    r"|isn'?t a (?:creature|planeswalker)"
-    r"|perpetually become", re.I)
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
@@ -3874,35 +3834,12 @@ def parse_clause_lark(clause: str):
                                                     # the stray '"' away too, so this matches it (or improves on a
                                                     # garbage grounding like 'regenerate ~."' -> '' vs 'self').
     if s.startswith("return ") and _ret_ambiguous(s):
-        return _return_chain(s)                # ambiguous from/to: the grammar mis-carves the split, so go
-                                               # straight to the registered leaf chain (or None -> regex)
+        return None                            # ambiguous from/to split — defer to regex
     try:
         tree = _PARSER.parse(s)
     except Exception:
-        tree = None
-    if tree is not None:
-        _T._src = s                            # the lowercased source, so bcmbecomes can slice the raw P/T tail
-        e = _T.transform(tree)
-        e = e.children[0] if hasattr(e, "children") else e
-        if isinstance(e, Effect):
-            return e                           # the grammar OWNS what it can parse (it carves 'from the
-                                               # battlefield to hand' better than the regex _return_zone)
-    if s.startswith("return ") or _SUBJ_RET_RE.match(s):
-        return _return_chain(s)                # grammar abstained on a return -> registered leaf chain fallback
-    if s.startswith("create ") or _SUBJ_CRE_RE.match(s):
-        return _create_chain(s)                # grammar abstained on a create -> registered leaf chain fallback
-    if _BECOMES_RE.search(s):
-        return _becomes_chain(s)               # grammar abstained on a type-change/copy 'becomes' -> leaf chain
-    # small self-contained families the regex grounds faithfully and the grammar has no production for — each
-    # gated by a TIGHT trigger and the registered-leaf chain's verb guard (a false trigger just abstains).
-    if s.startswith("roll "):                  # 'Roll a dN' / 'Roll X six-sided dice' (§720)
-        return _regex_leaf(s, lambda v: v == "roll_die")
-    if s.startswith("pay "):                    # bare 'pay {mana}' (NOT 'counter … unless … pays {N}')
-        return _regex_leaf(s, lambda v: v == "pay")
-    if s.startswith("you get ") and "{e}" in s:  # 'you get {E}{E}' / 'you get that many {E}' (§107.16 energy)
-        return _regex_leaf(s, lambda v: v == "get_energy")
-    if "spend mana as though" in s or "can be spent to cast" in s:   # §609.4 mana-as
-        return _regex_leaf(s, lambda v: v == "spend_mana_as")
-    if s.startswith("you control ") or "gains control of" in s or "gain control of" in s:   # §720 control
-        return _regex_leaf(s, lambda v: v == "gain_control")
-    return None                                # (the families the grammar can't carve)
+        return None
+    _T._src = s                                # the lowercased source, so bcmbecomes can slice the raw P/T tail
+    e = _T.transform(tree)
+    e = e.children[0] if hasattr(e, "children") else e
+    return e if isinstance(e, Effect) else None
