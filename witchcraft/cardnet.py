@@ -165,16 +165,23 @@ class CardNetValue:
 
 # ---- self-play data + training ------------------------------------------------------------------------
 
-def generate(games: int = 40, *, decks=None, variant: str = "two-player", seed: int = 0,
+def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
              player_factory=None, max_moves: int = 4000):
     """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + the
-    Monte-Carlo outcome z in {+1, -1, 0} from the deciding seat's view. Mirrors `rebel_train.generate`."""
+    Monte-Carlo outcome z in {+1, -1, 0} from the deciding seat's view. Mirrors `rebel_train.generate`.
+
+    `deck_pool` (a list of decks) diversifies the matchups: each game samples BOTH seats' decks from the pool
+    (so the value net sees many decks vs many decks, not just one mirror) — the deck-level analog of mixing
+    opponents. Falls back to the fixed `decks` when no pool is given."""
     pf = player_factory or (lambda _seat: RandomPlayer())
+    pool_rng = random.Random(seed * 2 + 1)                     # deterministic deck sampling, distinct from game seeds
     data = []
     for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}
+                   if deck_pool else decks)
         players = {"alice": pf("alice"), "bob": pf("bob")}
         policies = {s: p.as_policy() for s, p in players.items()}
-        g = Game(decks, variant=variant, seed=seed + gi, policies=policies)
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies)
         rows = []
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(max_moves):
@@ -255,31 +262,38 @@ class _ExploringValuePlayer(Player):
         return best
 
 
-def _winrate_vs_random(value_fn, decks, variant, games, seed):
+def _winrate_vs_random(value_fn, decks, variant, games, seed, deck_pool=None):
     """ValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game. ValuePlayer drives EVERY
-    decision with the net (top-level moves AND the nested sub-choices), so gameplay is fully model-driven."""
+    decision with the net (top-level moves AND the nested sub-choices), so gameplay is fully model-driven.
+    With `deck_pool`, each game samples both decks from the pool (mixed-matchup yardstick)."""
     from .rebel import ValuePlayer
     from .players import play
+    pool_rng = random.Random(seed * 3 + 2)
     wins = 0
     for i in range(games):
         flip = i % 2 == 1
         gv, rp = ValuePlayer(value_fn), RandomPlayer(seed=1000 + i)
         players = {"alice": rp, "bob": gv} if flip else {"alice": gv, "bob": rp}
         mine = "bob" if flip else "alice"
+        d = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
         with contextlib.redirect_stdout(io.StringIO()):
-            g = play(players, decks, variant=variant, seed=seed + i, max_moves=4000)
+            g = play(players, d, variant=variant, seed=seed + i, max_moves=4000)
         wins += (g.winner() == mine)
     return round(wins / games, 3) if games else 0.0
 
 
 def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, embed: int = 32,
-               hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None,
+               hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None, deck_pool=None,
                variant: str = "two-player", eval_games: int = 20, seed: int = 0, verbose: bool = True):
     """ITERATED SELF-PLAY for the card-aware net. Round 0 is random self-play; thereafter BOTH seats play the
     CURRENT net (epsilon-exploring greedy) AGAINST ITSELF — so the data is balanced (games between equals),
     not skewed toward easy wins over a fixed Random opponent (which degraded the earlier loop). The net is
-    refit on ALL data so far each round and its 1-ply win-rate vs Random is benchmarked as a fixed yardstick.
+    refit on ALL data so far each round and its win-rate vs Random is benchmarked as a fixed yardstick.
     Returns {'value_fn', 'net', 'history'}.
+
+    `deck_pool` (a list of decks) trains against a MIX of opponent decks — each game samples both seats'
+    decks from the pool — instead of a single mirror, so the net generalizes across matchups rather than
+    overfitting one. (Without it, the fixed `decks` mirror is used.)
 
     NB the greedy lookahead steps the TRUE state (a perfect-info peek in the transition; the value features
     are still the redacted belief view). The sound imperfect-info player is ReBeLPlayer (it determinizes)."""
@@ -293,12 +307,12 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
                 return RandomPlayer(seed=seed + r * 7 + (0 if s == "alice" else 1))
             # SELF-PLAY: the same current net on both seats, epsilon-exploring for game diversity
             return _ExploringValuePlayer(_vf, epsilon=epsilon, seed=seed + r * 100 + (0 if s == "alice" else 1))
-        data.extend(generate(games_per_round, decks=decks, variant=variant,
+        data.extend(generate(games_per_round, decks=decks, deck_pool=deck_pool, variant=variant,
                              seed=seed + r * 1000, player_factory=pf))
         net = CardValueNet(embed=embed, hidden=hidden)          # fresh net on all accumulated data (like rebel_train)
         fit(net, data, epochs=epochs, lr=lr, seed=seed)
         vf = CardNetValue(net)
-        wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r)
+        wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r, deck_pool=deck_pool)
         history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
         if verbose:
             print(f"  round {r}: data={len(data):5d}  ValuePlayer(card) vs Random = {wr:.2f}", flush=True)
