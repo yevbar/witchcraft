@@ -894,6 +894,11 @@ _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (
 # (amount='X' AND the ', where X is …' crammed into the target slug). Ground amount='equal_to_<Y>' + a clean
 # target (the create where-X recipe). g1=kind, g2=object, g3=Y. Optional non-capturing leading subject.
 _PCWX_RE = re.compile(rf"^(?:{_TGT} )?puts? x ([+-]\d+/[+-]\d+|[\w' -]+?) counters? on (.+?),? where x is (.+?)$", re.I)
+# PUT <n> <kind> counter(s) on <obj> for each <Y> — §107.3 count-scaled. The regex `_put_counter` grounds
+# this lossy (amount=<n>, the ' for each <Y>' crammed into the target slug, 'on ~' dropped). Ground the
+# count-scaled amount '<n>_per_<Y>' (the exact draw/gain_life for-each convention) + a CLEAN target.
+# g1=count, g2=kind, g3=obj, g4=Y. Optional non-capturing leading subject.
+_PCFE_RE = re.compile(rf"^(?:{_TGT} )?puts? (\w+) ([+-]\d+/[+-]\d+|[\w' -]+?) counters? on (.+?) for each (.+?)$", re.I)
 # CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
 # Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
 _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
@@ -2507,6 +2512,14 @@ class _ToEffect(Transformer):
             if wm and not _is_compound_object(wm.group(2)):
                 k = wm.group(1) if "/" in wm.group(1) else ground.slug(wm.group(1))
                 return Effect("put_counter", "equal_to_" + ground.slug(wm.group(3)), _target(wm.group(2)), k)
+            # 'put <n> <kind> counter(s) on <obj> for each <Y>' (§107.3) — the regex crams ' for each <Y>'
+            # into the target and keeps amount=<n>; ground '<n>_per_<Y>' (draw/gain convention) + clean target.
+            fm = _PCFE_RE.match(src.strip())
+            if fm and not _is_compound_object(fm.group(3)):
+                n = _amount(fm.group(1))
+                base = str(n) if n is not None else ground.slug(fm.group(1))
+                k = fm.group(2) if "/" in fm.group(2) else ground.slug(fm.group(2))
+                return Effect("put_counter", base + "_per_" + ground.slug(fm.group(4)), _target(fm.group(3)), k)
         # SUBJECT (regex's non-capturing '(?:<TGT> )?puts?' — DROPPED). Only own a clean player phrase;
         # a compound/wrapper subject ('each player chooses … and puts', 'may') -> abstain to the regex.
         if subj is not None:
