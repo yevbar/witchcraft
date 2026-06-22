@@ -176,6 +176,30 @@ def _reproducible_training() -> None:
     check("fit() is reproducible on the same data (seed before construct)", torch.equal(trained(), trained()))
 
 
+def _rebel_value_target() -> None:
+    """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
+    target, and ReBeLPlayer exposes it as last_value."""
+    import time
+    from witchcraft.rebel import solve, heuristic_value
+    from witchcraft.players import RandomPlayer
+    g = Game(seed=3)
+    for _ in range(60):                                        # advance to a decision with >=2 legal moves
+        if g.is_game_over() or len(g.legal_moves) >= 2:
+            break
+        g.push(g.legal_moves[0])
+    moves = g.legal_moves
+    check("reached a multi-move decision", len(moves) >= 2)
+    if len(moves) >= 2:
+        pol, val = solve(g.state, g.turn, moves[:4], worlds=2, iterations=10, depth=2,
+                         value_fn=heuristic_value, deadline=time.time() + 5)
+        check("solve returns a strategy that sums to 1", abs(sum(pol) - 1.0) < 1e-6)
+        check("solve returns a CFR root value in [-1,1]", -1.0 <= val <= 1.0)
+    # ReBeL self-play generation yields (features, root_value) rows in range
+    rows = cn.generate_rebel(1, rebel_kwargs=dict(worlds=2, iterations=8, depth=2, time_budget=0.4, action_cap=4), seed=0)
+    check("generate_rebel produces value-target rows", len(rows) > 0)
+    check("ReBeL value targets are in [-1,1]", all(-1.0 <= r[3] <= 1.0 for r in rows))
+
+
 def run() -> None:
     _features_card_aware()
     _net_value_in_range()
@@ -183,6 +207,7 @@ def run() -> None:
     _value_fn_seam_and_io()
     _value_player_drives_subchoices()
     _reproducible_training()
+    _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
