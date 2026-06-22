@@ -50,10 +50,24 @@ def _return_chain(s): return _regex_leaf(s, lambda v: v.startswith("return_to_")
 # CREATE family (§111) — imperative/leading-subject 'Create <n> <spec> token[s] [with …]' the grammar's
 # tclause can't carve (named/legendary tokens, copy-tokens, 'with <ability>', multi-token, complex specs).
 def _create_chain(s): return _regex_leaf(s, lambda v: v == "create")
+# BECOMES family (§613 type-changing / §707 copy) — '<subj> is/are <type> in addition to their other types',
+# 'gains all creature types', 'is every <…> type', 'is/becomes a copy of …', "isn't a creature" — copula/
+# 'gains' forms the grammar has no production for (no leading action verb). The regex grounds them faithfully.
+def _becomes_chain(s): return _regex_leaf(s, lambda v: v == "becomes")
 # leading-subject triggers ('<player> returns/may return …' / '<player> creates …') — short subject NP then
 # the verb; the imperative form is caught by startswith. Gate the chains so they're not run on every clause.
 _SUBJ_RET_RE = re.compile(r"^[\w' ]{1,40}? (?:may )?returns? ")
 _SUBJ_CRE_RE = re.compile(r"^[\w' ]{1,60}? (?:may )?creates? ")
+# becomes has no leading anchor; trigger on the distinctive type-change/copy markers (verb-guarded chain, so
+# a false trigger just abstains). Covers 'in addition to their other [creature] types', 'every <…> type',
+# 'all creature types', 'is/becomes a copy of', "isn't a creature/planeswalker", 'perpetually become'.
+_BECOMES_RE = re.compile(
+    r"in addition to (?:its|their) other (?:creature )?types"
+    r"|every (?:creature|basic land|nonbasic land|land) type"
+    r"|all creature types"
+    r"|\bis a copy of\b|\bbecomes a copy of\b"
+    r"|isn'?t a (?:creature|planeswalker)"
+    r"|perpetually become", re.I)
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
@@ -3877,4 +3891,6 @@ def parse_clause_lark(clause: str):
         return _return_chain(s)                # grammar abstained on a return -> registered leaf chain fallback
     if s.startswith("create ") or _SUBJ_CRE_RE.match(s):
         return _create_chain(s)                # grammar abstained on a create -> registered leaf chain fallback
+    if _BECOMES_RE.search(s):
+        return _becomes_chain(s)               # grammar abstained on a type-change/copy 'becomes' -> leaf chain
     return None                                # (the families the grammar can't carve)
