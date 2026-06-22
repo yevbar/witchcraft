@@ -20,6 +20,14 @@ from lark import Lark, Transformer, v_args
 
 import ground
 from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _kw_list, _TGT, _LIB_OWNER, _mana_production
+import card_effects as _ce
+# 'Return <obj> [from <zone>] to the battlefield [tapped/under-ctrl/with-counter/at the beginning of <step>]'
+# (composite extra slug). NOTE: card_effects has TWO `_return_bf` defs — the module attribute `_ce._return_bf`
+# is the SIMPLER 2-group one that SHADOWS the complex one; the complex one (4 groups incl. named 'mods') is
+# still REGISTERED in _TEMPLATES and is what parse_effect actually uses. Capture THAT registered (rx, fn) pair
+# so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
+_RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
+                        if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
 
 # verbs whose grounded name == lemma (the simple object verbs); zone verbs handled separately.
 # pure OBJECT verbs (the NP after the verb is the TARGET). Player-count verbs (mill/draw/discard/scry,
@@ -1735,6 +1743,17 @@ class _ToEffect(Transformer):
         return quant, zone, otext
 
     def ret(self, verb, *rest):
+        # BATTLEFIELD RETURN with riders ('Return <obj> [from <zone>] to the battlefield [tapped]
+        # [under <ctrl>'s control] [with <counter>] [attached to <Y>] [at the beginning of <step>]') — the
+        # `ret` logic below abstains on the rider trailer; the registered `_return_bf` folds the whole family
+        # into one canonical extra slug. Re-match its EXACT pattern on src + call it -> byte-identical.
+        src = getattr(self, "_src", None)
+        if src is not None:
+            m = _RBF_RX.match(src.strip())
+            if m:
+                e = _RBF_FN(m)
+                if e is not None:
+                    return e
         if any(isinstance(a, _Trailer) for a in rest):
             return None                        # trailing wrapper -> regex chain owns it
         quant = next((str(a) for a in rest if isinstance(a, _Quant)), None)
