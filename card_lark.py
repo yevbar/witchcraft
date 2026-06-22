@@ -909,6 +909,11 @@ _PCWX_RE = re.compile(rf"^(?:{_TGT} )?puts? x ([+-]\d+/[+-]\d+|[\w' -]+?) counte
 # count-scaled amount '<n>_per_<Y>' (the exact draw/gain_life for-each convention) + a CLEAN target.
 # g1=count, g2=kind, g3=obj, g4=Y. Optional non-capturing leading subject.
 _PCFE_RE = re.compile(rf"^(?:{_TGT} )?puts? (\w+) ([+-]\d+/[+-]\d+|[\w' -]+?) counters? on (.+?) for each (.+?)$", re.I)
+# PUT that many <kind> counters on <obj> — count carried from a prior clause. The regex grounds the +1/+1
+# case faithfully (amount='that_amount') but BOTCHES word kinds: 'that' is dropped and 'many <kind>' becomes
+# the kind ('many_vitality') with amount='X'. Ground amount='that_amount' (the draw 'that many' convention)
+# + a clean kind. g1=kind, g2=obj. Optional non-capturing leading subject.
+_PCTM_RE = re.compile(rf"^(?:{_TGT} )?puts? that many ([+-]\d+/[+-]\d+|[\w' -]+?) counters? on (.+?)$", re.I)
 # CREATE a number of <spec> tokens equal to <X> — `_create_equal`'s exact pattern (count-scaled tokens).
 # Re-applied to src by `create` (the 'number of' spec otherwise makes it abstain).
 _CEQ_RE = re.compile(r"^(?:you )?create a number of (.+?) tokens? equal to (.+?)$", re.I)
@@ -2542,6 +2547,12 @@ class _ToEffect(Transformer):
                 base = str(n) if n is not None else ground.slug(fm.group(1))
                 k = fm.group(2) if "/" in fm.group(2) else ground.slug(fm.group(2))
                 return Effect("put_counter", base + "_per_" + ground.slug(fm.group(4)), _target(fm.group(3)), k)
+            # 'put that many <kind> counters on <obj>' — carried count. amount='that_amount' (draw convention)
+            # + clean kind; the regex botches word kinds ('many_vitality'/'X'). +1/+1 stays byte-identical.
+            tm = _PCTM_RE.match(src.strip())
+            if tm and not _is_compound_object(tm.group(2)):
+                k = tm.group(1) if "/" in tm.group(1) else ground.slug(tm.group(1))
+                return Effect("put_counter", "that_amount", _target(tm.group(2)), k)
         # SUBJECT (regex's non-capturing '(?:<TGT> )?puts?' — DROPPED). Only own a clean player phrase;
         # a compound/wrapper subject ('each player chooses … and puts', 'may') -> abstain to the regex.
         if subj is not None:
