@@ -28,23 +28,26 @@ import card_effects as _ce
 # so the `ret` transformer reproduces parse_effect byte-for-byte (calling _ce._return_bf directly is buggy).
 _RBF_RX, _RBF_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES
                         if fn.__name__ == "_return_bf" and "mods" in rx.groupindex)
-# the GENERIC return-to-zone templates that ground the imperative battlefield returns the grammar's
-# `rclause`/`ret` can't carve (compound/comma objects, dest-first 'Return to the battlefield <obj>'). Both
-# unique. Re-matched (in parse_effect order, after _RBF) by `_rtb_chain` in parse_clause_lark -> byte-identical.
-_RZ_RX, _RZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_return_zone")
-_RZR_RX, _RZR_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_return_zone_rev")
-
-def _rtb_chain(s):
-    # re-match the registered battlefield-return templates in parse_effect order -> byte-identical. GUARDED
-    # to return_to_battlefield only: a 'to hand/library' clause that _return_zone would also ground returns
-    # None here, leaving the to-hand regex chain (rhclause/_bounce) / `ret`'s own zone logic to own it.
-    for rx, fn in ((_RBF_RX, _RBF_FN), (_RZ_RX, _RZ_FN), (_RZR_RX, _RZR_FN)):
+# Battlefield/hand RETURN family (§614) — the imperative/leading-subject 'Return <obj> [from <zone>] to the
+# battlefield/<owner>'s hand [riders]' the grammar's rclause/ret/rhclause can't carve (compound & comma
+# objects, dest-first 'Return to the battlefield <obj>', 'all Auras attached to …', leading-subject 'each
+# player returns …', complex riders). `_return_chain` reproduces parse_effect's LEAF choice exactly — the
+# first registered template that matches AND grounds, in registration order — and acts ONLY when that's a
+# return_to_* verb, so a non-return clause (or one a better leaf owns) falls through to the grammar untouched.
+def _return_chain(s):
+    for rx, fn in _ce._TEMPLATES:
         m = rx.match(s)
         if m:
-            e = fn(m)
-            if e is not None and e.verb == "return_to_battlefield":
-                return e
+            try:
+                e = fn(m)
+            except Exception:
+                e = None
+            if e is not None:                       # FIRST grounding template wins (== parse_effect); use it
+                return e if e.verb.startswith("return_to_") else None   # only when it's a return, else abstain
     return None
+# a leading-subject return ('<player> returns/may return …') — short subject NP then the return verb; the
+# imperative 'return …' is caught by startswith. Gates `_return_chain` so it's not run on every clause.
+_SUBJ_RET_RE = re.compile(r"^[\w' ]{1,40}? (?:may )?returns? ")
 # 'Put <obj> [from <zone>] onto the battlefield [under ctrl][tapped][attached][counter]' reanimation ->
 # return_to_battlefield (the registered `_reanimate_put`; unique, no shadowing). Re-matched in `pzput`.
 _RPUT_RX, _RPUT_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_reanimate_put")
@@ -3850,17 +3853,20 @@ def parse_clause_lark(clause: str):
                                                     # whole '~ gains "flying"' grant) is untouched. The regex slugs
                                                     # the stray '"' away too, so this matches it (or improves on a
                                                     # garbage grounding like 'regenerate ~."' -> '' vs 'self').
-    if s.startswith("return "):
-        rtb = _rtb_chain(s)                    # the registered _return_bf/_return_zone/_return_zone_rev chain
-        if rtb is not None:                    # carves the imperative battlefield return faithfully (incl. the
-            return rtb                         # compound/comma/dest-first/rider shapes the grammar can't) ->
-        if _ret_ambiguous(s):                  # byte-identical. Guarded to battlefield only, so a 'to hand/
-            return None                        # library' return falls through to the grammar (rhclause/ret).
+    if s.startswith("return ") and _ret_ambiguous(s):
+        return _return_chain(s)                # ambiguous from/to: the grammar mis-carves the split, so go
+                                               # straight to the registered leaf chain (or None -> regex)
     try:
         tree = _PARSER.parse(s)
     except Exception:
-        return None
-    _T._src = s                                # the lowercased source, so bcmbecomes can slice the raw P/T tail
-    e = _T.transform(tree)
-    e = e.children[0] if hasattr(e, "children") else e
-    return e if isinstance(e, Effect) else None
+        tree = None
+    if tree is not None:
+        _T._src = s                            # the lowercased source, so bcmbecomes can slice the raw P/T tail
+        e = _T.transform(tree)
+        e = e.children[0] if hasattr(e, "children") else e
+        if isinstance(e, Effect):
+            return e                           # the grammar OWNS what it can parse (it carves 'from the
+                                               # battlefield to hand' better than the regex _return_zone)
+    if s.startswith("return ") or _SUBJ_RET_RE.match(s):
+        return _return_chain(s)                # grammar abstained on a return -> registered leaf chain fallback
+    return None                                # (the battlefield/hand family the grammar can't carve)
