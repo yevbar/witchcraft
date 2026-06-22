@@ -23,9 +23,10 @@ PyTorch is an OPTIONAL dependency (`pip install witchcraft[learn]`); importing t
 never pulls torch. CPU-only and small by default.
 
     from witchcraft.cardnet import train
-    from witchcraft.rebel import ReBeLPlayer
+    from witchcraft.rebel import ValuePlayer, ReBeLPlayer
     vf = train(games=30, epochs=40)                 # self-play -> a card-aware value_fn
-    bot = ReBeLPlayer(value_fn=vf)                   # drop-in replacement for the tiny net
+    bot = ValuePlayer(vf)                            # the net drives EVERY decision (moves + sub-choices)
+    strong = ReBeLPlayer(value_fn=vf)               # ...or as the leaf of the full determinize+CFR search
 """
 from __future__ import annotations
 
@@ -255,13 +256,14 @@ class _ExploringValuePlayer(Player):
 
 
 def _winrate_vs_random(value_fn, decks, variant, games, seed):
-    """1-ply GreedyValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game."""
-    from .rebel import GreedyValuePlayer
+    """ValuePlayer(value_fn) win fraction vs RandomPlayer, seats swapped each game. ValuePlayer drives EVERY
+    decision with the net (top-level moves AND the nested sub-choices), so gameplay is fully model-driven."""
+    from .rebel import ValuePlayer
     from .players import play
     wins = 0
     for i in range(games):
         flip = i % 2 == 1
-        gv, rp = GreedyValuePlayer(value_fn), RandomPlayer(seed=1000 + i)
+        gv, rp = ValuePlayer(value_fn), RandomPlayer(seed=1000 + i)
         players = {"alice": rp, "bob": gv} if flip else {"alice": gv, "bob": rp}
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):
@@ -299,7 +301,7 @@ def train_loop(rounds: int = 5, *, games_per_round: int = 20, epochs: int = 60, 
         wr = _winrate_vs_random(vf, decks, variant, eval_games, seed=seed + r)
         history.append({"round": r, "data": len(data), "win_rate_vs_random": wr})
         if verbose:
-            print(f"  round {r}: data={len(data):5d}  Greedy(card) vs Random = {wr:.2f}", flush=True)
+            print(f"  round {r}: data={len(data):5d}  ValuePlayer(card) vs Random = {wr:.2f}", flush=True)
     return {"value_fn": vf, "net": net, "history": history}
 
 

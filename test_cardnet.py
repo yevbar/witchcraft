@@ -111,11 +111,58 @@ def _value_fn_seam_and_io() -> None:
     check("save/load round-trips the prediction", abs(vf2(g.state, g.turn) - v) < 1e-5)
 
 
+def _value_player_drives_subchoices() -> None:
+    """ValuePlayer drives the nested sub-choices too: the card net DIFFERENTIATES a cleanup_discard (which
+    card to pitch) where the heuristic — counting only hand SIZE — cannot, and a full game completes."""
+    import driver
+    import env
+    from witchcraft.rebel import ValuePlayer, GreedyValuePlayer, heuristic_value
+    from witchcraft.players import play, RandomPlayer
+
+    vf = cn.train(games=15, epochs=30, seed=0)
+    cap: dict = {}                                              # capture a real cleanup_discard (heuristic greedy overflows its hand)
+
+    class Cap(GreedyValuePlayer):
+        def decide(self, view, key, options, default):
+            if key == "cleanup_discard" and "view" not in cap:
+                cap.update(view=driver.clone_state(view), options=list(options), default=default, seat=self._seat)
+            return super().decide(view, key, options, default)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        for s in range(24):
+            play({"alice": Cap(heuristic_value), "bob": RandomPlayer(seed=s)}, seed=s, max_moves=4000)
+            if "view" in cap:
+                break
+    check("a nested sub-choice (cleanup_discard) is reachable", "view" in cap and len(cap["options"]) > 1)
+    if "view" in cap:
+        seat = cap["seat"]
+
+        def distinct_values(value_fn):
+            vals = set()
+            for o in cap["options"]:
+                probe = driver.clone_state(cap["view"]); probe["_forced"] = {"cleanup_discard": o}
+                with contextlib.redirect_stdout(io.StringIO()):
+                    env._advance_to_decision(probe)
+                vals.add(round(value_fn(probe, seat), 3))
+            return len(vals)
+
+        check("card net DIFFERENTIATES the sub-choice options", distinct_values(vf) > 1)
+        check("heuristic value cannot (it only counts hand size)", distinct_values(heuristic_value) == 1)
+        vp = ValuePlayer(vf); vp._seat = seat
+        check("ValuePlayer returns a legal option for the sub-choice",
+              vp.decide(cap["view"], "cleanup_discard", cap["options"], cap["default"]) in cap["options"])
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        g = play({"alice": ValuePlayer(vf), "bob": RandomPlayer(seed=1)}, seed=2, max_moves=4000)
+    check("ValuePlayer plays a full game to a terminal result", g.is_game_over())
+
+
 def run() -> None:
     _features_card_aware()
     _net_value_in_range()
     _training_reduces_error()
     _value_fn_seam_and_io()
+    _value_player_drives_subchoices()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

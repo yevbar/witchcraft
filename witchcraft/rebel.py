@@ -27,6 +27,8 @@ budget) to stay light on a CPU box.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import random
 import time
 
@@ -253,6 +255,65 @@ class GreedyValuePlayer(Player):
             if v > best_v:
                 best_v, best = v, m
         return best
+
+
+def _deciding_seat(view: dict, key: str) -> str:
+    """The seat whose sub-choice this is — the active player, except a 'blocks' decision (the defender's).
+    Mirrors game.deciding_seat without importing the setup module."""
+    ap = next(iter(view.get("active_player", {("",)})), ("",))[0]
+    if key == "blocks":
+        others = driver._others(view, ap)
+        return others[0] if others else ap
+    return ap
+
+
+class ValuePlayer(GreedyValuePlayer):
+    """Drives EVERY decision with the value function — not just top-level moves, but the nested SUB-CHOICES
+    (discard/sacrifice/target/mode/x/… via the `decide` seam) that GreedyValuePlayer leaves to the engine
+    default. Each sub-choice is scored by a FORCED ROLLOUT: for every option, force that choice, advance the
+    engine to the next decision, and evaluate the result with `value_fn` from the deciding seat's view —
+    picking the best. So at gameplay the model decides everything; only an option the rollout can't evaluate
+    falls back to the engine default. The rollouts are skipped during the player's own 1-ply move probes
+    (a re-entrancy guard) so cost stays bounded."""
+
+    name = "value"
+
+    def __init__(self, value_fn=None, seed=None, max_options: int = 12):
+        super().__init__(value_fn, seed)
+        self.max_options = max_options
+        self._busy = False                                  # True while probing/rolling -> decide uses the cheap default
+
+    def choose_move(self, game):
+        self._busy = True                                   # the 1-ply move probes resolve sub-choices cheaply
+        try:
+            return super().choose_move(game)
+        finally:
+            self._busy = False
+
+    def decide(self, view, key, options, default):
+        if self._busy or options is None:
+            return default                                  # inside a probe/rollout, or a non-enumerable choice
+        opts = list(options)
+        if len(opts) <= 1:
+            return opts[0] if opts else default
+        seat = _deciding_seat(view, key)
+        self._busy = True
+        try:
+            best, best_v = default, _NEG
+            for o in opts[:self.max_options]:
+                probe = driver.clone_state(view)
+                probe["_forced"] = {key: o}
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        env._advance_to_decision(probe)
+                    v = self.value_fn(probe, seat)
+                except Exception:
+                    continue
+                if v > best_v:
+                    best_v, best = v, o
+            return best
+        finally:
+            self._busy = False
 
 
 class ReBeLPlayer(Player):
