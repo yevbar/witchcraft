@@ -255,6 +255,65 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
     return data
 
 
+def generate_eval(games: int = 30, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
+                  player_factory=None, max_moves: int = 4000, incremental: bool = True):
+    """GAME-DISJOINT self-play EVAL rows (objs, owner, glob, z, h) for `value_metrics`. Use a DISJOINT seed
+    range from training: a random shuffle+split of `generate` data leaks, because all states of one game share
+    ONE outcome z, so a net that sees some of a game's states memorizes the rest — measured: leaky split 0.996
+    vs disjoint games 0.553 sign-acc. Records each state's heuristic value `h` (the contestedness signal). The
+    `player_factory` should MATCH the training play strength (default RandomPlayer); note random-play outcomes
+    are ~unpredictable from a state, so a near-0.5 disjoint sign-acc means the DATA carries little value signal,
+    not that the net is broken — train on stronger play / search (CFR root) targets for a learnable signal."""
+    from .rebel import heuristic_value
+    pf = player_factory or (lambda _s: RandomPlayer())
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        players = {"alice": pf("alice"), "bob": pf("bob")}
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies={s: p.as_policy() for s, p in players.items()})
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                seat = g.turn
+                rows.append((card_features(g.state, seat), seat, heuristic_value(g.state, seat),
+                             g.state.get("_turn") or 0))
+                g.push(players[seat].choose_move(g))
+        w = g.winner()
+        for (objs, owner, glob), seat, h, _turn in rows:
+            z = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            data.append((objs, owner, glob, z, h))
+    return data
+
+
+def value_metrics(net: CardValueNet, data, *, contested: float = 0.3) -> dict:
+    """Held-out value quality on `generate_eval` rows (..., z, h): sign-acc + MSE OVERALL and on CONTESTED
+    positions (|h| < `contested`). The CONTESTED numbers are the headroom metric — the all-positions sign-acc
+    saturates, but on balanced positions only a value net that reads the actual cards can separate them."""
+    net.eval()
+    with torch.no_grad():
+        pred = net([(o, w, g) for (o, w, g, *_r) in data])
+    z = torch.tensor([r[3] for r in data], dtype=torch.float32)
+    h = torch.tensor([r[4] for r in data], dtype=torch.float32)
+
+    def sa_mse(mask):
+        if int(mask.sum()) == 0:
+            return None, None, 0
+        p, y = pred[mask], z[mask]
+        nz = y != 0
+        sa = float((torch.sign(p[nz]) == torch.sign(y[nz])).float().mean()) if int(nz.sum()) else None
+        return sa, float(((p - y) ** 2).mean()), int(mask.sum())
+
+    a_sa, a_mse, n = sa_mse(torch.ones(len(data), dtype=torch.bool))
+    c_sa, c_mse, nc = sa_mse(h.abs() < contested)
+    return {"sign_acc": a_sa, "mse": a_mse, "n": n,
+            "contested_sign_acc": c_sa, "contested_mse": c_mse, "n_contested": nc}
+
+
 def fit(net: CardValueNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: int = 64,
         seed: int = 0, verbose: bool = False) -> CardValueNet:
     """Adam + MSE on the self-play value targets. CPU, small."""

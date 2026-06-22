@@ -199,6 +199,20 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _value_metrics_disjoint() -> None:
+    """Phase 4: value_metrics on GAME-DISJOINT eval rows is the honest value-quality metric (a random
+    train/eval split leaks — same game on both sides shares one outcome; disjoint games don't). generate_eval
+    records (z, h); the |h|<contested subset is the headroom slice."""
+    ev = cn.generate_eval(4, seed=42)
+    check("generate_eval rows carry (objs,owner,glob,z,h) with h in [-1,1]",
+          len(ev) > 10 and all(len(r) == 5 and -1.0 <= r[4] <= 1.0 for r in ev))
+    m = cn.value_metrics(cn.CardValueNet(seed=0), ev, contested=0.3)
+    check("value_metrics returns overall + contested sign-acc/MSE",
+          {"sign_acc", "mse", "contested_sign_acc", "contested_mse", "n", "n_contested"} <= set(m))
+    check("contested positions are a subset of all eval positions", m["n_contested"] <= m["n"])
+    check("value_metrics produces a real MSE", m["mse"] is not None and m["mse"] >= 0.0)
+
+
 def _set_attention_pool() -> None:
     """Phase 4: the set-attention pool (objects attend across both sides before pooling) is an opt-in on
     CardValueNet — reproducible, value-valid, empty-safe, save/load-aware, and trainable. Default attn=False
@@ -264,6 +278,7 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _value_metrics_disjoint()
     _set_attention_pool()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
