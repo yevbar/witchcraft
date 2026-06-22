@@ -56,12 +56,26 @@ KEYWORDS = ("flying", "trample", "deathtouch", "lifelink", "first_strike", "doub
             "flash", "ward", "prowess", "infect", "wither", "flanking", "intimidate", "shroud",
             "protection", "fear", "landwalk")
 
-# per-object feature layout: zone[3] + tapped[1] + owner[1] + p/t/cmc[3] + types + colors + keywords
+# the card_effect VERBS — "what the card DOES" (the §7.4 gap: stats+keywords don't tell removal from a vanilla).
+# A curated open-vocab bag (the 5-deck pool's 21 + common others); a card's verbs come from `card_effect`.
+VERBS = ("draw", "deal_damage", "destroy", "exile", "counter", "gain_life", "lose_life", "create",
+         "put_counter", "remove_counter", "modify_pt", "search", "shuffle", "return_to_hand",
+         "return_to_battlefield", "add_mana", "grant_keyword", "tap", "untap", "discard", "mill",
+         "sacrifice", "scry", "surveil")
+
+# per-object feature layout: zone[3] + tapped[1] + owner[1] + p/t/cmc[3] + types + colors + keywords (+ verbs)
 OBJ_FEATURES = 3 + 1 + 1 + 3 + len(TYPES) + len(COLORS) + len(KEYWORDS)
+ABILITY_FEATURES = len(VERBS)                               # the opt-in card_effect-verb channel
 GLOBAL_FEATURES = rebel_train.FEATURES                      # the 14 global belief features, reused verbatim
 
 
-def card_features(state: dict, seat: str):
+def obj_features(abilities: bool = False) -> int:
+    """The per-object feature width: OBJ_FEATURES, plus the verb bag when `abilities` is on. Build a net with
+    `CardValueNet(n_obj=obj_features(abilities=True))` to match `card_features(..., abilities=True)`."""
+    return OBJ_FEATURES + (ABILITY_FEATURES if abilities else 0)
+
+
+def card_features(state: dict, seat: str, abilities: bool = False):
     """The seat's belief view as (objects, owner, globals):
       objects : float32 [N, OBJ_FEATURES] — one row per VISIBLE object (own hand + all battlefields +
                 graveyards), encoding zone/tap/owner/stats/types/colors/keywords. Opponent hand/library
@@ -87,6 +101,11 @@ def card_features(state: dict, seat: str):
     col_by_slug: dict = {}
     for (s, c) in v.get("card_color", ()):
         col_by_slug.setdefault(s, set()).add(c)
+    verb_by_slug: dict = {}                                          # card_effect: (slug, aid, seq, VERB, ...)
+    if abilities:
+        for r in v.get("card_effect", ()):
+            if len(r) >= 4:
+                verb_by_slug.setdefault(r[0], set()).add(r[3])
 
     rows, owners = [], []
     for i in sorted(bf | hand | gy):
@@ -101,10 +120,14 @@ def card_features(state: dict, seat: str):
         row += [float(c in cset) for c in COLORS]
         kset = kw_by_slug.get(slug, ())
         row += [float(k in kset) for k in KEYWORDS]
+        if abilities:                                                  # the "what the card DOES" channel
+            vset = verb_by_slug.get(slug, ())
+            row += [float(verb in vset) for verb in VERBS]
         rows.append(row)
         owners.append(mine)
 
-    objs = np.array(rows, dtype=np.float32) if rows else np.zeros((0, OBJ_FEATURES), dtype=np.float32)
+    width = OBJ_FEATURES + (ABILITY_FEATURES if abilities else 0)
+    objs = np.array(rows, dtype=np.float32) if rows else np.zeros((0, width), dtype=np.float32)
     owner = np.array(owners, dtype=np.float32)
     glob = rebel_train.features(state, seat).astype(np.float32)
     return objs, owner, glob
@@ -218,7 +241,8 @@ def _discounted_target(sign: float, turns_to_end: int, gamma: float) -> float:
 
 
 def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
-             player_factory=None, max_moves: int = 4000, incremental: bool = True, gamma: float = DEFAULT_GAMMA):
+             player_factory=None, max_moves: int = 4000, incremental: bool = True, gamma: float = DEFAULT_GAMMA,
+             abilities: bool = False):
     """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + a TIME-
     PREFERRED outcome target z from the deciding seat's view — +gamma**(turns until the game ends) for a win,
     the negative for a loss, 0 for a draw (gamma<1 => quicker wins / slower losses score higher; gamma=1.0 is
@@ -244,7 +268,7 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
                 if g.is_game_over() or not g.legal_moves:
                     break
                 seat = g.turn
-                rows.append((card_features(g.state, seat), seat, g.state.get("_turn") or 0))
+                rows.append((card_features(g.state, seat, abilities), seat, g.state.get("_turn") or 0))
                 g.push(players[seat].choose_move(g))
         w = g.winner()
         end_turn = max([t for *_r, t in rows] + [g.state.get("_turn") or 0]) if rows else 0
@@ -256,7 +280,7 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
 
 
 def generate_eval(games: int = 30, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
-                  player_factory=None, max_moves: int = 4000, incremental: bool = True):
+                  player_factory=None, max_moves: int = 4000, incremental: bool = True, abilities: bool = False):
     """GAME-DISJOINT self-play EVAL rows (objs, owner, glob, z, h) for `value_metrics`. Use a DISJOINT seed
     range from training: a random shuffle+split of `generate` data leaks, because all states of one game share
     ONE outcome z, so a net that sees some of a game's states memorizes the rest — measured: leaky split 0.996
@@ -280,7 +304,7 @@ def generate_eval(games: int = 30, *, decks=None, deck_pool=None, variant: str =
                 if g.is_game_over() or not g.legal_moves:
                     break
                 seat = g.turn
-                rows.append((card_features(g.state, seat), seat, heuristic_value(g.state, seat),
+                rows.append((card_features(g.state, seat, abilities), seat, heuristic_value(g.state, seat),
                              g.state.get("_turn") or 0))
                 g.push(players[seat].choose_move(g))
         w = g.winner()

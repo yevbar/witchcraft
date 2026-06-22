@@ -199,6 +199,21 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _ability_verb_channel() -> None:
+    """Phase 4: the opt-in card_effect-VERB channel ('what the card does' — the §7.4 gap) widens card_features
+    by len(VERBS); a net built with obj_features(True) consumes it and trains."""
+    o0, _, _ = cn.card_features(_flyer_state(), "alice", abilities=False)
+    o1, _, _ = cn.card_features(_flyer_state(), "alice", abilities=True)
+    check("abilities=True widens each object by len(VERBS)",
+          o1.shape[1] == o0.shape[1] + cn.ABILITY_FEATURES == cn.obj_features(True))
+    d = cn.generate(3, seed=0, abilities=True)
+    check("generate(abilities=True) rows match obj_features(True)", d[0][0].shape[1] == cn.obj_features(True))
+    net = cn.CardValueNet(n_obj=cn.obj_features(True), seed=0)
+    cn.fit(net, d, epochs=8, seed=0)
+    v = float(net.value_one(*cn.card_features(_flyer_state(), "alice", abilities=True)).detach())
+    check("ability net produces a value in [-1, 1]", -1.0 <= v <= 1.0)
+
+
 def _value_metrics_disjoint() -> None:
     """Phase 4: value_metrics on GAME-DISJOINT eval rows is the honest value-quality metric (a random
     train/eval split leaks — same game on both sides shares one outcome; disjoint games don't). generate_eval
@@ -278,6 +293,7 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _ability_verb_channel()
     _value_metrics_disjoint()
     _set_attention_pool()
     _rebel_value_target()
