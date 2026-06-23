@@ -348,6 +348,86 @@ def _policy_head_pointer_and_M0() -> None:
     check("fit_pv co-train is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
 
 
+def _policy_ability_width_symmetry() -> None:
+    """The POLICY path matches the VALUE path on encoder width: an ability-WIDE CardPVNet (obj_features(True))
+    must run through PolicyPlayer AND policy_prior without a size mismatch. Regression: both hardcoded
+    card_features(abilities=False), so a wide net worked on the value head but crashed on the policy head."""
+    check("net_abilities detects a wide encoder", cn.net_abilities(cn.CardPVNet(n_obj=cn.obj_features(True), seed=0)) is True)
+    check("net_abilities is False for the default-width net", cn.net_abilities(cn.CardPVNet(seed=0)) is False)
+    wide = cn.CardPVNet(n_obj=cn.obj_features(True), seed=0)
+    check("PolicyPlayer auto-detects the ability width (like CardNetValue)", cn.PolicyPlayer(wide).abilities is True)
+    g = Game(seed=3)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for _ in range(60):
+            if g.is_game_over() or len(g.legal_moves) > 1:
+                break
+            g.push(g.legal_moves[0])
+    with contextlib.redirect_stdout(io.StringIO()):
+        mv = cn.PolicyPlayer(wide).choose_move(g)
+    check("PolicyPlayer(wide net) returns a legal move (no size mismatch)", mv in g.legal_moves)
+    pri = cn.policy_prior(wide)
+    check("policy_prior(wide net) scores every legal move",
+          len(pri(g.state, g.turn, g.legal_moves)) == len(g.legal_moves))
+
+
+def _clone_heuristic_moves() -> None:
+    """Behavioral cloning: generate_clone records the rule-based HeuristicPlayer's MOVES as one-hot policy
+    targets (same row format as generate_pv, so fit_pv/policy_top1 apply); the cloned policy head imitates
+    the expert's choices well above uniform, and PolicyPlayer(cloned) plays a full game. (Doc §5 bet.)"""
+    data = cn.generate_clone(6, seed=0)
+    check("generate_clone yields branching rows in the generate_pv format (pi one-hot over the full legal set)",
+          len(data) > 20 and all(row[6].shape[0] == row[4].shape[0] and abs(float(row[6].sum()) - 1.0) < 1e-4
+                                 and int((row[6] == 1.0).sum()) == 1 for row in data))
+    split = int(len(data) * 0.8)
+    tr, va = data[:split], data[split:]
+    net = cn.CardPVNet(seed=0)
+    cn.fit_pv(net, tr, epochs=20, seed=0)
+    top1, uni = cn.policy_top1(net, va), cn.policy_uniform(va)
+    check(f"cloned policy imitates the heuristic's moves >> uniform (top-1 {top1:.2f} vs {uni:.2f})",
+          top1 > uni + 0.2)
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = play({"alice": cn.PolicyPlayer(net), "bob": RandomPlayer(seed=1)}, seed=5, max_moves=4000)
+    check("PolicyPlayer(cloned) plays to a terminal result", res.is_game_over())
+
+    def gen_w():                                                # generate_clone is seeded/reproducible
+        return [(r[6].tobytes(), r[4].shape) for r in cn.generate_clone(2, seed=3)]
+    check("generate_clone is reproducible (identical targets)", gen_w() == gen_w())
+
+
+def _selfplay_warmstart() -> None:
+    """Model-free self-play warm-started from a clone (doc §5 second half): generate_selfplay records
+    sampled-action OUTCOME rows; fit_selfplay does a regularized PG step; selfplay_improve runs end-to-end,
+    leaves the warm-start net untouched (trains a copy), and the improved net plays a full game. Reproducible."""
+    warm = cn.CardPVNet(embed=16, hidden=32, seed=0)
+    cn.fit_pv(warm, cn.generate_clone(4, seed=0), epochs=8, seed=0)
+    data = cn.generate_selfplay(warm, 4, seed=1)
+    check("generate_selfplay yields sampled-action outcome rows (action_idx in range, z in [-1,1])",
+          len(data) > 10 and all(isinstance(r[6], int) and 0 <= r[6] < r[4].shape[0]
+                                 and -1.0 <= r[3] <= 1.0 for r in data))
+    w0 = torch.cat([p.flatten() for p in warm.parameters()]).clone()
+    out = cn.selfplay_improve(warm, rounds=2, games_per_round=3, ref_every=1, seed=2, verbose=False)
+    check("selfplay_improve leaves the warm-start net UNTOUCHED (trains a copy)",
+          torch.equal(w0, torch.cat([p.flatten() for p in warm.parameters()])))
+    check("selfplay_improve changes the trained net's weights",
+          not torch.equal(w0, torch.cat([p.flatten() for p in out["net"].parameters()])))
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = play({"alice": cn.PolicyPlayer(out["net"]), "bob": RandomPlayer(seed=1)},
+                   seed=5, max_moves=4000, explicit_lands=True)
+    check("self-play-improved PolicyPlayer plays to a terminal result", res.is_game_over())
+
+    def trained_w():
+        w = cn.CardPVNet(embed=16, hidden=32, seed=1)
+        cn.fit_pv(w, cn.generate_clone(2, seed=3), epochs=4, seed=1)
+        return torch.cat([p.flatten() for p in
+                          cn.selfplay_improve(w, rounds=2, games_per_round=2, ref_every=2, seed=4,
+                                              verbose=False)["net"].parameters()])
+    check("selfplay_improve is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
+
+
 def _m2_root_cap_ordering() -> None:
     """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
     moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
@@ -440,6 +520,9 @@ def run() -> None:
     _set_attention_pool()
     _gated_replay_buffer_and_gate()
     _policy_head_pointer_and_M0()
+    _policy_ability_width_symmetry()
+    _clone_heuristic_moves()
+    _selfplay_warmstart()
     _m2_root_cap_ordering()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
