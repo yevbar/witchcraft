@@ -34,7 +34,7 @@ _TGT = (r"(?:any target|another target|a (?:second|third|fourth|fifth) target|up
         r"enchanted \w+|equipped \w+|the exiled cards?|those [\w-]+|"
         r"(?:that|the) [\w' -]+?'s (?:controller|owner)|that [\w'-]+|"
         r"(?:the )?(?:defending|attacking|active|target|chosen) player|the player|each player|that player's controller|"
-        r"~|it|them|they|her|him|you|its controller|its owner|their controller)")
+        r"~|it|them|they|her|him|she|he|you|its controller|its owner|their controller)")  # she|he AFTER her|him (prefix-safe)
 
 
 def _amount(s: str):
@@ -104,6 +104,9 @@ def _target(s: str) -> str:
         return "it"                           # an anaphor (the trigger's subject etc.) — left for the
         # engine to resolve from context; collapsing it to 'self' would be wrong (e.g. 'exile it' where
         # 'it' is the sacrificed permanent, not this card).
+    if s in ("he", "she"):
+        return "self"                         # a gendered pronoun in a card's OWN text reliably names the
+        #                                       card itself (a named legendary creature) — unlike 'it'.
     return ground.slug(s) or "self"
 
 
