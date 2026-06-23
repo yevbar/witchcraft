@@ -48,7 +48,7 @@ _PZ_RX, _PZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_
 # where the NP is the AMOUNT and the subject is a player) are a separate production, added next.
 _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap",
            "sacrifice": "sacrifice", "counter": "counter", "regenerate": "regenerate",
-           "goad": "goad", "detain": "detain"}
+           "goad": "goad", "detain": "detain", "seek": "seek", "draft": "draft"}
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
