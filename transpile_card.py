@@ -1712,6 +1712,36 @@ def _mode_option(unit, ctx):
     return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
 
 
+def _spree_mode(unit, ctx):
+    """'+ <cost> — <effect>' — one Spree mode (§702.172, OTJ): an additional cost plus an effect, chosen
+    'one or more' times when casting. STRUCTURAL decomposition only (like the modal-bullet `_mode_option`):
+    split the priced prefix off with plain string ops (NOT an interpretation regex), validate the cost with
+    the Lark cost grammar (`cost_lark`), and delegate the <effect> body to the hybrid leaf (`_parse_body`).
+
+    Faithful, unlike the old reuse-`mode_option`-only form (which recorded modes as FREE): the per-mode cost
+    is emitted as a REAL `ability_cost` fact on the mode's ability (sim.py reads it), and `mode_option` marks
+    it as an offered mode. card_ability comes first so abilities[aid] exists before ability_cost sets it."""
+    raw = unit.raw.strip()
+    if not raw.startswith("+ "):
+        return None
+    rest = raw[2:]
+    dash = next((d for d in ("—", "–") if d in rest), None)   # the cost<->body boundary (em/en-dash)
+    if dash is None:
+        return None
+    cost, _, body = rest.partition(dash)
+    cost, body = cost.strip(), body.strip()
+    if not cost or not body or not cost_lark.cost_ok(cost):    # cost must be a §602-shaped cost (Lark-validated)
+        return None
+    effects = _parse_body(body)                                # the effect body grounds via the hybrid leaf
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"spree{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "spree_mode")',
+                         f'ability_cost("{cid}", "{aid}", "{cost}")',
+                         f'mode_option("{cid}", "{aid}")']
+                  + _effect_facts(cid, aid, effects), "spree_mode")
+
+
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
@@ -2535,7 +2565,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
-             _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
+             _ability_activation_static, _modal, _mode_option, _spree_mode, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_effect]
