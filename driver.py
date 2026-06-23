@@ -2506,6 +2506,9 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
     for (_s, eff, amt, tgt) in effs:
         if eff == "counter":                                 # §701.5 — counter the spell below it on the stack
             victim = _counter_target(state, spell)
+            if victim is not None and _cant_be_countered(state, victim):
+                print(f"      {victim} can't be countered — {spell} fails to counter it")  # §701.5f
+                victim = None                                # no legal spell to counter (it stays on the stack)
             if victim is not None:
                 print(f"      {spell} counters {victim}")
                 state["countered"] = {(victim,)}             # §603.10e look-back event for 'when countered'
@@ -2520,7 +2523,8 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
         elif eff == "counter_exile":                         # §614 the rider itself — handled with the counter above
             continue
         elif eff == "counter_mass":                          # §701.5 exile EVERY other spell on the stack (Mindbreak Trap)
-            victims = sorted(o for (o, _p) in state.get("on_stack", set()) if o != spell)
+            victims = sorted(o for (o, _p) in state.get("on_stack", set())
+                             if o != spell and not _cant_be_countered(state, o))   # §701.5f skip uncounterable
             for v in victims:
                 print(f"      {spell} exiles {v} from the stack")
                 state["countered"] = {(v,)}
@@ -2971,6 +2975,15 @@ def _counter_target(state: dict, counterspell: str) -> str | None:
     in response to). With a one-deep response window that's the spell directly below it."""
     below = sorted(((p, o) for (o, p) in state.get("on_stack", set()) if o != counterspell), reverse=True)
     return below[0][1] if below else None
+
+
+def _cant_be_countered(state: dict, spell: str) -> bool:
+    """§701.5f — does the spell `spell` (an object on the stack) have a 'can't be countered' static? The
+    faithful SELF slice: its card carries `cant(card, "self", "be_countered")` (Emrakul, Supreme Verdict,
+    Vexing Shusher, …), surfaced by the bridge as the driver-only `uncounterable` flag on this instance.
+    (Controller-scoped 'spells you control can't be countered' anthems are a separate continuous static —
+    not modeled here; this owns the self form.)"""
+    return (spell,) in state.get("uncounterable", set())
 
 
 def _to_graveyard(state: dict, obj: str) -> None:
