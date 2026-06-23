@@ -4,8 +4,11 @@ The self-play loop's only metric was `win_rate_vs_random`, which saturated at 1.
 nothing downstream was falsifiable. This module is the fix: a metric that actually moves.
 
   head_to_head(a, b)  — a's SCORE (wins + ½·draws) / games vs b, over seat-swapped `benchmark()` games.
+  score_stats(rec)    — score + EXACT standard error + 95% CI from the win/draw/loss counts (the honest ±).
+  compare(a, b)       — score + CI + a significance verdict ('a>b'/'a<b'/'tie'): is the gap above the noise?
+  games_for_precision — how many games to resolve a score to ±h (95% CI); the antidote to n=16–40 conclusions.
   promote(cand, best) — the AlphaZero promotion gate: keep `cand` only if it beats the frozen `best` by a
-                        margin (default ≥55% over n≥64 seat-swapped games). Returns the decision + evidence.
+                        margin (default ≥55% over n≥64 seat-swapped games). Returns the decision + evidence + CI.
   ratings(players)    — pairwise Elo over a pool (each unordered pair played once, the reverse inferred),
                         fit by iterated Elo to equilibrium, anchored so a chosen player (Random) sits at 0.
   ladder(candidate)   — `ratings` over the fixed rungs Random=0 / Greedy / Heuristic (+ the candidate): a
@@ -36,19 +39,59 @@ def _score(rec: dict) -> float:
     return (rec["wins"] + 0.5 * rec["draws"]) / g if g else 0.0
 
 
+def score_stats(rec: dict, *, z: float = 1.96) -> dict:
+    """Score + its uncertainty from a benchmark record — the honest yardstick. Per-game outcomes are exactly
+    {win=1, draw=½, loss=0}, so the sample variance (hence the standard error of the mean score) is EXACT from
+    the counts — no per-game data needed. Returns {score, se, lo, hi, n} where [lo,hi] is the z·SE interval
+    (default 95%) clamped to [0,1]. A comparison is only meaningful relative to this SE: at n=40, SE≈0.08, so
+    ±0.16 — two scores inside that of each other are a tie, not a result (the project's recurring noise trap)."""
+    n = rec.get("games", 0)
+    if not n:
+        return {"score": 0.0, "se": 0.0, "lo": 0.0, "hi": 0.0, "n": 0}
+    w, d = rec["wins"], rec["draws"]
+    mean = (w + 0.5 * d) / n
+    sum_sq = w * 1.0 + d * 0.25                                    # Σ x_i²  (losses contribute 0)
+    var = (sum_sq - n * mean * mean) / (n - 1) if n > 1 else 0.0   # unbiased sample variance
+    se = (max(var, 0.0) / n) ** 0.5                                # standard error of the mean
+    return {"score": round(mean, 4), "se": round(se, 4),
+            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n}
+
+
 def head_to_head(a, b, *, games: int = 64, seed: int = 0, incremental: bool = True, **bench) -> float:
     """`a`'s score (wins + ½·draws)/games vs `b` over `games` seat-swapped games. 0.5 == evenly matched."""
     return round(_score(_record(a, b, games=games, seed=seed, incremental=incremental, **bench)), 4)
 
 
+def compare(a, b, *, games: int = 200, seed: int = 0, z: float = 1.96, incremental: bool = True,
+            **bench) -> dict:
+    """Is `a` actually better than `b`, accounting for noise? Plays `games` seat-swapped games and returns
+    {score, se, lo, hi, n, significant, verdict}: `significant` is True iff the z·SE interval excludes 0.5
+    (i.e. the result clears the noise floor), and `verdict` is 'a>b' / 'a<b' / 'tie'. Default games=200 (SE≈
+    0.035) is the floor for a HEADLINE comparison; bump it (see `games_for_precision`) for tight margins."""
+    st = score_stats(_record(a, b, games=games, seed=seed, incremental=incremental, **bench), z=z)
+    sig = st["lo"] > 0.5 or st["hi"] < 0.5
+    st["significant"] = sig
+    st["verdict"] = ("a>b" if st["score"] > 0.5 else "a<b") if sig else "tie"
+    return st
+
+
+def games_for_precision(half_width: float = 0.05, *, z: float = 1.96) -> int:
+    """How many games to resolve a score to ±`half_width` (95% CI) in the WORST case (p=0.5, the noisiest).
+    n ≈ (z·0.5 / half_width)². ±0.05 → ~384 games, ±0.03 → ~1068. Use this to size headline comparisons
+    instead of guessing — the project repeatedly drew conclusions from n=16–40 (±0.12–0.16), inside the noise."""
+    return int((z * 0.5 / half_width) ** 2 + 0.999)
+
+
 def promote(candidate, best, *, n: int = 64, thr: float = 0.55, seed: int = 0,
             incremental: bool = True, **bench) -> dict:
     """The AlphaZero promotion gate: play `candidate` vs the frozen `best` over `n` seat-swapped games and
-    promote only if candidate's score ≥ `thr`. Returns {score, promoted, n, thr, record} — the gate plus the
-    evidence it rode on. Use a margin (>0.5) so noise alone can't promote a no-better net."""
+    promote only if candidate's score ≥ `thr`. Returns {score, promoted, n, thr, se, lo, hi, record} — the gate
+    plus the evidence (and its uncertainty) it rode on. Use a margin (>0.5) so noise alone can't promote a
+    no-better net; compare `thr` against `se` — at n=64 SE≈0.06, so a 0.55 gate is only ~1 SE above 0.5."""
     rec = _record(candidate, best, games=n, seed=seed, incremental=incremental, **bench)
-    score = round(_score(rec), 4)
-    return {"score": score, "promoted": score >= thr, "n": n, "thr": thr, "record": rec}
+    st = score_stats(rec)
+    return {"score": st["score"], "promoted": st["score"] >= thr, "n": n, "thr": thr,
+            "se": st["se"], "lo": st["lo"], "hi": st["hi"], "record": rec}
 
 
 # ---- Elo ----------------------------------------------------------------------------------------------
