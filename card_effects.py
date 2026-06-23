@@ -1750,6 +1750,21 @@ _NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$",
 _HAVE = re.compile(rf"^have ({_TGT}) (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
+# trailing repetition '<effect> twice / three times / X times' — the §701 'do this again' modifier on an
+# otherwise-grounding effect (e.g. 'Manifest dread twice', 'Incubate 1 X times', 'Investigate twice'). The
+# count word is restricted to numerics/number-words so it can't swallow a stray '... at all times' tail.
+_REPEAT = re.compile(r"^(.+?) (twice|thrice|(?:\d+|x|n|one|two|three|four|five|six|seven|eight|nine|ten) times)$", re.I)
+_REPEAT_WORD = {"twice": "2", "thrice": "3", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+                "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10"}
+
+
+def _repeat_count(tail: str) -> str:
+    """'twice'->'2', 'three times'->'3', 'X times'->'x', 'N times'->'n', '5 times'->'5'."""
+    t = tail.lower().strip()
+    if t in _REPEAT_WORD:
+        return _REPEAT_WORD[t]
+    n = t[:-6].strip()                                  # drop the trailing ' times'
+    return _REPEAT_WORD.get(n, ground.slug(n))
 # A whole-clause GRANT of a single quoted ability ('<who> gains/has "…"', '<who> get(s) an emblem with
 # "…"'), optionally under a leading 'Until end of turn,' duration. The quoted ability is matched WHOLE so
 # parse_clause's surface rewrites ('… for each X', '… unless … pays', '… where X is') never reach inside
@@ -2128,6 +2143,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
     if m:
         return _combine(parse_clause(m.group(1)), ground.slug(m.group(2)), suffix=True)
+    m = _REPEAT.match(s)           # '<effect> twice / N times' — LAST RESORT (only reached when the whole
+    if m:                          # clause didn't otherwise ground, so it never perturbs an existing parse)
+        return _combine(parse_clause(m.group(1)), "repeat_" + _repeat_count(m.group(2)))
     return None
 
 
