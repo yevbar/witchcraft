@@ -16,7 +16,10 @@ only leak-free metric; Forge is too strong to be a value yardstick — random al
 2. **The "net caps below the heuristic" story was a red herring.** The thing that out-ranks the net
    (+282…+420) is the **rule-based `HeuristicPlayer`** (hand-coded combat/sequencing tactics), **not** a
    value function. No 1-ply value player — learned *or* hand-tuned — matches it. **The remaining gap is
-   tactics a 1-ply board-value lookahead can't see**, not value quality.
+   tactics a 1-ply board-value lookahead can't see**, not value quality. Training the net on
+   `HeuristicPlayer`'s *own games* **partially closes it** — that net hits **+254** (its best, vs greedy
+   +100) — but still caps ~120 Elo below the rule-based player. Tactics are *partly* value-absorbable; the
+   residual is move-selection logic 1-ply value-greedy can't reproduce.
 
 3. **Search does not help — even with a strong leaf.** Strong-leaf ReBeL vs greedy = 0.35 / 0.45 (≤ tie),
    and on the ladder `rebel_strong +213` sits **below** `value_strong +243`. Determinization + depth-limited
@@ -98,6 +101,20 @@ Search (rebel_strong) **below** the 1-ply value player. The learned value beats 
   The learned value crushes the heuristic *value function* (+141 vs −394); only the rule-based *player* is
   above it. Gated iteration reached 0.821 disjoint on a fixed reference — stable, but no higher ceiling.
 
+- **Can the value net learn the heuristic's tactics from its games?** Trained a net on 3181 rows of
+  `HeuristicPlayer` self-play, rated `ValuePlayer(net)`:
+
+  | agent | Elo |
+  |---|---|
+  | heur_player (rule-based) | +378 |
+  | **heurtrained_net (1-ply value)** | **+254** |
+  | greedy | +100 |
+  | random | +0 |
+
+  Training on the tactical player's data gives the **strongest value-based player of the night (+254)** — it
+  absorbs *some* of the edge — but still trails the rule-based player by ~120 Elo. Tactics are partially, not
+  fully, value-absorbable.
+
 ---
 
 ## What this means for the project
@@ -107,5 +124,11 @@ Search (rebel_strong) **below** the 1-ply value player. The learned value beats 
 - **The value net is good** and is the best *value-based* agent (−172 → +128…+243 Elo across the effort).
 - **Don't expect search to help** on this engine — it doesn't, strong leaf or not.
 - **To beat the rule-based heuristic** you must capture its *tactics*, which a 1-ply value lookahead can't.
-  Two untested leads: (a) train the value/policy on data from a *tactical* player (HeuristicPlayer self-play)
-  so the net sees those lines; (b) a fundamentally different search than determinized depth-limited CFR.
+  Lead (a) — train on a *tactical* player's games — was tested and **partially works** (+254, best
+  value-based agent, still ~120 Elo short). The firm conclusion: a 1-ply value player can't fully reproduce
+  rule-based move selection. Remaining untested ideas: **distill `HeuristicPlayer`'s MOVES directly into a
+  policy head** (supervised move-imitation may capture tactics that outcome-value can't), or a fundamentally
+  different search than determinized depth-limited CFR (which here ≤ greedy).
+
+_Strongest checkpoints: /tmp/adaptive4_heurtrained.pt (+254, best value-based player), /tmp/overnight_best.pt
+(0.898 disjoint), /tmp/adaptive3_best.pt (gated)._
