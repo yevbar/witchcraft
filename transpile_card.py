@@ -1699,30 +1699,6 @@ def _mode_option(unit, ctx):
     return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
 
 
-# '+ {cost} — <effect>' — a Spree mode line (§702.172, OTJ 2024). Cost is an additional cost (mana, or
-# rarely a non-mana cost like 'Sacrifice an artifact'); a non-greedy capture stops at the FIRST em/en-dash,
-# which is the cost↔body boundary (the body's own dashes never precede it).
-_SPREE_MODE = re.compile(r"^\+\s*(?P<cost>(?:\{[^}]+\}|[^—–{])+?)\s*[—–]\s*(?P<body>.+)$")
-
-
-def _spree_mode(unit, ctx):
-    """'+ {cost} — <effect>' — one Spree mode (§702.172): an additional cost plus an effect clause, chosen
-    'one or more' times when casting. Modeled as a `mode_option` (the same relation the '• <effect>' modal
-    bullet emits, which sim.py folds into the card's offered `modes`), so the mode's effects ground exactly
-    like a modal mode. The per-mode additional cost is preserved as a descriptive `static` slug rather than
-    dropped — faithful-or-abstain (a Spree card whose every mode is a free modal bullet would be wrong)."""
-    m = _SPREE_MODE.match(unit.raw)
-    if not m:
-        return None
-    effects = _parse_body(m.group("body"))
-    if not effects:
-        return None
-    cid, aid = ctx["id"], f"spree{ctx.get('seq', 0)}"
-    cost = ground.slug(m.group("cost").strip())[:80]
-    return CardOut(cid, [f'mode_option("{cid}", "{aid}")', f'static("{cid}", "spree_{aid}_cost_{cost}")']
-                   + _effect_facts(cid, aid, effects), "spree_mode")
-
-
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
@@ -2546,7 +2522,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
-             _ability_activation_static, _modal, _mode_option, _spree_mode, _cant, _combat_restriction,
+             _ability_activation_static, _modal, _mode_option, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_effect]
