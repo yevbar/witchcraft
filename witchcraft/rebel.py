@@ -90,8 +90,10 @@ def heuristic_value(state: dict, seat: str) -> float:
 # state so the value sees the OUTCOME. (a quiescence step, like chess — the cheap test for whether the
 # 1-ply<heuristic gap is a horizon artifact rather than a value-capacity wall.)
 
-_COMBAT_STEPS = frozenset({"begin_combat", "declare_attackers", "declare_blockers",
-                           "combat_damage", "first_strike_combat_damage", "end_of_combat"})
+# the canonical combat step names — reuse driver's single source of truth (a local copy drifted: it had a
+# typo'd "begin_combat" + a non-existent "first_strike_combat_damage", silently no-op'ing _quiesce on a
+# beginning_of_combat state). driver._COMBAT_STEPS is exactly the steps where combat is still resolving.
+_COMBAT_STEPS = frozenset(driver._COMBAT_STEPS)
 
 
 def _quiesce(state: dict, max_steps: int = 16) -> dict:
@@ -180,7 +182,9 @@ def _expand(state, agent, depth, cap, value_fn, deadline):
     acts = env.legal_actions(state)
     if not acts:
         return {"leaf": True, "value": _leaf_value(state, agent, value_fn)}
-    acts = acts[:cap]
+    acts = acts[:cap]                                    # NB: only the ROOT cap is un-blinded (value/policy-
+    #     ordered in ReBeLPlayer._root_actions); interior nodes still take env.legal_actions' alphabetical
+    #     prefix here. Ordering every interior node would cost an env.step per move per node — out of scope.
     acting = env.to_move(state)
     children = [_expand(env.step(state, a), agent, depth - 1, cap, value_fn, deadline) for a in acts]
     return {"leaf": False, "acting": acting, "infoset": _infoset(state, acting), "children": children}

@@ -65,6 +65,17 @@ def _quiescence_contract():
     #  many games is what measures the effect — see /tmp/quiesce_ab.py)
 
 
+def _combat_step_names():
+    """Regression (F1): _COMBAT_STEPS must be the engine's canonical step names, not a drifted local copy.
+    A typo'd "begin_combat"/non-existent "first_strike_combat_damage" silently no-op'd _quiesce on a real
+    beginning_of_combat state (the hot declare_blockers path still worked, hiding it)."""
+    import driver
+    check("_COMBAT_STEPS == the engine's canonical driver._COMBAT_STEPS", _COMBAT_STEPS == set(driver._COMBAT_STEPS))
+    check("_COMBAT_STEPS covers beginning_of_combat (the previously-missed entry)",
+          "beginning_of_combat" in _COMBAT_STEPS)
+    check("_COMBAT_STEPS has no phantom step names", not (_COMBAT_STEPS - set(driver._COMBAT_STEPS)))
+
+
 def _quiesce_flag():
     from witchcraft.rebel import GreedyValuePlayer, ValuePlayer
     from witchcraft.players import RandomPlayer, play
@@ -77,6 +88,7 @@ def _quiesce_flag():
 
 def run():
     _quiescence_contract()
+    _combat_step_names()
     _quiesce_flag()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

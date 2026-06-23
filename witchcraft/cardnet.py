@@ -737,16 +737,22 @@ def generate_pv_rebel(games: int = 4, *, value_fn=None, rebel_kwargs=None, decks
                     break
                 seat = g.turn
                 pl = players[seat]
-                moves = g.legal_moves                           # wide cap + no policy_fn => last_policy aligns to these
+                moves = g.legal_moves
                 feats = card_features(g.state, seat)
                 kinds, idx_lists = move_features(g.state, seat, moves)
                 pl.last_policy = pl.last_value = None
                 mv = pl.choose_move(g)
                 if pl.last_policy is not None and pl.last_value is not None:
+                    # map each strategy weight to its move BY VALUE, not position: with order_cap on (the
+                    # default), _root_actions value-reorders the cap when len(moves) > action_cap, so last_policy
+                    # is NOT in `moves` order. (legal_moves yields fresh Move objects per access, so identity
+                    # won't match — but Move is a frozen model with value equality, so .index() does.)
                     pi = np.zeros(len(moves), dtype=np.float32)
-                    for j, (_a, p) in enumerate(pl.last_policy):
-                        if j < len(pi):
-                            pi[j] = p
+                    for a, p in pl.last_policy:
+                        try:
+                            pi[moves.index(a)] = p
+                        except ValueError:
+                            pass
                     tot = pi.sum()
                     if tot > 0:
                         data.append((feats[0], feats[1], feats[2], pl.last_value, kinds, idx_lists, pi / tot))
