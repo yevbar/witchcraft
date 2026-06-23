@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -128,6 +128,10 @@ aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> ha
 // to end as opaque tokens (rejoined to text and slugged, like the regex `(.+?)$`). 'choose' folds the
 // quant exactly: {a,an,one} -> q="", else q=slug(quant)+"_".
 chsclause: CHS_CHOOSE chsquant chsrest            -> chs
+// CHOOSE NEW TARGETS (§707.10) — '[you may] choose new targets for <X>' (the copy-redirect rider). The
+// 'choose_new_targets' verb is already §707.10-grounded; this just reads the object. -> choose_new_targets(-, X).
+cntclause: CHOOSE_NEW_TGT cntobj                  -> choose_new_targets
+cntobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -712,6 +716,7 @@ GVERB.3: /\b(?:gains?|has|have)\b/
 YOURCHOICE.6: /\byour choice of\b/    // '<tgt> gains your choice of <kw-list>' — §700.2 keyword-choice grant anchor
 QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
 CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
+CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect anchor (beats CHS_CHOOSE)
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -1543,6 +1548,10 @@ class _FeSubj(str):    # the 'fight each other' subject span (fesubj) — valida
 
 
 class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — validated (\d+|one..five|x)
+    pass
+
+
+class _CntObj(str):    # the object span after 'choose new targets for' (cntobj) — slugged to the effect target
     pass
 
 
@@ -3489,6 +3498,16 @@ class _ToEffect(Transformer):
     # --- INTRANSITIVE KEYWORD ACTIONS (investigate/explore/proliferate) -------
     def kvisubj(self, *toks):
         return _KviSubj(" ".join(str(t) for t in toks))
+
+    def cntobj(self, *toks):
+        return _CntObj(" ".join(str(t) for t in toks))
+
+    def choose_new_targets(self, *args):
+        # '[you may] choose new targets for <X>' (§707.10 copy-redirect) -> choose_new_targets(-, _target(X)).
+        obj = next((str(a) for a in args if isinstance(a, _CntObj)), None)
+        if obj is None:
+            return None
+        return Effect("choose_new_targets", "-", _target(obj.strip().lower()))
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
