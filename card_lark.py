@@ -64,7 +64,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -199,6 +199,13 @@ btaorest: (WORD | QUANT | NUM)+
 // already owned by the color slice, so the CHOSENTYPE anchor is 'the chosen type' only). -> chosen_type.
 bcchclause.-2: bcmtgt BCM_COP CHOSENTYPE bcchtail?    -> bcchosen_v
 bcchtail: (WORD | QUANT | TOPREP | MDUR)+
+
+// BECOMES a §701 STATUS DESIGNATION (§701.43 foretold / §701.55 plotted) — '<subj> becomes foretold/plotted'
+// (the tail of a face-down-exile trigger). The whole 'becomes <desig>' bigram is one distinctive terminal
+// (BECOMESDESIG, outranks BCM_COP), so it can't collide with the P/T / color / type becomes-productions.
+// -> becomes(-, _target(subj), <desig>). Subject _TGT or abstain.
+bdgclause.-2: bdgsubj BECOMESDESIG                     -> bcdesig_v
+bdgsubj: (WORD | QUANT | NUM)+
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -670,6 +677,7 @@ XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the dis
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
+BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
@@ -1501,6 +1509,10 @@ class _MsNum(str):     # monstrosity count token (msnum) — validated against (
 
 
 class _GdSubj(str):    # the goaded creature span (gdsubj) — validated _TGT
+    pass
+
+
+class _BdgSubj(str):   # the becomes-designation subject span (bdgsubj) — validated _TGT
     pass
 
 
@@ -3312,6 +3324,19 @@ class _ToEffect(Transformer):
         if subj is None or not _AT_TGT.match(str(subj).strip()):
             return None
         return Effect("goad", "-", _target(str(subj).strip()))
+
+    def bdgsubj(self, *toks):
+        return _BdgSubj(" ".join(str(t) for t in toks))
+
+    def bcdesig_v(self, *args):
+        # '<subj> becomes foretold/plotted' — a §701 status designation (foretell/plot), the tail of a
+        # face-down-exile trigger: becomes(-, _target(subj), <desig>). Subject _TGT or abstain.
+        subj = next((a for a in args if isinstance(a, _BdgSubj)), None)
+        desig = next((str(a) for a in args if getattr(a, "type", None) == "BECOMESDESIG"), None)
+        if subj is None or desig is None or not _AT_TGT.match(str(subj).strip()):
+            return None
+        d = re.sub(r"^becomes? ", "", desig.strip(), flags=re.I).strip()
+        return Effect("becomes", "-", _target(str(subj).strip()), ground.slug(d))
 
     # --- FLIP_COIN / FIGHT-each-other -----------------------------------------
     def flipcoin(self, tok):
