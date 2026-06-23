@@ -376,7 +376,7 @@ class ReBeLPlayer(Player):
 
     def __init__(self, *, worlds: int = 4, iterations: int = 100, depth: int = 3, action_cap: int = 6,
                  time_budget: float = 5.0, perfect_info: bool = False, value_fn=None,
-                 temperature: float = 0.0, seed: int | None = None):
+                 temperature: float = 0.0, seed: int | None = None, order_cap: bool = True):
         self.worlds = worlds
         self.iterations = iterations
         self.depth = depth
@@ -385,9 +385,20 @@ class ReBeLPlayer(Player):
         self.perfect_info = perfect_info
         self.value_fn = value_fn
         self.temperature = temperature
+        # order_cap: VALUE-order the root cap (1-ply leaf value, like greedy) instead of env.legal_actions'
+        # emit-order prefix. The unordered cap (the prior default) blindfolds the search — the best move can be
+        # pruned out of the subgame while greedy still scans it (MODELING_DIRECTION_HANDOFF §1 #1). On so the
+        # search at least sees the moves greedy does.
+        self.order_cap = order_cap
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
         self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
+
+    def _root_actions(self, game, moves):
+        if not self.order_cap or len(moves) <= self.action_cap:
+            return list(moves[: self.action_cap])
+        seat, vf = game.turn, (self.value_fn or heuristic_value)
+        return sorted(moves, key=lambda m: vf(env.step(game.state, m), seat), reverse=True)[: self.action_cap]
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -395,7 +406,7 @@ class ReBeLPlayer(Player):
             return None
         if len(moves) == 1:
             return moves[0]
-        actions = moves[: self.action_cap]
+        actions = self._root_actions(game, moves)
         deadline = time.perf_counter() + self.time_budget
         policy, value = solve(game.state, game.turn, actions, worlds=self.worlds, iterations=self.iterations,
                               depth=self.depth, action_cap=self.action_cap, value_fn=self.value_fn,
