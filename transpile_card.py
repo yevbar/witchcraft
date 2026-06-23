@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass, field
 
 import cost_lark
+import modifier_lark
 import ground
 from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production, _is_compound_object
 from card_effects import Effect
@@ -436,7 +437,9 @@ def _split_modifiers(text: str):
         s = s.rstrip(".")
         if not s:
             continue
-        tag = next((t for pat, t in _MODIFIERS if pat.match(s)), None)
+        # lark-first (the structural-layer migration): the closed fixed-phrase set is now the Lark grammar
+        # `modifier_lark`; the `_MODIFIERS` regex is a RETAINED fallback, byte-identical over the corpus.
+        tag = modifier_lark.modifier_tag(s) or next((t for pat, t in _MODIFIERS if pat.match(s)), None)
         if tag is None and (m := _ACTIVATE_RESTR.match(s)):
             tag = "activate_" + ground.slug(m.group(1))
         if tag is None and (m := _SPEND_RESTR.match(s)):
