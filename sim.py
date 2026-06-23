@@ -83,6 +83,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("static_player", set()).add(a[1])
         elif rel == "doesnt_untap":                          # §502 continuous "doesn't untap" lock (self / enchanted / equipped)
             db.setdefault(a[0], {}).setdefault("no_untap", set()).add(a[1])
+        elif rel == "cant":                                  # §701.5f/§509 static restriction 'X can't <action>'
+            db.setdefault(a[0], {}).setdefault("cant", set()).add((a[1], a[2]))  # (who, action) — e.g. (self, be_countered)
     _DB_CACHE.clear()                                    # keep only the latest signature's parse
     _DB_CACHE[key] = db
     return db
