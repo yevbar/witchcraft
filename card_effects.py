@@ -1715,6 +1715,9 @@ _MAY = re.compile(r"^you may (.+)$", re.I)
 _SUBJ_MAY = re.compile(rf"^({_TGT}) may (.+)$", re.I)
 _IF_YOU_DO = re.compile(r"^if you do,?\s+(.+)$", re.I)
 _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
+# leading durational condition (§611) — 'As long as <condition>, <effect>'; the effect holds WHILE the
+# condition does. Parallel to _IF_COND; the condition becomes an `as_long_as_<cond>` cond slug.
+_AS_LONG_AS = re.compile(r"^as long as (.+?), (.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
 _UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
 _DELAYED_LEAD = re.compile(r"^at (the beginning of [\w' ]+?|end of combat|the next [\w' ]+?), (.+)$", re.I)
@@ -2063,6 +2066,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _IF_COND.match(s)
     if m:
         return _combine(parse_clause(m.group(2)), ground.slug(m.group(1)), suffix=True)
+    m = _AS_LONG_AS.match(s)
+    if m:
+        return _combine(parse_clause(m.group(2)), "as_long_as_" + ground.slug(m.group(1)), suffix=True)
     m = _UNLESS_PAY.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "unless_pay_" + ground.slug(m.group(2)))
