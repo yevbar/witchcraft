@@ -1718,6 +1718,10 @@ _IF_COND = re.compile(r"^if (?!you do\b)(.+?), (.+)$", re.I)
 # leading durational condition (§611) — 'As long as <condition>, <effect>'; the effect holds WHILE the
 # condition does. Parallel to _IF_COND; the condition becomes an `as_long_as_<cond>` cond slug.
 _AS_LONG_AS = re.compile(r"^as long as (.+?), (.+)$", re.I)
+# sibling leading durational/temporal wrappers -> the same cond-slug treatment (while==as long as §611;
+# 'during <phase>'; leading 'for as long as <X>'; bare 'this turn'/'each turn' temporal scopes).
+_LEAD_DUR = re.compile(r"^(while|during|for as long as) (.+?), (.+)$", re.I)
+_LEAD_TURN = re.compile(r"^(this turn|each turn|on each of your turns|each of your turns),?\s+(.+)$", re.I)
 _UNLESS_PAY = re.compile(r"^(.+?) unless (?:its controller|you|that player|they) pays? (.+)$", re.I)
 _UNLESS = re.compile(r"^(.+?) unless (.+)$", re.I)
 _DELAYED_LEAD = re.compile(r"^at (the beginning of [\w' ]+?|end of combat|the next [\w' ]+?), (.+)$", re.I)
@@ -2069,6 +2073,13 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _AS_LONG_AS.match(s)
     if m:
         return _combine(parse_clause(m.group(2)), "as_long_as_" + ground.slug(m.group(1)), suffix=True)
+    m = _LEAD_DUR.match(s)
+    if m:
+        pre = m.group(1).lower().replace(" ", "_")
+        return _combine(parse_clause(m.group(3)), pre + "_" + ground.slug(m.group(2)), suffix=True)
+    m = _LEAD_TURN.match(s)
+    if m:
+        return _combine(parse_clause(m.group(2)), ground.slug(m.group(1)), suffix=True)
     m = _UNLESS_PAY.match(s)
     if m:
         return _combine(parse_clause(m.group(1)), "unless_pay_" + ground.slug(m.group(2)))
