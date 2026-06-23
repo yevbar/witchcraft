@@ -348,6 +348,32 @@ def _policy_head_pointer_and_M0() -> None:
     check("fit_pv co-train is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
 
 
+def _clone_heuristic_moves() -> None:
+    """Behavioral cloning: generate_clone records the rule-based HeuristicPlayer's MOVES as one-hot policy
+    targets (same row format as generate_pv, so fit_pv/policy_top1 apply); the cloned policy head imitates
+    the expert's choices well above uniform, and PolicyPlayer(cloned) plays a full game. (Doc §5 bet.)"""
+    data = cn.generate_clone(6, seed=0)
+    check("generate_clone yields branching rows in the generate_pv format (pi one-hot over the full legal set)",
+          len(data) > 20 and all(row[6].shape[0] == row[4].shape[0] and abs(float(row[6].sum()) - 1.0) < 1e-4
+                                 and int((row[6] == 1.0).sum()) == 1 for row in data))
+    split = int(len(data) * 0.8)
+    tr, va = data[:split], data[split:]
+    net = cn.CardPVNet(seed=0)
+    cn.fit_pv(net, tr, epochs=20, seed=0)
+    top1, uni = cn.policy_top1(net, va), cn.policy_uniform(va)
+    check(f"cloned policy imitates the heuristic's moves >> uniform (top-1 {top1:.2f} vs {uni:.2f})",
+          top1 > uni + 0.2)
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = play({"alice": cn.PolicyPlayer(net), "bob": RandomPlayer(seed=1)}, seed=5, max_moves=4000)
+    check("PolicyPlayer(cloned) plays to a terminal result", res.is_game_over())
+
+    def gen_w():                                                # generate_clone is seeded/reproducible
+        return [(r[6].tobytes(), r[4].shape) for r in cn.generate_clone(2, seed=3)]
+    check("generate_clone is reproducible (identical targets)", gen_w() == gen_w())
+
+
 def _m2_root_cap_ordering() -> None:
     """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
     moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
@@ -440,6 +466,7 @@ def run() -> None:
     _set_attention_pool()
     _gated_replay_buffer_and_gate()
     _policy_head_pointer_and_M0()
+    _clone_heuristic_moves()
     _m2_root_cap_ordering()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)

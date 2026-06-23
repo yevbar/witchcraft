@@ -645,6 +645,70 @@ def policy_prior(net: CardPVNet):
     return fn
 
 
+def _move_index(moves: list, pick) -> int:
+    """The index of the move object `pick` within `moves` — by value (Move equality), else by identity."""
+    try:
+        return moves.index(pick)
+    except ValueError:
+        return next((i for i, m in enumerate(moves) if m is pick), 0)
+
+
+def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_pool=None,
+                   variant: str = "two-player", seed: int = 0, epsilon: float = 0.0,
+                   gamma: float = DEFAULT_GAMMA, max_moves: int = 4000, incremental: bool = True):
+    """Behavioral-cloning data: an EXPERT player (default the rule-based HeuristicPlayer) drives BOTH seats; at
+    each branching decision record (objs, owner, glob, z, kinds, idx_lists, pi) with pi a ONE-HOT over the FULL
+    legal set marking the move the EXPERT chose. Same row format as `generate_pv`/`generate_pv_rebel`, so it
+    trains with `fit_pv` and scores with `policy_top1`/`policy_uniform`. Unlike `generate_pv` (which clones
+    GREEDY-on-value), this clones an arbitrary player's MOVES directly — so it captures the tactics (combat in
+    particular) that 1-ply outcome-value can't see past its combat horizon (MODELING_DIRECTION_HANDOFF §5: the
+    forward bet is a policy head cloned from the heuristic's MOVES, then model-free self-play).
+
+    The Game is built with `explicit_lands` when the expert wants it (HeuristicPlayer does — else its land
+    sequencing is dead). z is the discounted outcome (free, for later value/self-play); the clone itself needs
+    only pi. epsilon>0 plays a RANDOM move while still LABELING with the expert's choice (mild DAgger — labels
+    states the expert wouldn't reach on its own trajectory)."""
+    from .heuristic import HeuristicPlayer
+    expert_factory = expert_factory or (lambda: HeuristicPlayer())
+    explicit = bool(getattr(expert_factory(), "wants_explicit_lands", False))
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    explore = random.Random(seed * 5 + 3)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit)
+        expert = expert_factory()
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                moves = g.legal_moves
+                seat = g.turn
+                pick = expert.choose_move(g)
+                if pick is None:
+                    break
+                if len(moves) > 1:
+                    chosen = _move_index(moves, pick)                  # the expert's move over the full legal set
+                    objs, owner, glob = card_features(g.state, seat)
+                    kinds, idx_lists = move_features(g.state, seat, moves)
+                    rows.append([objs, owner, glob, seat, kinds, idx_lists, chosen, g.state.get("_turn") or 0])
+                    play_i = explore.randrange(len(moves)) if epsilon and explore.random() < epsilon else chosen
+                    g.push(moves[play_i])
+                else:
+                    g.push(moves[0])
+        w = g.winner()
+        end_turn = max([r[7] for r in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob, seat, kinds, idx_lists, chosen, turn_no) in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
+            pi = np.zeros(len(kinds), dtype=np.float32); pi[chosen] = 1.0  # one-hot on the expert's move
+            data.append((objs, owner, glob, z, kinds, idx_lists, pi))
+    return data
+
+
 class _ExploringValuePlayer(Player):
     """A self-play data generator: 1-ply value-greedy with epsilon-random exploration. Pure greedy is
     DETERMINISTIC — both seats on the same net would replay one identical game and yield no diversity — so
