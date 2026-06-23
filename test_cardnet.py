@@ -348,6 +348,28 @@ def _policy_head_pointer_and_M0() -> None:
     check("fit_pv co-train is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
 
 
+def _policy_ability_width_symmetry() -> None:
+    """The POLICY path matches the VALUE path on encoder width: an ability-WIDE CardPVNet (obj_features(True))
+    must run through PolicyPlayer AND policy_prior without a size mismatch. Regression: both hardcoded
+    card_features(abilities=False), so a wide net worked on the value head but crashed on the policy head."""
+    check("net_abilities detects a wide encoder", cn.net_abilities(cn.CardPVNet(n_obj=cn.obj_features(True), seed=0)) is True)
+    check("net_abilities is False for the default-width net", cn.net_abilities(cn.CardPVNet(seed=0)) is False)
+    wide = cn.CardPVNet(n_obj=cn.obj_features(True), seed=0)
+    check("PolicyPlayer auto-detects the ability width (like CardNetValue)", cn.PolicyPlayer(wide).abilities is True)
+    g = Game(seed=3)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for _ in range(60):
+            if g.is_game_over() or len(g.legal_moves) > 1:
+                break
+            g.push(g.legal_moves[0])
+    with contextlib.redirect_stdout(io.StringIO()):
+        mv = cn.PolicyPlayer(wide).choose_move(g)
+    check("PolicyPlayer(wide net) returns a legal move (no size mismatch)", mv in g.legal_moves)
+    pri = cn.policy_prior(wide)
+    check("policy_prior(wide net) scores every legal move",
+          len(pri(g.state, g.turn, g.legal_moves)) == len(g.legal_moves))
+
+
 def _clone_heuristic_moves() -> None:
     """Behavioral cloning: generate_clone records the rule-based HeuristicPlayer's MOVES as one-hot policy
     targets (same row format as generate_pv, so fit_pv/policy_top1 apply); the cloned policy head imitates
@@ -466,6 +488,7 @@ def run() -> None:
     _set_attention_pool()
     _gated_replay_buffer_and_gate()
     _policy_head_pointer_and_M0()
+    _policy_ability_width_symmetry()
     _clone_heuristic_moves()
     _m2_root_cap_ordering()
     _rebel_value_target()

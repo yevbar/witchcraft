@@ -76,6 +76,14 @@ def obj_features(abilities: bool = False) -> int:
     return OBJ_FEATURES + (ABILITY_FEATURES if abilities else 0)
 
 
+def net_abilities(net) -> bool:
+    """Whether `net`'s card encoder was built for the wider ability channel (n_obj=obj_features(True)), so
+    `card_features` must be called with abilities=True to match its input width. Use this everywhere a net is
+    fed features — the value side AND the policy side — so an ability-wide net never size-mismatches on one
+    path while working on the other."""
+    return net.card[0].in_features == obj_features(True)
+
+
 def card_features(state: dict, seat: str, abilities: bool = False):
     """The seat's belief view as (objects, owner, globals):
       objects : float32 [N, OBJ_FEATURES] — one row per VISIBLE object (own hand + all battlefields +
@@ -203,7 +211,7 @@ class CardNetValue:
         self.net = net
         # featurize at the net's OWN object width — so a net built with the ability channel (n_obj=obj_features
         # (True)) is fed card_features(..., abilities=True), not the narrower default (which would size-mismatch).
-        self.abilities = net.card[0].in_features == obj_features(True)
+        self.abilities = net_abilities(net)
 
     def __call__(self, state: dict, seat: str) -> float:
         if env.is_terminal(state):
@@ -312,6 +320,7 @@ class PolicyPlayer(Player):
     def __init__(self, net: "CardPVNet", seed: int | None = None):
         self.net = net
         self._rng = random.Random(seed)
+        self.abilities = net_abilities(net)         # match the encoder's width on the policy path too (value side does)
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -320,7 +329,7 @@ class PolicyPlayer(Player):
         if len(moves) == 1:
             return moves[0]
         seat = game.turn
-        objs, owner, glob = card_features(game.state, seat)
+        objs, owner, glob = card_features(game.state, seat, self.abilities)
         kinds, idx_lists = move_features(game.state, seat, moves)
         self.net.eval()
         with torch.no_grad():
@@ -636,8 +645,9 @@ def policy_prior(net: CardPVNet):
     """A `policy_fn(state, seat, moves) -> per-move prior scores` from a CardPVNet's policy head — plug into
     `ReBeLPlayer(value_fn=CardNetValue(net), policy_fn=policy_prior(net), action_cap=14)` to ORDER the root
     action cap by the learned policy instead of an alphabetical prefix (Phase-2 M2)."""
+    abilities = net_abilities(net)
     def fn(state, seat, moves):
-        objs, owner, glob = card_features(state, seat)
+        objs, owner, glob = card_features(state, seat, abilities)
         kinds, idx_lists = move_features(state, seat, moves)
         net.eval()
         with torch.no_grad():
