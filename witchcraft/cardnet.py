@@ -31,6 +31,7 @@ never pulls torch. CPU-only and small by default.
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 
 import random
@@ -717,6 +718,134 @@ def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_poo
             pi = np.zeros(len(kinds), dtype=np.float32); pi[chosen] = 1.0  # one-hot on the expert's move
             data.append((objs, owner, glob, z, kinds, idx_lists, pi))
     return data
+
+
+# ---- model-free self-play (warm-started from the behavioral clone) ------------------------------------
+#
+# The BC clone (generate_clone -> fit_pv) imitates the heuristic's MOVES but plays BELOW random (-193 Elo):
+# it only ever saw heuristic-vs-heuristic states, so it collapses off-distribution (compounding error). The
+# fix is to train on the agent's OWN play and learn from OUTCOMES, not imitation — so the training states ARE
+# the states it faces (no distribution gap) and it can EXCEED the expert. "Model-free" = the policy head picks
+# moves in one forward pass, no env.step search at decision time. "Warm-started" = initialise from the clone,
+# so self-play corrects competent play instead of discovering it from random. In a 2-player zero-sum
+# imperfect-info game, naive best-response self-play CYCLES; the cure (R-NaD/NFSP) is a KL anchor toward a
+# slowly-advanced REFERENCE policy (initially the clone) — that damps the cycling toward a Nash policy.
+
+
+def generate_selfplay(net: "CardPVNet", games: int = 40, *, temperature: float = 1.0, decks=None,
+                      deck_pool=None, variant: str = "two-player", seed: int = 0, gamma: float = DEFAULT_GAMMA,
+                      max_moves: int = 4000, explicit_lands: bool = True, incremental: bool = True):
+    """Self-play trajectories under the CURRENT policy, SAMPLED at `temperature` for exploration (the net plays
+    BOTH seats). Records each branching decision (objs, owner, glob, z, kinds, idx_lists, action_idx) where
+    action_idx is the move actually SAMPLED and z is that seat's discounted outcome. Unlike generate_clone's
+    one-hot imitation target, the learning signal here is the realized OUTCOME (see fit_selfplay). Featurizes
+    at the net's own ability width. explicit_lands defaults True to match the clone's training space."""
+    abil = net_abilities(net)
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    samp = np.random.default_rng(seed * 7 + 5)
+    net.eval()
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit_lands)
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                moves = g.legal_moves
+                seat = g.turn
+                if len(moves) > 1:
+                    objs, owner, glob = card_features(g.state, seat, abil)
+                    kinds, idx_lists = move_features(g.state, seat, moves)
+                    with torch.no_grad():
+                        logits = net.policy_logits(objs, owner, glob, kinds, idx_lists)
+                        p = torch.softmax(logits / max(temperature, 1e-6), 0).numpy().astype(np.float64)
+                    p = p / p.sum()                                    # guard fp drift before sampling
+                    a = int(samp.choice(len(moves), p=p))
+                    rows.append([objs, owner, glob, seat, kinds, idx_lists, a, g.state.get("_turn") or 0])
+                    g.push(moves[a])
+                else:
+                    g.push(moves[0])
+        w = g.winner()
+        end_turn = max([r[7] for r in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob, seat, kinds, idx_lists, a, turn_no) in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
+            data.append((objs, owner, glob, z, kinds, idx_lists, a))
+    return data
+
+
+def fit_selfplay(net: "CardPVNet", reference: "CardPVNet", data, *, epochs: int = 1, lr: float = 1e-3,
+                 batch: int = 64, beta: float = 0.5, value_weight: float = 1.0, seed: int = 0,
+                 verbose: bool = False) -> "CardPVNet":
+    """One round of REGULARIZED policy-gradient self-play improvement. Per recorded decision (objs..,z,..,a):
+        advantage = z - V(s).detach()                  # the value head is the baseline/critic
+        L_pg      = -advantage * log pi(a|s)           # push the SAMPLED move toward winning outcomes
+        L_reg     = beta * KL( pi(.|s) || reference )  # anchor to the reference -> tames self-play cycling
+        L_value   = value_weight * (V(s) - z)^2        # train the critic on outcomes
+    `reference` is the frozen anchor (initially the warm-start clone; advanced slowly by selfplay_improve).
+    Per-sample (variable #moves) like fit_pv's policy term. Seeded -> reproducible."""
+    torch.manual_seed(seed)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    rng = np.random.default_rng(seed)
+    n = len(data)
+    reference.eval()
+    for ep in range(epochs):
+        idx = rng.permutation(n)
+        net.train()
+        pg_t = kl_t = v_t = 0.0
+        for i in range(0, n, batch):
+            b = [data[j] for j in idx[i:i + batch]]
+            losses = []
+            for (objs, owner, glob, z, kinds, idx_lists, a) in b:
+                logits = net.policy_logits(objs, owner, glob, kinds, idx_lists)
+                logp = torch.nn.functional.log_softmax(logits, 0)
+                v = net.value_one(objs, owner, glob)
+                adv = (float(z) - v).detach()
+                pg = -adv * logp[a]
+                with torch.no_grad():
+                    ref_logp = torch.nn.functional.log_softmax(
+                        reference.policy_logits(objs, owner, glob, kinds, idx_lists), 0)
+                kl = (logp.exp() * (logp - ref_logp)).sum()           # KL(pi || reference) >= 0
+                vloss = (v - float(z)) ** 2
+                losses.append(pg + beta * kl + value_weight * vloss)
+                pg_t += float(pg.detach()); kl_t += float(kl.detach()); v_t += float(vloss.detach())
+            loss = torch.stack(losses).mean()
+            opt.zero_grad(); loss.backward(); opt.step()
+        if verbose:
+            print(f"  epoch {ep:2d} pg={pg_t / n:+.4f} kl={kl_t / n:.4f} value_mse={v_t / n:.4f}", flush=True)
+    return net
+
+
+def selfplay_improve(warm_start: "CardPVNet", *, rounds: int = 6, games_per_round: int = 40,
+                     ref_every: int = 2, temperature: float = 1.0, lr: float = 1e-3, beta: float = 0.5,
+                     value_weight: float = 1.0, epochs: int = 1, decks=None, deck_pool=None,
+                     variant: str = "two-player", gamma: float = DEFAULT_GAMMA, explicit_lands: bool = True,
+                     seed: int = 0, verbose: bool = True):
+    """Model-free self-play warm-started from `warm_start` (a clone-trained CardPVNet). The warm-start net is
+    BOTH the initial policy and the initial reference. Each round: sample self-play games under the current
+    net -> one regularized PG update (fit_selfplay); every `ref_every` rounds advance the reference <- a frozen
+    copy of the current net (the Nash outer step). Returns {net, reference, history}. Trains IN PLACE on a copy
+    of warm_start (the input net is left untouched). Evaluation/promotion is left to the caller (ladder)."""
+    net = copy.deepcopy(warm_start)
+    reference = copy.deepcopy(warm_start)
+    history = []
+    for r in range(rounds):
+        data = generate_selfplay(net, games_per_round, temperature=temperature, decks=decks,
+                                 deck_pool=deck_pool, variant=variant, seed=seed + r * 1000, gamma=gamma,
+                                 explicit_lands=explicit_lands)
+        fit_selfplay(net, reference, data, epochs=epochs, lr=lr, beta=beta, value_weight=value_weight,
+                     seed=seed + r, verbose=verbose)
+        advanced = (r + 1) % ref_every == 0
+        if advanced:
+            reference = copy.deepcopy(net)                            # advance the anchor (Nash dynamics)
+        history.append({"round": r, "rows": len(data), "ref_advanced": advanced})
+        if verbose:
+            print(f"round {r}: {len(data)} decisions, reference {'advanced' if advanced else 'held'}", flush=True)
+    return {"net": net, "reference": reference, "history": history}
 
 
 class _ExploringValuePlayer(Player):

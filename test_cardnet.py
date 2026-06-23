@@ -396,6 +396,38 @@ def _clone_heuristic_moves() -> None:
     check("generate_clone is reproducible (identical targets)", gen_w() == gen_w())
 
 
+def _selfplay_warmstart() -> None:
+    """Model-free self-play warm-started from a clone (doc §5 second half): generate_selfplay records
+    sampled-action OUTCOME rows; fit_selfplay does a regularized PG step; selfplay_improve runs end-to-end,
+    leaves the warm-start net untouched (trains a copy), and the improved net plays a full game. Reproducible."""
+    warm = cn.CardPVNet(embed=16, hidden=32, seed=0)
+    cn.fit_pv(warm, cn.generate_clone(4, seed=0), epochs=8, seed=0)
+    data = cn.generate_selfplay(warm, 4, seed=1)
+    check("generate_selfplay yields sampled-action outcome rows (action_idx in range, z in [-1,1])",
+          len(data) > 10 and all(isinstance(r[6], int) and 0 <= r[6] < r[4].shape[0]
+                                 and -1.0 <= r[3] <= 1.0 for r in data))
+    w0 = torch.cat([p.flatten() for p in warm.parameters()]).clone()
+    out = cn.selfplay_improve(warm, rounds=2, games_per_round=3, ref_every=1, seed=2, verbose=False)
+    check("selfplay_improve leaves the warm-start net UNTOUCHED (trains a copy)",
+          torch.equal(w0, torch.cat([p.flatten() for p in warm.parameters()])))
+    check("selfplay_improve changes the trained net's weights",
+          not torch.equal(w0, torch.cat([p.flatten() for p in out["net"].parameters()])))
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = play({"alice": cn.PolicyPlayer(out["net"]), "bob": RandomPlayer(seed=1)},
+                   seed=5, max_moves=4000, explicit_lands=True)
+    check("self-play-improved PolicyPlayer plays to a terminal result", res.is_game_over())
+
+    def trained_w():
+        w = cn.CardPVNet(embed=16, hidden=32, seed=1)
+        cn.fit_pv(w, cn.generate_clone(2, seed=3), epochs=4, seed=1)
+        return torch.cat([p.flatten() for p in
+                          cn.selfplay_improve(w, rounds=2, games_per_round=2, ref_every=2, seed=4,
+                                              verbose=False)["net"].parameters()])
+    check("selfplay_improve is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
+
+
 def _m2_root_cap_ordering() -> None:
     """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
     moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
@@ -490,6 +522,7 @@ def run() -> None:
     _policy_head_pointer_and_M0()
     _policy_ability_width_symmetry()
     _clone_heuristic_moves()
+    _selfplay_warmstart()
     _m2_root_cap_ordering()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
