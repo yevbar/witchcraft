@@ -23,6 +23,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
+import cost_lark
 import ground
 from card_effects import parse_effect, parse_clause, parse_clauses, _TGT, _mana_production, _is_compound_object
 from card_effects import Effect
@@ -755,6 +756,15 @@ def _effect_facts(cid, aid, effects):
 
 
 def _cost_ok(cost: str) -> bool:
+    """Whether `cost` is a well-formed §602 activation cost — the gate for the `_activated` skeleton. The
+    per-part INTERPRETATION is now the Lark grammar (`cost_lark.cost_ok`, the structural-layer migration);
+    the old regex (`_cost_ok_regex`) is a RETAINED fallback, proven redundant — byte-identical over all 2409
+    distinct corpus cost strings (DIFFERS=0). lark-first, regex-fallback: lark can never lose a previously
+    accepted cost (the OR keeps the regex's acceptances)."""
+    return cost_lark.cost_ok(cost) or _cost_ok_regex(cost)
+
+
+def _cost_ok_regex(cost: str) -> bool:
     if '"' in cost or len(cost) > 60 or ":" in cost:
         return False
     for part in cost.split(","):
