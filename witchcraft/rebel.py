@@ -376,7 +376,8 @@ class ReBeLPlayer(Player):
 
     def __init__(self, *, worlds: int = 4, iterations: int = 100, depth: int = 3, action_cap: int = 6,
                  time_budget: float = 5.0, perfect_info: bool = False, value_fn=None,
-                 temperature: float = 0.0, seed: int | None = None, order_cap: bool = True):
+                 temperature: float = 0.0, seed: int | None = None, order_cap: bool = True,
+                 policy_fn=None, cap_floor: int = 2, force_pass: bool = True):
         self.worlds = worlds
         self.iterations = iterations
         self.depth = depth
@@ -385,20 +386,54 @@ class ReBeLPlayer(Player):
         self.perfect_info = perfect_info
         self.value_fn = value_fn
         self.temperature = temperature
-        # order_cap: VALUE-order the root cap (1-ply leaf value, like greedy) instead of env.legal_actions'
-        # emit-order prefix. The unordered cap (the prior default) blindfolds the search — the best move can be
-        # pruned out of the subgame while greedy still scans it (MODELING_DIRECTION_HANDOFF §1 #1). On so the
-        # search at least sees the moves greedy does.
+        # The root action cap is un-blinded by ORDERING `moves` before truncating to `cap` (the unordered
+        # `moves[:cap]` prefix blindfolds CFR — the best move can be pruned out of the subgame while greedy
+        # still scans it, MODELING_DIRECTION_HANDOFF §1 #1). Two ordering signals, policy_fn preferred:
+        #   policy_fn(state, seat, moves)->per-move prior scores — the Phase-2 M2 pointer-net prior.
+        #   order_cap — fall back to the 1-ply leaf value (like greedy) when there's no policy prior.
         self.order_cap = order_cap
+        self.policy_fn = policy_fn
+        self.cap_floor = cap_floor              # of the cap slots, reserve this many for epsilon-random
+        # always keep a pass move in the ordered cap (so a wrong prior can't prune it). Correct for a WIDE cap;
+        # at a TIGHT cap it spends a precious slot on do-nothing (measured: forcing pass into cap=3 made the
+        # ordered player pass itself to death in aggro) — set False there. The alphabetical cap never has pass
+        # (it sorts last), so for an apples-to-apples ordering A/B at a tight cap, disable this.
+        self.force_pass = force_pass
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
         self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
 
     def _root_actions(self, game, moves):
-        if not self.order_cap or len(moves) <= self.action_cap:
-            return list(moves[: self.action_cap])
-        seat, vf = game.turn, (self.value_fn or heuristic_value)
-        return sorted(moves, key=lambda m: vf(env.step(game.state, m), seat), reverse=True)[: self.action_cap]
+        """The root action set fed to CFR — exactly min(cap, #moves) actions (so the env.step budget is
+        UNCHANGED vs the legacy cap). The cap's slots go to the most promising moves instead of an
+        alphabetical prefix (env.legal_actions sorts by card id). Ordering signal, in order of preference:
+        a `policy_fn` prior (Phase-2 M2 pointer net), else the 1-ply leaf value (`order_cap`, like greedy),
+        else the legacy `moves[:cap]`. With a `policy_fn`, invariants guard against a confident-but-wrong
+        prior: always include a `pass` move if one exists, and reserve `cap_floor` slots for ε-uniform random
+        moves."""
+        cap = min(self.action_cap, len(moves))
+        if cap >= len(moves):
+            return list(moves[:cap])
+        state, seat = game.state, game.turn
+        if self.policy_fn is not None:
+            scores = self.policy_fn(state, seat, moves)
+            order = sorted(range(len(moves)), key=lambda i: scores[i], reverse=True)
+            floor = max(0, min(self.cap_floor, cap // 3))           # keep the floor a MINORITY of the cap, so a
+            #                                                         tight cap stays prior-DOMINATED (a floor that
+            #                                                         rivals the cap would make 'ordered' ~random)
+            keep = order[: cap - floor]                             # the highest-prior moves
+            rest = order[cap - floor:]
+            self._rng.shuffle(rest)                                 # epsilon-uniform floor
+            chosen = keep + rest[: cap - len(keep)]
+            if self.force_pass:
+                pass_i = next((i for i, m in enumerate(moves) if getattr(m, "kind", None) == "pass"), None)
+                if pass_i is not None and pass_i not in chosen:     # invariant: never prune the option to pass
+                    chosen[-1] = pass_i                             # swap the weakest chosen slot for pass
+            return [moves[i] for i in chosen]
+        if self.order_cap:
+            vf = self.value_fn or heuristic_value
+            return sorted(moves, key=lambda m: vf(env.step(state, m), seat), reverse=True)[:cap]
+        return list(moves[:cap])
 
     def choose_move(self, game):
         moves = game.legal_moves
