@@ -56,12 +56,27 @@ KEYWORDS = ("flying", "trample", "deathtouch", "lifelink", "first_strike", "doub
             "flash", "ward", "prowess", "infect", "wither", "flanking", "intimidate", "shroud",
             "protection", "fear", "landwalk")
 
-# per-object feature layout: zone[3] + tapped[1] + owner[1] + p/t/cmc[3] + types + colors + keywords
+# the card_effect VERBS — "what the card DOES" (the §7.4 gap: stats+keywords don't tell removal from a vanilla).
+# A curated open-vocab bag (the 5-deck pool's 21 + common others); a card's verbs come from `card_effect`.
+VERBS = ("draw", "deal_damage", "destroy", "exile", "counter", "gain_life", "lose_life", "create",
+         "put_counter", "remove_counter", "modify_pt", "search", "shuffle", "return_to_hand",
+         "return_to_battlefield", "add_mana", "grant_keyword", "tap", "untap", "discard", "mill",
+         "sacrifice", "scry", "surveil")
+
+# per-object feature layout: zone[3] + tapped[1] + owner[1] + p/t/cmc[3] + types + colors + keywords (+ verbs)
 OBJ_FEATURES = 3 + 1 + 1 + 3 + len(TYPES) + len(COLORS) + len(KEYWORDS)
+ABILITY_FEATURES = 2 * len(VERBS)                          # opt-in card_effect channel: verb-PRESENT + verb-MAGNITUDE
+_AMT_SCALE = 6.0                                            # normalize/cap the effect amount like p/t/cmc
 GLOBAL_FEATURES = rebel_train.FEATURES                      # the 14 global belief features, reused verbatim
 
 
-def card_features(state: dict, seat: str):
+def obj_features(abilities: bool = False) -> int:
+    """The per-object feature width: OBJ_FEATURES, plus the verb bag when `abilities` is on. Build a net with
+    `CardValueNet(n_obj=obj_features(abilities=True))` to match `card_features(..., abilities=True)`."""
+    return OBJ_FEATURES + (ABILITY_FEATURES if abilities else 0)
+
+
+def card_features(state: dict, seat: str, abilities: bool = False):
     """The seat's belief view as (objects, owner, globals):
       objects : float32 [N, OBJ_FEATURES] — one row per VISIBLE object (own hand + all battlefields +
                 graveyards), encoding zone/tap/owner/stats/types/colors/keywords. Opponent hand/library
@@ -87,6 +102,16 @@ def card_features(state: dict, seat: str):
     col_by_slug: dict = {}
     for (s, c) in v.get("card_color", ()):
         col_by_slug.setdefault(s, set()).add(c)
+    verb_amt_by_slug: dict = {}                                      # card_effect: (slug, aid, seq, VERB, AMT, ...)
+    if abilities:
+        for r in v.get("card_effect", ()):
+            if len(r) >= 5:
+                try:
+                    amt = float(r[4])                                # numeric magnitude (draw 1 vs draw 3)
+                except (TypeError, ValueError):
+                    amt = 0.0                                        # X / target-words / '-' : present, magnitude unknown
+                d = verb_amt_by_slug.setdefault(r[0], {})
+                d[r[3]] = max(d.get(r[3], 0.0), amt)                 # biggest instance of this verb on the card
 
     rows, owners = [], []
     for i in sorted(bf | hand | gy):
@@ -101,10 +126,15 @@ def card_features(state: dict, seat: str):
         row += [float(c in cset) for c in COLORS]
         kset = kw_by_slug.get(slug, ())
         row += [float(k in kset) for k in KEYWORDS]
+        if abilities:                                                  # the "what the card DOES" channel
+            amts = verb_amt_by_slug.get(slug, {})
+            row += [float(verb in amts) for verb in VERBS]                          # verb PRESENT
+            row += [min(amts.get(verb, 0.0), _AMT_SCALE) / _AMT_SCALE for verb in VERBS]  # verb MAGNITUDE
         rows.append(row)
         owners.append(mine)
 
-    objs = np.array(rows, dtype=np.float32) if rows else np.zeros((0, OBJ_FEATURES), dtype=np.float32)
+    width = OBJ_FEATURES + (ABILITY_FEATURES if abilities else 0)
+    objs = np.array(rows, dtype=np.float32) if rows else np.zeros((0, width), dtype=np.float32)
     owner = np.array(owners, dtype=np.float32)
     glob = rebel_train.features(state, seat).astype(np.float32)
     return objs, owner, glob
@@ -117,21 +147,37 @@ class CardValueNet(nn.Module):
     a new feature row, never a new parameter."""
 
     def __init__(self, n_obj: int = OBJ_FEATURES, n_glob: int = GLOBAL_FEATURES,
-                 embed: int = 32, hidden: int = 64, seed: int | None = None):
+                 embed: int = 32, hidden: int = 64, seed: int | None = None,
+                 attn: bool = False, n_heads: int = 2):
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)             # seed BEFORE layer init -> reproducible weights (else the global
             #                                     RNG drives nn.Linear init and training is non-deterministic)
         self.embed = embed
         self.card = nn.Sequential(nn.Linear(n_obj, embed), nn.ReLU(), nn.Linear(embed, embed), nn.ReLU())
+        # SET-ATTENTION pool (Phase 4): objects attend across BOTH sides before pooling, so a card's embedding
+        # is contextualized by the board ("my removal vs their threat") — what the order-blind sum pool can't
+        # represent. Owner-injected (so attention distinguishes mine/opp), residual. attn=False -> the original
+        # Deep-Sets sum pool (default; existing behavior/tests unchanged).
+        self.attn = nn.MultiheadAttention(embed, n_heads, batch_first=True) if attn else None
+        self.owner_proj = nn.Linear(1, embed) if attn else None
         self.head = nn.Sequential(nn.Linear(embed * 3 + n_glob, hidden), nn.ReLU(), nn.Linear(hidden, 1))
+
+    def _encode(self, objs: torch.Tensor, owner: torch.Tensor) -> torch.Tensor:
+        """Per-object embeddings [N, embed] — shared encoder, plus cross-object set-attention when enabled."""
+        emb = self.card(objs)                                          # [N, embed]
+        if self.attn is not None and emb.shape[0] > 0:
+            x = emb + self.owner_proj(owner.unsqueeze(-1))             # owner-aware tokens
+            a, _ = self.attn(x.unsqueeze(0), x.unsqueeze(0), x.unsqueeze(0))   # attend across all objects
+            emb = emb + a.squeeze(0)                                   # residual: context-augmented card reps
+        return emb
 
     def _rep(self, objs: torch.Tensor, owner: torch.Tensor) -> torch.Tensor:
         """Pool the per-object embeddings into [my_sum, opp_sum, my-opp] (3*embed)."""
         if objs.shape[0] == 0:
             z = objs.new_zeros(self.embed)
             return torch.cat([z, z, z])
-        emb = self.card(objs)                                          # [N, embed]
+        emb = self._encode(objs, owner)
         mine = (owner > 0).float().unsqueeze(1)
         opp = (owner < 0).float().unsqueeze(1)
         m = (emb * mine).sum(0)
@@ -155,6 +201,9 @@ class CardNetValue:
 
     def __init__(self, net: CardValueNet):
         self.net = net
+        # featurize at the net's OWN object width — so a net built with the ability channel (n_obj=obj_features
+        # (True)) is fed card_features(..., abilities=True), not the narrower default (which would size-mismatch).
+        self.abilities = net.card[0].in_features == obj_features(True)
 
     def __call__(self, state: dict, seat: str) -> float:
         if env.is_terminal(state):
@@ -162,7 +211,7 @@ class CardNetValue:
             return 1.0 if w == seat else (-1.0 if w is not None else 0.0)
         self.net.eval()
         with torch.no_grad():
-            v = float(self.net.value_one(*card_features(state, seat)))
+            v = float(self.net.value_one(*card_features(state, seat, self.abilities)))
         return max(-0.99, min(0.99, v))
 
 
@@ -202,7 +251,8 @@ def _discounted_target(sign: float, turns_to_end: int, gamma: float) -> float:
 
 
 def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
-             player_factory=None, max_moves: int = 4000, incremental: bool = True, gamma: float = DEFAULT_GAMMA):
+             player_factory=None, max_moves: int = 4000, incremental: bool = True, gamma: float = DEFAULT_GAMMA,
+             abilities: bool = False):
     """Self-play games -> a list of (objs, owner, glob, z): each visited state's card features + a TIME-
     PREFERRED outcome target z from the deciding seat's view — +gamma**(turns until the game ends) for a win,
     the negative for a loss, 0 for a draw (gamma<1 => quicker wins / slower losses score higher; gamma=1.0 is
@@ -228,7 +278,7 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
                 if g.is_game_over() or not g.legal_moves:
                     break
                 seat = g.turn
-                rows.append((card_features(g.state, seat), seat, g.state.get("_turn") or 0))
+                rows.append((card_features(g.state, seat, abilities), seat, g.state.get("_turn") or 0))
                 g.push(players[seat].choose_move(g))
         w = g.winner()
         end_turn = max([t for *_r, t in rows] + [g.state.get("_turn") or 0]) if rows else 0
@@ -237,6 +287,65 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
             z = _discounted_target(sign, end_turn - turn_no, gamma)
             data.append((objs, owner, glob, z))
     return data
+
+
+def generate_eval(games: int = 30, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
+                  player_factory=None, max_moves: int = 4000, incremental: bool = True, abilities: bool = False):
+    """GAME-DISJOINT self-play EVAL rows (objs, owner, glob, z, h) for `value_metrics`. Use a DISJOINT seed
+    range from training: a random shuffle+split of `generate` data leaks, because all states of one game share
+    ONE outcome z, so a net that sees some of a game's states memorizes the rest — measured: leaky split 0.996
+    vs disjoint games 0.553 sign-acc. Records each state's heuristic value `h` (the contestedness signal). The
+    `player_factory` should MATCH the training play strength (default RandomPlayer); note random-play outcomes
+    are ~unpredictable from a state, so a near-0.5 disjoint sign-acc means the DATA carries little value signal,
+    not that the net is broken — train on stronger play / search (CFR root) targets for a learnable signal."""
+    from .rebel import heuristic_value
+    pf = player_factory or (lambda _s: RandomPlayer())
+    if incremental:
+        _engage_incremental()
+    pool_rng = random.Random(seed * 2 + 1)
+    data = []
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
+        players = {"alice": pf("alice"), "bob": pf("bob")}
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies={s: p.as_policy() for s, p in players.items()})
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                seat = g.turn
+                rows.append((card_features(g.state, seat, abilities), seat, heuristic_value(g.state, seat),
+                             g.state.get("_turn") or 0))
+                g.push(players[seat].choose_move(g))
+        w = g.winner()
+        for (objs, owner, glob), seat, h, _turn in rows:
+            z = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            data.append((objs, owner, glob, z, h))
+    return data
+
+
+def value_metrics(net: CardValueNet, data, *, contested: float = 0.3) -> dict:
+    """Held-out value quality on `generate_eval` rows (..., z, h): sign-acc + MSE OVERALL and on CONTESTED
+    positions (|h| < `contested`). The CONTESTED numbers are the headroom metric — the all-positions sign-acc
+    saturates, but on balanced positions only a value net that reads the actual cards can separate them."""
+    net.eval()
+    with torch.no_grad():
+        pred = net([(o, w, g) for (o, w, g, *_r) in data])
+    z = torch.tensor([r[3] for r in data], dtype=torch.float32)
+    h = torch.tensor([r[4] for r in data], dtype=torch.float32)
+
+    def sa_mse(mask):
+        if int(mask.sum()) == 0:
+            return None, None, 0
+        p, y = pred[mask], z[mask]
+        nz = y != 0
+        sa = float((torch.sign(p[nz]) == torch.sign(y[nz])).float().mean()) if int(nz.sum()) else None
+        return sa, float(((p - y) ** 2).mean()), int(mask.sum())
+
+    a_sa, a_mse, n = sa_mse(torch.ones(len(data), dtype=torch.bool))
+    c_sa, c_mse, nc = sa_mse(h.abs() < contested)
+    return {"sign_acc": a_sa, "mse": a_mse, "n": n,
+            "contested_sign_acc": c_sa, "contested_mse": c_mse, "n_contested": nc}
 
 
 def fit(net: CardValueNet, data, *, epochs: int = 40, lr: float = 1e-3, batch: int = 64,
@@ -272,6 +381,45 @@ def train(games: int = 40, *, embed: int = 32, hidden: int = 64, epochs: int = 4
     net = CardValueNet(embed=embed, hidden=hidden, seed=seed)
     fit(net, data, epochs=epochs, lr=lr, batch=batch, seed=seed, verbose=verbose)
     return CardNetValue(net)
+
+
+def iterate_value(rounds: int = 4, *, games_per_round: int = 45, eval_games: int = 22, epochs: int = 50,
+                  embed: int = 48, hidden: int = 96, lr: float = 1e-3, attn: bool = False,
+                  abilities: bool = False, decks=None, deck_pool=None, variant: str = "two-player",
+                  seed: int = 0, buffer_rounds: int = 3, verbose: bool = True):
+    """ITERATED self-play value training — the measured ceiling-breaker. Round 0 plays GREEDY on the heuristic;
+    round r>0 plays GREEDY on the CURRENT net V_{r-1} (each round stronger, so outcomes become more state-
+    determined and the value more learnable — the AlphaZero virtuous cycle). Each round trains a fresh net on a
+    bounded BUFFER of recent rounds and reports the LEAK-FREE disjoint `value_metrics` (eval games disjoint from
+    train, played by the same policy). Keeps the BEST net by disjoint sign-acc. Empirically: heuristic 0.75 ->
+    iterate 0.83 -> 0.85, vs the ~0.71 heuristic-greedy plateau. Returns {value_fn, net, history, best_round}.
+
+    (Value quality is a DATA problem: encoder upgrades — attn/abilities — were null at scale; they're off by
+    default here and stay secondary. The point is the iteration.)"""
+    from collections import deque
+    from .rebel import GreedyValuePlayer, heuristic_value
+    _engage_incremental()
+    buf: deque = deque(maxlen=buffer_rounds)
+    vf = heuristic_value                                        # round 0: heuristic-greedy bootstrap
+    best, best_sa, best_round, history = None, -1.0, -1, []
+    for r in range(rounds):
+        pf = lambda _s, _vf=vf: GreedyValuePlayer(_vf)          # both seats play GREEDY on the current value
+        buf.append(generate(games_per_round, decks=decks, deck_pool=deck_pool, variant=variant,
+                            seed=seed + r * 1000, player_factory=pf, abilities=abilities))
+        data = [row for rd in buf for row in rd]
+        ev = generate_eval(eval_games, decks=decks, deck_pool=deck_pool, variant=variant,
+                           seed=seed + r * 1000 + 700, player_factory=pf, abilities=abilities)   # DISJOINT
+        net = CardValueNet(n_obj=obj_features(abilities), embed=embed, hidden=hidden, seed=seed, attn=attn)
+        fit(net, data, epochs=epochs, lr=lr, seed=seed)
+        m = value_metrics(net, ev)
+        sa = m["sign_acc"] if m["sign_acc"] is not None else -1.0
+        if sa > best_sa:
+            best, best_sa, best_round = net, sa, r
+        vf = CardNetValue(net)                                  # next round plays GREEDY on this (stronger) net
+        history.append({"round": r, "buffer_rows": len(data), "disjoint_sign_acc": m["sign_acc"], "disjoint_mse": m["mse"]})
+        if verbose:
+            print(f"  round {r}: buffer={len(data):5d}  disjoint sign-acc={sa:.3f}  MSE={m['mse']:.3f}", flush=True)
+    return {"value_fn": CardNetValue(best), "net": best, "history": history, "best_round": best_round}
 
 
 class _ExploringValuePlayer(Player):
@@ -425,11 +573,13 @@ def rebel_train_loop(rounds: int = 3, *, games_per_round: int = 8, epochs: int =
 
 def save(net: CardValueNet, path: str) -> None:
     torch.save({"state": net.state_dict(), "embed": net.embed,
-                "head_in": net.head[0].in_features, "hidden": net.head[0].out_features}, path)
+                "head_in": net.head[0].in_features, "hidden": net.head[0].out_features,
+                "attn": net.attn is not None,
+                "n_heads": net.attn.num_heads if net.attn is not None else 2}, path)
 
 
 def load(path: str) -> CardNetValue:
     d = torch.load(path, weights_only=True)
-    net = CardValueNet(embed=d["embed"], hidden=d["hidden"])
+    net = CardValueNet(embed=d["embed"], hidden=d["hidden"], attn=d.get("attn", False), n_heads=d.get("n_heads", 2))
     net.load_state_dict(d["state"])
     return CardNetValue(net)

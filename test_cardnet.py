@@ -199,6 +199,85 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _iterate_value_and_ability_seam() -> None:
+    """Phase 4 payoff: iterate_value runs iterated self-play judged by the disjoint metric and returns the best
+    net; CardNetValue auto-detects the ability-channel width so an ability-trained net works as a value_fn."""
+    out = cn.iterate_value(rounds=2, games_per_round=4, eval_games=4, epochs=8, embed=16, hidden=32,
+                           seed=0, verbose=False)
+    h = out["history"]
+    check("iterate_value returns best net + value_fn + per-round disjoint metrics",
+          out["net"] is not None and out["value_fn"] is not None and len(h) == 2
+          and all("disjoint_sign_acc" in r for r in h))
+    check("iterate_value disjoint sign-acc is in [0,1]",
+          all(r["disjoint_sign_acc"] is None or 0.0 <= r["disjoint_sign_acc"] <= 1.0 for r in h))
+    vfa = cn.CardNetValue(cn.CardValueNet(n_obj=cn.obj_features(True), seed=0))
+    check("CardNetValue auto-detects the ability-channel width", vfa.abilities is True)
+    g = Game(seed=3)
+    check("an ability-width value_fn runs without a size mismatch", -1.0 <= vfa(g.state, g.turn) <= 1.0)
+
+
+def _ability_verb_channel() -> None:
+    """Phase 4: the opt-in card_effect-VERB channel ('what the card does' — the §7.4 gap) widens card_features
+    by len(VERBS); a net built with obj_features(True) consumes it and trains."""
+    o0, _, _ = cn.card_features(_flyer_state(), "alice", abilities=False)
+    o1, _, _ = cn.card_features(_flyer_state(), "alice", abilities=True)
+    check("abilities=True widens each object by len(VERBS)",
+          o1.shape[1] == o0.shape[1] + cn.ABILITY_FEATURES == cn.obj_features(True))
+    d = cn.generate(3, seed=0, abilities=True)
+    check("generate(abilities=True) rows match obj_features(True)", d[0][0].shape[1] == cn.obj_features(True))
+    net = cn.CardValueNet(n_obj=cn.obj_features(True), seed=0)
+    cn.fit(net, d, epochs=8, seed=0)
+    v = float(net.value_one(*cn.card_features(_flyer_state(), "alice", abilities=True)).detach())
+    check("ability net produces a value in [-1, 1]", -1.0 <= v <= 1.0)
+
+
+def _value_metrics_disjoint() -> None:
+    """Phase 4: value_metrics on GAME-DISJOINT eval rows is the honest value-quality metric (a random
+    train/eval split leaks — same game on both sides shares one outcome; disjoint games don't). generate_eval
+    records (z, h); the |h|<contested subset is the headroom slice."""
+    ev = cn.generate_eval(4, seed=42)
+    check("generate_eval rows carry (objs,owner,glob,z,h) with h in [-1,1]",
+          len(ev) > 10 and all(len(r) == 5 and -1.0 <= r[4] <= 1.0 for r in ev))
+    m = cn.value_metrics(cn.CardValueNet(seed=0), ev, contested=0.3)
+    check("value_metrics returns overall + contested sign-acc/MSE",
+          {"sign_acc", "mse", "contested_sign_acc", "contested_mse", "n", "n_contested"} <= set(m))
+    check("contested positions are a subset of all eval positions", m["n_contested"] <= m["n"])
+    check("value_metrics produces a real MSE", m["mse"] is not None and m["mse"] >= 0.0)
+
+
+def _set_attention_pool() -> None:
+    """Phase 4: the set-attention pool (objects attend across both sides before pooling) is an opt-in on
+    CardValueNet — reproducible, value-valid, empty-safe, save/load-aware, and trainable. Default attn=False
+    is the unchanged sum pool."""
+    aw = lambda: torch.cat([p.flatten() for p in cn.CardValueNet(seed=0, attn=True).parameters()])
+    check("attention net seeded init is reproducible", torch.equal(aw(), aw()))
+    check("attention net adds parameters over the sum pool",
+          sum(x.numel() for x in cn.CardValueNet(attn=True).parameters()) >
+          sum(x.numel() for x in cn.CardValueNet(attn=False).parameters()))
+    net = cn.CardValueNet(seed=0, attn=True)
+    objs, owner, glob = cn.card_features(_flyer_state(), "alice")
+    check("attention value is a scalar in [-1, 1]", -1.0 <= float(net.value_one(objs, owner, glob).detach()) <= 1.0)
+    empty = (np.zeros((0, cn.OBJ_FEATURES), np.float32), np.zeros((0,), np.float32),
+             np.zeros((cn.GLOBAL_FEATURES,), np.float32))
+    check("attention net handles an empty object set", -1.0 <= float(net.value_one(*empty).detach()) <= 1.0)
+
+    import os, tempfile
+    g = Game(seed=3)
+    v = net.value_one(*cn.card_features(g.state, g.turn))
+    p = os.path.join(tempfile.gettempdir(), "attn_rt.pt"); cn.save(net, p)
+    check("save/load round-trips an attention net (attn flag persisted)", abs(cn.load(p)(g.state, g.turn) - float(v)) < 1e-5)
+
+    data = cn.generate(6, seed=1)
+
+    def mse(n):
+        n.eval()
+        with torch.no_grad():
+            return float(((n([(o, w, gg) for (o, w, gg, _z) in data])
+                           - torch.tensor([z for (*_f, z) in data], dtype=torch.float32)) ** 2).mean())
+    before = mse(net); cn.fit(net, data, epochs=30, seed=1)
+    check("attention net training reduces MSE", mse(net) < before)
+
+
 def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
@@ -231,6 +310,10 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _iterate_value_and_ability_seam()
+    _ability_verb_channel()
+    _value_metrics_disjoint()
+    _set_attention_pool()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
