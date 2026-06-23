@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -114,6 +114,12 @@ dtmclause: dsrc DEALS THATMUCH DMG TOPREP dtarget               -> deal_tm   // 
 ddivclause: dsrc DEALS damamt DMG DIVIDED ddivtgt              -> deal_div  // 'deals N damage divided as you choose among <tgts>'
 
 gclause: gtgt? GVERB gkw mdur?                    -> grant       // '<target> gains/has <KEYWORD> [duration]'
+// KEYWORD-CHOICE grant (§700.2 choice): '<tgt> gains your choice of <kw>, <kw>, or <kw> [until eot]' — a
+// grant of ONE chosen keyword from the listed §702 options. The YOURCHOICE terminal claims 'your choice of'
+// (scoped to GVERB, so 'becomes/create your choice of' don't reach here); every option must ground as a §702
+// keyword, else abstain. -> grant_keyword(-, tgt, 'choice_<kw>_or_<kw>…') — faithful (no option dropped).
+gchclause.2: gtgt? GVERB YOURCHOICE gchrest mdur?  -> grant_choice
+gchrest: (WORD | NUM | QUANT | TOPREP | FROM | ZONE)+
 aclause: gtgt GVERB QUOTED mdur?                  -> grant_ab    // '<target> has/gains "<ability>" [duration]'
 
 // CHOOSE family (§700.2). Bare imperative 'choose <quant> <thing>' only; the regex `_choose` DROPS
@@ -703,6 +709,7 @@ DEALS.2: /\bdeals?\b/
 DMG.2: /\bdamage\b/
 GETS.2: /\bgets?\b/
 GVERB.3: /\b(?:gains?|has|have)\b/
+YOURCHOICE.6: /\byour choice of\b/    // '<tgt> gains your choice of <kw-list>' — §700.2 keyword-choice grant anchor
 QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
 CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
 PUT.3: /\bputs?\b/
@@ -1591,6 +1598,10 @@ class _ShBody(str):    # the post-verb source/library span after 'shuffle[s]' (r
     pass
 
 
+class _GchRest(str):   # the keyword-list span after 'your choice of' (gchrest) — validated §702 in grant_choice
+    pass
+
+
 class _Dur(str):
     pass
 
@@ -2256,6 +2267,26 @@ class _ToEffect(Transformer):
 
     def gtgt(self, *toks):
         return _Tgt(" ".join(str(t) for t in toks))
+
+    def gchrest(self, *toks):
+        return _GchRest(" ".join(str(t) for t in toks))
+
+    def grant_choice(self, *args):
+        # '<tgt> gains your choice of <kw>, <kw>, or <kw> [until end of turn]' — §700.2 keyword choice.
+        # Split the list on ',' / 'or' / 'and'; EVERY option must be a §702 keyword (_kw_ok) or abstain. ->
+        # grant_keyword(-, tgt, 'choice_<kw>_or_<kw>…' [, until_end_of_turn]). Faithful: no option dropped.
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        rest = next((str(a) for a in args if isinstance(a, _GchRest)), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        if rest is None:
+            return None
+        parts = [p.strip() for p in re.split(r",|\bor\b|\band\b", rest.lower()) if p.strip()]
+        kws = [_kw_ok(p) for p in parts]
+        if len(kws) < 2 or not all(kws):
+            return None                       # need ≥2 grounded §702 options, else abstain (regex/other owns it)
+        who = _target(tgt.strip().lower()) if tgt else "self"
+        cond = "until_end_of_turn" if dur else "-"
+        return Effect("grant_keyword", "-", who, "choice_" + "_or_".join(kws), cond)
 
     def gkw(self, *toks):
         return _Body(" ".join(str(t) for t in toks))     # reuse _Body marker for the keyword phrase
