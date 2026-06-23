@@ -314,14 +314,21 @@ class CardPVNet(CardValueNet):
 class PolicyPlayer(Player):
     """Picks the move the POLICY HEAD ranks highest — ONE forward pass over the present moves, ZERO `env.step`
     (GreedyValuePlayer calls env.step PER move). A near-free fast player and data generator; sub-choices fall
-    back to the engine default (the policy head ranks only top-level moves). (Phase 2.)"""
+    back to the engine default (the policy head ranks only top-level moves). (Phase 2.)
+
+    `instant_speed`/`explicit_lands` set the matching `wants_*` capability so the harness opens the SAME action
+    windows the net trained in (a net trained by instant-speed self-play should be built `instant_speed=True`,
+    else it's evaluated at sorcery speed and never sees the instant moves it learned to make)."""
 
     name = "policy"
 
-    def __init__(self, net: "CardPVNet", seed: int | None = None):
+    def __init__(self, net: "CardPVNet", seed: int | None = None, *, instant_speed: bool = False,
+                 explicit_lands: bool = False):
         self.net = net
         self._rng = random.Random(seed)
         self.abilities = net_abilities(net)         # match the encoder's width on the policy path too (value side does)
+        self.wants_instant_speed = instant_speed    # so play()/benchmark open the windows this net was trained in
+        self.wants_explicit_lands = explicit_lands
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -666,7 +673,8 @@ def _move_index(moves: list, pick) -> int:
 
 def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_pool=None,
                    variant: str = "two-player", seed: int = 0, epsilon: float = 0.0,
-                   gamma: float = DEFAULT_GAMMA, max_moves: int = 4000, incremental: bool = True):
+                   gamma: float = DEFAULT_GAMMA, max_moves: int = 4000, instant_speed: bool = False,
+                   incremental: bool = True):
     """Behavioral-cloning data: an EXPERT player (default the rule-based HeuristicPlayer) drives BOTH seats; at
     each branching decision record (objs, owner, glob, z, kinds, idx_lists, pi) with pi a ONE-HOT over the FULL
     legal set marking the move the EXPERT chose. Same row format as `generate_pv`/`generate_pv_rebel`, so it
@@ -678,7 +686,9 @@ def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_poo
     The Game is built with `explicit_lands` when the expert wants it (HeuristicPlayer does — else its land
     sequencing is dead). z is the discounted outcome (free, for later value/self-play); the clone itself needs
     only pi. epsilon>0 plays a RANDOM move while still LABELING with the expert's choice (mild DAgger — labels
-    states the expert wouldn't reach on its own trajectory)."""
+    states the expert wouldn't reach on its own trajectory). instant_speed opens the active player's §117.1a
+    windows so the warm-start clone trains in the SAME action space as instant-speed self-play (the sorcery-
+    speed HeuristicPlayer mostly passes in those windows, but the policy head still SEES them)."""
     from .heuristic import HeuristicPlayer
     expert_factory = expert_factory or (lambda: HeuristicPlayer())
     explicit = bool(getattr(expert_factory(), "wants_explicit_lands", False))
@@ -689,7 +699,7 @@ def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_poo
     data = []
     for gi in range(games):
         g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
-        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit)
+        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit, instant_speed=instant_speed)
         expert = expert_factory()
         rows = []
         with contextlib.redirect_stdout(io.StringIO()):
@@ -734,12 +744,19 @@ def generate_clone(games: int = 40, *, expert_factory=None, decks=None, deck_poo
 
 def generate_selfplay(net: "CardPVNet", games: int = 40, *, temperature: float = 1.0, decks=None,
                       deck_pool=None, variant: str = "two-player", seed: int = 0, gamma: float = DEFAULT_GAMMA,
-                      max_moves: int = 4000, explicit_lands: bool = True, incremental: bool = True):
+                      max_moves: int = 4000, explicit_lands: bool = True, instant_speed: bool = True,
+                      incremental: bool = True):
     """Self-play trajectories under the CURRENT policy, SAMPLED at `temperature` for exploration (the net plays
     BOTH seats). Records each branching decision (objs, owner, glob, z, kinds, idx_lists, action_idx) where
     action_idx is the move actually SAMPLED and z is that seat's discounted outcome. Unlike generate_clone's
     one-hot imitation target, the learning signal here is the realized OUTCOME (see fit_selfplay). Featurizes
-    at the net's own ability width. explicit_lands defaults True to match the clone's training space."""
+    at the net's own ability width. explicit_lands defaults True to match the clone's training space.
+
+    instant_speed defaults True: games open the active player's §117.1a instant-speed windows (cast
+    instants/flash in non-main steps — combat tricks, end-step burn), so the policy TRAINS at instant speed,
+    not the sorcery-speed approximation. NB: this only ADDS decisions for decks that HAVE instants (e.g.
+    izzet_prowess); a vanilla deck surfaces nothing extra. Opponent-turn reactive windows are still unmodeled
+    (engine limit) — this is the active player's own instant windows."""
     abil = net_abilities(net)
     if incremental:
         _engage_incremental()
@@ -749,7 +766,8 @@ def generate_selfplay(net: "CardPVNet", games: int = 40, *, temperature: float =
     data = []
     for gi in range(games):
         g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)} if deck_pool else decks)
-        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit_lands)
+        g = Game(g_decks, variant=variant, seed=seed + gi, explicit_lands=explicit_lands,
+                 instant_speed=instant_speed)
         rows = []
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(max_moves):
@@ -824,19 +842,23 @@ def selfplay_improve(warm_start: "CardPVNet", *, rounds: int = 6, games_per_roun
                      ref_every: int = 2, temperature: float = 1.0, lr: float = 1e-3, beta: float = 0.5,
                      value_weight: float = 1.0, epochs: int = 1, decks=None, deck_pool=None,
                      variant: str = "two-player", gamma: float = DEFAULT_GAMMA, explicit_lands: bool = True,
-                     seed: int = 0, verbose: bool = True):
+                     instant_speed: bool = True, seed: int = 0, verbose: bool = True):
     """Model-free self-play warm-started from `warm_start` (a clone-trained CardPVNet). The warm-start net is
     BOTH the initial policy and the initial reference. Each round: sample self-play games under the current
     net -> one regularized PG update (fit_selfplay); every `ref_every` rounds advance the reference <- a frozen
     copy of the current net (the Nash outer step). Returns {net, reference, history}. Trains IN PLACE on a copy
-    of warm_start (the input net is left untouched). Evaluation/promotion is left to the caller (ladder)."""
+    of warm_start (the input net is left untouched). Evaluation/promotion is left to the caller (ladder).
+
+    instant_speed defaults True so the agent trains at instant speed (active-player §117.1a windows) — pair it
+    with an instants-bearing deck/deck_pool (e.g. izzet_prowess) and evaluate the result with a PolicyPlayer
+    built `instant_speed=True` so play happens in the same action space it trained in."""
     net = copy.deepcopy(warm_start)
     reference = copy.deepcopy(warm_start)
     history = []
     for r in range(rounds):
         data = generate_selfplay(net, games_per_round, temperature=temperature, decks=decks,
                                  deck_pool=deck_pool, variant=variant, seed=seed + r * 1000, gamma=gamma,
-                                 explicit_lands=explicit_lands)
+                                 explicit_lands=explicit_lands, instant_speed=instant_speed)
         fit_selfplay(net, reference, data, epochs=epochs, lr=lr, beta=beta, value_weight=value_weight,
                      seed=seed + r, verbose=verbose)
         advanced = (r + 1) % ref_every == 0

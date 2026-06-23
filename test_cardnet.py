@@ -428,6 +428,29 @@ def _selfplay_warmstart() -> None:
     check("selfplay_improve is reproducible (identical weights)", torch.equal(trained_w(), trained_w()))
 
 
+def _selfplay_instant_speed() -> None:
+    """Instant-speed self-play: with an instants deck, generate_selfplay(instant_speed=True) surfaces MORE
+    decisions than sorcery speed (the active player's §117.1a windows), and PolicyPlayer(instant_speed=True)
+    requests those windows so it's evaluated in the same action space it trained in (default stays sorcery)."""
+    from witchcraft.decks import load_deck
+    izzet = {"alice": load_deck("izzet_prowess"), "bob": load_deck("izzet_prowess")}
+    net = cn.CardPVNet(embed=16, hidden=32, seed=0)
+    sorcery = cn.generate_selfplay(net, 6, seed=1, decks=izzet, instant_speed=False)
+    instant = cn.generate_selfplay(net, 6, seed=1, decks=izzet, instant_speed=True)
+    check("instant-speed self-play surfaces MORE decisions than sorcery speed (instants deck)",
+          len(instant) > len(sorcery))
+    check("PolicyPlayer(instant_speed=True) requests the instant windows",
+          cn.PolicyPlayer(net, instant_speed=True).wants_instant_speed is True)
+    check("PolicyPlayer default stays sorcery speed (backward compatible)",
+          cn.PolicyPlayer(net).wants_instant_speed is False)
+
+    from witchcraft.players import RandomPlayer, play
+    with contextlib.redirect_stdout(io.StringIO()):
+        g = play({"alice": cn.PolicyPlayer(net, instant_speed=True), "bob": RandomPlayer(seed=1)},
+                 izzet, seed=5, max_moves=200)
+    check("an instant-speed PolicyPlayer opens the windows in play (game.instant_speed)", g.instant_speed is True)
+
+
 def _m2_root_cap_ordering() -> None:
     """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
     moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
@@ -523,6 +546,7 @@ def run() -> None:
     _policy_ability_width_symmetry()
     _clone_heuristic_moves()
     _selfplay_warmstart()
+    _selfplay_instant_speed()
     _m2_root_cap_ordering()
     _rebel_value_target()
     passed = sum(1 for _, ok in CHECKS if ok)

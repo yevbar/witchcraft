@@ -22,9 +22,10 @@ def check(name, cond):
 
 
 def _elo_orders_strength():
-    # Rate the three rungs on one scale. Heuristic is the strong baseline; Random the anchor.
+    # Rate the gauntlet rungs on one scale. Heuristic is the strong baseline; Random the anchor.
     table = ladder.ladder(games=16, seed=0)
-    check("ladder rates all three rungs", set(table) == {"random", "greedy", "heuristic"})
+    check("ladder rates the full gauntlet (random/greedy/aggro/heuristic)",
+          set(table) == {"random", "greedy", "aggro", "heuristic"})
     check("Random is the anchor at 0", table["random"] == 0.0)
     check("Heuristic out-rates Random (Elo ordering tracks strength)", table["heuristic"] > table["random"])
     check("ratings are finite numbers", all(isinstance(v, float) for v in table.values()))
@@ -43,6 +44,33 @@ def _head_to_head_and_gate():
 
     down = ladder.promote(rnd, heu, n=16, thr=0.55, seed=3)
     check("gate REFUSES the inferior direction (Random vs Heuristic)", down["promoted"] is False)
+
+
+def _score_stats_and_significance():
+    # score_stats is EXACT from the win/draw/loss counts — unit-test the math (no games needed)
+    st = ladder.score_stats({"games": 100, "wins": 60, "draws": 0, "losses": 40})
+    check("score_stats computes the mean score", st["score"] == 0.6)
+    check("score_stats SE for 60/100 ≈ 0.049", abs(st["se"] - 0.049) < 0.004)
+    check("score_stats CI brackets the score", st["lo"] < st["score"] < st["hi"])
+    alld = ladder.score_stats({"games": 50, "wins": 0, "draws": 50, "losses": 0})
+    check("all-draws is 0.5 with zero SE (no variance)", alld["score"] == 0.5 and alld["se"] == 0.0)
+    empty = ladder.score_stats({"games": 0, "wins": 0, "draws": 0, "losses": 0})
+    check("score_stats handles zero games", empty["n"] == 0 and empty["se"] == 0.0)
+    near = ladder.score_stats({"games": 40, "wins": 21, "draws": 0, "losses": 19})
+    check("a 21/40 result's 95% CI still includes 0.5 (a tie, not a result)", near["lo"] < 0.5 < near["hi"])
+
+    check("games_for_precision(±0.05) = 385 (⌈(1.96·0.5/0.05)²⌉ = ⌈384.16⌉)", ladder.games_for_precision(0.05) == 385)
+    check("tighter precision needs more games", ladder.games_for_precision(0.03) > ladder.games_for_precision(0.05))
+
+    from witchcraft.players import RandomPlayer
+    from witchcraft.heuristic import HeuristicPlayer
+    c = ladder.compare(HeuristicPlayer(), RandomPlayer(seed=0), games=40, seed=1)
+    check("compare returns score+CI+significance+verdict",
+          {"score", "se", "lo", "hi", "n", "significant", "verdict"} <= set(c))
+    check("compare flags Heuristic >> Random as a significant a>b", c["significant"] and c["verdict"] == "a>b")
+
+    up = ladder.promote(HeuristicPlayer(), RandomPlayer(seed=0), n=16, thr=0.55, seed=2)
+    check("promote() now reports the evidence's uncertainty (se/lo/hi)", {"se", "lo", "hi"} <= set(up))
 
 
 def _persistence_round_trips():
@@ -71,6 +99,7 @@ def run():
     _elo_fit_unit()
     _elo_orders_strength()
     _head_to_head_and_gate()
+    _score_stats_and_significance()
     _persistence_round_trips()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
