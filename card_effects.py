@@ -1009,6 +1009,19 @@ def _must_attack(m):
     return Effect("must_attack", "-", _target(m.group(1)), _target(m.group(2)) if m.group(2) else "-")
 
 
+@_t(rf"^({_TGT}) must (attack|block)(?: each combat| this turn| this combat)?(?: if able)?$")
+def _must_attack_block(m):
+    """'<X> must attack/block [each combat/this turn] [if able]' — the 'must <verb>' phrasing of the §508/
+    §509 combat requirement (the 'attacks each combat if able' form is owned by _must_attack above)."""
+    return Effect("must_" + m.group(2), "-", _target(m.group(1)))
+
+
+@_t(rf"^({_TGT}) assigns no combat damage(?: this turn)?$")
+def _assign_no_combat_damage(m):
+    """'<X> assigns no combat damage [this turn]' — §510.1c."""
+    return Effect("assign_no_combat_damage", "-", _target(m.group(1)))
+
+
 @_t(r"^(?:you |players )?don't lose (?:this|unspent|all unspent)?\s*(?:\w+ )?mana as steps and phases end$")
 def _retain_mana(m):
     """'you don't lose [this/unspent/<color>] mana as steps and phases end' — §500.4 mana retention."""
