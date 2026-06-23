@@ -55,9 +55,30 @@ def _cards_full() -> None:
         check(f"{n} fully ingests (becomes-designation tail now grounds)", full)
 
 
+def _suspect_removal() -> None:
+    # §701.60 suspect REMOVAL — '<subj> is/are/become no longer suspected' -> suspect(-, subj, no_longer).
+    # Same bdgsubj family as becomes-designation; a native Lark production, not regex.
+    for src, tgt in [("it is no longer suspected", "it"),
+                     ("that creature is no longer suspected", "that_creature"),
+                     ("all suspected creatures are no longer suspected", "all_suspected_creatures")]:
+        e = parse_clause_lark(src)
+        check(f"'{src}' -> suspect(-, {tgt}, no_longer)",
+              e is not None and e.verb == "suspect" and e.target == tgt and e.extra == "no_longer")
+    cards = {c["name"]: c for c in card_corpus.load_cards()}
+    for n in ["Absolving Lammasu", "Frantic Scapegoat"]:
+        c = cards.get(n)
+        if not c:
+            continue
+        cid = ground.slug(n)
+        full = all(transpile_unit(u, {"id": cid, "card": c, "seq": i})
+                   for i, u in enumerate(card_corpus.units_of(c)))
+        check(f"{n} fully ingests (suspect-removal clause now grounds)", full)
+
+
 def run() -> None:
     _designation()
     _cards_full()
+    _suspect_removal()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

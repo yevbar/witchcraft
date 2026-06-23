@@ -64,7 +64,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -206,6 +206,11 @@ bcchtail: (WORD | QUANT | TOPREP | MDUR)+
 // -> becomes(-, _target(subj), <desig>). Subject _TGT or abstain.
 bdgclause.-2: bdgsubj BECOMESDESIG                     -> bcdesig_v
 bdgsubj: (WORD | QUANT | NUM)+
+
+// '<subj> is/are/become no longer suspected' (§701.60 suspect REMOVAL) — the inverse of 'suspect <tgt>'.
+// The copula+predicate is one distinctive terminal (NOLONGERSUSP); subject reuses bdgsubj (_TGT or abstain).
+// -> suspect(-, _target(subj), no_longer).
+bnsclause.-2: bdgsubj NOLONGERSUSP                     -> bcnosusp
 
 bcmtgt: (WORD | QUANT | NUM)+            // the permanent receiving the animate (stops at the copula)
 bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | DMG | MDUR | TOKEN | BCM_PT | BCM_COP | EQUALTO | COUNTER | ONPREP)+  -> bcmtail  // raw post-P/T span
@@ -678,6 +683,7 @@ MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attac
 MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
 BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP)
+NOLONGERSUSP.6: /\b(?:is|are|becomes?) no longer suspected\b/   // '<subj> is/are/become no longer suspected' — §701.60 suspect removal (outranks BCM_COP)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
@@ -3337,6 +3343,15 @@ class _ToEffect(Transformer):
             return None
         d = re.sub(r"^becomes? ", "", desig.strip(), flags=re.I).strip()
         return Effect("becomes", "-", _target(str(subj).strip()), ground.slug(d))
+
+    def bcnosusp(self, *args):
+        # '<subj> is/are/become no longer suspected' — §701.60 suspect REMOVAL: suspect(-, _target(subj),
+        # no_longer). Subject _TGT or abstain. ('suspect' is a grounded keyword action, so the marker is on
+        # the extra slot — the engine reads the removal from there.)
+        subj = next((a for a in args if isinstance(a, _BdgSubj)), None)
+        if subj is None or not _AT_TGT.match(str(subj).strip()):
+            return None
+        return Effect("suspect", "-", _target(str(subj).strip()), "no_longer")
 
     # --- FLIP_COIN / FIGHT-each-other -----------------------------------------
     def flipcoin(self, tok):
