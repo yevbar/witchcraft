@@ -139,11 +139,15 @@ def ratings(players: dict, *, games: int = 64, seed: int = 0, anchor: str = "ran
 
 
 def default_rungs() -> dict:
-    """The fixed ladder rungs: Random=0 anchor, plus Greedy and Heuristic — a multi-rung yardstick the
-    self-play Elo is cross-checked against (so a mutual-drift pocket between net generations can't inflate it)."""
+    """The fixed ladder rungs: Random=0 anchor, plus Greedy, Aggro and Heuristic — a multi-rung GAUNTLET the
+    self-play Elo is cross-checked against (so a mutual-drift pocket between net generations can't inflate it).
+    Aggro is the overfitting tripwire: a policy tuned to the deterministic Heuristic can still lose to Aggro's
+    relentless pressure or Random's off-distribution moves, so a real strength claim must clear ALL rungs."""
     from .players import RandomPlayer, GreedyPlayer
     from .heuristic import HeuristicPlayer
-    return {"random": RandomPlayer(seed=0), "greedy": GreedyPlayer(), "heuristic": HeuristicPlayer()}
+    from .aggro import AggroPlayer
+    return {"random": RandomPlayer(seed=0), "greedy": GreedyPlayer(), "aggro": AggroPlayer(),
+            "heuristic": HeuristicPlayer()}
 
 
 def ladder(candidate=None, *, candidate_name: str = "candidate", games: int = 64, seed: int = 0,

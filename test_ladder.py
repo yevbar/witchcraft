@@ -22,9 +22,10 @@ def check(name, cond):
 
 
 def _elo_orders_strength():
-    # Rate the three rungs on one scale. Heuristic is the strong baseline; Random the anchor.
+    # Rate the gauntlet rungs on one scale. Heuristic is the strong baseline; Random the anchor.
     table = ladder.ladder(games=16, seed=0)
-    check("ladder rates all three rungs", set(table) == {"random", "greedy", "heuristic"})
+    check("ladder rates the full gauntlet (random/greedy/aggro/heuristic)",
+          set(table) == {"random", "greedy", "aggro", "heuristic"})
     check("Random is the anchor at 0", table["random"] == 0.0)
     check("Heuristic out-rates Random (Elo ordering tracks strength)", table["heuristic"] > table["random"])
     check("ratings are finite numbers", all(isinstance(v, float) for v in table.values()))
