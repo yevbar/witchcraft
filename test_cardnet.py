@@ -199,6 +199,23 @@ def _time_preferred_target() -> None:
     check("discounted targets stay within [-1, 1]", all(-1.0 <= z <= 1.0 for *_r, z in shaped))
 
 
+def _iterate_value_and_ability_seam() -> None:
+    """Phase 4 payoff: iterate_value runs iterated self-play judged by the disjoint metric and returns the best
+    net; CardNetValue auto-detects the ability-channel width so an ability-trained net works as a value_fn."""
+    out = cn.iterate_value(rounds=2, games_per_round=4, eval_games=4, epochs=8, embed=16, hidden=32,
+                           seed=0, verbose=False)
+    h = out["history"]
+    check("iterate_value returns best net + value_fn + per-round disjoint metrics",
+          out["net"] is not None and out["value_fn"] is not None and len(h) == 2
+          and all("disjoint_sign_acc" in r for r in h))
+    check("iterate_value disjoint sign-acc is in [0,1]",
+          all(r["disjoint_sign_acc"] is None or 0.0 <= r["disjoint_sign_acc"] <= 1.0 for r in h))
+    vfa = cn.CardNetValue(cn.CardValueNet(n_obj=cn.obj_features(True), seed=0))
+    check("CardNetValue auto-detects the ability-channel width", vfa.abilities is True)
+    g = Game(seed=3)
+    check("an ability-width value_fn runs without a size mismatch", -1.0 <= vfa(g.state, g.turn) <= 1.0)
+
+
 def _ability_verb_channel() -> None:
     """Phase 4: the opt-in card_effect-VERB channel ('what the card does' — the §7.4 gap) widens card_features
     by len(VERBS); a net built with obj_features(True) consumes it and trains."""
@@ -293,6 +310,7 @@ def run() -> None:
     _value_player_drives_subchoices()
     _reproducible_training()
     _time_preferred_target()
+    _iterate_value_and_ability_seam()
     _ability_verb_channel()
     _value_metrics_disjoint()
     _set_attention_pool()
