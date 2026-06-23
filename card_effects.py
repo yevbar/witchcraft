@@ -1087,8 +1087,10 @@ def _look_that_many(m):
     return Effect("look", "that_amount", "top_of_library")
 
 
-@_t(rf"^({_TGT}) can't (be blocked|block or be blocked|attack or block|block|attack)(?: ({_TGT}))? this turn$")
+@_t(rf"^({_TGT}) can't (be blocked|block or be blocked|attack or block|block|attack)(?: ({_TGT}))?(?: this turn)?$")
 def _cant_combat(m):
+    # 'this turn' is optional: a bare '<X> can't attack/block' is a permanent §508/§509 combat restriction
+    # (the duration isn't captured in the fact either way) — covers '~ can't attack', '~ can't be blocked', etc.
     extra = _target(m.group(3)) if m.group(3) else "-"
     return Effect("cant_" + m.group(2).replace(" ", "_"), "-", _target(m.group(1)), extra)
 
