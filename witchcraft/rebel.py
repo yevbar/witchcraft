@@ -82,6 +82,43 @@ def heuristic_value(state: dict, seat: str) -> float:
 
 
 # --------------------------------------------------------------------------------------------------------
+# Quiescence — score moves at a COMBAT-RESOLVED state, not pre-damage.
+# --------------------------------------------------------------------------------------------------------
+# `env.step` on an attack advances only to the defender's block decision (to_move = defender, attackers not
+# yet through damage), so a 1-ply value applied there is BLIND to the attack's payoff exactly when blocking
+# matters. _quiesce rolls the engine forward through combat (default blocks + damage) to the next non-combat
+# state so the value sees the OUTCOME. (a quiescence step, like chess — the cheap test for whether the
+# 1-ply<heuristic gap is a horizon artifact rather than a value-capacity wall.)
+
+# the canonical combat step names — reuse driver's single source of truth (a local copy drifted: it had a
+# typo'd "begin_combat" + a non-existent "first_strike_combat_damage", silently no-op'ing _quiesce on a
+# beginning_of_combat state). driver._COMBAT_STEPS is exactly the steps where combat is still resolving.
+_COMBAT_STEPS = frozenset(driver._COMBAT_STEPS)
+
+
+def _quiesce(state: dict, max_steps: int = 16) -> dict:
+    """Advance through combat (default sub-choices) to the next non-combat state; no-op (no clone) if already
+    out of combat or terminal."""
+    if env.is_terminal(state) or env._step(state) not in _COMBAT_STEPS:
+        return state
+    s = driver.clone_state(state)
+    for _ in range(max_steps):
+        if env.is_terminal(s) or env._step(s) not in _COMBAT_STEPS:
+            break
+        with contextlib.redirect_stdout(io.StringIO()):
+            env._advance_one(s)
+    return s
+
+
+def quiescent(value_fn):
+    """Wrap a `value_fn(state, seat)` so it scores at the combat-resolved (quiescent) state — gives 1-ply
+    move selection a view PAST combat, fixing the attack-horizon blind spot. Composes with any value_fn."""
+    def vf(state, seat):
+        return value_fn(_quiesce(state), seat)
+    return vf
+
+
+# --------------------------------------------------------------------------------------------------------
 # Infoset key + belief / determinization.
 # --------------------------------------------------------------------------------------------------------
 
@@ -145,7 +182,9 @@ def _expand(state, agent, depth, cap, value_fn, deadline):
     acts = env.legal_actions(state)
     if not acts:
         return {"leaf": True, "value": _leaf_value(state, agent, value_fn)}
-    acts = acts[:cap]
+    acts = acts[:cap]                                    # NB: only the ROOT cap is un-blinded (value/policy-
+    #     ordered in ReBeLPlayer._root_actions); interior nodes still take env.legal_actions' alphabetical
+    #     prefix here. Ordering every interior node would cost an env.step per move per node — out of scope.
     acting = env.to_move(state)
     children = [_expand(env.step(state, a), agent, depth - 1, cap, value_fn, deadline) for a in acts]
     return {"leaf": False, "acting": acting, "infoset": _infoset(state, acting), "children": children}
@@ -243,8 +282,12 @@ class GreedyValuePlayer(Player):
 
     name = "greedy_value"
 
-    def __init__(self, value_fn=None, seed: int | None = None):
-        self.value_fn = value_fn or heuristic_value
+    def __init__(self, value_fn=None, seed: int | None = None, quiesce: bool = False):
+        vf = value_fn or heuristic_value
+        # quiesce=True scores each move at the COMBAT-RESOLVED state (see `quiescent`) — measured +122 Elo for
+        # a trained leaf (+182 -> +304, ~half the gap to the rule-based heuristic), negligible for the coarse
+        # heuristic value. Off by default (non-breaking); recommended ON for a real value net.
+        self.value_fn = quiescent(vf) if quiesce else vf
         self._rng = random.Random(seed)
 
     def choose_move(self, game):
@@ -283,8 +326,8 @@ class ValuePlayer(GreedyValuePlayer):
 
     name = "value"
 
-    def __init__(self, value_fn=None, seed=None, max_options: int = 12):
-        super().__init__(value_fn, seed)
+    def __init__(self, value_fn=None, seed=None, max_options: int = 12, quiesce: bool = False):
+        super().__init__(value_fn, seed, quiesce=quiesce)
         self.max_options = max_options
         self._busy = False                                  # True while probing/rolling -> decide uses the cheap default
 
@@ -337,7 +380,8 @@ class ReBeLPlayer(Player):
 
     def __init__(self, *, worlds: int = 4, iterations: int = 100, depth: int = 3, action_cap: int = 6,
                  time_budget: float = 5.0, perfect_info: bool = False, value_fn=None,
-                 temperature: float = 0.0, seed: int | None = None):
+                 temperature: float = 0.0, seed: int | None = None, order_cap: bool = True,
+                 policy_fn=None, cap_floor: int = 2, force_pass: bool = True):
         self.worlds = worlds
         self.iterations = iterations
         self.depth = depth
@@ -346,9 +390,54 @@ class ReBeLPlayer(Player):
         self.perfect_info = perfect_info
         self.value_fn = value_fn
         self.temperature = temperature
+        # The root action cap is un-blinded by ORDERING `moves` before truncating to `cap` (the unordered
+        # `moves[:cap]` prefix blindfolds CFR — the best move can be pruned out of the subgame while greedy
+        # still scans it, MODELING_DIRECTION_HANDOFF §1 #1). Two ordering signals, policy_fn preferred:
+        #   policy_fn(state, seat, moves)->per-move prior scores — the Phase-2 M2 pointer-net prior.
+        #   order_cap — fall back to the 1-ply leaf value (like greedy) when there's no policy prior.
+        self.order_cap = order_cap
+        self.policy_fn = policy_fn
+        self.cap_floor = cap_floor              # of the cap slots, reserve this many for epsilon-random
+        # always keep a pass move in the ordered cap (so a wrong prior can't prune it). Correct for a WIDE cap;
+        # at a TIGHT cap it spends a precious slot on do-nothing (measured: forcing pass into cap=3 made the
+        # ordered player pass itself to death in aggro) — set False there. The alphabetical cap never has pass
+        # (it sorts last), so for an apples-to-apples ordering A/B at a tight cap, disable this.
+        self.force_pass = force_pass
         self._rng = random.Random(seed)
         self.last_policy = None                 # the average strategy of the last decision (introspection)
         self.last_value = None                  # the CFR root value of the last decision (the self-play value target)
+
+    def _root_actions(self, game, moves):
+        """The root action set fed to CFR — exactly min(cap, #moves) actions (so the env.step budget is
+        UNCHANGED vs the legacy cap). The cap's slots go to the most promising moves instead of an
+        alphabetical prefix (env.legal_actions sorts by card id). Ordering signal, in order of preference:
+        a `policy_fn` prior (Phase-2 M2 pointer net), else the 1-ply leaf value (`order_cap`, like greedy),
+        else the legacy `moves[:cap]`. With a `policy_fn`, invariants guard against a confident-but-wrong
+        prior: always include a `pass` move if one exists, and reserve `cap_floor` slots for ε-uniform random
+        moves."""
+        cap = min(self.action_cap, len(moves))
+        if cap >= len(moves):
+            return list(moves[:cap])
+        state, seat = game.state, game.turn
+        if self.policy_fn is not None:
+            scores = self.policy_fn(state, seat, moves)
+            order = sorted(range(len(moves)), key=lambda i: scores[i], reverse=True)
+            floor = max(0, min(self.cap_floor, cap // 3))           # keep the floor a MINORITY of the cap, so a
+            #                                                         tight cap stays prior-DOMINATED (a floor that
+            #                                                         rivals the cap would make 'ordered' ~random)
+            keep = order[: cap - floor]                             # the highest-prior moves
+            rest = order[cap - floor:]
+            self._rng.shuffle(rest)                                 # epsilon-uniform floor
+            chosen = keep + rest[: cap - len(keep)]
+            if self.force_pass:
+                pass_i = next((i for i, m in enumerate(moves) if getattr(m, "kind", None) == "pass"), None)
+                if pass_i is not None and pass_i not in chosen:     # invariant: never prune the option to pass
+                    chosen[-1] = pass_i                             # swap the weakest chosen slot for pass
+            return [moves[i] for i in chosen]
+        if self.order_cap:
+            vf = self.value_fn or heuristic_value
+            return sorted(moves, key=lambda m: vf(env.step(state, m), seat), reverse=True)[:cap]
+        return list(moves[:cap])
 
     def choose_move(self, game):
         moves = game.legal_moves
@@ -356,7 +445,7 @@ class ReBeLPlayer(Player):
             return None
         if len(moves) == 1:
             return moves[0]
-        actions = moves[: self.action_cap]
+        actions = self._root_actions(game, moves)
         deadline = time.perf_counter() + self.time_budget
         policy, value = solve(game.state, game.turn, actions, worlds=self.worlds, iterations=self.iterations,
                               depth=self.depth, action_cap=self.action_cap, value_fn=self.value_fn,
