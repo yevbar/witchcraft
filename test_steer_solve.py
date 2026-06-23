@@ -84,10 +84,25 @@ def _plays_full_game():
     check("Steer-and-Solve plays to a terminal result", g.is_game_over())
 
 
+def _teacher_arms():
+    """SolverSeekingPlayer (the Step-3b teacher): the WIN arm fires on a forced lethal; it plays a full game
+    through the develop/fallback arms otherwise."""
+    from witchcraft.steer_solve import SolverSeekingPlayer
+    t = SolverSeekingPlayer(RandomPlayer(seed=0), win_turns=1, win_budget=2000, life_gate=None)
+    mv = t.choose_move(_FakeGame(_combat_lethal_state()))
+    check("teacher WIN arm fires on a forced lethal", t.last_arm == "win")
+    check("teacher's win-arm move is the lethal attack", mv is not None and mv.kind == "attack")
+    with contextlib.redirect_stdout(io.StringIO()):
+        g = play({"alice": SolverSeekingPlayer(RandomPlayer(seed=1), progress_turns=2, progress_budget=250),
+                  "bob": RandomPlayer(seed=2)}, seed=7, max_moves=4000)
+    check("teacher plays to a terminal result", g.is_game_over())
+
+
 def run():
     _takeover_on_lethal()
     _gated_off_when_healthy()
     _plays_full_game()
+    _teacher_arms()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

@@ -85,3 +85,72 @@ class SteerAndSolvePlayer(Player):
                     return m
         self.last_takeover = False                  # no forced win in horizon -> the net steers
         return self.brain.choose_move(game)
+
+
+class SolverSeekingPlayer(Player):
+    """The SOLVER as a player (win_seeking_policy's shape, as a Player): at each decision play a FORCED KILL if
+    one is available, else DEVELOP toward the deck's win axis (find_progress / find_minimax), else defer to a
+    `fallback` player. This is the Step-3b TEACHER — it plays multi-turn kill/setup lines a 1-ply heuristic
+    can't, and (with sound forced find_win) its kills are real.
+
+    SOUNDNESS NOTE: only the win arm is adversarially sound. The develop arm is opponent-PASSIVE by default
+    (find_progress assumes the opponent stands still — so it can over-value attacks a real defender trades
+    away); `minimax=True` swaps in find_minimax (self-interested opponent, perfect-info) which races/blocks but
+    still doesn't purely deny you. The fallback (typically HeuristicPlayer) catches the rest."""
+
+    name = "solver_seeking"
+
+    def __init__(self, fallback: Player, *, axis: str = "life_zero", win_turns: int = 1, win_budget: int = 1000,
+                 life_gate: int | None = 16, progress_turns: int = 4, progress_budget: int = 2000,
+                 forced: bool = True, minimax: bool = False, seed: int | None = None):
+        self.fallback = fallback
+        self.axis = axis
+        self.win_turns = win_turns
+        self.win_budget = win_budget
+        self.life_gate = life_gate
+        self.progress_turns = progress_turns
+        self.progress_budget = progress_budget
+        self.forced = forced
+        self.minimax = minimax
+        self._rng = random.Random(seed)
+        self.last_arm = "fallback"                  # introspection: which arm chose ('win'/'develop'/'fallback')
+        self.wants_explicit_lands = getattr(fallback, "wants_explicit_lands", False)
+        self.wants_instant_speed = getattr(fallback, "wants_instant_speed", False)
+
+    @staticmethod
+    def _move_for(moves, action):
+        for m in moves:
+            if m.raw == action:
+                return m
+        return None
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            self.last_arm = "fallback"
+            return moves[0]
+        seat = game.turn
+        opp_life = min((v for (p, v) in game.state.get("life", ()) if p != seat), default=99)
+        if self.life_gate is None or opp_life <= self.life_gate:        # 1. forced kill
+            path, _ = win_search.find_win(game.state, me=seat, max_turns=self.win_turns,
+                                          node_budget=self.win_budget, forced=self.forced)
+            if path:
+                m = self._move_for(moves, path[0])
+                if m is not None:
+                    self.last_arm = "win"
+                    return m
+        if self.minimax:                                                # 2. develop toward the axis
+            path, _ = win_search.find_minimax(game.state, seat, self.axis, self.axis,
+                                              self.progress_turns, self.progress_budget)
+        else:
+            path, _ = win_search.find_progress(game.state, seat, self.axis,
+                                               self.progress_turns, self.progress_budget)
+        if path:
+            m = self._move_for(moves, path[0])
+            if m is not None:
+                self.last_arm = "develop"
+                return m
+        self.last_arm = "fallback"                                      # 3. nothing -> hand off
+        return self.fallback.choose_move(game)
