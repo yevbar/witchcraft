@@ -34,11 +34,21 @@ class SteerAndSolvePlayer(Player):
 
     name = "steer_solve"
 
-    def __init__(self, brain: Player, *, max_turns: int = 2, node_budget: int = 4000,
-                 life_gate: int | None = 16, seed: int | None = None):
+    def __init__(self, brain: Player, *, max_turns: int = 1, node_budget: int = 4000,
+                 life_gate: int | None = 16, forced: bool = True, seed: int | None = None):
         self.brain = brain
         self.max_turns = max_turns
         self.node_budget = node_budget
+        # forced=True: only take over on a win that holds against the opponent's WORST-CASE block (find_win's
+        # adversarial mode), not one merely reachable against a passive defender — so takeovers don't evaporate
+        # vs a real opponent. A takeover gate wants false negatives (keep steering) over false positives (throw
+        # a game), which is exactly what the conservative forced solver gives.
+        # max_turns=1 is the SOUND default: a 1-turn forced win depends only on this turn's block (which forced
+        # makes worst-case), never on the opponent's own turn. find_win still PASSES the opponent's whole turn,
+        # so a forced 2-turn "win" assumes the opponent develops/races nothing — measured takeover conversion
+        # 1.000 at mt=1 vs 0.938 at mt=2 (the residual is exactly that passed turn). Raise max_turns only once
+        # find_win simulates the opponent's turn adversarially (the deferred full any→all escalation).
+        self.forced = forced
         # life_gate: only run the (expensive) solver when an opponent's life is within range — find_win
         # exhausts its node_budget on every miss, so skipping the early/midgame where no kill exists is a
         # ~5-10x speedup. Default 16 (a 1-2 turn damage kill from >16 life is implausible); None = always
@@ -66,7 +76,7 @@ class SteerAndSolvePlayer(Player):
             self.last_takeover = False              # no opponent in kill range -> skip the solver, just steer
             return self.brain.choose_move(game)
         path, _ = win_search.find_win(game.state, me=game.turn, max_turns=self.max_turns,
-                                      node_budget=self.node_budget)
+                                      node_budget=self.node_budget, forced=self.forced)
         if path:
             action = path[0]                        # the engine action tuple beginning the winning line
             for m in moves:                         # map it back to the Move whose .raw is that action

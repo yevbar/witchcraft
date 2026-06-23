@@ -239,6 +239,40 @@ def _minimax_checks():
     check("minimax: the opponent still races to its OWN win (unanswerable lethal -> a loss value)", vl < -10 ** 5)
 
 
+def _forced_adversarial():
+    """find_win(forced=True): the win must hold against the opponent's WORST-CASE block (forall over blocks),
+    not the survival/default block. It preserves REAL lethals and is strictly conservative (never accepts a win
+    the passive search rejects), so a takeover gate built on it can't fabricate."""
+    # a clean unblockable lethal: alice 5/5, bob at 4, NO blockers -> found by BOTH passive and forced.
+    st = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("precombat_main",)},
+          "life": {("alice", 20), ("bob", 4)}, "on_battlefield": {("ogre",)}, "printed_type": {("ogre", "creature")},
+          "printed_power": {("ogre", 5)}, "printed_toughness": {("ogre", 5)}, "printed_control": {("alice", "ogre")},
+          "in_hand": set(), "in_library": {("bob", f"b{i}") for i in range(20)},
+          "_lib_order": {"bob": [f"b{i}" for i in range(20)]}, "tapped": set(), "counter": set(),
+          "attacks": set(), "blocks": set(), "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+    check("forced still finds a clean unblockable lethal (real wins preserved)",
+          win_search.find_win(st, me="alice", max_turns=1, node_budget=3000, forced=True)[0] is not None)
+    # conservatism: across a handful of boards, a forced win implies a passive win (forced ⊆ passive) — it is
+    # strictly stricter, so it can only REMOVE fabricated wins, never invent one.
+    boards = []
+    for opp_life, blk in [(4, None), (3, 2), (6, 4), (8, None)]:
+        b = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+             "current_step": {("precombat_main",)}, "life": {("alice", 20), ("bob", opp_life)},
+             "on_battlefield": {("ogre",)} | ({("blk",)} if blk else set()),
+             "printed_type": {("ogre", "creature")} | ({("blk", "creature")} if blk else set()),
+             "printed_power": {("ogre", 5)} | ({("blk", blk)} if blk else set()),
+             "printed_toughness": {("ogre", 5)} | ({("blk", blk)} if blk else set()),
+             "printed_control": {("alice", "ogre")} | ({("bob", "blk")} if blk else set()),
+             "in_hand": set(), "in_library": {("bob", f"b{i}") for i in range(20)},
+             "_lib_order": {"bob": [f"b{i}" for i in range(20)]}, "tapped": set(), "counter": set(),
+             "attacks": set(), "blocks": set(), "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+        boards.append(b)
+    subset = all(win_search.find_win(b, me="alice", max_turns=2, node_budget=3000, forced=False)[0] is not None
+                 for b in boards
+                 if win_search.find_win(b, me="alice", max_turns=2, node_budget=3000, forced=True)[0] is not None)
+    check("forced ⊆ passive (every forced win is also a passive win — strictly conservative)", subset)
+
+
 def run():
     _combat_lethal()
     _spell_win()
@@ -246,6 +280,7 @@ def run():
     _progress_checks()
     _defensive_opponent()
     _minimax_checks()
+    _forced_adversarial()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
