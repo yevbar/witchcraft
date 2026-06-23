@@ -120,6 +120,8 @@ _CORE_ACTIONS = frozenset({
     "change_targets",       # §115.7/§706 — changing the target(s) of a spell or ability
     "becomes_day", "becomes_night",  # §726 — the day/night designation changes
     "assign_no_combat_damage",  # §510.1c — an effect that a creature assigns no combat damage
+    "seek", "draft",        # §701.51 seek / §701 draft — keyword actions missing from the (older) rules-
+    #                         derived keyword_action_index; added here as recognized rules-defined verbs
 })
 
 
