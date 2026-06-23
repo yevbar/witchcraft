@@ -2064,6 +2064,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("static_player", (facts, sp))                     # not a souffle relation; driver reads it (e.g. _static_extra_lands)
     for nu in f.get("no_untap", ()):                          # §502 continuous "doesn't untap" lock (Mana Vault, Auras) —
         add("static_no_untap", (facts, nu))                   # driver-only; driver._locked_no_untap maps it to instances
+    for (who, action) in f.get("cant", ()):                   # §509 static restrictions 'X can't <action>' — card-level
+        add("cant", (facts, who, action))                     # (set-deduped). The engine consumes the SELF combat forms
+        #                                                       (block / be_blocked) via illegal_block (translate.dl).
     if ("self", "be_countered") in f.get("cant", ()):         # §701.5f a 'self can't be countered' static (Emrakul,
         add("uncounterable", (tid,))                          # Supreme Verdict, …) -> driver-only flag on THIS instance;
         #                                                       driver._cant_be_countered refuses to counter it (public
