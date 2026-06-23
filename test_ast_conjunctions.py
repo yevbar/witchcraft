@@ -61,8 +61,30 @@ def _cards_full() -> None:
         check(f"{n} fully ingests (compound-counter clause composes)", full)
 
 
+def _tokens() -> None:
+    # compound token creation: 'create <c1> <s1> token and <c2> <s2> token' — was LOSSY (the 2nd token was
+    # silently dropped via the create ctail-swallow); the AST conjunction composes two create effects.
+    cases = [
+        ("create a 1/1 white Soldier creature token and a Treasure token",
+         [("create", 1, "token", "1_1_white_soldier_creature"), ("create", 1, "token", "treasure")]),
+        ("create a Treasure token and a Food token",
+         [("create", 1, "token", "treasure"), ("create", 1, "token", "food")]),
+    ]
+    for src, want in cases:
+        check(f"compose 2 create from {src[:42]!r}", _tuples(parse_clauses(src)) == want)
+    # a SINGLE create is unchanged
+    one = parse_clause("create a 1/1 white Soldier creature token")
+    check("single create unchanged", one is not None and one.verb == "create" and one.extra == "1_1_white_soldier_creature")
+    # the conjunction production does NOT over-match a heterogeneous 'create … and <non-token>' (no 2nd token
+    # NP) — it abstains, so _parse_body's splitter still handles 'create … and draw …' as before.
+    from card_lark import parse_clauses_lark
+    check("conjunction abstains on 'create … and draw a card' (no 2nd token NP)",
+          parse_clauses_lark("create a 1/1 white Soldier creature token and draw a card") is None)
+
+
 def run() -> None:
     _compose()
+    _tokens()
     _cards_full()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

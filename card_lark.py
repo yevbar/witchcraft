@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | gclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -132,6 +132,11 @@ cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N>
 // two put_counter effects (xf returns a LIST, consumed by parse_clauses_lark). Common keyword-counter form.
 cconjclause: csubj? PUT ccount ckind COUNTER "and" ccount ckind COUNTER ONPREP ctarget   -> putctr_conj
 tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
+// COMPOUND tokens (AST conjunction): 'create <c1> <spec1> token(s) and <c2> <spec2> token(s)' — the two
+// token NPs share ONE 'create', so a flat split strands the verb-less 2nd half and `create` would DROP it
+// (its ctail swallows 'and a Treasure token' — a silent lossy conjunct). The grammar composes them into two
+// create effects (xf -> LIST). Priority .2 so it WINS the ctail-swallow ambiguity for the compound form.
+tconjclause.2: ccreator? CVERB CCOUNT cspec TOKEN "and" CCOUNT cspec TOKEN  -> create_conj
 // CREATE a COPY token (§707) — '[<creator>] create[s] [N] token[s] that's a copy of <X>[, except <mods>]'.
 // Spec-LESS, so the normal `tclause` (which needs a cspec before TOKEN) PARSE-FAILs; the distinctive COPYTOK
 // terminal anchors it, cpobj consumes the copied object + optional ', except <mods>' (WORD eats the comma),
@@ -2156,6 +2161,35 @@ class _ToEffect(Transformer):
         amt = n if n is not None else "X"
         extra = "copy_of_" + ground.slug(m.group(2)) + ("_except_" + ground.slug(m.group(3)) if m.group(3) else "")
         return Effect("create", amt, "token", extra)
+
+    def create_conj(self, *args):
+        # 'create <c1> <spec1> token(s) and <c2> <spec2> token(s)' — the AST conjunction. Two token NPs
+        # sharing one 'create' -> two create effects, each in the base `create` shape (amount=_amount(count),
+        # extra=slug(spec), cond=creator). Returns a LIST. Mirrors the single `create` for the SIMPLE form
+        # (no per-token 'with <kw>'/'named'/'tapped' modifier — those don't reach this production and stay
+        # with `create`); abstains on a non-player creator or an odd spec (token/copy/number-of), as create.
+        creator = next((a for a in args if isinstance(a, _Creator)), None)
+        specs = [str(a) for a in args if isinstance(a, _Spec)]
+        counts = [str(a).lower() for a in args
+                  if not isinstance(a, (_Creator, _Spec, _FEWord, _CTail))
+                  and re.fullmatch(r"(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)",
+                                   str(a).lower())]
+        if len(specs) != 2 or len(counts) != 2:
+            return None
+        cond = "-"
+        if creator is not None:
+            c = creator.strip().lower()
+            if c != "you":
+                if not _PLAYER.match(c):
+                    return None
+                cond = "creator_" + _target(c)
+        out = []
+        for cnt, spec in zip(counts, specs):
+            if re.search(r"\b(?:token|tokens|copy|copies)\b", spec.lower()) or spec.lower().startswith("number of"):
+                return None
+            n = _amount(cnt)
+            out.append(Effect("create", n if n is not None else cnt, "token", ground.slug(spec), cond))
+        return out
 
     def create(self, *args):
         src = getattr(self, "_src", None)
