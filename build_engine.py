@@ -168,6 +168,11 @@ INPUTS = [
     ("card_keyword", [("card", "symbol"), ("kw", "symbol")]),
     ("card_subtype", [("card", "symbol"), ("st", "symbol")]),
     ("card_color", [("card", "symbol"), ("col", "symbol")]),
+    # §509 static combat restrictions parsed as `cant(card, who, action)` — the SELF combat forms
+    # ("~ can't block" / "~ can't be blocked") feed the engine's illegal_block (combat below). Scoped/
+    # non-combat forms (be_countered etc.) ride along but no rule consumes them (inert, like a non-engine
+    # keyword in card_keyword); the be_countered self form is handled driver-side via `uncounterable`.
+    ("cant", [("card", "symbol"), ("who", "symbol"), ("action", "symbol")]),
     # §702.166 ESCAPE — the alternative cost to cast this card from the graveyard (parsed at build time):
     # its mana cost as generic + colored pips (the same shape as the printed cost) and the number of OTHER
     # graveyard cards to exile as an additional cost.
@@ -612,6 +617,13 @@ def _rules(p: Program) -> None:
     p.rule("n_blockers(A, N)", ["blocks(_, A)", "N = count : { blocks(_, A) }"])
     for _num, dl in _transpiled("702", TRANSPILED_702):
         p.raw(dl)
+    p.comment("§509 SELF static combat restrictions parsed as cant(card,'self',action): '~ can't block' "
+              "makes any block it declares illegal; '~ can't be blocked' (evasion) makes any block AGAINST "
+              "it illegal -> it stays unblocked and hits the player. (blocks(B,A): B blocks A.)")
+    p.rule("illegal_block(B, A)", ["blocks(B, A)", "instance_of(B, Card)", 'cant(Card, "self", "block")'],
+           note="the BLOCKER can't block")
+    p.rule("illegal_block(B, A)", ["blocks(B, A)", "instance_of(A, Card)", 'cant(Card, "self", "be_blocked")'],
+           note="the ATTACKER can't be blocked")
     p.blank()
     p.comment("§510 — combat, gated by the combat damage step (turn <-> combat).")
     p.comment("Combat respects the transpiled illegal_block: an illegal block neither stops")
