@@ -65,7 +65,8 @@ VERBS = ("draw", "deal_damage", "destroy", "exile", "counter", "gain_life", "los
 
 # per-object feature layout: zone[3] + tapped[1] + owner[1] + p/t/cmc[3] + types + colors + keywords (+ verbs)
 OBJ_FEATURES = 3 + 1 + 1 + 3 + len(TYPES) + len(COLORS) + len(KEYWORDS)
-ABILITY_FEATURES = len(VERBS)                               # the opt-in card_effect-verb channel
+ABILITY_FEATURES = 2 * len(VERBS)                          # opt-in card_effect channel: verb-PRESENT + verb-MAGNITUDE
+_AMT_SCALE = 6.0                                            # normalize/cap the effect amount like p/t/cmc
 GLOBAL_FEATURES = rebel_train.FEATURES                      # the 14 global belief features, reused verbatim
 
 
@@ -101,11 +102,16 @@ def card_features(state: dict, seat: str, abilities: bool = False):
     col_by_slug: dict = {}
     for (s, c) in v.get("card_color", ()):
         col_by_slug.setdefault(s, set()).add(c)
-    verb_by_slug: dict = {}                                          # card_effect: (slug, aid, seq, VERB, ...)
+    verb_amt_by_slug: dict = {}                                      # card_effect: (slug, aid, seq, VERB, AMT, ...)
     if abilities:
         for r in v.get("card_effect", ()):
-            if len(r) >= 4:
-                verb_by_slug.setdefault(r[0], set()).add(r[3])
+            if len(r) >= 5:
+                try:
+                    amt = float(r[4])                                # numeric magnitude (draw 1 vs draw 3)
+                except (TypeError, ValueError):
+                    amt = 0.0                                        # X / target-words / '-' : present, magnitude unknown
+                d = verb_amt_by_slug.setdefault(r[0], {})
+                d[r[3]] = max(d.get(r[3], 0.0), amt)                 # biggest instance of this verb on the card
 
     rows, owners = [], []
     for i in sorted(bf | hand | gy):
@@ -121,8 +127,9 @@ def card_features(state: dict, seat: str, abilities: bool = False):
         kset = kw_by_slug.get(slug, ())
         row += [float(k in kset) for k in KEYWORDS]
         if abilities:                                                  # the "what the card DOES" channel
-            vset = verb_by_slug.get(slug, ())
-            row += [float(verb in vset) for verb in VERBS]
+            amts = verb_amt_by_slug.get(slug, {})
+            row += [float(verb in amts) for verb in VERBS]                          # verb PRESENT
+            row += [min(amts.get(verb, 0.0), _AMT_SCALE) / _AMT_SCALE for verb in VERBS]  # verb MAGNITUDE
         rows.append(row)
         owners.append(mine)
 
