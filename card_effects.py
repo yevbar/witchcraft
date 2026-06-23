@@ -2000,11 +2000,30 @@ def _lark_leaf(s):
     return _LARK_LEAF(s)
 
 
+_LARK_CLAUSES = None
+
+
+def _lark_clauses(s):
+    """LARK-FIRST multi-effect leaf (AST conjunction productions, e.g. compound counters) — returns a list
+    of Effects or None. Lazy-imported like _lark_leaf to avoid the import cycle."""
+    global _LARK_CLAUSES
+    if _LARK_CLAUSES is None:
+        try:
+            from card_lark import parse_clauses_lark
+            _LARK_CLAUSES = parse_clauses_lark
+        except Exception:
+            _LARK_CLAUSES = lambda _s: None
+    return _LARK_CLAUSES(s)
+
+
 def parse_clauses(sentence: str) -> "list | None":
     """parse a clause into one OR MORE effects (compound until-EOT buffs yield several); else None."""
     multi = _eot_compound(sentence.strip().rstrip("."))
     if multi:
         return multi
+    lk = _lark_clauses(sentence)            # AST conjunctions the grammar composes (e.g. compound counters)
+    if lk:
+        return lk
     e = parse_clause(sentence)
     return [e] if e else None
 

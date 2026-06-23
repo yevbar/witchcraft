@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | tclause | gclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | gclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -127,6 +127,10 @@ chsrest: chstok+                                  // the chosen-thing NP, opaque
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
       | DEALS | DMG | GETS | GVERB | PVERB | PUT | TOKEN | DIVIDED | THATMUCH | PTDELTA | MDUR | CCOUNT
 cclause: csubj? PUT ccount ckind COUNTER ONPREP ctarget   -> putctr  // 'put <N> <kind> counter(s) on <tgt>'
+// COMPOUND counters (AST conjunction): 'put <c1> <k1> counter(s) and <c2> <k2> counter(s) on <tgt>' — the
+// two counter NPs SHARE one PUT and one 'on <tgt>', so a flat split fails; the grammar composes them into
+// two put_counter effects (xf returns a LIST, consumed by parse_clauses_lark). Common keyword-counter form.
+cconjclause: csubj? PUT ccount ckind COUNTER "and" ccount ckind COUNTER ONPREP ctarget   -> putctr_conj
 tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
 // CREATE a COPY token (§707) — '[<creator>] create[s] [N] token[s] that's a copy of <X>[, except <mods>]'.
 // Spec-LESS, so the normal `tclause` (which needs a cspec before TOKEN) PARSE-FAILs; the distinctive COPYTOK
@@ -2551,6 +2555,34 @@ class _ToEffect(Transformer):
     def ctarget(self, *toks):
         return _CTarget(" ".join(str(t) for t in toks))
 
+    def putctr_conj(self, *args):
+        # 'put <c1> <k1> counter(s) and <c2> <k2> counter(s) on <tgt>' — the AST conjunction. Two counter
+        # NPs (count_i, kind_i) sharing one target -> two put_counter effects, each in the base putctr shape
+        # (amount=_amount(count), extra=<+P/+T verbatim | slug(keyword)>). Returns a LIST. Subject (a player
+        # before 'put') is DROPPED, but only when it's a clean player phrase, else abstain (like putctr).
+        counts = [str(a) for a in args if isinstance(a, _CCount)]
+        kinds = [str(a) for a in args if isinstance(a, _CKind)]
+        tgt = next((str(a) for a in args if isinstance(a, _CTarget)), None)
+        subj = next((str(a) for a in args if isinstance(a, _CSubj)), None)
+        if len(counts) != 2 or len(kinds) != 2 or tgt is None:
+            return None
+        if subj is not None:
+            s = subj.strip().lower()
+            s = s[:-4].strip() if s.endswith(" may") else s
+            if not _PLAYER.match(s):
+                return None
+        t = _target(tgt.strip().lower())
+        out = []
+        for cnt, knd in zip(counts, kinds):
+            knd = knd.strip()
+            kl = knd.lower()
+            if re.search(r"\bcounters?\b", kl) or re.search(r"\b(?:into|onto|battlefield|graveyard|library|hand)\b", kl):
+                return None                       # a re-lexed counter/zone word -> mis-split, abstain (as putctr)
+            n = _amount(cnt.strip().lower())
+            k = knd if "/" in knd else ground.slug(knd)
+            out.append(Effect("put_counter", n if n is not None else "-", t, k))
+        return out
+
     def putctr(self, *args):
         subj = next((str(a) for a in args if isinstance(a, _CSubj)), None)
         count = next((str(a) for a in args if isinstance(a, _CCount)), None)
@@ -3900,3 +3932,20 @@ def parse_clause_lark(clause: str):
     e = _T.transform(tree)
     e = e.children[0] if hasattr(e, "children") else e
     return e if isinstance(e, Effect) else None
+
+
+@functools.lru_cache(maxsize=None)
+def parse_clauses_lark(clause: str):
+    """Like parse_clause_lark, but for the AST CONJUNCTION productions that ground a clause to SEVERAL
+    effects (e.g. compound counters 'put <c1> <k1> and <c2> <k2> counters on <tgt>') — returns a LIST of
+    Effects, or None. Consumed by card_effects.parse_clauses (the multi-effect entry); parse_clause stays
+    single-Effect (it never sees a list)."""
+    s = clause.strip().rstrip(".").lower()
+    try:
+        tree = _PARSER.parse(s)
+    except Exception:
+        return None
+    _T._src = s
+    e = _T.transform(tree)
+    e = e.children[0] if hasattr(e, "children") else e
+    return e if isinstance(e, list) and e and all(isinstance(x, Effect) for x in e) else None
