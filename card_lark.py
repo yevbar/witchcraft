@@ -65,7 +65,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -517,6 +517,15 @@ rctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+  -> rctarget  // the
 // objects defer to the regex.
 dbclause: DB_DOUBLE dbbody                   -> dbl
 dbbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP | DMG | GETS | EQUALTO | THATMANY | MDUR | DEALS)+  -> dbbody
+
+// SWITCH P/T (§613.4e) — 'switch <X>'s power and toughness [until end of turn]' (the `_switch_pt` template).
+// Anchored on the distinctive SWITCHPT 'switch' terminal (low collision — in oracle text 'switch' is ~always
+// this clause); the object + 'power and toughness' [+ duration] is a flat span validated in the transformer by
+// the template's OWN _TGT frame (NO 'power and toughness' terminal -> no corpus-wide lexer poison). ->
+// switch_pt(-, _target(X)); duration dropped exactly as the regex does.
+swptclause.-2: SWITCHPT swptbody             -> switch_pt_v
+swptbody: (WORD | QUANT | NUM)+
+SWITCHPT.4: /\bswitch\b/
 
 // ATTACH (§701.3) — 'attach <equipment/aura> to <creature>'. The regex `_attach`
 // (`^attach (~|it|<_TGT>) to (<_TGT>)$`) puts the MOVED object (g1) in EXTRA and the DESTINATION (g2)
@@ -1749,6 +1758,15 @@ class _CntObj(str):    # the object span after 'choose new targets for' (cntobj)
 
 class _AcrRest(str):   # the restriction span after 'activate [this ability] only' (§602.5) — slugged to extra
     pass
+
+
+class _SwptBody(str):  # the span after 'switch' — "<X>'s power and toughness [until end of turn]" (swptbody)
+    pass
+
+
+# the `_switch_pt` template MINUS the leading 'switch ' (consumed by the SWITCHPT terminal): the _TGT object
+# whose P/T is switched + the fixed 'power and toughness' tail + the dropped optional duration.
+_SWPT_RE = re.compile(r"^(" + _TGT + r")'s power and toughness(?: until end of turn)?$", re.I)
 
 
 class _FcVerb(str):    # the play/cast verb of a free-cast clause (fcastverb)
@@ -3739,6 +3757,18 @@ class _ToEffect(Transformer):
         if obj is None:
             return None
         return Effect("choose_new_targets", "-", _target(obj.strip().lower()))
+
+    def swptbody(self, *toks):
+        return _SwptBody(" ".join(str(t) for t in toks))
+
+    def switch_pt_v(self, *args):
+        # 'switch <X>'s power and toughness [until end of turn]' (§613.4e) — the EXACT `_switch_pt` template
+        # re-applied to the post-'switch' span: switch_pt(-, _target(X)). _TGT object or abstain; duration dropped.
+        body = next((str(a) for a in args if isinstance(a, _SwptBody)), None)
+        if body is None:
+            return None
+        m = _SWPT_RE.match(body.strip())
+        return Effect("switch_pt", "-", _target(m.group(1))) if m else None
 
     def acronlyrest(self, *toks):
         return _AcrRest(" ".join(str(t) for t in toks))

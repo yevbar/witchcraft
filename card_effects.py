@@ -472,9 +472,8 @@ def _perpetual(m):
     return Effect("modify_pt", m.group(2), _target(m.group(1)), "-", "perpetual")
 
 
-@_t(rf"^switch ({_TGT})'s power and toughness(?: until end of turn)?$")
-def _switch_pt(m):
-    return Effect("switch_pt", "-", _target(m.group(1)))
+# switch_pt fully MIGRATED to card_lark (swptclause/SWITCHPT; migrate_check DIFFERS=0, ABSTAINS=0) — the
+# `_switch_pt` @_t template is dead (lark answers first in parse_clause) and was removed.
 
 
 @_t(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$")
