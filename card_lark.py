@@ -756,8 +756,8 @@ BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted)\b/   // '<subj> becomes foretol
 NOLONGERSUSP.6: /\b(?:is|are|becomes?) no longer suspected\b/   // '<subj> is/are/become no longer suspected' — §701.60 suspect removal (outranks BCM_COP)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
-KWACTION_N.4: /\b(?:bolster|adapt|incubate|support)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>')
-KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?|connives?)\b/   // intransitive §701 keyword actions (distinctive)
+KWACTION_N.4: /\b(?:bolster|adapt|incubate|support|amass)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>'); migrated off _kwaction_n: +amass
+KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?|connives?|populates?|forages?|planeswalks?|learns?)\b/   // intransitive §701 keyword actions (distinctive); migrated off _bare_action: +populate/forage/planeswalk/learn
 EXCHANGE.3: /\bexchange\b/   // 'exchange <object>' — §701.10 exchange verb (in _OBJ_VERBS; mirrors DB_DOUBLE)
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
 DEALS.2: /\bdeals?\b/
