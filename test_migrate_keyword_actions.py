@@ -26,7 +26,8 @@ def _tuple(e):
 def run() -> None:
     # each MIGRATED clause must now ground via LARK, byte-identical to the regex tuple (DIFFERS=0)
     for s in ["populate", "forage", "planeswalk", "learn", "you populate", "amass 2", "amass 10",
-              "investigate", "explore", "support 3"]:
+              "investigate", "explore", "support 3",
+              "airbend 1", "earthbend 2", "waterbend 3"]:           # the Avatar bending family (numbered)
         rg = parse_effect(s)
         lk = parse_clause_lark(s)
         check(f"lark grounds {s!r}", lk is not None)
@@ -41,6 +42,9 @@ def run() -> None:
                  ("learn", "learn"), ("amass 2", "amass")]:
         lk = parse_clause_lark(s)
         check(f"{s!r} -> {v}", lk is not None and lk.verb == v)
+
+    # 'firebend' is NOT a §701 keyword action (Fire Nation uses no bending keyword) -> abstains in BOTH
+    check("'firebend 2' abstains in lark (not a keyword action)", parse_clause_lark("firebend 2") is None)
 
     # a non-keyword bare word still abstains in lark (no over-grounding from the new terminals)
     check("a non-keyword bare word abstains", parse_clause_lark("sing a song") is None)
