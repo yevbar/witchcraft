@@ -26,6 +26,7 @@ import torch                                                         # noqa: E40
 
 from witchcraft.magezero import MageZeroNet, MageZeroPlayer, fit_clone, generate_selfplay   # noqa: E402
 from witchcraft.ladder import gauntlet, gauntlet_gate                # noqa: E402
+from witchcraft.decks import deck_pool                               # noqa: E402
 from witchcraft.players import RandomPlayer                          # noqa: E402
 from witchcraft.aggro import AggroPlayer                             # noqa: E402
 from witchcraft.heuristic import HeuristicPlayer                     # noqa: E402
@@ -34,6 +35,7 @@ ROUNDS, GEN, SIMS, GATE_GAMES, EPOCHS = (int(a) for a in
     (sys.argv[1:6] + ["8", "20", "16", "16", "40"][len(sys.argv[1:6]):]))
 EMBED, HIDDEN, BUFFER, MAXM = 32, 64, 3, 800
 BOOT, BEST, TRAINEE = "/tmp/magezero_clone.pt", "/tmp/magezero_sp_best.pt", "/tmp/magezero_sp_trainee.pt"
+POOL = deck_pool()                                                   # mixed-matchup: train AND gate across all decks
 RUNGS = {"random": RandomPlayer(seed=0), "aggro": AggroPlayer(), "heuristic": HeuristicPlayer()}
 t0 = time.time()
 log = lambda m: print(f"[{time.time()-t0:6.1f}s] {m}", flush=True)
@@ -43,22 +45,23 @@ row = lambda d: "  ".join(f"{k}={d[k]['score']:.3f}±{1.96*d[k]['se']:.3f}" for 
 log(f"config ROUNDS={ROUNDS} GEN={GEN} SIMS={SIMS} GATE_GAMES={GATE_GAMES} EPOCHS={EPOCHS} buffer={BUFFER}")
 best = MageZeroNet(embed=EMBED, hidden=HIDDEN)
 best.load_state_dict(torch.load(BOOT)); best.eval()
-best_scores = gauntlet(brain(best), rungs=RUNGS, games=GATE_GAMES, seed=1, max_moves=MAXM)
+best_scores = gauntlet(brain(best), rungs=RUNGS, games=GATE_GAMES, seed=1, max_moves=MAXM, deck_pool=POOL)
 torch.save(best.state_dict(), BEST)
-log(f"baseline (bootstrap brain): {row(best_scores)}")
+log(f"baseline (bootstrap brain) over {len(POOL)}-deck pool: {row(best_scores)}")
 
 buf = collections.deque(maxlen=BUFFER)
 for r in range(ROUNDS):
     tr = time.time()
     data = generate_selfplay(best, games=GEN, sims=SIMS, temperature=1.0, seed=1000 + r * 7, max_moves=MAXM,
-                             opponent=lambda: HeuristicPlayer(), clone_opponent=True)   # EXPERT ITERATION vs teacher
+                             opponent=lambda: HeuristicPlayer(), clone_opponent=True,   # EXPERT ITERATION vs teacher
+                             deck_pool=POOL)                                            # across the deck pool
     buf.append(data)
     rows = [x for d in buf for x in d]
     trainee = MageZeroNet(embed=EMBED, hidden=HIDDEN); trainee.load_state_dict(best.state_dict())
     fit_clone(trainee, rows, epochs=EPOCHS, lr=1e-3, seed=r)
     torch.save(trainee.state_dict(), TRAINEE)
     gate = gauntlet_gate(brain(trainee), rungs=RUNGS, games=GATE_GAMES, seed=1, margin=0.0,
-                         headline="heuristic", best_scores=best_scores, max_moves=MAXM)
+                         headline="heuristic", best_scores=best_scores, max_moves=MAXM, deck_pool=POOL)
     if gate["promoted"]:
         best = trainee; best_scores = gate["cand"]; torch.save(best.state_dict(), BEST)
     log(f"round {r}: {len(data)} new rows ({len(rows)} buf) | {row(gate['cand'])} | "

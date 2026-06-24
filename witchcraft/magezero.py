@@ -299,7 +299,7 @@ class MageZeroPlayer(Player):
 def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temperature: float = 1.0,
                       seed: int = 0, gamma: float = DEFAULT_GAMMA, max_moves: int = 800,
                       explicit_lands: bool = True, time_budget: float = 0.5, opponent=None,
-                      clone_opponent: bool = True):
+                      clone_opponent: bool = True, deck_pool=None):
     """Training data from the brain's own play. Each branching decision records `(objs, owner, glob, z, kinds,
     idx_lists, pi)` — same row format as `cardnet.generate_clone`, so `fit_clone` trains value (MSE vs z) + both
     heads (soft-CE vs pi) unchanged. `z` is the discounted outcome from the deciding seat.
@@ -317,9 +317,12 @@ def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temp
         teacher labels) + ExIt (outcome-driven value) — the standard cure for a BC cold start.
     Exploration comes from temperature sampling + the engine's shuffle randomness (MageZero uses no Dirichlet)."""
     abilities = net_abilities(net)
+    pool_rng = random.Random(seed * 2 + 1) if deck_pool else None
     data = []
     for gi in range(games):
-        g = Game(seed=seed + gi, explicit_lands=explicit_lands)
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}
+                   if deck_pool else None)                              # mixed matchups -> train for generalization
+        g = Game(g_decks, seed=seed + gi, explicit_lands=explicit_lands)
         bp = MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
                             explicit_lands=explicit_lands, seed=seed * 7 + gi * 2)
         if opponent is None:

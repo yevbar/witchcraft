@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import contextlib
 import io
+import random
 import time
 
 
 def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-player", seed: int = 0,
-              decks: dict | None = None, commanders: dict | None = None, incremental: bool = False,
-              max_moves: int = 4000, swap_seats: bool = True, explicit_lands: bool = False,
-              paired: bool = True) -> dict:
+              decks: dict | None = None, deck_pool: list | None = None, commanders: dict | None = None,
+              incremental: bool = False, max_moves: int = 4000, swap_seats: bool = True,
+              explicit_lands: bool = False, paired: bool = True) -> dict:
     """Play `player` vs `opponent` (default RandomPlayer) over `games` witchcraft self-play games and report
     `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result).
     With `paired` (default, requires `swap_seats`) the two seat orientations of each pair reuse the SAME game
@@ -53,15 +54,24 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
     outcomes = []
     t0 = time.perf_counter()
     crn = paired and swap_seats                                        # common random numbers across the pair
+    # GENERALIZATION: with `deck_pool` (a list of decks), each game draws both seats' decks from the pool, so the
+    # measure spans MANY matchups, not one fixed deck pair. The deck RNG is seeded only from `seed`, so the
+    # matchup sequence is reproducible AND identical across a gauntlet's rungs (every rung faces the same decks,
+    # like pinned explicit_lands). Under CRN the matchup is sampled ONCE PER PAIR and reused across the two seat
+    # orientations, so deck-luck still cancels in the pair (both contestants play both decks on the same shuffle).
+    deck_rng = random.Random((seed + 1) * 1_000_003) if deck_pool else None
+    cur_decks = decks
     for i in range(games):
         flip = swap_seats and (i % 2 == 1)
         # paired CRN: the two orientations of pair k (games 2k, 2k+1) share game seed `seed + k`, so the deck
         # shuffle is identical and only the seat assignment differs -> deck-luck cancels. Else distinct per game.
         gseed = seed + (i // 2) if crn else seed + i
+        if deck_pool and (not crn or i % 2 == 0):                      # one matchup per CRN pair (else per game)
+            cur_decks = {"alice": deck_rng.choice(deck_pool), "bob": deck_rng.choice(deck_pool)}
         players = {"alice": opponent, "bob": player} if flip else {"alice": player, "bob": opponent}
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):                # the engine narrates each step — mute it
-            g = play(players, decks, variant=variant, seed=gseed, commanders=commanders,
+            g = play(players, cur_decks, variant=variant, seed=gseed, commanders=commanders,
                      incremental=incremental, max_moves=max_moves, explicit_lands=explicit_lands)
         w = g.winner()
         total_turns += g.turn_number
@@ -85,6 +95,7 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
         "wall_s": round(wall, 2), "games_per_s": round(games / wall, 2) if wall else 0.0,
         "pair_scores": pair_scores,                                     # CRN pair scores for paired SE (or None)
         "explicit_lands": eff_explicit, "instant_speed": eff_instant,   # the action space these games ran in
+        "deck_pool": len(deck_pool) if deck_pool else 0,                # # decks in the matchup pool (0 = fixed)
     }
 
 

@@ -26,7 +26,10 @@ import torch                                                         # noqa: E40
 from witchcraft.cardnet import generate_clone, policy_top1, policy_uniform, PolicyPlayer   # noqa: E402
 from witchcraft.magezero import MageZeroNet, MageZeroPlayer, fit_clone                      # noqa: E402
 from witchcraft.ladder import compare, default_rungs                                        # noqa: E402
+from witchcraft.decks import deck_pool                                                      # noqa: E402
 from witchcraft.heuristic import HeuristicPlayer                                            # noqa: E402
+
+POOL = deck_pool()                                                                          # train + measure across all decks
 
 GEN, EPOCHS, GGAMES, SIMS = (int(a) for a in (sys.argv[1:5] + ["20", "30", "40", "16"][len(sys.argv[1:5]):]))
 EMBED, HIDDEN = 32, 64
@@ -43,7 +46,7 @@ def fmt(c):
 log(f"config: GEN={GEN} EPOCHS={EPOCHS} GGAMES={GGAMES} SIMS={SIMS} embed={EMBED} hidden={HIDDEN}")
 
 # 1) imitation data from the heuristic (drives both seats), then co-train value + both heads.
-data = generate_clone(games=GEN, seed=7, max_moves=MAXM)
+data = generate_clone(games=GEN, seed=7, max_moves=MAXM, deck_pool=POOL)
 hold = data[::7]; train = [r for i, r in enumerate(data) if i % 7]
 log(f"clone data: {len(data)} rows ({len(train)} train / {len(hold)} holdout) from {GEN} heuristic games")
 
@@ -56,10 +59,10 @@ log(f"trained. holdout move-match: player-head top1={policy_top1(net, hold):.3f}
 # 2) measure the BARE policy head (zero search) on the gauntlet — expected weak (the BC collapse).
 log("=== bare policy (PolicyPlayer, zero search) ===")
 for rung, opp in default_rungs().items():
-    log(f"  policy vs {rung:9s}: {fmt(compare(PolicyPlayer(net, explicit_lands=True), opp, games=GGAMES, seed=1, explicit_lands=True, max_moves=MAXM))}")
+    log(f"  policy vs {rung:9s}: {fmt(compare(PolicyPlayer(net, explicit_lands=True), opp, games=GGAMES, seed=1, explicit_lands=True, max_moves=MAXM, deck_pool=POOL))}")
 
 # 3) measure the SEARCHED brain vs the heuristic — does MCTS rescue the policy? (the headline)
 mz = MageZeroPlayer(net, simulations=SIMS, time_budget=0.5, explicit_lands=True, seed=0)
 log(f"=== searched brain (MageZeroPlayer, sims={SIMS}) ===")
-log(f"  magezero vs heuristic: {fmt(compare(mz, HeuristicPlayer(), games=GGAMES, seed=1, explicit_lands=True, max_moves=MAXM))}")
+log(f"  magezero vs heuristic: {fmt(compare(mz, HeuristicPlayer(), games=GGAMES, seed=1, explicit_lands=True, max_moves=MAXM, deck_pool=POOL))}")
 log("DONE")

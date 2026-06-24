@@ -66,3 +66,11 @@ def bundled_decks() -> list[str]:
     if not os.path.isdir(_DECKS_DIR):
         return []
     return sorted(f[:-4] for f in os.listdir(_DECKS_DIR) if f.endswith(".txt"))
+
+
+def deck_pool(names: list[str] | None = None) -> list[list[str]]:
+    """All bundled decks (or just `names`) as card-lists — a ready deck pool for MIXED-MATCHUP training and
+    benchmarking, where each game samples both seats' decks from the pool instead of using one fixed matchup.
+    Pass to `benchmark`/`gauntlet`/`generate_selfplay`'s `deck_pool=`. Generalization across cards is only
+    measured when the pool is wired in on BOTH the training and the evaluation side."""
+    return [load_deck(n) for n in (names or bundled_decks())]
