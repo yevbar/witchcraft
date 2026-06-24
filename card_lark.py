@@ -1174,6 +1174,9 @@ _MS_NUM = re.compile(r"^(?:\d+|one|two|three|four|five|x)$", re.I)   # monstrosi
 _MR_ATTACK = re.compile(r"^(" + _TGT + r") attacks?(?: (?!each combat|this turn|this combat)(" + _TGT + r"))?(?: each combat| this turn| this combat)?$", re.I)
 _MR_BLOCK_TGT = re.compile(r"^(" + _TGT + r") blocks (" + _TGT + r")(?: this turn| this combat)?$", re.I)
 _MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks(?: this turn| this combat| each combat)?$", re.I)
+# combined '<subj> attacks or blocks [each combat] if able' (§508/§509) — the must-do mirror of the existing
+# cant_attack_or_block; ATTACK/BLOCK singly already ground, this is the disjunction (Khârn the Betrayer, …).
+_MR_ATTACK_OR_BLOCK = re.compile(r"^(" + _TGT + r") attacks? or blocks?(?: each combat| this turn| this combat)?$", re.I)
 
 # GRANT_COMBAT (can attack/block …) — the clean §509/§508 combat-PERMISSION subfamily of grant_ability,
 # the EXACT mirror of two card_effects templates re-applied to the captured clause (the GCC_CAN 'can
@@ -3858,9 +3861,17 @@ class _ToEffect(Transformer):
         if not m:
             return None
         rest = m.group(1)
+        # §707.2 copy-MODIFICATION rider: 'copy <obj>, except <the copy is …>' (Spark Double, Storm of
+        # Saruman, the 'except it's a token / isn't legendary / is a 5/5' family). Split the rider OFF so the
+        # object is the clean _TGT and the modification rides `extra` (faithful — the stated difference is
+        # recorded, not garbled into the object; this is NOT the old slug-fallback that over-grounded).
+        extra = "-"
+        em = re.match(r"^(.+?),? except (.+)$", rest, re.I)
+        if em:
+            rest, extra = em.group(1).strip(), "except_" + ground.slug(em.group(2))
         if not _DB_TGT.match(rest) or _is_compound_object(rest):
             return None
-        return Effect("copy", "-", _target(rest))
+        return Effect("copy", "-", _target(rest), extra)
 
     # --- EXILE top-of-library / until-leaves (§701.x) -------------------------
     def xtbody(self, *toks):
@@ -3960,6 +3971,9 @@ class _ToEffect(Transformer):
         if body is None:
             return None
         body = body.strip()
+        m = _MR_ATTACK_OR_BLOCK.match(body)              # the combined disjunction first ('attacks or blocks')
+        if m:
+            return Effect("must_attack_or_block", "-", _target(m.group(1)))
         m = _MR_ATTACK.match(body)
         if m:
             return Effect("must_attack", "-", _target(m.group(1)), _target(m.group(2)) if m.group(2) else "-")

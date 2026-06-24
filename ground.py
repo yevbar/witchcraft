@@ -130,6 +130,7 @@ _CORE_ACTIONS = frozenset({
     "get_emblem",           # §114 — an effect that gives a player an emblem
     "phase_out", "phase_in",  # §702.26/§502.15 — phasing a permanent out of / into existence
     "must_block", "must_attack", "must_be_blocked",  # §508/§509 — combat requirements
+    "must_attack_or_block",  # §508/§509 — combined 'attacks or blocks each combat if able' requirement
     "cant_prevent_damage",  # §615 — an effect that damage can't be prevented
     "spend_mana_as",        # §106.6 — spending mana as though it were another color/type
     "lure",                 # §509 — all able creatures must block (lure requirement)
