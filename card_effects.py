@@ -485,13 +485,10 @@ def _put_counter_equal(m):
     return Effect("put_counter", "equal_to_" + ground.slug(m.group(3)), _target(m.group(2)), kind)
 
 
-@_t(r"^distribute (\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? among (.+?)$")
-def _distribute_counters(m):
-    """'Distribute N <kind> counters among <targets>' — §122 counter placement spread over multiple
-    targets; the target set is a faithful slug, 'distributed' recorded in the cond slot."""
-    n = _amount(m.group(1))
-    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
-    return Effect("put_counter", n if n is not None else "X", _target(m.group(3)), kind, "distributed")
+# 'Distribute N <kind> counters among <targets>' (§122 counter spread) — fully MIGRATED to card_lark (dcclause
+# / the DISTRIBUTE-anchored production + distribute_v, which re-applies this template's EXACT regex to self._src).
+# All corpus distribute clauses ground in lark byte-identically with 0 abstains (lark additionally recovers the
+# bulleted '• Distribute …' variant this `^distribute`-anchored template missed), so the template is dead and removed.
 
 
 @_t(rf"^(?:({_TGT}) )?gets? (a|an|one|two|three|x|\w+) (poison|energy|experience) counters?$")
