@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -142,6 +142,10 @@ fcastobj: (WORD | QUANT | NUM | ZONE)+
 // GARBLED into the target by the regex leaf; FORASLONGAS anchors it -> play|cast(-, <X>, -, for_as_long_as_<cond>).
 pdurclause.2: fcastverb fcastobj FORASLONGAS pdcond       -> play_dur
 pdcond: (WORD | QUANT | NUM | ZONE)+
+// CAST-AS-THOUGH-FLASH (§117.1a) — '[you may] play/cast <X> as though it/they had flash' (impulse instant-
+// speed). The whole 'as though … flash' phrase is the anchor (NOT bare 'as though', so attack/block
+// 'as though' permissions are untouched). -> play|cast(-, <X>, as_though_flash).
+pflashclause.2: fcastverb fcastobj ASTHOUGH_FLASH         -> play_flash
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -729,6 +733,7 @@ CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choic
 CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect anchor (beats CHS_CHOOSE)
 WITHOUT_PAY.6: /\bwithout paying its mana cost\b/   // §601 free-cast modifier anchor (distinctive phrase)
 FORASLONGAS.6: /\bfor as long as\b/   // impulse play-duration anchor ('play X for as long as it remains exiled')
+ASTHOUGH_FLASH.6: /\bas though (?:it|they) (?:had|have) flash\b/   // §117.1a impulse instant-speed anchor (full phrase, not bare 'as though')
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -3565,6 +3570,15 @@ class _ToEffect(Transformer):
         if verb not in ("play", "cast") or obj is None or cond is None:
             return None
         return Effect(verb, "-", _target(obj.strip().lower()), "-", "for_as_long_as_" + ground.slug(cond.strip().lower()))
+
+    def play_flash(self, *args):
+        # '[you may] play/cast <X> as though it/they had flash' (§117.1a impulse instant-speed) ->
+        # <verb>(-, _target(X), as_though_flash). The modifier was dropped/garbled by the regex leaf.
+        verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
+        obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
+        if verb not in ("play", "cast") or obj is None:
+            return None
+        return Effect(verb, "-", _target(obj.strip().lower()), "as_though_flash")
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:

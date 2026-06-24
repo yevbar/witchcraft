@@ -53,6 +53,20 @@ def _duration() -> None:
           and "for_as_long_as_it_remains_exiled" in e2.cond and "may" in e2.cond)
 
 
+def _as_though_flash() -> None:
+    # §117.1a impulse instant-speed: 'play/cast <X> as though it/they had flash' -> extra=as_though_flash.
+    for src, verb, tgt in [("you may cast it as though it had flash", "cast", "it"),
+                           ("you may play that card as though it had flash", "play", "that_card"),
+                           ("you may play those cards as though they had flash", "play", "those_cards")]:
+        e = parse_clause(src)
+        check(f"{src[:36]!r} -> {verb}({tgt}, as_though_flash)",
+              e is not None and e.verb == verb and e.target == tgt and e.extra == "as_though_flash" and e.cond == "may")
+    # the FULL-phrase anchor means an attack/block 'as though' permission is NOT claimed by this production
+    atk = parse_clause_lark("~ can attack as though it had flash")
+    check("attack 'as though it had flash' not mis-grounded as a play/cast",
+          atk is None or atk.verb not in ("play", "cast"))
+
+
 def _cards_full() -> None:
     cards = {c["name"]: c for c in card_corpus.load_cards()}
     for n in ["Ziatora's Envoy", "Quicksilver Sea"]:
@@ -68,6 +82,7 @@ def _cards_full() -> None:
 def run() -> None:
     _clauses()
     _duration()
+    _as_though_flash()
     _cards_full()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
