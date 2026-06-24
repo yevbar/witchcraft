@@ -1167,7 +1167,7 @@ _RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
 # SKIP body validator — the `_skip` template's '(your|its|their|his or her) [next] <phase>' tail, applied
 # to the captured `skbody` span (the phase slug is group 1). AMASS count validator — the `_amass`
 # template's own `(\d+|one|two|three|x)` set, so a count outside it (e.g. 'four') abstains to the regex.
-_SK_BODY = re.compile(r"^(?:your|its|their|his or her) (?:next )?([\w ]+? (?:step|phase)|turn)$", re.I)
+_SK_BODY = re.compile(r"^(?:your|its|their|his or her|that|this) (?:next )?([\w ]+? (?:steps?|phases?)|turns?)$", re.I)  # +that/this ('skips that turn' — Stranglehold) + plural step/phase/turn ('skip their upkeep steps' — Eon Hub)
 _AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
 _MS_NUM = re.compile(r"^(?:\d+|one|two|three|four|five|x)$", re.I)   # monstrosity count (the `_kwaction_n` set)
 
