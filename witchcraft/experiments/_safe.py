@@ -27,6 +27,13 @@ for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPEN
            "NUMEXPR_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
+# Bound the engine eval-cache (driver._CACHE). Its default cap is 200k distinct states, each holding ALL derived
+# relations — a tree SEARCH visits ~500 distinct states/move across many moves/games, so the cache climbs to
+# MULTIPLE GB per process (the lookahead-gauntlet near-swap-death). A cap of ~20k keeps within-search amortization
+# (one search is <=node_budget distinct states) while plateauing memory at <~1GB/process. Override per-experiment
+# (e.g. a memory-tight CONCURRENT fan-out can set MTG_EVAL_CACHE=8000 for ~0.5GB/worker).
+os.environ.setdefault("MTG_EVAL_CACHE", "20000")
+
 _IS_MAC = sys.platform == "darwin"
 
 

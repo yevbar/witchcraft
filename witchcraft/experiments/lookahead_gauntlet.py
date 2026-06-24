@@ -7,7 +7,10 @@ burns its budget proving 'no win' most of the game, so keep the budget small. Ru
 Run from repo root:  PYTHONPATH=. python3 witchcraft/experiments/lookahead_gauntlet.py [GAMES MAXT NBUDGET BEAM MAXM]"""
 
 import os
-import sys
+os.environ["MTG_EVAL_CACHE"] = "8000"                                # tight engine-cache cap: this runs concurrent and
+#   the search visits ~500 distinct states/move, so the default 200k cap would climb to GBs/worker (swap death).
+#   8000 keeps within-search amortization and plateaus at ~0.5GB/worker. MUST be set before driver is imported.
+import sys                                                           # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _safe                                                          # noqa: E402
 import multiprocessing as mp                                         # noqa: E402
