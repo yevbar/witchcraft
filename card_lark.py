@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -132,6 +132,12 @@ chsclause: CHS_CHOOSE chsquant chsrest            -> chs
 // 'choose_new_targets' verb is already §707.10-grounded; this just reads the object. -> choose_new_targets(-, X).
 cntclause: CHOOSE_NEW_TGT cntobj                  -> choose_new_targets
 cntobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
+// FREE CAST (§601/§118.5) — '[you may] play/cast <X> [this turn] without paying its mana cost' (impulse-draw
+// / free-cast). The trailing WITHOUT_PAY phrase anchors it (so the play/cast verb stays a plain WORD elsewhere,
+// no collision); the modifier was DROPPED/garbled by the regex leaf. -> play|cast(-, <X>, without_paying_mana_cost).
+fcastclause.2: fcastverb fcastobj WITHOUT_PAY              -> free_cast
+fcastverb: WORD
+fcastobj: (WORD | QUANT | NUM | ZONE)+
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -717,6 +723,7 @@ YOURCHOICE.6: /\byour choice of\b/    // '<tgt> gains your choice of <kw-list>' 
 QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanchored .* poisons the dynamic lexer)
 CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
 CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect anchor (beats CHS_CHOOSE)
+WITHOUT_PAY.6: /\bwithout paying its mana cost\b/   // §601 free-cast modifier anchor (distinctive phrase)
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -1552,6 +1559,14 @@ class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — va
 
 
 class _CntObj(str):    # the object span after 'choose new targets for' (cntobj) — slugged to the effect target
+    pass
+
+
+class _FcVerb(str):    # the play/cast verb of a free-cast clause (fcastverb)
+    pass
+
+
+class _FcObj(str):     # the object span of a free-cast clause (fcastobj) — slugged to the effect target
     pass
 
 
@@ -3508,6 +3523,26 @@ class _ToEffect(Transformer):
         if obj is None:
             return None
         return Effect("choose_new_targets", "-", _target(obj.strip().lower()))
+
+    def fcastverb(self, tok):
+        return _FcVerb(str(tok))
+
+    def fcastobj(self, *toks):
+        return _FcObj(" ".join(str(t) for t in toks))
+
+    def free_cast(self, *args):
+        # '[you may] play/cast <X> [this turn] without paying its mana cost' (§601 free-cast). The modifier was
+        # DROPPED/garbled by the regex leaf; here it's faithful: <verb>(-, _target(X), without_paying_mana_cost).
+        verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
+        obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
+        if verb not in ("play", "cast") or obj is None:
+            return None
+        o = obj.strip().lower()
+        if o.endswith(" this turn"):                  # drop the optional duration (string op, not regex)
+            o = o[:-len(" this turn")].strip()
+        if not o:
+            return None
+        return Effect(verb, "-", _target(o), "without_paying_mana_cost")
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
