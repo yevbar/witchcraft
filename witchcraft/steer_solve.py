@@ -101,13 +101,18 @@ class SolverSeekingPlayer(Player):
     name = "solver_seeking"
 
     def __init__(self, fallback: Player, *, axis: str = "life_zero", win_turns: int = 1, win_budget: int = 1000,
-                 life_gate: int | None = 16, progress_turns: int = 4, progress_budget: int = 2000,
-                 forced: bool = True, minimax: bool = False, seed: int | None = None):
+                 life_gate: int | None = 16, develop: bool = True, progress_turns: int = 4,
+                 progress_budget: int = 2000, forced: bool = True, minimax: bool = False, seed: int | None = None):
         self.fallback = fallback
         self.axis = axis
         self.win_turns = win_turns
         self.win_budget = win_budget
         self.life_gate = life_gate
+        # develop=False skips the (opponent-passive find_progress) develop arm entirely -> forced KILL else
+        # fallback. Much FASTER (find_progress every move is the teacher's cost bottleneck, intractable for
+        # data generation) and SOUNDER (the develop arm is the unsound part); the teacher then = the fallback
+        # player + a sound forced finisher.
+        self.develop = develop
         self.progress_turns = progress_turns
         self.progress_budget = progress_budget
         self.forced = forced
@@ -141,16 +146,17 @@ class SolverSeekingPlayer(Player):
                 if m is not None:
                     self.last_arm = "win"
                     return m
-        if self.minimax:                                                # 2. develop toward the axis
-            path, _ = win_search.find_minimax(game.state, seat, self.axis, self.axis,
-                                              self.progress_turns, self.progress_budget)
-        else:
-            path, _ = win_search.find_progress(game.state, seat, self.axis,
-                                               self.progress_turns, self.progress_budget)
-        if path:
-            m = self._move_for(moves, path[0])
-            if m is not None:
-                self.last_arm = "develop"
-                return m
+        if self.develop:                                                # 2. develop toward the axis
+            if self.minimax:
+                path, _ = win_search.find_minimax(game.state, seat, self.axis, self.axis,
+                                                  self.progress_turns, self.progress_budget)
+            else:
+                path, _ = win_search.find_progress(game.state, seat, self.axis,
+                                                   self.progress_turns, self.progress_budget)
+            if path:
+                m = self._move_for(moves, path[0])
+                if m is not None:
+                    self.last_arm = "develop"
+                    return m
         self.last_arm = "fallback"                                      # 3. nothing -> hand off
         return self.fallback.choose_move(game)
