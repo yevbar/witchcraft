@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -107,6 +107,12 @@ smbclause: SPEND_AS                                           -> spend_mana_as_v
 smaobj: (WORD | QUANT | NUM)+
 MANA_ANY_FOR.5: /mana of any (?:type|color) can be spent to (?:cast|play) /
 SPEND_AS.5: /(?:you )?(?:may )?spend mana as though it were mana of any (?:color|type)(?: to cast .+)?/
+// EXTRA TURN (§500.7) — '[<player>] take[s] [an|N] extra turn(s) after this one' (the `_extra_turn` template).
+// The 'extra turn(s) after this one' tail is unique to this effect, so a whole-phrase EXTRATURN terminal (head
+// bounded to a player NP so it can't run away) can't steal any other clause. The transformer re-applies the
+// template's EXACT pattern to the matched text -> extra_turn(<n|->, _target(subj|you)), byte-identical.
+xtnclause: EXTRATURN                                          -> extra_turn_v
+EXTRATURN.5: /(?:[\w'][\w' ]* )?takes? (?:an|one|two|three|\w+) extra turns? after this one/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -2056,6 +2062,17 @@ class _ToEffect(Transformer):
             sides = _SIDED.get(m.group(2).lower()) or (int(m.group(2)) if m.group(2).isdigit() else None)
             return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
         return None
+
+    def extra_turn_v(self, tok):
+        # '[<player>] take[s] [an|N] extra turn(s) after this one' (§500.7) — the EXACT `_extra_turn` template
+        # re-applied to the matched phrase: extra_turn(<n|->, _target(subj|you)). The leading subject is _TGT-
+        # validated by the re-match (an over-broad head from the bounded terminal abstains here -> regex leaf).
+        s = str(tok).strip()
+        m = re.match(rf"^(?:({_TGT}) )?(?:takes?|take) (an|one|two|three|\w+) extra turns? after this one$", s, re.I)
+        if not m:
+            return None
+        n = _amount(m.group(2))
+        return Effect("extra_turn", n if n is not None else "-", _target(m.group(1) or "you"))
 
     def ceqmlead(self, *toks):
         return _Body(" ".join(str(t) for t in toks))   # leading 'the <kw>' span (src is re-matched)

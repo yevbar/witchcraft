@@ -1179,11 +1179,9 @@ def _choose(m):
     return Effect("choose", "-", q + ground.slug(m.group(2)))
 
 
-@_t(rf"^(?:({_TGT}) )?(?:takes?|take) (an|one|two|three|\w+) extra turns? after this one$")
-def _extra_turn(m):
-    """'<player> takes N extra turn(s) after this one' — extra turn(s) (§500.7)."""
-    n = _amount(m.group(2))
-    return Effect("extra_turn", n if n is not None else "-", _target(m.group(1) or "you"))
+# '<player> takes N extra turn(s) after this one' (§500.7) — fully MIGRATED to card_lark (xtnclause / the
+# EXTRATURN whole-phrase terminal + extra_turn_v, which re-applies this template's EXACT pattern). All 31 corpus
+# clauses ground in lark byte-identically with 0 abstains, so the dedicated template is dead and removed.
 
 
 @_t(r"^(?:you )?choose (?:a|an|one|two|three|up to \w+|x)(?: ([\w ]+?))? (?:from|of) (?:it|among them|them|those|that player's hand|its owner's hand|target [\w ]+?)$")
