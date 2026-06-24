@@ -1483,6 +1483,44 @@ def _ns_cast(subj: str, rest: str):
     return Effect("cant_cast", "-", _target(subj), ground.slug(obj))
 
 
+# OTHER active-voice player restrictions (§116/§120/§104) — the same '<player-set> can't <verb> <obj>' shape
+# as the casting frame, for the non-combat actions the combat frames also lack: play lands/cards, draw,
+# search, and the §104 game-end pair (lose/win the game). Each maps to a distinct grounded cant_<verb>; the
+# object (with any qualifier/LIMIT — 'more than one card each turn') rides the slug. Subject must be a
+# player-set (only players do these). A compound action ('play lands OR cast spells', 'draw cards OR gain
+# life', a different-subject '… AND your opponents can't …'), or a conditional/temporal rider ('… if …',
+# '… as long as …'), is a conflation -> abstain (prime directive). The 'if <cond>' rider is INCLUDED in the
+# conflate set on purpose: the leaf abstains, then parse_clause's _IF_TRAIL peels '<effect> if <cond>' and
+# re-grounds the bare effect with the condition in its COND slot (structured) rather than buried in the slug.
+# gain-life is NOT here: 'can't gain life' parses as the keyword-grant production, not nscant — a later slice.
+_NS_PLAYER_SUBJ = re.compile(
+    r"^(?:your opponents?|each opponent|opponents|players|other players|each player|you|"
+    r"enchanted player|target player)$", re.I)
+_NS_GAME = re.compile(r"^(lose|win) the game$", re.I)
+_NS_PRESTR_CONFLATE = re.compile(r"\bor\b|\band\b|,|\bif\b|\bunless\b|;|\bas long as\b", re.I)
+_NS_PRESTR_VERBS = {"play": "cant_play", "draw": "cant_draw", "search": "cant_search"}
+_NS_PRESTR_NOUN = {"cant_play": r"^(?:lands?|cards?)\b", "cant_draw": r"\bcards?\b",
+                   "cant_search": r"\blibrar(?:y|ies)\b"}
+
+
+def _ns_player_restrict(subj, rest):
+    """'<player-set> can't <play lands|draw|search|lose/win the game> …' -> the matching grounded
+    cant_<verb>(-, _target(subj), slug(object)), or None. Symmetric with `_ns_cast`/`_ns_cant`; abstains on a
+    player-set miss, a compound/conditional rider (conflation), or an object that isn't the verb's own noun."""
+    if not _NS_PLAYER_SUBJ.match(subj):
+        return None
+    g = _NS_GAME.match(rest)                        # §104 game-end: the verb fully states it (no object slug)
+    if g:
+        return Effect("cant_" + g.group(1) + "_game", "-", _target(subj))
+    if _NS_PRESTR_CONFLATE.search(rest):
+        return None
+    head, _, obj = rest.partition(" ")
+    verb = _NS_PRESTR_VERBS.get(head)
+    if verb is None or not obj or not re.search(_NS_PRESTR_NOUN[verb], obj):
+        return None                                # unknown action, or object isn't this verb's noun -> abstain
+    return Effect(verb, "-", _target(subj), ground.slug(obj))
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -2957,8 +2995,8 @@ class _ToEffect(Transformer):
         rest = verb.strip() + (" " + tail.strip() if tail is not None else "")
         # casting restriction (§601.3e) first — the combat frames don't key on 'cast', so _ns_cant returns
         # None for it; _ns_cast grounds '<player-set> can't cast <spell-set> …' as cant_cast, else falls through.
-        return (_ns_cast(subj.strip().lower(), rest.strip().lower())
-                or _ns_cant(subj.strip().lower(), rest.strip().lower()))
+        sl, rl = subj.strip().lower(), rest.strip().lower()
+        return _ns_cast(sl, rl) or _ns_player_restrict(sl, rl) or _ns_cant(sl, rl)
 
     def nsuntap(self, *args):
         # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT
