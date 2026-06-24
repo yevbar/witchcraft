@@ -818,6 +818,12 @@ _COORD = re.compile(r"^(?:or|and)\s", re.I)        # 'tap or untap …' — a co
 # an object that swallowed a following clause ('Destroy X, then ~ deals damage to Y') — the leaf must
 # stop at the first verb; abstain so the upstream sentence-splitter / wrapper chain owns the sequence.
 _MULTICLAUSE = re.compile(r"\bthen\b|\bdeals?\s+\S+\s+damage\b", re.I)
+# a tribal-ANTHEM subject that is a comma-list of creature TYPES ('[Other] Skeletons, Vampires, and Zombies
+# [you control]') — a single boost subject, NOT a multi-clause. The grammar already parsed the whole clause as
+# ONE mclause (subject GETS delta), so a comma here is always within the subject; this lets the boost
+# transformer keep it instead of abstaining on the bare comma. Strict (every item a plural noun) so it can't
+# match a genuine multi-subject ('you, target opponent, and each player').
+_TYPELIST_ANTHEM = re.compile(r"^(?:other )?[\w'-]+s(?:, [\w'-]+s)*,? and [\w'-]+s(?: you control)?$", re.I)
 
 # 'return' abstain guards: an object-internal preposition ('attached to it', 'equal to X') or a
 # coordinated multi-object list ('return A, B, and C to …') makes the flat from/to split ambiguous;
@@ -2289,8 +2295,9 @@ class _ToEffect(Transformer):
         if tgt is None or pt is None:
             return None
         tgt = tgt.strip().lower()
-        if _MULTICLAUSE.search(tgt) or "," in tgt:
-            return None                        # multi-clause subject -> regex chain owns it
+        if _MULTICLAUSE.search(tgt) or ("," in tgt and not _TYPELIST_ANTHEM.match(tgt)):
+            return None                        # multi-clause subject -> regex chain owns it (but a TYPE-LIST
+            #                                    anthem subject — 'X, Y, and Z [you control]' — is kept)
         perpetual = tgt.endswith(" perpetually")
         if perpetual:
             tgt = tgt[:-len(" perpetually")].strip()   # '<X> perpetually gets …' -> cond=perpetual
