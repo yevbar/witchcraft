@@ -220,6 +220,13 @@ class Game:
             supers.setdefault(c, []).append(s)
         return [Move.of(a, types, supers) for a in env.legal_actions(self._state)]
 
+    def win_conditions(self, seat: str | None = None) -> set:
+        """The `wincon.WinCon`s `seat`'s deck can actually pursue (defaults to whoever has priority now),
+        derived from that seat's cards via the engine's own card facts — so a policy/search can target only the
+        live axes (e.g. a creature deck with no infect/mill/alt-win resolves to just `{WinCon.LIFE_ZERO}`)."""
+        from . import wincon
+        return wincon.reachable(self._state, seat if seat is not None else self.turn)
+
     @property
     def priority(self) -> Priority:
         """The current decision as a `Priority` view — `legal_moves` pre-sliced by kind, for the player to
