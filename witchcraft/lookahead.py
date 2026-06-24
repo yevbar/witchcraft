@@ -23,7 +23,33 @@ from __future__ import annotations
 
 import random
 
+import win_search
+
 from .players import Player
+
+
+def _dont_blunder(game, me: str, moves: list):
+    """No win found — still avoid an obvious blunder: prefer a move after which the opponent has no immediate
+    (1-ply) win. Pure terminal-detection, no board knowledge. Else just the first move. Shared by both
+    lookahead players."""
+    scratch = game.copy()
+    safe = []
+    for m in moves:
+        scratch.push(m, checked=False)
+        loses = scratch.is_game_over() and scratch.winner() != me
+        if not loses:
+            for reply in scratch.legal_moves:
+                scratch.push(reply, checked=False)
+                if scratch.is_game_over() and scratch.winner() != me:
+                    loses = True
+                scratch.pop()
+                if loses:
+                    break
+        scratch.pop()
+        if not loses:
+            safe.append(m)
+    pool = safe or moves
+    return pool[0]
 
 
 class LookaheadPlayer(Player):
@@ -58,8 +84,8 @@ class LookaheadPlayer(Player):
                 if won:
                     return m
                 if budget[0] <= 0:
-                    return self._fallback(game, me, moves)
-        return self._fallback(game, me, moves)
+                    return _dont_blunder(game, me, moves)
+        return _dont_blunder(game, me, moves)
 
     def _reaches_win(self, game, me: str, depth: int, budget: list, seen: dict) -> bool:
         """True iff a win for `me` is reachable from `game` within `depth` plies (any line — see module
@@ -84,24 +110,45 @@ class LookaheadPlayer(Player):
         seen[key] = depth                         # record: no win within `depth` from here
         return False
 
-    def _fallback(self, game, me: str, moves: list):
-        """No win found — still avoid an obvious blunder: prefer a move after which the opponent has no
-        immediate (1-ply) win. Pure terminal-detection, no board knowledge. Else just the first move."""
-        scratch = game.copy()
-        safe = []
-        for m in moves:
-            scratch.push(m, checked=False)
-            loses = scratch.is_game_over() and scratch.winner() != me
-            if not loses:
-                for reply in scratch.legal_moves:
-                    scratch.push(reply, checked=False)
-                    if scratch.is_game_over() and scratch.winner() != me:
-                        loses = True
-                    scratch.pop()
-                    if loses:
-                        break
-            scratch.pop()
-            if not loses:
-                safe.append(m)
-        pool = safe or moves
-        return pool[0]
+class EnhancedLookaheadPlayer(Player):
+    """Plays toward the NEAREST win, not just any win. `LookaheadPlayer`/`win_search.find_win` return *a* win
+    within the horizon — a DFS can pick a needlessly long line and so play the wrong first move (e.g. develop
+    when an immediate lethal exists). This iterative-deepens over ply-depth to the SHORTEST winning line
+    (`win_search.find_nearest_win`), so a closer kill is never passed over. `forced=True` (the default)
+    requires the win to hold against every opponent block — a true forced win, robust against a real defender
+    (plain reachability evaporates, e.g. vs the heuristic); `forced=False` is the optimistic reachable win.
+    Domain-knowledge-free (only legal moves + terminal). `last_win = (plies, path)` exposes the find for a
+    takeover harness. Falls back to a don't-blunder move when no win is in reach.
+
+        from witchcraft.lookahead import EnhancedLookaheadPlayer
+        benchmark(EnhancedLookaheadPlayer(max_plies=12), games=10)
+    """
+
+    name = "enhanced_lookahead"
+
+    def __init__(self, max_plies: int = 16, node_budget: int = 4000, forced: bool = True,
+                 seed: int | None = None):
+        """max_plies: deepest winning line (in MY actions) to search for. node_budget: env-step cap per
+        decision. forced: require a true forced win (survives every block) vs an optimistic reachable one."""
+        self.max_plies = max_plies
+        self.node_budget = node_budget
+        self.forced = forced
+        self._rng = random.Random(seed)
+        self.last_win: tuple | None = None        # (plies, path) of the nearest win found last decision, or None
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        me = game.turn
+        path, plies, _ = win_search.find_nearest_win(game.state, me=me, max_plies=self.max_plies,
+                                                     node_budget=self.node_budget, forced=self.forced)
+        self.last_win = (plies, path) if path else None
+        if path:                                  # play the first move of the shortest winning line
+            raw = getattr(path[0], "raw", path[0])
+            mv = next((m for m in moves if getattr(m, "raw", m) == raw), None)
+            if mv is not None:
+                return mv
+        return _dont_blunder(game, me, moves)

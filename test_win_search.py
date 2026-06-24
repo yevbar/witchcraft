@@ -273,6 +273,51 @@ def _forced_adversarial():
     check("forced ⊆ passive (every forced win is also a passive win — strictly conservative)", subset)
 
 
+def _nearest_win():
+    """find_nearest_win returns the SHORTEST winning line, not just a win. With BOTH a 1-ply spell win (cast a
+    0-cost 'win_game') and a 2-ply combat lethal (pass -> attack with a 5/5 vs bob at 4) available, it takes the
+    1-ply spell win — where find_win's DFS may return either, possibly the longer line (and so the wrong move)."""
+    st = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("precombat_main",)},
+          "life": {("alice", 20), ("bob", 4)},
+          "on_battlefield": {("ogre",)}, "printed_type": {("ogre", "creature")},
+          "printed_power": {("ogre", 5)}, "printed_toughness": {("ogre", 5)}, "printed_control": {("alice", "ogre")},
+          "in_hand": {("alice", "wincon")}, "in_library": {("bob", f"b{i}") for i in range(20)},
+          "_lib_order": {"bob": [f"b{i}" for i in range(20)]},
+          "spell_type": {("wincon", "sorcery")}, "mana_cost": {("wincon", 0)},
+          "spell_effect": {("wincon", "win_game", 0, "controller")}, "mana_available": {("alice", 0), ("bob", 0)},
+          "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(), "_sick": set(), "_land_played": set()}
+    near, plies, _ = win_search.find_nearest_win(st, me="alice", max_plies=8, node_budget=3000)
+    check("nearest: a win is found", near is not None)
+    check("nearest: returns the 1-ply spell win, not the longer combat line",
+          near is not None and plies == 1 and near[0][0] == "cast" and near[0][2] == "wincon")
+    far, _ = win_search.find_win(st, me="alice", max_turns=2, node_budget=3000)
+    check("nearest line is the shortest (no longer than find_win's)",
+          near is not None and far is not None and len(near) <= len(far))
+    fn, _p, _ = win_search.find_nearest_win(st, me="alice", max_plies=8, node_budget=3000, forced=True)
+    check("nearest(forced): the clean 1-ply win is still found", fn is not None and len(fn) == 1)
+    # no false positive: an empty board has no win at any depth.
+    empty = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+             "current_step": {("precombat_main",)}, "life": {("alice", 20), ("bob", 20)},
+             "in_hand": set(), "in_library": {("bob", "b0")}, "_lib_order": {"bob": ["b0"]},
+             "on_battlefield": set(), "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
+             "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+    check("nearest: no fabricated win on an empty board",
+          win_search.find_nearest_win(empty, me="alice", max_plies=4, node_budget=400)[0] is None)
+
+
+def _enhanced_player():
+    """EnhancedLookaheadPlayer drives a full game (plays the nearest win when one is in reach, else a
+    don't-blunder fallback)."""
+    import contextlib
+    import io
+    from witchcraft.lookahead import EnhancedLookaheadPlayer
+    from witchcraft.players import RandomPlayer, play
+    bot = EnhancedLookaheadPlayer(max_plies=6, node_budget=600, forced=True, seed=0)
+    with contextlib.redirect_stdout(io.StringIO()):
+        g = play({"alice": bot, "bob": RandomPlayer(seed=1)}, seed=3, max_moves=400)
+    check("EnhancedLookaheadPlayer plays a full game to a terminal result", g.is_game_over())
+
+
 def run():
     _combat_lethal()
     _spell_win()
@@ -281,6 +326,8 @@ def run():
     _defensive_opponent()
     _minimax_checks()
     _forced_adversarial()
+    _nearest_win()
+    _enhanced_player()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

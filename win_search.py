@@ -464,6 +464,69 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
     return dfs(s0), nodes[0]
 
 
+def find_nearest_win(state: dict, me: str | None = None, max_plies: int = 16, node_budget: int = 4000,
+                     forced: bool = False):
+    """Find the NEAREST win — the SHORTEST winning line (fewest of MY actions) — by iterative deepening over
+    ply-depth. `find_win` is a DFS that returns *a* win within a turn ceiling, so it can hand back a needlessly
+    long line (e.g. casting spells before the lethal attack) and play the wrong first move; this returns the
+    SHORTEST line, so the closest kill is never passed over. Returns (path, plies, nodes): `path` is MY action
+    list to the nearest win (its FIRST move is what to play), `plies` = len(path), or (None, None, nodes) if no
+    win within `max_plies`/budget. `forced` requires the win to survive EVERY opponent block (a true forced win,
+    like `find_win(forced=True)`); reachable (default) only assumes a passive/survival-blocking opponent. Shares
+    one node budget across the deepening levels."""
+    s0 = env.start(state)
+    me = me or env.to_move(s0)
+    nodes = [0]
+
+    def dfs(s, limit: int, seen: dict):
+        """ANY win for `me` within `limit` plies from `s` -> the MY-action path (else None). Depth-bounded, so
+        the OUTER iterative deepening makes the first one found the shortest."""
+        nodes[0] += 1
+        if nodes[0] > node_budget:
+            return None
+        if env.is_terminal(s):
+            return [] if env.winner(s) == me else None
+        if limit <= 0:
+            return None
+        k = _key(s)
+        if not forced and seen.get(k, -1) >= limit:           # already proven win-less to at least this depth
+            return None
+        result = None
+        if env.to_move(s) == me:                              # MY decision: any move that leads to a win
+            for a in _dedup_actions(s, env.legal_actions(s)):  # §move-symmetry (one of N identical copies)
+                sub = dfs(env.step(s, a), limit - 1, seen)
+                if sub is not None:
+                    result = [a] + sub
+                    break
+                if nodes[0] > node_budget:
+                    break
+        elif forced and any(a[0] == "block" for a in env.legal_actions(s)):
+            rep, ok = None, True                              # adversarial: the win must hold against EVERY block
+            for b in [a for a in env.legal_actions(s) if a[0] == "block"]:
+                sub = dfs(env.step(s, b), limit - 1, seen)
+                if sub is None:
+                    ok = False
+                    break
+                if rep is None:
+                    rep = sub                                 # one representative tail for the returned path
+            result = rep if ok else None
+        else:                                                 # opponent's own turn: passive / survival-block
+            a = _opp_action(s)
+            result = dfs(env.step(s, a), limit - 1, seen) if a is not None else None
+        if result is None and not forced and nodes[0] <= node_budget:
+            seen[k] = limit                                   # memo: no win within `limit` plies from here
+        return result
+
+    seen: dict = {}
+    for limit in range(1, max_plies + 1):                     # shortest-first: the first horizon that wins is nearest
+        path = dfs(s0, limit, seen)
+        if path is not None:
+            return path, len(path), nodes[0]
+        if nodes[0] >= node_budget:
+            break
+    return None, None, nodes[0]
+
+
 def win_seeking_policy(max_turns: int = 5, node_budget: int = 4000, fallback=None,
                        axis: str | None = None, progress_turns: int = 4, progress_budget: int = 3000,
                        synergy=None, start_life: int = 20, minimax: bool = False,
