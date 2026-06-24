@@ -1455,6 +1455,34 @@ def _ns_cant(subj: str, rest: str):
     return None
 
 
+# CASTING restriction (§601.3e) — '<player-set> can't cast <spell-set>[ <qualifier>]'. A NON-combat static
+# the combat frames (_ns_cant) decline, so it reaches `_static_effect` and currently abstains. Grounded here
+# as cant_cast with the whole post-'cast' object — the spell-set AND any qualifier (incl. a 'more than N …
+# each turn' LIMIT) — preserved as a faithful descriptive slug. Dropping the qualifier would invert a limit
+# into a blanket prohibition ('can't draw more than one' != 'can't draw'), so we keep it whole or abstain.
+# Subject must be a player-set (only players cast). Abstains on a compound non-cast action ('cast spells or
+# play lands') or a joined second clause — a conflation the slug can't represent faithfully (prime directive).
+_NS_CAST_SUBJ = r"your opponents|each opponent|opponents|players|each player|you|enchanted player"
+_NS_CAST_RE = re.compile(r"^(?:" + _NS_CAST_SUBJ + r")$", re.I)
+_NS_CAST_CONFLATE = re.compile(r"\bor (?:play|activate|put|search|attack|block)\b|, and |\band can't\b", re.I)
+
+
+def _ns_cast(subj: str, rest: str):
+    """'<player-set> can't cast <spell-set> …' -> cant_cast(-, _target(subj), slug(spell-set + qualifier)),
+    or None (abstain). Symmetric with `_ns_cant`: reads the same SUBJECT and REST spans the grammar carved,
+    keys on the 'cast' verb the combat frames lack, and slugs the whole object so the qualifier/limit rides
+    the fact rather than being dropped."""
+    if not _NS_CAST_RE.match(subj):
+        return None
+    mr = re.match(r"^cast (.+)$", rest, re.I)
+    if not mr:
+        return None
+    obj = mr.group(1).strip()
+    if "spell" not in obj or _NS_CAST_CONFLATE.search(obj):
+        return None                                # not a spell-cast restriction, or a conflation -> abstain
+    return Effect("cant_cast", "-", _target(subj), ground.slug(obj))
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -2927,7 +2955,10 @@ class _ToEffect(Transformer):
             if m:
                 return Effect("lose_life", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
         rest = verb.strip() + (" " + tail.strip() if tail is not None else "")
-        return _ns_cant(subj.strip().lower(), rest.strip().lower())
+        # casting restriction (§601.3e) first — the combat frames don't key on 'cast', so _ns_cant returns
+        # None for it; _ns_cast grounds '<player-set> can't cast <spell-set> …' as cant_cast, else falls through.
+        return (_ns_cast(subj.strip().lower(), rest.strip().lower())
+                or _ns_cant(subj.strip().lower(), rest.strip().lower()))
 
     def nsuntap(self, *args):
         # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT

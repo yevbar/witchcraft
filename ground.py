@@ -91,6 +91,7 @@ _CORE_ACTIONS = frozenset({
     "roll_die",             # §706 — rolling a die
     "remove_counter",       # §122 — removing a counter
     "play",                 # §601/§116 — playing a card (cast a spell or play a land)
+    "cant_cast",            # §601.3e — a static casting restriction ('<player> can't cast <spell-set>')
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
     "turn_face_up",         # §708.5 — turn a face-down permanent face up (morph/disguise/manifest/cloak)
     "turn_face_down",       # §708 — turn a permanent face down
