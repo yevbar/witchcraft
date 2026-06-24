@@ -1497,16 +1497,25 @@ _NS_PLAYER_SUBJ = re.compile(
     r"^(?:your opponents?|each opponent|opponents|players|other players|each player|you|"
     r"enchanted player|target player)$", re.I)
 _NS_GAME = re.compile(r"^(lose|win) the game$", re.I)
+# '<player-set> can't gain life [<duration>]' (§119) — routes to the grant production (see _ToEffect.grant),
+# so it's matched against the grant transformer's _src there, not in the nscant chain. group 2 = duration rider.
+_GAINLIFE_RESTR = re.compile(
+    r"^(your opponents?|each opponent|opponents|players|each player|you|enchanted player|that player) "
+    r"can't gain life(?: (.+))?$", re.I)
 _NS_PRESTR_CONFLATE = re.compile(r"\bor\b|\band\b|,|\bif\b|\bunless\b|;|\bas long as\b", re.I)
-_NS_PRESTR_VERBS = {"play": "cant_play", "draw": "cant_draw", "search": "cant_search"}
+_NS_PRESTR_VERBS = {"play": "cant_play", "draw": "cant_draw", "search": "cant_search",
+                    "get": "cant_get_counters", "untap": "cant_untap"}
 _NS_PRESTR_NOUN = {"cant_play": r"^(?:lands?|cards?)\b", "cant_draw": r"\bcards?\b",
-                   "cant_search": r"\blibrar(?:y|ies)\b"}
+                   "cant_search": r"\blibrar(?:y|ies)\b", "cant_get_counters": r"\bcounters?\b",
+                   "cant_untap": r"\b(?:permanents?|lands?|creatures?|artifacts?|enchantments?)\b"}
 
 
 def _ns_player_restrict(subj, rest):
-    """'<player-set> can't <play lands|draw|search|lose/win the game> …' -> the matching grounded
-    cant_<verb>(-, _target(subj), slug(object)), or None. Symmetric with `_ns_cast`/`_ns_cant`; abstains on a
-    player-set miss, a compound/conditional rider (conflation), or an object that isn't the verb's own noun."""
+    """'<player-set> can't <play lands|draw|search|lose/win the game|get counters|untap …> …' -> the matching
+    grounded cant_<verb>(-, _target(subj), slug(object)), or None. Symmetric with `_ns_cast`/`_ns_cant`;
+    abstains on a player-set miss, a compound/conditional rider (conflation), or an object that isn't the
+    verb's own noun. The untap object is a §502 LIMIT ('more than two permanents during their untap steps');
+    like every limit in this family it rides the slug whole (dropping it would invert the meaning)."""
     if not _NS_PLAYER_SUBJ.match(subj):
         return None
     g = _NS_GAME.match(rest)                        # §104 game-end: the verb fully states it (no object slug)
@@ -1546,6 +1555,23 @@ def _ns_passive_restrict(subj, rest):
         return Effect("cant_prevent_damage", "-", ground.slug(s), "-", cond)
     if kind == "activated" and "abilit" in s:
         return Effect("cant_be_activated", "-", ground.slug(s), "-", cond)
+    return None
+
+
+# COUNTER-placement restrictions (§122) the player/passive frames don't cover: the SUBJECT is 'counters' (a
+# put-on lock) or a permanent with a counter-COUNT limit. 'counters can't be put on <recipients>' (Solemnity)
+# -> cant_put_counters(-, slug(recipients)) — the recipient TYPE LIST ('artifacts, creatures, …, or lands')
+# is the object, kept whole. '<X> can't have [more than N] <kind> counters [on it]' (Rasputin) ->
+# cant_have_counters(_target(X), slug(limit)) — the count limit rides the slug (never dropped).
+def _ns_counter_restrict(subj, rest):
+    """'counters can't be put on <X>' / '<X> can't have … counters …' -> cant_put_counters / cant_have_counters,
+    or None. Only fires when the clause is actually about counters (so it never over-claims a generic 'have')."""
+    if subj == "counters":
+        m = re.match(r"^be put on (.+)$", rest)
+        return Effect("cant_put_counters", "-", ground.slug(m.group(1))) if m else None
+    m = re.match(r"^have (.+)$", rest)
+    if m and "counter" in m.group(1):
+        return Effect("cant_have_counters", "-", _target(subj), ground.slug(m.group(1)))
     return None
 
 
@@ -2458,6 +2484,18 @@ class _ToEffect(Transformer):
         return amount, cond, t
 
     def grant(self, *args):
+        # CAN'T-GAIN-LIFE restriction (§119): '<player-set> can't gain life [<duration>]'. The dynamic lexer
+        # WORD-tokenizes "can't" when NS_CANT yields no parse, so this routes to gclause/grant (gain∈GVERB),
+        # NOT nscant — hence it's grounded HERE rather than in the nscant chain. cant_gain_life(-, subj,
+        # cond=<duration>). A compound ('… or remove poison counters') is a conflation -> defer to the normal
+        # grant logic (which abstains), keeping faithful-or-abstain.
+        src0 = getattr(self, "_src", None)
+        if src0 is not None:
+            gm = _GAINLIFE_RESTR.match(src0.strip())
+            if gm and not re.search(r"\bor\b|\band\b|,", gm.group(2) or ""):
+                qual = (gm.group(2) or "").strip()
+                return Effect("cant_gain_life", "-", _target(gm.group(1)), "-",
+                              ground.slug(qual) if qual else "-")
         tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
         phrase = next((str(a) for a in args if isinstance(a, _Body)), None)
         dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
@@ -3024,8 +3062,8 @@ class _ToEffect(Transformer):
         # casting restriction (§601.3e) first — the combat frames don't key on 'cast', so _ns_cant returns
         # None for it; _ns_cast grounds '<player-set> can't cast <spell-set> …' as cant_cast, else falls through.
         sl, rl = subj.strip().lower(), rest.strip().lower()
-        return (_ns_cast(sl, rl) or _ns_player_restrict(sl, rl)
-                or _ns_passive_restrict(sl, rl) or _ns_cant(sl, rl))
+        return (_ns_cast(sl, rl) or _ns_player_restrict(sl, rl) or _ns_passive_restrict(sl, rl)
+                or _ns_counter_restrict(sl, rl) or _ns_cant(sl, rl))
 
     def nsuntap(self, *args):
         # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT

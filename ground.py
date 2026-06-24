@@ -98,6 +98,11 @@ _CORE_ACTIONS = frozenset({
     "cant_lose_game", "cant_win_game",  # §104 — 'can't lose/win the game' restrictions
     "cant_be_countered",    # §701.5f/§601 — a '<spell-set> can't be countered' restriction
     "cant_be_activated",    # §602.5 — an '<abilities> can't be activated' restriction
+    "cant_gain_life",       # §119 — a 'can't gain life' restriction
+    "cant_get_counters",    # §122 — a 'can't get [<kind>] counters' restriction
+    "cant_put_counters",    # §122 — a 'counters can't be put on <X>' restriction
+    "cant_have_counters",   # §122 — a 'can't have [more than N] <kind> counters' limit
+    "cant_untap",           # §502 — a "can't untap [more than N] <permanents> during <their> untap step" limit
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
     "turn_face_up",         # §708.5 — turn a face-down permanent face up (morph/disguise/manifest/cloak)
     "turn_face_down",       # §708 — turn a permanent face down
