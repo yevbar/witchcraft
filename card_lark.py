@@ -176,9 +176,13 @@ pflashclause.2: fcastverb fcastobj ASTHOUGH_FLASH         -> play_flash
 pfromclause.-3: fcastverb fcastobj fromphrase            -> play_from
 // TURN FACE UP (§708.5) — '[you may] turn <X> face up' (morph/disguise/manifest/cloak reveal). The FACE_UP
 // terminal is also added to the object spans (objall/pzbody) so existing 'face up' spans are unchanged.
-// NEGATIVE priority so object verbs keep their parse — tfuclause only wins for 'turn'; the xf abstains
-// otherwise. (No 'turn face DOWN' counterpart: a FACE_DOWN terminal broke the conjure→hand parse.)
-tfaceclause.-3: fcastverb fcastobj FACE_DIR                 -> turn_face
+// NEGATIVE priority so object verbs keep their parse — tfaceclause only wins for 'turn'; the xf abstains
+// otherwise. (No 'turn face DOWN' counterpart: a FACE_DOWN terminal broke the conjure→hand parse.) Priority
+// -1 (raised from -3) so it OUTRANKS osclause/tapuntap_subj (-2), which otherwise STEALS 'turn <multi-word
+// object> face up' (e.g. 'turn the exiled card face up' parsed as tapuntap_subj and abstained); tfaceclause
+// requires the distinctive trailing FACE_DIR + a 'turn' verb, so it can't grab any non-turn-face clause, and
+// staying NEGATIVE still yields to every positive-priority family.
+tfaceclause.-1: fcastverb fcastobj FACE_DIR                 -> turn_face
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER

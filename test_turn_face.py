@@ -33,6 +33,11 @@ def _clauses() -> None:
     e = parse_clause("you may turn target face-down permanent face up")
     check("'you may turn … face up' -> turn_face_up, cond=may",
           e is not None and e.verb == "turn_face_up" and e.cond == "may")
+    # MULTI-WORD object (the exiled card / the top card of …): tfaceclause now OUTRANKS osclause/tapuntap_subj
+    # (priority -1), which otherwise stole 'turn <multi-word obj> face up' and abstained (Clone Shell, Summoner's Egg)
+    e = parse_clause("turn the exiled card face up")
+    check("'turn the exiled card face up' -> turn_face_up(the_exiled_card) (not stolen by tapuntap_subj)",
+          e is not None and e.verb == "turn_face_up" and e.target == "the_exiled_card")
     # object verbs that consume 'face up/down' are UNCHANGED (FACE_DIR kept in all object spans; xf abstains on non-turn)
     ex = parse_clause("exile a card face down")
     check("'exile a card face down' unchanged (objall preserved)",
