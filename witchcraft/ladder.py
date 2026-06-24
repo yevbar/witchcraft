@@ -65,7 +65,8 @@ def score_stats(rec: dict, *, z: float = 1.96) -> dict:
         se = (max(var, 0.0) / n) ** 0.5                            # standard error of the mean
         n_eff = n
     return {"score": round(mean, 4), "se": round(se, 4),
-            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n_eff}
+            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n_eff,
+            "explicit_lands": rec.get("explicit_lands"), "instant_speed": rec.get("instant_speed")}
 
 
 def head_to_head(a, b, *, games: int = 64, seed: int = 0, incremental: bool = True, **bench) -> float:
@@ -87,6 +88,49 @@ def compare(a, b, *, games: int = 200, seed: int = 0, z: float = 1.96, increment
     st["explicit_lands"] = rec.get("explicit_lands")   # the action space this comparison ran in (audit)
     st["instant_speed"] = rec.get("instant_speed")
     return st
+
+
+def gauntlet(player, *, rungs=None, games: int = 80, seed: int = 0, explicit_lands: bool = True,
+             paired: bool = True, incremental: bool = True, **bench) -> dict:
+    """Score `player` against each fixed rung (default `default_rungs()` — Random/Greedy/Aggro/Heuristic) on
+    the HONEST, COMPARABLE gauntlet: `explicit_lands=True` pinned on every rung (so the net is evaluated in one
+    action space, not the opponent-dependent one — see benchmark) and paired CRN on. Returns {rung: score_stats}
+    (each carrying score/se/lo/hi/n). Serial; for parallelism fan out one rung per process at the call site (the
+    experiment scripts do this) since trained-net players don't pickle cleanly across a Pool."""
+    rungs = rungs or default_rungs()
+    return {name: score_stats(_record(player, opp, games=games, seed=seed, incremental=incremental,
+                                      explicit_lands=explicit_lands, paired=paired, **bench))
+            for name, opp in rungs.items()}
+
+
+def gauntlet_gate(candidate, best=None, *, rungs=None, games: int = 80, seed: int = 0, margin: float = 0.0,
+                  headline: str = "heuristic", best_scores: dict | None = None, **gkw) -> dict:
+    """Promotion gate on the FIXED gauntlet (not vs-best self-play — which can drift into a mutual pocket that
+    is strong vs itself yet weak vs the heuristic). Promote `candidate` iff it (1) does NOT regress beyond noise
+    on ANY rung vs the reference and (2) improves the `headline` rung (default heuristic) by >= `margin`. The
+    reference is `best_scores` (a prior `gauntlet()` dict, cheap — best changes only on promotion) or computed
+    from `best`; with neither, the gate is absolute (regress-check skipped, only the headline-vs-0.5 margin).
+    Returns {promoted, cand, ref, headline, reason}. Non-regression uses each rung's own SE so a noisy rung
+    can't veto on luck."""
+    cand = gauntlet(candidate, rungs=rungs, games=games, seed=seed, **gkw)
+    ref = best_scores if best_scores is not None else (
+        gauntlet(best, rungs=rungs, games=games, seed=seed, **gkw) if best is not None else None)
+    if ref is None:
+        h = cand[headline]["score"]
+        return {"promoted": h - 0.5 >= margin, "cand": cand, "ref": None, "headline": h,
+                "reason": f"absolute: {headline}={h:.3f} vs 0.5+{margin}"}
+    regressed = []
+    for name in cand:
+        if name not in ref:
+            continue
+        tol = (cand[name]["se"] ** 2 + ref[name]["se"] ** 2) ** 0.5      # 1 SE of the difference
+        if cand[name]["score"] < ref[name]["score"] - tol:
+            regressed.append(f"{name} {cand[name]['score']:.3f}<{ref[name]['score']:.3f}")
+    improved = cand[headline]["score"] - ref[headline]["score"]
+    promoted = not regressed and improved >= margin
+    reason = (f"regressed: {', '.join(regressed)}" if regressed
+              else f"{headline} {improved:+.3f} (need >={margin})")
+    return {"promoted": promoted, "cand": cand, "ref": ref, "headline": cand[headline]["score"], "reason": reason}
 
 
 def games_for_precision(half_width: float = 0.05, *, z: float = 1.96) -> int:

@@ -1105,7 +1105,7 @@ def gated_train_loop(rounds: int = 10, *, games_per_round: int = 20, epochs: int
                      hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None, deck_pool=None,
                      variant: str = "two-player", seed: int = 0, buffer_rounds: int = 8, gate_games: int = 64,
                      gate_thr: float = 0.55, gamma: float = DEFAULT_GAMMA, ladder_every: int = 0,
-                     ladder_games: int = 24, verbose: bool = True):
+                     ladder_games: int = 24, gate_fn=None, verbose: bool = True):
     """AlphaZero-style GATED self-play (Phase 1). Replaces `train_loop`'s refit-fresh-on-ALL-data — which
     plateaued the only metric (win_rate_vs_random) at 1.0 — with three pieces:
 
@@ -1144,7 +1144,10 @@ def gated_train_loop(rounds: int = 10, *, games_per_round: int = 20, epochs: int
 
         if best_vf is None:                                     # round 0: the first net unconditionally seeds best
             promoted, score = True, None
-        else:
+        elif gate_fn is not None:                               # injected gate (e.g. ladder.gauntlet_gate): the
+            g = gate_fn(ValuePlayer(trainee_vf), ValuePlayer(best_vf), seed + r)   # fixed-gauntlet, non-regress
+            promoted, score = g["promoted"], g.get("score")     # gate that catches mutual-drift pockets vs-best
+        else:                                                   # misses (handoff Step 0). Default: vs-best promote.
             gate = _ladder.promote(ValuePlayer(trainee_vf), ValuePlayer(best_vf), n=gate_games, thr=gate_thr,
                                    seed=seed + r, decks=decks, variant=variant)
             promoted, score = gate["promoted"], gate["score"]
