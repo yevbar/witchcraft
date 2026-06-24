@@ -1521,6 +1521,34 @@ def _ns_player_restrict(subj, rest):
     return Effect(verb, "-", _target(subj), ground.slug(obj))
 
 
+# PASSIVE-voice restrictions ('<X> can't be <countered|prevented|activated>') — the subject is the thing
+# restricted (a spell-set / a damage descriptor / an ability set), not a player. _combat_restriction already
+# grounds 'be countered' for subjects in its _TGT/creatures set (via card_restriction); this frame, reached
+# only when that declines (it runs last, via _static_effect), grounds the spell-set / damage / ability
+# subjects it can't match. The whole subject is slugged faithfully (a type list 'instant and sorcery spells
+# you control' is the SUBJECT, not an action conflation, so its 'and' is kept); '~' -> 'self' so the slug
+# isn't lossy. A trailing 'this turn' rides cond. Guarded so each verb only claims its own kind of subject.
+_NS_PASSIVE = re.compile(r"^be (countered|prevented|activated)( this turn)?$", re.I)
+
+
+def _ns_passive_restrict(subj, rest):
+    """'<spell-set> can't be countered' / '<damage> can't be prevented' / '<abilities> can't be activated'
+    -> cant_be_countered | cant_prevent_damage | cant_be_activated (-, slug(subject), cond=this_turn?), or
+    None. Each verb requires its own subject kind (a spell / damage / ability) so it never over-claims."""
+    m = _NS_PASSIVE.match(rest)
+    if not m:
+        return None
+    kind, cond = m.group(1).lower(), ("this_turn" if m.group(2) else "-")
+    s = subj.replace("~", "self")
+    if kind == "countered" and ("spell" in s or s in ("self", "it", "that")):
+        return Effect("cant_be_countered", "-", ground.slug(s), "-", cond)
+    if kind == "prevented" and "damage" in s:
+        return Effect("cant_prevent_damage", "-", ground.slug(s), "-", cond)
+    if kind == "activated" and "abilit" in s:
+        return Effect("cant_be_activated", "-", ground.slug(s), "-", cond)
+    return None
+
+
 _PARSER = Lark(_GRAMMAR % {"verbs": _verb_alt()}, parser="earley", lexer="dynamic")
 
 
@@ -2996,7 +3024,8 @@ class _ToEffect(Transformer):
         # casting restriction (§601.3e) first — the combat frames don't key on 'cast', so _ns_cant returns
         # None for it; _ns_cast grounds '<player-set> can't cast <spell-set> …' as cant_cast, else falls through.
         sl, rl = subj.strip().lower(), rest.strip().lower()
-        return _ns_cast(sl, rl) or _ns_player_restrict(sl, rl) or _ns_cant(sl, rl)
+        return (_ns_cast(sl, rl) or _ns_player_restrict(sl, rl)
+                or _ns_passive_restrict(sl, rl) or _ns_cant(sl, rl))
 
     def nsuntap(self, *args):
         # "<subj> doesn't/don't untap during <ctrl>'s [next] untap step[s] [for as long as …]" — the EXACT

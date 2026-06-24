@@ -96,6 +96,8 @@ _CORE_ACTIONS = frozenset({
     "cant_draw",            # §120 — a 'can't draw [more than N] cards' restriction
     "cant_search",          # §701.18 — a 'can't search libraries' restriction
     "cant_lose_game", "cant_win_game",  # §104 — 'can't lose/win the game' restrictions
+    "cant_be_countered",    # §701.5f/§601 — a '<spell-set> can't be countered' restriction
+    "cant_be_activated",    # §602.5 — an '<abilities> can't be activated' restriction
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
     "turn_face_up",         # §708.5 — turn a face-down permanent face up (morph/disguise/manifest/cloak)
     "turn_face_down",       # §708 — turn a permanent face down
