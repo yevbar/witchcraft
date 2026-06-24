@@ -40,21 +40,32 @@ def _score(rec: dict) -> float:
 
 
 def score_stats(rec: dict, *, z: float = 1.96) -> dict:
-    """Score + its uncertainty from a benchmark record — the honest yardstick. Per-game outcomes are exactly
-    {win=1, draw=½, loss=0}, so the sample variance (hence the standard error of the mean score) is EXACT from
-    the counts — no per-game data needed. Returns {score, se, lo, hi, n} where [lo,hi] is the z·SE interval
-    (default 95%) clamped to [0,1]. A comparison is only meaningful relative to this SE: at n=40, SE≈0.08, so
-    ±0.16 — two scores inside that of each other are a tie, not a result (the project's recurring noise trap)."""
+    """Score + its uncertainty from a benchmark record — the honest yardstick. If the record carries
+    `pair_scores` (paired CRN, see benchmark), the SE is the sample SE over those per-pair scores — the real
+    n is the pair count, and correlated deck-luck that cancels in the pair tightens the interval. Otherwise
+    per-game outcomes are exactly {win=1, draw=½, loss=0}, so the sample variance (hence the SE of the mean) is
+    EXACT from the counts. Returns {score, se, lo, hi, n} where [lo,hi] is the z·SE interval (default 95%)
+    clamped to [0,1]. A comparison is only meaningful relative to this SE: at n=40, SE≈0.08, so ±0.16 — two
+    scores inside that of each other are a tie, not a result (the project's recurring noise trap)."""
     n = rec.get("games", 0)
     if not n:
         return {"score": 0.0, "se": 0.0, "lo": 0.0, "hi": 0.0, "n": 0}
-    w, d = rec["wins"], rec["draws"]
-    mean = (w + 0.5 * d) / n
-    sum_sq = w * 1.0 + d * 0.25                                    # Σ x_i²  (losses contribute 0)
-    var = (sum_sq - n * mean * mean) / (n - 1) if n > 1 else 0.0   # unbiased sample variance
-    se = (max(var, 0.0) / n) ** 0.5                                # standard error of the mean
+    ps = rec.get("pair_scores")
+    if ps:                                                        # paired CRN: SE from the per-pair scores, so
+        m = len(ps)                                              # correlated deck-luck that cancels in the pair
+        mean = sum(ps) / m                                       # tightens the interval (the point of pairing).
+        var = sum((p - mean) ** 2 for p in ps) / (m - 1) if m > 1 else 0.0
+        se = (var / m) ** 0.5                                    # SE of the mean over m pairs (the real n here)
+        n_eff = m
+    else:
+        w, d = rec["wins"], rec["draws"]
+        mean = (w + 0.5 * d) / n
+        sum_sq = w * 1.0 + d * 0.25                                # Σ x_i²  (losses contribute 0)
+        var = (sum_sq - n * mean * mean) / (n - 1) if n > 1 else 0.0   # unbiased sample variance
+        se = (max(var, 0.0) / n) ** 0.5                            # standard error of the mean
+        n_eff = n
     return {"score": round(mean, 4), "se": round(se, 4),
-            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n}
+            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n_eff}
 
 
 def head_to_head(a, b, *, games: int = 64, seed: int = 0, incremental: bool = True, **bench) -> float:

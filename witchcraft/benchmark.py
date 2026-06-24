@@ -22,11 +22,14 @@ import time
 
 def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-player", seed: int = 0,
               decks: dict | None = None, commanders: dict | None = None, incremental: bool = False,
-              max_moves: int = 4000, swap_seats: bool = True, explicit_lands: bool = False) -> dict:
+              max_moves: int = 4000, swap_seats: bool = True, explicit_lands: bool = False,
+              paired: bool = True) -> dict:
     """Play `player` vs `opponent` (default RandomPlayer) over `games` witchcraft self-play games and report
-    `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result),
-    and each game uses a distinct seed (`seed + i`). Returns
-    {games, wins, losses, draws, win_rate, avg_turns, wall_s, games_per_s}.
+    `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result).
+    With `paired` (default, requires `swap_seats`) the two seat orientations of each pair reuse the SAME game
+    seed — common random numbers, so the deck shuffle is identical and deck-luck cancels in the paired
+    difference (~halves games-to-significance). `paired=False` falls back to a distinct seed per game
+    (`seed + i`). Returns {games, wins, losses, draws, win_rate, avg_turns, wall_s, games_per_s}.
 
         from witchcraft import benchmark, RandomPlayer, Player
         class MyBot(Player):
@@ -47,16 +50,22 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
     eff_instant = any(getattr(p, "wants_instant_speed", False) for p in _both)
     wins = losses = draws = 0
     total_turns = 0
+    outcomes = []
     t0 = time.perf_counter()
+    crn = paired and swap_seats                                        # common random numbers across the pair
     for i in range(games):
         flip = swap_seats and (i % 2 == 1)
+        # paired CRN: the two orientations of pair k (games 2k, 2k+1) share game seed `seed + k`, so the deck
+        # shuffle is identical and only the seat assignment differs -> deck-luck cancels. Else distinct per game.
+        gseed = seed + (i // 2) if crn else seed + i
         players = {"alice": opponent, "bob": player} if flip else {"alice": player, "bob": opponent}
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):                # the engine narrates each step — mute it
-            g = play(players, decks, variant=variant, seed=seed + i, commanders=commanders,
+            g = play(players, decks, variant=variant, seed=gseed, commanders=commanders,
                      incremental=incremental, max_moves=max_moves, explicit_lands=explicit_lands)
         w = g.winner()
         total_turns += g.turn_number
+        outcomes.append(1.0 if w == mine else (0.5 if w is None else 0.0))   # mine's per-game score
         if w == mine:
             wins += 1
         elif w is None:
@@ -64,11 +73,17 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
         else:
             losses += 1
     wall = time.perf_counter() - t0
+    # Under CRN, games (2k, 2k+1) share a seed -> average them into one pair score so the correlated deck-luck
+    # cancels; the honest SE is then the sample SE of these pair scores (see score_stats), which tightens as the
+    # pairing actually cancels variance. A trailing odd game forms a singleton group. Without CRN, no pairing.
+    pair_scores = ([sum(outcomes[k:k + 2]) / len(outcomes[k:k + 2]) for k in range(0, games, 2)]
+                   if crn and games else None)
     return {
         "games": games, "wins": wins, "losses": losses, "draws": draws,
         "win_rate": round(wins / games, 3) if games else 0.0,
         "avg_turns": round(total_turns / games, 1) if games else 0.0,
         "wall_s": round(wall, 2), "games_per_s": round(games / wall, 2) if wall else 0.0,
+        "pair_scores": pair_scores,                                     # CRN pair scores for paired SE (or None)
         "explicit_lands": eff_explicit, "instant_speed": eff_instant,   # the action space these games ran in
     }
 
