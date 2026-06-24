@@ -1494,7 +1494,8 @@ def _sh_frame(subj, body):
 _NS_CANT_SUBJ = re.compile(r"^(?:" + _TGT + r")$", re.I)                        # _cant_combat g1 (the `_TGT` subject)
 _NS_CANT_REST = re.compile(                                                     # _cant_combat post-"can't" portion
     r"^(be blocked|block or be blocked|attack or block|block|attack)"
-    r"(?: (" + _TGT + r"))? this (?:turn|combat)$", re.I)                       # 'this combat' too (Canal Courier)
+    r"(?: (" + _TGT + r"))?(?: this (?:turn|combat))?$", re.I)                  # duration OPTIONAL (a bare '<X>
+    #                  can't attack/block' is a permanent restriction) + 'this combat' (Canal Courier)
 _NS_CANT_SET_SUBJ = re.compile(                                                 # _cant_combat_set g1 (creatures set)
     r"^(?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?$", re.I)
 _NS_CANT_SET_REST = re.compile(                                                 # _cant_combat_set post-"can't" portion
@@ -1515,7 +1516,11 @@ _NS_UNTAP_TAIL = re.compile(
 # the block-template verb-slot -> grounded verb; ONLY the three negative-statics verbs are ours. The same
 # template ALSO grounds cant_attack / cant_attack_or_block / cant_block_or_be_blocked (OTHER families) ->
 # those slot values are absent from this map, so the transformer abstains (defers to the regex) on them.
-_NS_OURS = {"be blocked": "cant_be_blocked", "block": "cant_block"}
+# the post-'can't' verb -> grounded verb (cant_<verb>). NOW the FULL _cant_combat set (the migration was
+# scoped to be_blocked/block; extended to attack/attack-or-block/block-or-be-blocked — byte-identical to
+# `_cant_combat`'s `"cant_" + verb.replace(" ","_")`).
+_NS_OURS = {"be blocked": "cant_be_blocked", "block": "cant_block", "attack": "cant_attack",
+            "attack or block": "cant_attack_or_block", "block or be blocked": "cant_block_or_be_blocked"}
 
 
 def _ns_cant(subj: str, rest: str):
