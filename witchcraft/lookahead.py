@@ -126,13 +126,19 @@ class EnhancedLookaheadPlayer(Player):
 
     name = "enhanced_lookahead"
 
-    def __init__(self, max_plies: int = 16, node_budget: int = 4000, forced: bool = True,
-                 seed: int | None = None):
-        """max_plies: deepest winning line (in MY actions) to search for. node_budget: env-step cap per
-        decision. forced: require a true forced win (survives every block) vs an optimistic reachable one."""
+    def __init__(self, max_plies: int = 24, node_budget: int = 8000, forced: bool = True,
+                 order: bool = True, beam: int | None = None, seed: int | None = None):
+        """max_plies / node_budget bound the search (raised so the EXACT search reaches ~4 turns on a moderate
+        board). forced: require a true forced win (survives every block) vs an optimistic reachable one. order:
+        try win-relevant moves first (free speedup; on by default). beam: cap MY decisions to the top-`beam`
+        ordered moves — a HEURISTIC that scales the reach to 4–5 turns on cluttered/large boards where the exact
+        search explodes, at the cost of completeness (it can MISS a win — never fabricate one — and a miss just
+        falls back to don't-blunder). beam=None is exact; try beam=6–8 to push the turn ceiling on a wide board."""
         self.max_plies = max_plies
         self.node_budget = node_budget
         self.forced = forced
+        self.order = order
+        self.beam = beam
         self._rng = random.Random(seed)
         self.last_win: tuple | None = None        # (plies, path) of the nearest win found last decision, or None
 
@@ -144,7 +150,8 @@ class EnhancedLookaheadPlayer(Player):
             return moves[0]
         me = game.turn
         path, plies, _ = win_search.find_nearest_win(game.state, me=me, max_plies=self.max_plies,
-                                                     node_budget=self.node_budget, forced=self.forced)
+                                                     node_budget=self.node_budget, forced=self.forced,
+                                                     order=self.order, beam=self.beam)
         self.last_win = (plies, path) if path else None
         if path:                                  # play the first move of the shortest winning line
             raw = getattr(path[0], "raw", path[0])

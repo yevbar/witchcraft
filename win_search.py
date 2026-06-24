@@ -464,16 +464,41 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
     return dfs(s0), nodes[0]
 
 
+def _win_order_key(a):
+    """Order MY actions so the win-relevant ones are tried FIRST. At the depth where the win exists the loop
+    returns on the first winner, so good ordering finds it after far fewer env.steps — and, critically, it
+    decides what a `beam` keeps. `pass` ranks HIGH: it is the gateway from the main phase to COMBAT (the
+    dominant win vector) and to the opponent's turn, so it must survive the beam — ranking it as durdle made
+    beam search cut it and miss every combat kill. Within attacks, more attackers first (more damage)."""
+    kind = a[0]
+    if kind == "attack":
+        return (0, -len(a[1])) if a[1] else (6, 0)            # a real swing first (biggest); 'no attack' last
+    if kind == "pass":
+        return (1, 0)                                         # the gateway to combat / the opponent's turn
+    if kind in ("cast", "cast_commander"):
+        return (2, 0)
+    if kind == "activate":
+        return (3, 0)
+    if kind in ("cast_face_down", "foretell", "turn_face_up"):
+        return (4, 0)
+    return (5, 0)                                             # land drops and anything else
+
+
 def find_nearest_win(state: dict, me: str | None = None, max_plies: int = 16, node_budget: int = 4000,
-                     forced: bool = False):
+                     forced: bool = False, order: bool = True, beam: int | None = None):
     """Find the NEAREST win — the SHORTEST winning line (fewest of MY actions) — by iterative deepening over
     ply-depth. `find_win` is a DFS that returns *a* win within a turn ceiling, so it can hand back a needlessly
     long line (e.g. casting spells before the lethal attack) and play the wrong first move; this returns the
     SHORTEST line, so the closest kill is never passed over. Returns (path, plies, nodes): `path` is MY action
     list to the nearest win (its FIRST move is what to play), `plies` = len(path), or (None, None, nodes) if no
     win within `max_plies`/budget. `forced` requires the win to survive EVERY opponent block (a true forced win,
-    like `find_win(forced=True)`); reachable (default) only assumes a passive/survival-blocking opponent. Shares
-    one node budget across the deepening levels."""
+    like `find_win(forced=True)`); reachable (default) only assumes a passive/survival-blocking opponent.
+
+    Two depth levers (to push the horizon to 4–5 turns within budget): `order` tries win-relevant moves first
+    (finds the win after fewer nodes — complete, just faster); `beam` caps MY decisions to the top-`beam`
+    ordered moves (a HEURISTIC: trades completeness for reach — it can miss a win whose first move ranks below
+    the cut, so keep it generous, e.g. 6–8, and prefer None when the budget allows). Shares one node budget
+    across the deepening levels."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     nodes = [0]
@@ -493,7 +518,16 @@ def find_nearest_win(state: dict, me: str | None = None, max_plies: int = 16, no
             return None
         result = None
         if env.to_move(s) == me:                              # MY decision: any move that leads to a win
-            for a in _dedup_actions(s, env.legal_actions(s)):  # §move-symmetry (one of N identical copies)
+            acts = _dedup_actions(s, env.legal_actions(s))     # §move-symmetry (one of N identical copies)
+            if order or beam is not None:
+                acts = sorted(acts, key=_win_order_key)
+            if beam is not None:
+                acts = acts[:beam]                             # heuristic branching cap (trades completeness for depth)
+                if not any(a[0] == "pass" for a in acts):      # never cut the gateway-to-combat move
+                    p = next((a for a in _dedup_actions(s, env.legal_actions(s)) if a[0] == "pass"), None)
+                    if p is not None:
+                        acts = acts[:max(1, beam - 1)] + [p]
+            for a in acts:
                 sub = dfs(env.step(s, a), limit - 1, seen)
                 if sub is not None:
                     result = [a] + sub

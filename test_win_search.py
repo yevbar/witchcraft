@@ -305,6 +305,28 @@ def _nearest_win():
           win_search.find_nearest_win(empty, me="alice", max_plies=4, node_budget=400)[0] is None)
 
 
+def _nearest_multiturn():
+    """find_nearest_win reaches a MULTI-turn combat kill; ordering doesn't change the result (complete, just
+    faster); a beam finds the same win exploring no more nodes (the deeper-reach lever, fixed to keep `pass`
+    so it can't cut the path to combat)."""
+    cs = [f"c{i}" for i in range(3)]
+    st = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+          "current_step": {("precombat_main",)}, "life": {("alice", 20), ("bob", 45)},   # 3x5=15/turn -> 3 turns
+          "on_battlefield": {(c,) for c in cs}, "printed_type": {(c, "creature") for c in cs},
+          "printed_power": {(c, 5) for c in cs}, "printed_toughness": {(c, 5) for c in cs},
+          "printed_control": {("alice", c) for c in cs}, "in_hand": set(),
+          "in_library": {("alice", f"a{i}") for i in range(20)} | {("bob", f"b{i}") for i in range(20)},
+          "_lib_order": {"alice": [f"a{i}" for i in range(20)], "bob": [f"b{i}" for i in range(20)]},
+          "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
+          "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
+    p_o, plies_o, n_o = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, order=True)
+    _p_r, plies_r, _ = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, order=False)
+    check("nearest reaches a 3-turn combat kill", p_o is not None and plies_o == 3)
+    check("ordering is complete (same nearest length as unordered)", plies_r == plies_o)
+    p_b, plies_b, n_b = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, beam=3)
+    check("beam finds the same 3-turn win with no more nodes", p_b is not None and plies_b == 3 and n_b <= n_o)
+
+
 def _enhanced_player():
     """EnhancedLookaheadPlayer drives a full game (plays the nearest win when one is in reach, else a
     don't-blunder fallback)."""
@@ -327,6 +349,7 @@ def run():
     _minimax_checks()
     _forced_adversarial()
     _nearest_win()
+    _nearest_multiturn()
     _enhanced_player()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
