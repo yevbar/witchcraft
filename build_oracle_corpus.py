@@ -5,12 +5,19 @@ AllPrintings.json (~600MB) is bulk data, gitignored. Fetch it first:
     mkdir -p mtgjson && curl -L -o mtgjson/AllPrintings.json.gz \
         https://mtgjson.com/api/v5/AllPrintings.json.gz && gunzip -kf mtgjson/AllPrintings.json.gz
 then run this to (re)generate the corpus the card pipeline reads.
+
+AllPrintings.json is ~640MB; a plain json.load of it peaks multiple GB and OOMs a memory-thin box. We
+ijson-STREAM the top-level "data" set map instead (one set object resident at a time), which holds the
+build to ~130MB RSS. Card iteration order matches a json.load (file order of the set map, cards in order),
+so the first-seen-wins dedup is unchanged.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+import ijson
 
 _MTG = Path(__file__).parent / "mtgjson"
 _KEEP = ("name", "manaCost", "type", "types", "subtypes", "supertypes",
@@ -24,9 +31,9 @@ _TRANSFORM = {"transform"}
 
 
 def main() -> None:
-    data = json.load(open(_MTG / "AllPrintings.json", encoding="utf-8"))["data"]
     seen: dict[str, dict] = {}
-    for s in data.values():
+    src = open(_MTG / "AllPrintings.json", "rb")
+    for _code, s in ijson.kvitems(src, "data"):     # stream set objects: ~130MB RSS, not multi-GB
         for c in s.get("cards", []):
             n = c.get("name")
             if not n or c.get("layout") in _SKIP_LAYOUT:
