@@ -37,6 +37,14 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
     from .players import RandomPlayer, play
     if opponent is None:
         opponent = RandomPlayer()
+    # The effective action space is what play() will actually open: the explicit `explicit_lands` OR either
+    # player's `wants_*` capability (players.py). It is constant across this call's games (same two players),
+    # but DIFFERS BY OPPONENT across a gauntlet — e.g. OFF vs RandomPlayer, forced ON vs HeuristicPlayer. That
+    # silently evaluates one net in different action spaces across rungs. Compute it once and REPORT it (below)
+    # so the mismatch is auditable; pin `explicit_lands=True` in a gauntlet to keep rungs comparable.
+    _both = (player, opponent)
+    eff_explicit = explicit_lands or any(getattr(p, "wants_explicit_lands", False) for p in _both)
+    eff_instant = any(getattr(p, "wants_instant_speed", False) for p in _both)
     wins = losses = draws = 0
     total_turns = 0
     t0 = time.perf_counter()
@@ -61,6 +69,7 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
         "win_rate": round(wins / games, 3) if games else 0.0,
         "avg_turns": round(total_turns / games, 1) if games else 0.0,
         "wall_s": round(wall, 2), "games_per_s": round(games / wall, 2) if wall else 0.0,
+        "explicit_lands": eff_explicit, "instant_speed": eff_instant,   # the action space these games ran in
     }
 
 

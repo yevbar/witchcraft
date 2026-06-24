@@ -9,8 +9,8 @@ is to deliver the game into the solver's basin; the solver executes the kill pre
 
     from witchcraft.steer_solve import SteerAndSolvePlayer
     from witchcraft.rebel import GreedyValuePlayer
-    from witchcraft.cardnet import CardNetValue, load
-    brain = GreedyValuePlayer(CardNetValue(load("/tmp/adaptive4_heurtrained.pt")), quiesce=True)
+    from witchcraft.cardnet import load
+    brain = GreedyValuePlayer(load("/tmp/adaptive4_heurtrained.pt"), quiesce=True)   # load() returns a CardNetValue
     bot   = SteerAndSolvePlayer(brain, max_turns=2)
 
 CAVEAT (the soundness limit, see MODELING_DIRECTION plan §2): `find_win`'s opponent model is currently

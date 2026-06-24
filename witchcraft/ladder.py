@@ -68,10 +68,13 @@ def compare(a, b, *, games: int = 200, seed: int = 0, z: float = 1.96, increment
     {score, se, lo, hi, n, significant, verdict}: `significant` is True iff the z·SE interval excludes 0.5
     (i.e. the result clears the noise floor), and `verdict` is 'a>b' / 'a<b' / 'tie'. Default games=200 (SE≈
     0.035) is the floor for a HEADLINE comparison; bump it (see `games_for_precision`) for tight margins."""
-    st = score_stats(_record(a, b, games=games, seed=seed, incremental=incremental, **bench), z=z)
+    rec = _record(a, b, games=games, seed=seed, incremental=incremental, **bench)
+    st = score_stats(rec, z=z)
     sig = st["lo"] > 0.5 or st["hi"] < 0.5
     st["significant"] = sig
     st["verdict"] = ("a>b" if st["score"] > 0.5 else "a<b") if sig else "tie"
+    st["explicit_lands"] = rec.get("explicit_lands")   # the action space this comparison ran in (audit)
+    st["instant_speed"] = rec.get("instant_speed")
     return st
 
 
