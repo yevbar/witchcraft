@@ -54,6 +54,14 @@ def _eager():
     from witchcraft.eager import EagerPlayer
     from witchcraft.players import RandomPlayer, play
     check("EagerPlayer dispatches every WinCon", set(EagerPlayer._DISPATCH) == set(WinCon))
+
+    g = Game(seed=0)
+    p = EagerPlayer()
+    p.bind(g, g.turn)                                            # a bound player's self.me -> a SeatView for its seat
+    check("win_conditions accepts a SeatView (self.me) like a seat name",
+          g.win_conditions(p.me) == g.win_conditions(g.turn))
+    check("win_conditions accepts a Player (self) like a seat name",
+          g.win_conditions(p) == g.win_conditions(g.turn))
     with contextlib.redirect_stdout(io.StringIO()):
         g = play({"alice": EagerPlayer(), "bob": RandomPlayer(seed=1)}, seed=3, max_moves=400)
     check("EagerPlayer (placeholders -> legal fallback) plays a full game to terminal", g.is_game_over())

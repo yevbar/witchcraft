@@ -28,17 +28,20 @@ class EagerPlayer(Player):
     _PRIORITY = (WinCon.WIN_GAME, WinCon.COMMANDER_DAMAGE, WinCon.POISON_TEN, WinCon.DECKOUT, WinCon.LIFE_ZERO)
 
     def choose_move(self, game):
+        forced = game.only_legal_move                      # a forced step (one option) -> take it, skip the search
+        if forced is not None:
+            return forced
         moves = game.legal_moves
         if not moves:
             return None
-        if len(moves) == 1:
-            return moves[0]
-        wincons = game.win_conditions(game.turn)          # the axes THIS deck can pursue
+
+        wincons = game.win_conditions(self.me)            # the axes MY deck can pursue
         for wc in self._PRIORITY:                          # the switch: dispatch to each available axis's strategy
             if wc in wincons:
                 move = self._DISPATCH[wc](self, game)
                 if move is not None:
                     return move
+
         return moves[0]                                    # no axis handler produced a move yet -> default legal move
 
     # ---- per-win-condition strategies (placeholders — each returns None for now) ------------------------------
