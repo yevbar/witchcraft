@@ -49,9 +49,12 @@ _PZ_RX, _PZ_FN = next((rx, fn) for rx, fn in _ce._TEMPLATES if fn.__name__ == "_
 _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap",
            "sacrifice": "sacrifice", "counter": "counter", "regenerate": "regenerate",
            "goad": "goad", "detain": "detain", "seek": "seek", "draft": "draft",
-           # migrated off the generic object-verb regex leaf — distinctive verbs whose REAL form is
-           # 'verb <object>' (unlike cloak/meld/behold, which have special non-target shapes -> excluded):
-           "suspect": "suspect", "convert": "convert"}
+           # migrated off the generic object-verb regex leaf — distinctive verbs whose REAL corpus form is
+           # 'verb <object>'. cloak ('cloak those cards/them/the top card …') and abandon ('abandon this
+           # scheme') ARE clean object verbs (the earlier 'cloak the top N cards' worry was wrong — every cloak
+           # clause is the generic 'verb <obj>'); meld ('meld them into <result>') / behold (no effect clause) /
+           # triple ('triple strike' = a keyword, not an object) are EXCLUDED — special/non-object shapes.
+           "suspect": "suspect", "convert": "convert", "cloak": "cloak", "abandon": "abandon"}
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
