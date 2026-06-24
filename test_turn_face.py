@@ -23,33 +23,37 @@ def check(name, cond):
 
 
 def _clauses() -> None:
-    for src, tgt in [("turn it face up", "it"),
-                     ("turn target face-down creature face up", "target_face_down_creature"),
-                     ("turn that creature face up", "that_creature")]:
+    # ONE FACE_DIR terminal handles BOTH directions; the xf emits turn_face_up / turn_face_down per the token.
+    for src, verb, tgt in [("turn it face up", "turn_face_up", "it"),
+                           ("turn it face down", "turn_face_down", "it"),
+                           ("turn target face-down creature face up", "turn_face_up", "target_face_down_creature"),
+                           ("turn that creature face down", "turn_face_down", "that_creature")]:
         e = parse_clause_lark(src)
-        check(f"{src!r} -> turn_face_up({tgt})",
-              e is not None and e.verb == "turn_face_up" and e.target == tgt)
+        check(f"{src!r} -> {verb}({tgt})", e is not None and e.verb == verb and e.target == tgt)
     e = parse_clause("you may turn target face-down permanent face up")
     check("'you may turn … face up' -> turn_face_up, cond=may",
           e is not None and e.verb == "turn_face_up" and e.cond == "may")
-    # object verbs that consume 'face up/down' are UNCHANGED (FACE_UP kept in objall; xf abstains on non-turn)
+    # object verbs that consume 'face up/down' are UNCHANGED (FACE_DIR kept in all object spans; xf abstains on non-turn)
     ex = parse_clause("exile a card face down")
     check("'exile a card face down' unchanged (objall preserved)",
           ex is not None and ex.verb == "exile" and "face_down" in ex.target)
+    sub = parse_clause("they exile the top card of their library face down")
+    check("subject-prefixed 'they exile … face down' unchanged (sfrest preserved)",
+          sub is not None and sub.verb == "exile")
     check("'turn' is required — 'reveal it face up' is not a turn_face_up",
           (parse_clause_lark("reveal it face up") or parse_clause_lark("turn it face up")).verb in ("turn_face_up", "reveal"))
 
 
 def _cards_full() -> None:
     cards = {c["name"]: c for c in card_corpus.load_cards()}
-    for n in ["Break Open", "Ixidor, Reality Sculptor"]:
+    for n in ["Break Open", "Ixidor, Reality Sculptor", "Ixidron", "Agent of Raffine"]:
         c = cards.get(n)
         if not c:
             continue
         cid = ground.slug(n)
         full = all(transpile_unit(u, {"id": cid, "card": c, "seq": i})
                    for i, u in enumerate(card_corpus.units_of(c)))
-        check(f"{n} fully ingests (turn-face-up grounds)", full)
+        check(f"{n} fully ingests (turn-face-up/down grounds; Agent of Raffine = the sfrest no-regression guard)", full)
 
 
 def run() -> None:

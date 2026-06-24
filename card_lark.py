@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfuclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -91,7 +91,7 @@ ossubj: (WORD | QUANT | NUM)+                     // leading actor NP before the
 // leading-PUT pzput; mirror of osclause). Flat body span re-matched against `_subject_puts`/`_owner_puts`.
 pszclause.-2: pszsubj PUT pszbody                 -> subject_puts
 pszsubj: (WORD | QUANT | NUM)+                     // leading player NP before 'puts' (validated via _subject_puts)
-pszbody: (WORD | QUANT | NUM | CCOUNT | FROM | ZONE | ONPREP | TOPREP | XLIB | EQUALTO | MDUR | PTDELTA)+  // object + destination (src re-matched)
+pszbody: (WORD | QUANT | NUM | CCOUNT | FROM | ZONE | ONPREP | TOPREP | XLIB | EQUALTO | MDUR | PTDELTA | FACE_DIR)+  // object + destination (src re-matched)
 // '<player> gets <n> poison/energy/experience counter(s)' — the 'gets' verb (not 'put') PARSE-FAILs every
 // production; this owns it. Flat body; the transformer re-matches `_gets_counter` on _src (faithful flip,
 // abstains if the kind isn't a player counter). NEGATIVE priority so any competing parse wins.
@@ -155,7 +155,7 @@ pfromclause.-3: fcastverb fcastobj fromphrase            -> play_from
 // terminal is also added to the object spans (objall/pzbody) so existing 'face up' spans are unchanged.
 // NEGATIVE priority so object verbs keep their parse — tfuclause only wins for 'turn'; the xf abstains
 // otherwise. (No 'turn face DOWN' counterpart: a FACE_DOWN terminal broke the conjure→hand parse.)
-tfuclause.-3: fcastverb fcastobj FACE_UP                 -> turn_faceup
+tfaceclause.-3: fcastverb fcastobj FACE_DIR                 -> turn_face
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -270,7 +270,7 @@ bcmtail: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | GETS | DEALS | D
 // competitor, so these rules still win. (The transformer additionally abstains on any non-frame body.)
 rvclause.-2: rvsubj? RVREVEAL rvbody       -> reveal
 rvsubj: (WORD | QUANT | NUM | ZONE)+        // player phrase before 'reveals' (validated as _PLAYER)
-rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
+rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | FACE_DIR)+
 
 // PREVENT_DAMAGE — the two clean dominant frames: 'prevent the next N damage that would be dealt
 // [this turn] to <target> [this turn]' (_prevent) and 'prevent all [combat] damage that would be dealt
@@ -433,7 +433,7 @@ excbody: (WORD | QUANT | NUM | PTDELTA | TOPREP | FROM | ZONE | COUNTER | ONPREP
 // the plural 'their owners' hands' that `rclause` misses. On the singular overlap ('to its owner's hand'/
 // 'to your hand') `rhclause` reproduces `rclause`'s `_bounce` tuple byte-identically, so winning is inert.
 rhclause.2: rhbody RETHAND rhtail?            -> rethand
-rhbody: (RVERB | WORD | QUANT | NUM | ZONE | FROM | TOPREP | EQUALTO)+   // 'return[s] [<subject>] <object> [from <zone>]' (RVERB: the leading 'return' string terminal; value unused; sliced from src)
+rhbody: (RVERB | WORD | QUANT | NUM | ZONE | FROM | TOPREP | EQUALTO | FACE_DIR)+   // 'return[s] [<subject>] <object> [from <zone>]' (RVERB: the leading 'return' string terminal; value unused; sliced from src)
 rhtail: (WORD | NUM | QUANT | TOPREP | ZONE | FROM)+   // trailing '[at the beginning of] <step>' delayed-return timing — DROPPED (the regex `_return_zone` drops it for return_to_hand)
 
 // GRANT_COMBAT (§509/§508 combat permission) — the clean '<subj> can attack/block …' subfamily of
@@ -465,7 +465,7 @@ gcctail: (WORD | QUANT | NUM | MDUR | ZONE | FROM | TOPREP)+                 // 
 // parse; on a pure '<player> sacrifices/exiles …' there is no competitor and this rule still wins.
 sfclause.-2: sfsubj SF_VERB sfrest          -> subjverb
 sfsubj: (WORD | QUANT | NUM)+                // the acting player (validated as _PLAYER)
-sfrest: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR | DMG | PTDELTA | COUNTER | ONPREP)+
+sfrest: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR | DMG | PTDELTA | COUNTER | ONPREP | FACE_DIR)+
 
 // REMOVE_COUNTER — the mirror of put_counter (cclause/putctr): 'remove <count> [<kind>] counter[s]
 // from <target>' (_remove_counter). This is a TRUE grammar production (like cclause): the COUNT, the
@@ -553,7 +553,7 @@ pzhandclause.-2: PZ_CONJURE pzbody          -> pzhand
 // would offer a competing pzput parse that Earley can pick over putctr, turning an existing put_counter
 // grounding into an abstain (a regression). No real put-to-zone clause contains 'counter', so stopping
 // pzbody at COUNTER costs nothing and keeps putctr the sole parse for counter clauses (faithful).
-pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA | FACE_UP)+
+pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA | FACE_DIR)+
 
 // LOOK family (§701.x 'look at') — the three dominant frames the regex templates ground:
 //   '[<subject> ]look[s] at [the top N cards of ]<owner> hand/library'   (_look_at)
@@ -569,7 +569,7 @@ pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA
 // so a sentence ALSO parseable as another family yields to that parse; a pure 'look at …' has no rival.
 lkclause.-2: lksubj? LK_LOOK lkbody       -> look
 lksubj: (WORD | QUANT | NUM | ZONE)+       // player phrase before 'look[s]' (the templates' optional <TGT>)
-lkbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY)+
+lkbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | FACE_DIR)+
 
 // SHUFFLE family (§103.2/§701.19) — the two templates the regex grounds:
 //   '[<subject> ]shuffle[s] [their library | <obj> into <owner> library]'   (_shuffle: extra='-')
@@ -609,7 +609,7 @@ nsclause.-2: nssubj NS_CANT nsverb nstail?     -> nscant     // '<subj> can't <c
            | nssubj NS_DUVERB nstail           -> nsuntap    // "<subj> doesn't/don't untap during …"
 nssubj: (WORD | QUANT | NUM | ZONE)+           // the subject NP (validated by the frame regex's _TGT)
 nsverb: (WORD | ZONE)+                          // 'be blocked' / 'block' / 'attack' / 'block or be blocked' …
-nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA | MDUR)+  // 'this turn', 'during …', a rider
+nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA | MDUR | FACE_DIR)+  // 'this turn', 'during …', a rider
 
 NS_CANT.5: /\bcan't\b/                          // the §509/§508 prohibition modal (outranks WORD)
 NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static verb (outranks WORD)
@@ -653,7 +653,7 @@ cfeword: WORD | NUM | QUANT | PTDELTA    // first word may be a '+1/+1' counter 
 ctail: (WORD | NUM | QUANT | TOPREP | FROM | ZONE | DEALS | DMG | GETS | PTDELTA | TOKEN | MDUR | QUOTED)*  -> ctail  // dropped (regex's trailing '.*'); QUOTED lets 'token with "<ability>"' parse
 
 psubj: (WORD | QUANT)+                  // a player phrase before the verb (you / each player / target player)
-pbody: (WORD | NUM | QUANT)+            // amount (+ object word: 'cards'/'life')
+pbody: (WORD | NUM | QUANT | FACE_DIR)+            // amount (+ object word: 'cards'/'life')
 dsrc: (WORD | QUANT | COLON)+           // damage source (DROPPED — implicit self, matching the regex; COLON
                                         // lets a non-mana activation cost 'Sacrifice ~:' be swallowed before 'deals')
 damamt: NUM | QUANT | WORD             // single-token damage amount (N / X)
@@ -679,10 +679,10 @@ ctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+   // object after 'on
 zonephrase: TOPREP zwords? ZONE        -> zone
 fromphrase: FROM zwords? ZONE          -> source
 zwords: (WORD | TOPREP)+
-trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
+trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM | FACE_DIR)*   -> trailer
 quant: QUANT
-robj: (WORD | ZONE | EQUALTO)+          // return object stops at from/to; 'equal to' stays content
-objall: (WORD | TOPREP | ZONE | FROM | EQUALTO | FACE_UP)+   // object verbs ('equal to' stays content); FACE_UP/DOWN kept in-span so 'exile a card face down' is unchanged
+robj: (WORD | ZONE | EQUALTO | FACE_DIR)+          // return object stops at from/to; 'equal to' stays content
+objall: (WORD | TOPREP | ZONE | FROM | EQUALTO | FACE_DIR)+   // object verbs ('equal to' stays content); FACE_UP/DOWN kept in-span so 'exile a card face down' is unchanged
 
 RVERB: "return"
 // RETHAND — the distinctive trailing owner-hand destination of the §614 bounce (`_bounce`/`_regrowth`).
@@ -744,7 +744,7 @@ CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect ancho
 WITHOUT_PAY.6: /\bwithout paying its mana cost\b/   // §601 free-cast modifier anchor (distinctive phrase)
 FORASLONGAS.6: /\bfor as long as\b/   // impulse play-duration anchor ('play X for as long as it remains exiled')
 ASTHOUGH_FLASH.6: /\bas though (?:it|they) (?:had|have) flash\b/   // §117.1a impulse instant-speed anchor (full phrase, not bare 'as though')
-FACE_UP.6: /\bface up\b/      // §708.5 'turn <X> face up' anchor (also kept in objall to preserve existing spans)
+FACE_DIR.6: /\bface (?:up|down)\b/      // §708 'turn <X> face up/down' anchor (also kept in the object spans to preserve them)
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -3601,17 +3601,15 @@ class _ToEffect(Transformer):
             return None
         return Effect(verb, "-", _target(obj.strip().lower()), "from_" + src.zone)
 
-    def turn_faceup(self, *args):
-        return self._turn_face(args, "turn_face_up")
-
-    def _turn_face(self, args, verb_out):
-        # '[you may] turn <X> face up/down' (§708.5) -> turn_face_up|down(-, _target(X)). Abstains unless the
-        # verb is 'turn' (object verbs keep their own, higher-priority parse via objall).
+    def turn_face(self, *args):
+        # '[you may] turn <X> face up/down' (§708) -> turn_face_up|down(-, _target(X)) per the FACE_DIR token.
+        # Abstains unless the verb is 'turn' (object verbs keep their own, higher-priority parse via objall).
         verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
         obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
-        if verb not in ("turn", "turns") or obj is None:
+        fdir = next((str(a).lower() for a in args if getattr(a, "type", None) == "FACE_DIR"), None)
+        if verb not in ("turn", "turns") or obj is None or fdir is None:
             return None
-        return Effect(verb_out, "-", _target(obj.strip().lower()))
+        return Effect("turn_face_up" if "up" in fdir else "turn_face_down", "-", _target(obj.strip().lower()))
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
