@@ -979,6 +979,11 @@ _DSET_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (their hand|thos
 # (amount via _that_amt; the trailing 'at random' rider is DROPPED, as the regex does). pcount routes discard
 # here but dies on `_amount('that many')`=None. Re-applied to src; reproduces the tuple byte-for-byte.
 _DTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (twice |half )?that many cards( plus \w+| minus \w+)?(?: at random)?$", re.I)
+# the LOOT/rummage partitive 'discard <N> of them/those/these [cards]' (Krovikan Sorcerer, Soldevi Sage,
+# Casting of Bones — 'draw N, then discard one of them'): the body is 'N of them', not 'N cards', so pcount's
+# _NEEDS_CARD gate misses it. Count is faithful (you discard N cards); the partitive pool (the just-drawn
+# cards) rides extra='of_them'. Re-applied to src in the discard block (the frame pattern, NOT a @_t template).
+_DOFT_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (\w+) of (?:them|those|these)(?: cards?)?(?: at random)?$", re.I)
 # '[then] <player> may have you draw N cards' — the §603 causative the regex grounds LOSSILY via `_draw_tgt`
 # (subject='target_opponent_may_have_you', dropping that YOU are the drawer). This is a FAITHFUL IMPROVEMENT,
 # not a byte-identical flip: ground the actual drawer ('you') + the directing player as extra='by_<player>'
@@ -2768,6 +2773,11 @@ class _ToEffect(Transformer):
                 m = _DTM_RE.match(s)         # '[twice|half] that many cards [plus|minus N] [at random]'
                 if m:
                     return Effect("discard", _that_amt(m.group(2), m.group(3)), _target(m.group(1) or "you"))
+                m = _DOFT_RE.match(s)        # 'discard <N> of them/those/these [cards]' — the loot partitive
+                if m:
+                    n = _amount(m.group(2))
+                    if n is not None:
+                        return Effect("discard", n, _target(m.group(1) or "you"), "of_them")
         if subj is not None and not _PLAYER.match(subj.strip()):
             if verb in ("draw", "draws"):      # `_draw_tgt`: a draw whose subject is a _TGT the player-gate
                 _src = getattr(self, "_src", None)  # rejects (quantified players / 'each player who …'); the
