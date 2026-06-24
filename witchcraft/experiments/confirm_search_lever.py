@@ -24,14 +24,15 @@ from witchcraft.magezero import MageZeroNet, MageZeroPlayer          # noqa: E40
 from witchcraft.game import Game                                     # noqa: E402
 from witchcraft.heuristic import HeuristicPlayer                     # noqa: E402
 
-N_STATES = int(sys.argv[1]) if len(sys.argv) > 1 else 40
+CKPT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/magezero_clone.pt"
+N_STATES = int(sys.argv[2]) if len(sys.argv) > 2 else 40
 SIMS = [20, 80, 320]
 t0 = time.time()
 log = lambda m: print(f"[{time.time()-t0:5.1f}s] {m}", flush=True)
 
 net = MageZeroNet(embed=32, hidden=64)
-net.load_state_dict(torch.load("/tmp/magezero_clone.pt")); net.eval()
-log(f"loaded net; sampling up to {N_STATES} branching states; sims={SIMS}")
+net.load_state_dict(torch.load(CKPT)); net.eval()
+log(f"loaded {CKPT}; sampling up to {N_STATES} branching states; sims={SIMS}")
 
 pol = PolicyPlayer(net, explicit_lands=True)
 bots = {s: MageZeroPlayer(net, simulations=s, time_budget=2.0, explicit_lands=True, seed=0) for s in SIMS}
