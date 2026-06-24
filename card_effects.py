@@ -1543,17 +1543,8 @@ def _cant_prevent(m):
     return Effect("cant_prevent_damage", "-", "-")
 
 
-@_t(r"^(?:you )?(?:may )?spend mana as though it were mana of any (?:color|type)(?: to cast .+?)?$")
-def _spend_as(m):
-    """'spend mana as though it were mana of any color [to cast …]' — a §106.6 mana-spending permission."""
-    return Effect("spend_mana_as", "-", "you", "any_color")
-
-
-@_t(r"^mana of any (?:type|color) can be spent to (?:cast|play) (.+?)$")
-def _mana_any_for(m):
-    """'Mana of any type can be spent to cast <X>' — the §106.6 spend-as permission scoped to a spell/
-    card (often the rider on an impulse-cast); the scope is a faithful slug."""
-    return Effect("spend_mana_as", "-", "you", "any_color_for_" + ground.slug(m.group(1)))
+# spend_mana_as (§106.6) fully MIGRATED to card_lark (smaclause/smbclause; byte-identical, ABSTAINS=0) — the
+# `_spend_as` / `_mana_any_for` @_t templates are dead (lark answers first in parse_clause) and were removed.
 
 
 @_t(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT))

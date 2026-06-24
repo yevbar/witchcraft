@@ -68,7 +68,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -94,6 +94,16 @@ KV_MULTI.5: /manifest dread|time travel|the ring tempts you|open an attraction|c
 // re-applies the two templates' OWN regexes to the matched text -> roll_die(<N>, you, dN), byte-identical.
 rollclause: ROLLDIE                                           -> roll_die_v
 ROLLDIE.5: /\broll \w+ (?:d\d+s?|[\w]+-sided (?:die|dice))/
+// SPEND-MANA-AS (§106.6 spend-as permission) — two `_mana_any_for` / `_spend_as` shapes:
+//   'mana of any type can be spent to cast <X>'  -> spend_mana_as(-, you, any_color_for_<slug(X)>)
+//   '[you] [may] spend mana as though it were mana of any color [to cast …]' -> spend_mana_as(-, you, any_color)
+// Both anchored on distinctive whole-phrase terminals; the scope object span (smaobj) is slugged, and the
+// SPEND_AS form's optional 'to cast …' tail is DROPPED exactly as the regex (it always yields 'any_color').
+smaclause: MANA_ANY_FOR smaobj                                -> spend_mana_for
+smbclause: SPEND_AS                                           -> spend_mana_as_v
+smaobj: (WORD | QUANT | NUM)+
+MANA_ANY_FOR.5: /mana of any (?:type|color) can be spent to (?:cast|play) /
+SPEND_AS.5: /(?:you )?(?:may )?spend mana as though it were mana of any (?:color|type)(?: to cast .+)?/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -1791,6 +1801,10 @@ class _SwptBody(str):  # the span after 'switch' — "<X>'s power and toughness 
     pass
 
 
+class _SmaObj(str):    # the spell/card scope after 'mana of any … can be spent to cast/play' (smaobj)
+    pass
+
+
 # the `_switch_pt` template MINUS the leading 'switch ' (consumed by the SWITCHPT terminal): the _TGT object
 # whose P/T is switched + the fixed 'power and toughness' tail + the dropped optional duration.
 _SWPT_RE = re.compile(r"^(" + _TGT + r")'s power and toughness(?: until end of turn)?$", re.I)
@@ -2002,6 +2016,22 @@ class _ToEffect(Transformer):
         # `_bare_action` leaf: slug the matched phrase to its verb, ground only if it's a real keyword action.
         v = ground.slug(str(tok))
         return Effect(v, "-", "you") if v in ground.keyword_actions() else None
+
+    def smaobj(self, *toks):
+        return _SmaObj(" ".join(str(t) for t in toks))
+
+    def spend_mana_for(self, *args):
+        # 'mana of any type can be spent to cast/play <X>' (§106.6) — the EXACT `_mana_any_for` template:
+        # spend_mana_as(-, you, 'any_color_for_' + slug(<X>)). The leading anchor is consumed by MANA_ANY_FOR.
+        obj = next((str(a) for a in args if isinstance(a, _SmaObj)), None)
+        if obj is None or not obj.strip():
+            return None
+        return Effect("spend_mana_as", "-", "you", "any_color_for_" + ground.slug(obj.strip().lower()))
+
+    def spend_mana_as_v(self, tok):
+        # '[you] [may] spend mana as though it were mana of any color [to cast …]' — the EXACT `_spend_as`
+        # template: spend_mana_as(-, you, 'any_color'). The optional 'to cast …' tail is dropped (always any_color).
+        return Effect("spend_mana_as", "-", "you", "any_color")
 
     def roll_die_v(self, tok):
         # 'roll <count> d<N>' / 'roll <count> <word>-sided die' (§705) — the EXACT `_roll`/`_roll_sided`
