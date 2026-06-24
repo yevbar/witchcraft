@@ -274,11 +274,11 @@ def _forced_adversarial():
 
 
 def _nearest_win():
-    """find_nearest_win returns the SHORTEST winning line, not just a win. With BOTH a 1-ply spell win (cast a
-    0-cost 'win_game') and a 2-ply combat lethal (pass -> attack with a 5/5 vs bob at 4) available, it takes the
-    1-ply spell win — where find_win's DFS may return either, possibly the longer line (and so the wrong move)."""
+    """find_nearest_win counts TURNS (env _turn-passes), not actions — a win THIS turn is `turns==0` no matter
+    how many spells it takes (the rules-agnostic, instant-speed-friendly metric). bob at 40 (no combat lethal
+    this turn) with a 0-cost 'you win' spell -> the only turn-0 win casts the wincon."""
     st = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)}, "current_step": {("precombat_main",)},
-          "life": {("alice", 20), ("bob", 4)},
+          "life": {("alice", 20), ("bob", 40)},
           "on_battlefield": {("ogre",)}, "printed_type": {("ogre", "creature")},
           "printed_power": {("ogre", 5)}, "printed_toughness": {("ogre", 5)}, "printed_control": {("alice", "ogre")},
           "in_hand": {("alice", "wincon")}, "in_library": {("bob", f"b{i}") for i in range(20)},
@@ -286,23 +286,21 @@ def _nearest_win():
           "spell_type": {("wincon", "sorcery")}, "mana_cost": {("wincon", 0)},
           "spell_effect": {("wincon", "win_game", 0, "controller")}, "mana_available": {("alice", 0), ("bob", 0)},
           "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(), "_sick": set(), "_land_played": set()}
-    near, plies, _ = win_search.find_nearest_win(st, me="alice", max_plies=8, node_budget=3000)
+    near, turns, _ = win_search.find_nearest_win(st, me="alice", max_turns=6, node_budget=4000)
     check("nearest: a win is found", near is not None)
-    check("nearest: returns the 1-ply spell win, not the longer combat line",
-          near is not None and plies == 1 and near[0][0] == "cast" and near[0][2] == "wincon")
-    far, _ = win_search.find_win(st, me="alice", max_turns=2, node_budget=3000)
-    check("nearest line is the shortest (no longer than find_win's)",
-          near is not None and far is not None and len(near) <= len(far))
-    fn, _p, _ = win_search.find_nearest_win(st, me="alice", max_plies=8, node_budget=3000, forced=True)
-    check("nearest(forced): the clean 1-ply win is still found", fn is not None and len(fn) == 1)
-    # no false positive: an empty board has no win at any depth.
+    check("nearest: a this-turn win is turns==0 (counts turns, not actions)", turns == 0)
+    check("nearest: the turn-0 line casts the wincon",
+          near is not None and any(a[0] == "cast" and a[2] == "wincon" for a in near))
+    fn, ft, _ = win_search.find_nearest_win(st, me="alice", max_turns=6, node_budget=4000, forced=True)
+    check("nearest(forced): the this-turn win is still found at turns==0", fn is not None and ft == 0)
+    # no false positive: an empty board has no win at any horizon.
     empty = {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
              "current_step": {("precombat_main",)}, "life": {("alice", 20), ("bob", 20)},
              "in_hand": set(), "in_library": {("bob", "b0")}, "_lib_order": {"bob": ["b0"]},
              "on_battlefield": set(), "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
              "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
     check("nearest: no fabricated win on an empty board",
-          win_search.find_nearest_win(empty, me="alice", max_plies=4, node_budget=400)[0] is None)
+          win_search.find_nearest_win(empty, me="alice", max_turns=4, node_budget=400)[0] is None)
 
 
 def _nearest_multiturn():
@@ -319,12 +317,12 @@ def _nearest_multiturn():
           "_lib_order": {"alice": [f"a{i}" for i in range(20)], "bob": [f"b{i}" for i in range(20)]},
           "tapped": set(), "counter": set(), "attacks": set(), "blocks": set(),
           "mana_available": {("alice", 0), ("bob", 0)}, "_sick": set()}
-    p_o, plies_o, n_o = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, order=True)
-    _p_r, plies_r, _ = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, order=False)
-    check("nearest reaches a 3-turn combat kill", p_o is not None and plies_o == 3)
-    check("ordering is complete (same nearest length as unordered)", plies_r == plies_o)
-    p_b, plies_b, n_b = win_search.find_nearest_win(st, me="alice", max_plies=12, node_budget=8000, beam=3)
-    check("beam finds the same 3-turn win with no more nodes", p_b is not None and plies_b == 3 and n_b <= n_o)
+    p_o, turns_o, n_o = win_search.find_nearest_win(st, me="alice", max_turns=8, node_budget=8000, order=True)
+    _p_r, turns_r, _ = win_search.find_nearest_win(st, me="alice", max_turns=8, node_budget=8000, order=False)
+    check("nearest reaches a 3-attack (turns=4) combat kill", p_o is not None and turns_o == 4)
+    check("ordering is complete (same nearest turn-distance as unordered)", turns_r == turns_o)
+    p_b, turns_b, n_b = win_search.find_nearest_win(st, me="alice", max_turns=8, node_budget=8000, beam=3)
+    check("beam finds the same win (turns=4) with no more nodes", p_b is not None and turns_b == 4 and n_b <= n_o)
 
 
 def _enhanced_player():
@@ -334,7 +332,7 @@ def _enhanced_player():
     import io
     from witchcraft.lookahead import EnhancedLookaheadPlayer
     from witchcraft.players import RandomPlayer, play
-    bot = EnhancedLookaheadPlayer(max_plies=6, node_budget=600, forced=True, seed=0)
+    bot = EnhancedLookaheadPlayer(max_turns=4, node_budget=600, forced=True, seed=0)
     with contextlib.redirect_stdout(io.StringIO()):
         g = play({"alice": bot, "bob": RandomPlayer(seed=1)}, seed=3, max_moves=400)
     check("EnhancedLookaheadPlayer plays a full game to a terminal result", g.is_game_over())

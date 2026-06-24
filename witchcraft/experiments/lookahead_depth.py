@@ -5,18 +5,19 @@ A higher N reached within the same node budget = a higher ceiling.
 
 Run:  PYTHONPATH=. python3 witchcraft/experiments/lookahead_depth.py [NODE_BUDGET] [MAX_TURNS] [ATTACKERS]
 
-FINDINGS (which tricks raise the ceiling):
-  * The EXACT (ordered) search already reaches 4–5 turns on a MODERATE board (~3 attackers): N=5 ~3.2k nodes /
-    ~7s. But it EXPLODES with board size — 5 attackers -> N=5 ~9k nodes / ~24s — so on a real 7–8 creature board
-    it's infeasible at 4–5 turns.
-  * Move ORDERING (try win-relevant moves first): modest, ~7% fewer nodes / ~35% less time. Safe + complete.
-  * BEAM (cap MY decisions to the top-k ordered moves): the SCALING lever — flat ~600–900 nodes / ~2s for N=5
-    regardless of board size. Incomplete (can MISS a win, never fabricate), and was fixed to always keep `pass`
-    (the gateway to combat) so it preserves the nearest combat kill.
-  * INCREMENTAL engine (MTG_INCREMENTAL): NEUTRAL here — these search states are small; the ~2x is only on
-    large states. Not a lever for this.
-  Conclusion: to push the turn ceiling to 4–5 on real boards, use a beam (EnhancedLookaheadPlayer(beam=6–8));
-  the exact search is the safe default for small boards / when a missed forced win is unacceptable."""
+find_nearest_win counts the win in TURNS (env `_turn`-passes: this turn = 0, then 2 per later own-turn), so an
+N-own-turn kill reports turns = 2*(N-1) — rules-agnostic (instant-speed actions within a turn don't add).
+
+FINDINGS (which tricks raise the ceiling; the turn horizon explores ALL within-turn actions, so it's heavier
+than the old ply search):
+  * ORDERING (try win-relevant moves first) is now LOAD-BEARING, not cosmetic: at alice_turns=4 the baseline
+    MISSES (budget exhausted ~15k nodes) where ordered FINDS (~8.5k). It's still complete (same turn-distance).
+  * BEAM (cap MY decisions to the top-k ordered moves) is the SCALING lever — ~1.6k nodes / ~4s for alice_turns=4
+    vs ~8.5k / ~23s ordered, and roughly flat with board size. Incomplete (can MISS, never fabricate); always
+    keeps `pass` (the gateway across phases/turns) so it preserves the nearest combat kill.
+  * INCREMENTAL engine (MTG_INCREMENTAL): NEUTRAL — search states are small; the repo's ~2x is only on large states.
+  Conclusion: ordering on by default + beam=6–8 reaches ~4 of your own turns on cluttered/large boards;
+  beam=None is exact (safe when a missed forced win is unacceptable)."""
 
 import os
 import sys
@@ -57,13 +58,13 @@ def position(turns: int, attackers: int = ATTACKERS, power: int = POWER, distrac
             "mana_available": {("alice", 9), ("bob", 0)}, "_sick": set(), "_land_played": set()}
 
 
-def measure(label: str, turns: int, distractors: int = 0, **kw) -> None:
-    st = position(turns, distractors=distractors)
+def measure(label: str, n: int, distractors: int = 0, **kw) -> None:
+    st = position(n, distractors=distractors)
     t0 = time.time()
-    path, plies, nodes = win_search.find_nearest_win(st, me="alice", max_plies=MAX_PLIES, node_budget=BUDGET, **kw)
+    path, tn, nodes = win_search.find_nearest_win(st, me="alice", max_turns=2 * MAX_TURNS + 4, node_budget=BUDGET, **kw)
     dt = time.time() - t0
-    tag = f"FOUND plies={plies}" if path else "miss "
-    print(f"  N={turns}  {label:20s}: {tag:14s} nodes={nodes:6d} {dt:5.1f}s", flush=True)
+    tag = f"FOUND turns={tn}" if path else "miss "
+    print(f"  alice_turns={n}  {label:20s}: {tag:14s} nodes={nodes:6d} {dt:5.1f}s", flush=True)
 
 
 if __name__ == "__main__":                                          # guard: importing must not run the probe

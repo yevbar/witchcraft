@@ -484,78 +484,78 @@ def _win_order_key(a):
     return (5, 0)                                             # land drops and anything else
 
 
-def find_nearest_win(state: dict, me: str | None = None, max_plies: int = 16, node_budget: int = 4000,
+def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, node_budget: int = 4000,
                      forced: bool = False, order: bool = True, beam: int | None = None):
-    """Find the NEAREST win — the SHORTEST winning line (fewest of MY actions) — by iterative deepening over
-    ply-depth. `find_win` is a DFS that returns *a* win within a turn ceiling, so it can hand back a needlessly
-    long line (e.g. casting spells before the lethal attack) and play the wrong first move; this returns the
-    SHORTEST line, so the closest kill is never passed over. Returns (path, plies, nodes): `path` is MY action
-    list to the nearest win (its FIRST move is what to play), `plies` = len(path), or (None, None, nodes) if no
-    win within `max_plies`/budget. `forced` requires the win to survive EVERY opponent block (a true forced win,
-    like `find_win(forced=True)`); reachable (default) only assumes a passive/survival-blocking opponent.
-
-    Two depth levers (to push the horizon to 4–5 turns within budget): `order` tries win-relevant moves first
-    (finds the win after fewer nodes — complete, just faster); `beam` caps MY decisions to the top-`beam`
-    ordered moves (a HEURISTIC: trades completeness for reach — it can miss a win whose first move ranks below
-    the cut, so keep it generous, e.g. 6–8, and prefer None when the budget allows). Shares one node budget
-    across the deepening levels."""
+    """Find the NEAREST win — the win that lands in the FEWEST TURNS — by iterative deepening over the TURN
+    horizon (env `_turn`-passes), NOT plies. Counting TURNS rather than actions is rules-agnostic and the right
+    metric across INSTANT SPEED: casting several spells in one turn (or instants on the opponent's turn) doesn't
+    make a win 'further away' — only later turns do. `find_win` is a DFS that returns *a* win within a turn
+    ceiling, so it can hand back a slower line; this returns the fewest-turns one (a 1-turn kill is never passed
+    over for a 3-turn line). Returns (path, turns, nodes): `path` is MY action list (FIRST move = what to play),
+    `turns` the turn-distance (`_turn`-passes: THIS turn = 0, the opponent's next turn = 1, your next turn = 2,
+    …), or (None, None, nodes). `forced` requires the win to survive every opponent block (a true forced win).
+    `order` tries win-relevant moves first (fewer nodes, complete); `beam` caps MY decisions to the top-`beam`
+    ordered moves to push the horizon on cluttered boards (HEURISTIC — can miss, never fabricate; `pass`, the
+    gateway across phases/turns, is always kept). Shares one node budget across the deepening levels."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
+    start_turn = s0.get("_turn", 0)
     nodes = [0]
 
-    def dfs(s, limit: int, seen: dict):
-        """ANY win for `me` within `limit` plies from `s` -> the MY-action path (else None). Depth-bounded, so
-        the OUTER iterative deepening makes the first one found the shortest."""
+    def dfs(s, horizon: int, seen: dict):
+        """ANY win for `me` within `horizon` more turn-passes from `s` -> the MY-action path (else None). The
+        OUTER iterative deepening over `horizon` makes the first one found the fewest-turns win."""
         nodes[0] += 1
         if nodes[0] > node_budget:
             return None
         if env.is_terminal(s):
             return [] if env.winner(s) == me else None
-        if limit <= 0:
+        remaining = horizon - (s.get("_turn", 0) - start_turn)   # turns left before the horizon (not plies)
+        if remaining < 0:
             return None
         k = _key(s)
-        if not forced and seen.get(k, -1) >= limit:           # already proven win-less to at least this depth
+        if not forced and seen.get(k, -1) >= remaining:          # proven win-less within at least this many turns
             return None
         result = None
-        if env.to_move(s) == me:                              # MY decision: any move that leads to a win
-            acts = _dedup_actions(s, env.legal_actions(s))     # §move-symmetry (one of N identical copies)
+        if env.to_move(s) == me:                                 # MY decision: any move that leads to a win
+            acts = _dedup_actions(s, env.legal_actions(s))        # §move-symmetry (one of N identical copies)
             if order or beam is not None:
                 acts = sorted(acts, key=_win_order_key)
             if beam is not None:
-                acts = acts[:beam]                             # heuristic branching cap (trades completeness for depth)
-                if not any(a[0] == "pass" for a in acts):      # never cut the gateway-to-combat move
+                acts = acts[:beam]                                # heuristic branching cap (trades completeness for reach)
+                if not any(a[0] == "pass" for a in acts):         # never cut the gateway across phases/turns
                     p = next((a for a in _dedup_actions(s, env.legal_actions(s)) if a[0] == "pass"), None)
                     if p is not None:
                         acts = acts[:max(1, beam - 1)] + [p]
             for a in acts:
-                sub = dfs(env.step(s, a), limit - 1, seen)
+                sub = dfs(env.step(s, a), horizon, seen)
                 if sub is not None:
                     result = [a] + sub
                     break
                 if nodes[0] > node_budget:
                     break
         elif forced and any(a[0] == "block" for a in env.legal_actions(s)):
-            rep, ok = None, True                              # adversarial: the win must hold against EVERY block
+            rep, ok = None, True                                 # adversarial: the win must hold against EVERY block
             for b in [a for a in env.legal_actions(s) if a[0] == "block"]:
-                sub = dfs(env.step(s, b), limit - 1, seen)
+                sub = dfs(env.step(s, b), horizon, seen)
                 if sub is None:
                     ok = False
                     break
                 if rep is None:
-                    rep = sub                                 # one representative tail for the returned path
+                    rep = sub                                    # one representative tail for the returned path
             result = rep if ok else None
-        else:                                                 # opponent's own turn: passive / survival-block
+        else:                                                    # opponent's own turn: passive / survival-block
             a = _opp_action(s)
-            result = dfs(env.step(s, a), limit - 1, seen) if a is not None else None
+            result = dfs(env.step(s, a), horizon, seen) if a is not None else None
         if result is None and not forced and nodes[0] <= node_budget:
-            seen[k] = limit                                   # memo: no win within `limit` plies from here
+            seen[k] = remaining                                  # memo: no win within `remaining` turns from here
         return result
 
     seen: dict = {}
-    for limit in range(1, max_plies + 1):                     # shortest-first: the first horizon that wins is nearest
-        path = dfs(s0, limit, seen)
+    for horizon in range(0, max_turns + 1):                      # fewest-turns first: 0 = win THIS turn, then 1, 2, …
+        path = dfs(s0, horizon, seen)
         if path is not None:
-            return path, len(path), nodes[0]
+            return path, horizon, nodes[0]
         if nodes[0] >= node_budget:
             break
     return None, None, nodes[0]
