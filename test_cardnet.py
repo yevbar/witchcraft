@@ -231,6 +231,25 @@ def _ability_verb_channel() -> None:
     check("ability net produces a value in [-1, 1]", -1.0 <= v <= 1.0)
 
 
+def _solver_value_targets() -> None:
+    """Steer-and-Solve Step 3a: generate_solver_value returns matched z and solver target sets over the SAME
+    states; solver overrides solver-winnable states to +1 (a dense signal), and trains with `fit` unchanged."""
+    from witchcraft.heuristic import HeuristicPlayer
+    out = cn.generate_solver_value(3, seed=0, player_factory=lambda s: HeuristicPlayer(),
+                                   solve_turns=1, solve_budget=600, solve_gate=18)
+    check("generate_solver_value returns matched z + solver target sets over the same states",
+          out["n"] > 10 and len(out["z"]) == len(out["solver"]) == out["n"])
+    check("solver targets are valid value labels in [-1, 1]",
+          all(-1.0 <= r[3] <= 1.0 for r in out["solver"]))
+    check("n_solved is a subset of all states", 0 <= out["n_solved"] <= out["n"])
+    check("solver rows are 4-tuples (objs,owner,glob,target) — fit-compatible like generate()",
+          all(len(r) == 4 for r in out["solver"]))
+    net = cn.CardValueNet(embed=16, hidden=32, seed=0)             # trains with the existing value fitter
+    cn.fit(net, out["solver"], epochs=5, seed=0)
+    check("a net trains on solver-shaped targets and scores in [-1,1]",
+          -1.0 <= float(net.value_one(*cn.card_features(_flyer_state(), "alice")).detach()) <= 1.0)
+
+
 def _value_metrics_disjoint() -> None:
     """Phase 4: value_metrics on GAME-DISJOINT eval rows is the honest value-quality metric (a random
     train/eval split leaks — same game on both sides shares one outcome; disjoint games don't). generate_eval
@@ -538,6 +557,7 @@ def run() -> None:
     _reproducible_training()
     _time_preferred_target()
     _iterate_value_and_ability_seam()
+    _solver_value_targets()
     _ability_verb_channel()
     _value_metrics_disjoint()
     _set_attention_pool()

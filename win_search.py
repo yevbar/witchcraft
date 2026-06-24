@@ -401,9 +401,20 @@ def find_minimax(state: dict, me: str | None = None, my_axis: str = "life_zero",
     return ([best_a] if best_a is not None else []), best_v
 
 
-def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget: int = 4000):
+def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget: int = 4000,
+             forced: bool = False):
     """Search for a line that wins for `me` within `max_turns` turns (any player's turn counts). Returns
-    (path, nodes): path is MY action list to a win (opponent auto-passes between), or None."""
+    (path, nodes): path is MY action list to a win, or None.
+
+    forced=False (default): OPTIMISTIC reachability — the opponent passes and only `_survival_block`s (blocks
+    only to avoid immediate lethal). A returned line wins against a do-nothing defender, not necessarily one
+    trying to stop you (so a takeover on it can EVAPORATE vs a real opponent that trades down your attackers).
+    forced=True: ADVERSARIAL at the dominant fabrication point — at a block decision the win must hold against
+    EVERY legal block (worst-case), and the agent's later moves adapt per block (a true forced win, not a
+    reachable one). The returned `path` is one representative line; its FIRST move is what's forced (re-solve
+    each decision). Bounded: only block nodes branch; the opponent's own turn is still passed (the full
+    any→all rewrite — proactive opponent races/removal — is the deferred escalation). A budget-exhausted
+    forced search returns None (conservative: a false negative just keeps the brain steering)."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     start_turn = s0.get("_turn", 0)                            # env increments _turn each turn-pass
@@ -422,16 +433,33 @@ def find_win(state: dict, me: str | None = None, max_turns: int = 5, node_budget
         if k in seen:
             return None
         seen.add(k)
-        if env.to_move(s) == me:
-            for a in _dedup_actions(s, env.legal_actions(s)):   # §move-symmetry: one of N identical copies
-                sub = dfs(env.step(s, a))
-                if sub is not None:
-                    return [a] + sub
-            return None
-        a = _opp_action(s)
-        if a is None:
-            return None
-        return dfs(env.step(s, a))
+        try:
+            if env.to_move(s) == me:
+                for a in _dedup_actions(s, env.legal_actions(s)):   # §move-symmetry: one of N identical copies
+                    sub = dfs(env.step(s, a))
+                    if sub is not None:
+                        return [a] + sub
+                return None
+            if forced:                                          # adversarial: the win must survive EVERY block
+                blocks = [a for a in env.legal_actions(s) if a[0] == "block"]
+                if blocks:
+                    rep = None
+                    for b in blocks:
+                        sub = dfs(env.step(s, b))
+                        if sub is None:                         # this block refutes -> not a forced win
+                            return None
+                        if rep is None:
+                            rep = sub                           # one representative tail for the path
+                    return rep
+            a = _opp_action(s)
+            if a is None:
+                return None
+            return dfs(env.step(s, a))
+        finally:
+            if forced:
+                seen.discard(k)                                 # path-local in forced mode: sibling block
+                #                                                 branches must NOT prune each other (a global
+                #                                                 'no-win' memo would falsely refute a forall)
 
     return dfs(s0), nodes[0]
 

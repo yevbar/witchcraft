@@ -40,21 +40,33 @@ def _score(rec: dict) -> float:
 
 
 def score_stats(rec: dict, *, z: float = 1.96) -> dict:
-    """Score + its uncertainty from a benchmark record — the honest yardstick. Per-game outcomes are exactly
-    {win=1, draw=½, loss=0}, so the sample variance (hence the standard error of the mean score) is EXACT from
-    the counts — no per-game data needed. Returns {score, se, lo, hi, n} where [lo,hi] is the z·SE interval
-    (default 95%) clamped to [0,1]. A comparison is only meaningful relative to this SE: at n=40, SE≈0.08, so
-    ±0.16 — two scores inside that of each other are a tie, not a result (the project's recurring noise trap)."""
+    """Score + its uncertainty from a benchmark record — the honest yardstick. If the record carries
+    `pair_scores` (paired CRN, see benchmark), the SE is the sample SE over those per-pair scores — the real
+    n is the pair count, and correlated deck-luck that cancels in the pair tightens the interval. Otherwise
+    per-game outcomes are exactly {win=1, draw=½, loss=0}, so the sample variance (hence the SE of the mean) is
+    EXACT from the counts. Returns {score, se, lo, hi, n} where [lo,hi] is the z·SE interval (default 95%)
+    clamped to [0,1]. A comparison is only meaningful relative to this SE: at n=40, SE≈0.08, so ±0.16 — two
+    scores inside that of each other are a tie, not a result (the project's recurring noise trap)."""
     n = rec.get("games", 0)
     if not n:
         return {"score": 0.0, "se": 0.0, "lo": 0.0, "hi": 0.0, "n": 0}
-    w, d = rec["wins"], rec["draws"]
-    mean = (w + 0.5 * d) / n
-    sum_sq = w * 1.0 + d * 0.25                                    # Σ x_i²  (losses contribute 0)
-    var = (sum_sq - n * mean * mean) / (n - 1) if n > 1 else 0.0   # unbiased sample variance
-    se = (max(var, 0.0) / n) ** 0.5                                # standard error of the mean
+    ps = rec.get("pair_scores")
+    if ps:                                                        # paired CRN: SE from the per-pair scores, so
+        m = len(ps)                                              # correlated deck-luck that cancels in the pair
+        mean = sum(ps) / m                                       # tightens the interval (the point of pairing).
+        var = sum((p - mean) ** 2 for p in ps) / (m - 1) if m > 1 else 0.0
+        se = (var / m) ** 0.5                                    # SE of the mean over m pairs (the real n here)
+        n_eff = m
+    else:
+        w, d = rec["wins"], rec["draws"]
+        mean = (w + 0.5 * d) / n
+        sum_sq = w * 1.0 + d * 0.25                                # Σ x_i²  (losses contribute 0)
+        var = (sum_sq - n * mean * mean) / (n - 1) if n > 1 else 0.0   # unbiased sample variance
+        se = (max(var, 0.0) / n) ** 0.5                            # standard error of the mean
+        n_eff = n
     return {"score": round(mean, 4), "se": round(se, 4),
-            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n}
+            "lo": round(max(0.0, mean - z * se), 4), "hi": round(min(1.0, mean + z * se), 4), "n": n_eff,
+            "explicit_lands": rec.get("explicit_lands"), "instant_speed": rec.get("instant_speed")}
 
 
 def head_to_head(a, b, *, games: int = 64, seed: int = 0, incremental: bool = True, **bench) -> float:
@@ -68,11 +80,57 @@ def compare(a, b, *, games: int = 200, seed: int = 0, z: float = 1.96, increment
     {score, se, lo, hi, n, significant, verdict}: `significant` is True iff the z·SE interval excludes 0.5
     (i.e. the result clears the noise floor), and `verdict` is 'a>b' / 'a<b' / 'tie'. Default games=200 (SE≈
     0.035) is the floor for a HEADLINE comparison; bump it (see `games_for_precision`) for tight margins."""
-    st = score_stats(_record(a, b, games=games, seed=seed, incremental=incremental, **bench), z=z)
+    rec = _record(a, b, games=games, seed=seed, incremental=incremental, **bench)
+    st = score_stats(rec, z=z)
     sig = st["lo"] > 0.5 or st["hi"] < 0.5
     st["significant"] = sig
     st["verdict"] = ("a>b" if st["score"] > 0.5 else "a<b") if sig else "tie"
+    st["explicit_lands"] = rec.get("explicit_lands")   # the action space this comparison ran in (audit)
+    st["instant_speed"] = rec.get("instant_speed")
     return st
+
+
+def gauntlet(player, *, rungs=None, games: int = 80, seed: int = 0, explicit_lands: bool = True,
+             paired: bool = True, incremental: bool = True, **bench) -> dict:
+    """Score `player` against each fixed rung (default `default_rungs()` — Random/Greedy/Aggro/Heuristic) on
+    the HONEST, COMPARABLE gauntlet: `explicit_lands=True` pinned on every rung (so the net is evaluated in one
+    action space, not the opponent-dependent one — see benchmark) and paired CRN on. Returns {rung: score_stats}
+    (each carrying score/se/lo/hi/n). Serial; for parallelism fan out one rung per process at the call site (the
+    experiment scripts do this) since trained-net players don't pickle cleanly across a Pool."""
+    rungs = rungs or default_rungs()
+    return {name: score_stats(_record(player, opp, games=games, seed=seed, incremental=incremental,
+                                      explicit_lands=explicit_lands, paired=paired, **bench))
+            for name, opp in rungs.items()}
+
+
+def gauntlet_gate(candidate, best=None, *, rungs=None, games: int = 80, seed: int = 0, margin: float = 0.0,
+                  headline: str = "heuristic", best_scores: dict | None = None, **gkw) -> dict:
+    """Promotion gate on the FIXED gauntlet (not vs-best self-play — which can drift into a mutual pocket that
+    is strong vs itself yet weak vs the heuristic). Promote `candidate` iff it (1) does NOT regress beyond noise
+    on ANY rung vs the reference and (2) improves the `headline` rung (default heuristic) by >= `margin`. The
+    reference is `best_scores` (a prior `gauntlet()` dict, cheap — best changes only on promotion) or computed
+    from `best`; with neither, the gate is absolute (regress-check skipped, only the headline-vs-0.5 margin).
+    Returns {promoted, cand, ref, headline, reason}. Non-regression uses each rung's own SE so a noisy rung
+    can't veto on luck."""
+    cand = gauntlet(candidate, rungs=rungs, games=games, seed=seed, **gkw)
+    ref = best_scores if best_scores is not None else (
+        gauntlet(best, rungs=rungs, games=games, seed=seed, **gkw) if best is not None else None)
+    if ref is None:
+        h = cand[headline]["score"]
+        return {"promoted": h - 0.5 >= margin, "cand": cand, "ref": None, "headline": h,
+                "reason": f"absolute: {headline}={h:.3f} vs 0.5+{margin}"}
+    regressed = []
+    for name in cand:
+        if name not in ref:
+            continue
+        tol = (cand[name]["se"] ** 2 + ref[name]["se"] ** 2) ** 0.5      # 1 SE of the difference
+        if cand[name]["score"] < ref[name]["score"] - tol:
+            regressed.append(f"{name} {cand[name]['score']:.3f}<{ref[name]['score']:.3f}")
+    improved = cand[headline]["score"] - ref[headline]["score"]
+    promoted = not regressed and improved >= margin
+    reason = (f"regressed: {', '.join(regressed)}" if regressed
+              else f"{headline} {improved:+.3f} (need >={margin})")
+    return {"promoted": promoted, "cand": cand, "ref": ref, "headline": cand[headline]["score"], "reason": reason}
 
 
 def games_for_precision(half_width: float = 0.05, *, z: float = 1.96) -> int:

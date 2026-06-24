@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import contextlib
 import io
+import random
 import time
 
 
 def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-player", seed: int = 0,
-              decks: dict | None = None, commanders: dict | None = None, incremental: bool = False,
-              max_moves: int = 4000, swap_seats: bool = True, explicit_lands: bool = False) -> dict:
+              decks: dict | None = None, deck_pool: list | None = None, commanders: dict | None = None,
+              incremental: bool = False, max_moves: int = 4000, swap_seats: bool = True,
+              explicit_lands: bool = False, paired: bool = True) -> dict:
     """Play `player` vs `opponent` (default RandomPlayer) over `games` witchcraft self-play games and report
-    `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result),
-    and each game uses a distinct seed (`seed + i`). Returns
-    {games, wins, losses, draws, win_rate, avg_turns, wall_s, games_per_s}.
+    `player`'s record. Seats are swapped every other game (so a first-player edge doesn't bias the result).
+    With `paired` (default, requires `swap_seats`) the two seat orientations of each pair reuse the SAME game
+    seed — common random numbers, so the deck shuffle is identical and deck-luck cancels in the paired
+    difference (~halves games-to-significance). `paired=False` falls back to a distinct seed per game
+    (`seed + i`). Returns {games, wins, losses, draws, win_rate, avg_turns, wall_s, games_per_s}.
 
         from witchcraft import benchmark, RandomPlayer, Player
         class MyBot(Player):
@@ -37,18 +41,41 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
     from .players import RandomPlayer, play
     if opponent is None:
         opponent = RandomPlayer()
+    # The effective action space is what play() will actually open: the explicit `explicit_lands` OR either
+    # player's `wants_*` capability (players.py). It is constant across this call's games (same two players),
+    # but DIFFERS BY OPPONENT across a gauntlet — e.g. OFF vs RandomPlayer, forced ON vs HeuristicPlayer. That
+    # silently evaluates one net in different action spaces across rungs. Compute it once and REPORT it (below)
+    # so the mismatch is auditable; pin `explicit_lands=True` in a gauntlet to keep rungs comparable.
+    _both = (player, opponent)
+    eff_explicit = explicit_lands or any(getattr(p, "wants_explicit_lands", False) for p in _both)
+    eff_instant = any(getattr(p, "wants_instant_speed", False) for p in _both)
     wins = losses = draws = 0
     total_turns = 0
+    outcomes = []
     t0 = time.perf_counter()
+    crn = paired and swap_seats                                        # common random numbers across the pair
+    # GENERALIZATION: with `deck_pool` (a list of decks), each game draws both seats' decks from the pool, so the
+    # measure spans MANY matchups, not one fixed deck pair. The deck RNG is seeded only from `seed`, so the
+    # matchup sequence is reproducible AND identical across a gauntlet's rungs (every rung faces the same decks,
+    # like pinned explicit_lands). Under CRN the matchup is sampled ONCE PER PAIR and reused across the two seat
+    # orientations, so deck-luck still cancels in the pair (both contestants play both decks on the same shuffle).
+    deck_rng = random.Random((seed + 1) * 1_000_003) if deck_pool else None
+    cur_decks = decks
     for i in range(games):
         flip = swap_seats and (i % 2 == 1)
+        # paired CRN: the two orientations of pair k (games 2k, 2k+1) share game seed `seed + k`, so the deck
+        # shuffle is identical and only the seat assignment differs -> deck-luck cancels. Else distinct per game.
+        gseed = seed + (i // 2) if crn else seed + i
+        if deck_pool and (not crn or i % 2 == 0):                      # one matchup per CRN pair (else per game)
+            cur_decks = {"alice": deck_rng.choice(deck_pool), "bob": deck_rng.choice(deck_pool)}
         players = {"alice": opponent, "bob": player} if flip else {"alice": player, "bob": opponent}
         mine = "bob" if flip else "alice"
         with contextlib.redirect_stdout(io.StringIO()):                # the engine narrates each step — mute it
-            g = play(players, decks, variant=variant, seed=seed + i, commanders=commanders,
+            g = play(players, cur_decks, variant=variant, seed=gseed, commanders=commanders,
                      incremental=incremental, max_moves=max_moves, explicit_lands=explicit_lands)
         w = g.winner()
         total_turns += g.turn_number
+        outcomes.append(1.0 if w == mine else (0.5 if w is None else 0.0))   # mine's per-game score
         if w == mine:
             wins += 1
         elif w is None:
@@ -56,11 +83,19 @@ def benchmark(player, opponent=None, *, games: int = 20, variant: str = "two-pla
         else:
             losses += 1
     wall = time.perf_counter() - t0
+    # Under CRN, games (2k, 2k+1) share a seed -> average them into one pair score so the correlated deck-luck
+    # cancels; the honest SE is then the sample SE of these pair scores (see score_stats), which tightens as the
+    # pairing actually cancels variance. A trailing odd game forms a singleton group. Without CRN, no pairing.
+    pair_scores = ([sum(outcomes[k:k + 2]) / len(outcomes[k:k + 2]) for k in range(0, games, 2)]
+                   if crn and games else None)
     return {
         "games": games, "wins": wins, "losses": losses, "draws": draws,
         "win_rate": round(wins / games, 3) if games else 0.0,
         "avg_turns": round(total_turns / games, 1) if games else 0.0,
         "wall_s": round(wall, 2), "games_per_s": round(games / wall, 2) if wall else 0.0,
+        "pair_scores": pair_scores,                                     # CRN pair scores for paired SE (or None)
+        "explicit_lands": eff_explicit, "instant_speed": eff_instant,   # the action space these games ran in
+        "deck_pool": len(deck_pool) if deck_pool else 0,                # # decks in the matchup pool (0 = fixed)
     }
 
 

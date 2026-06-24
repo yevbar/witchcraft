@@ -419,6 +419,63 @@ def generate(games: int = 40, *, decks=None, deck_pool=None, variant: str = "two
     return data
 
 
+def generate_solver_value(games: int = 40, *, player_factory=None, decks=None, deck_pool=None,
+                          variant: str = "two-player", seed: int = 0, max_moves: int = 4000,
+                          gamma: float = DEFAULT_GAMMA, abilities: bool = False, solve_turns: int = 1,
+                          solve_budget: int = 1000, solve_gate: int = 18, incremental: bool = True):
+    """SOLVER-SHAPED value data (the Steer-and-Solve Step-3 signal). Like `generate`, but each visited state is
+    additionally asked of the SOUND forced solver: 'is a win forceable from here for the deciding seat?'
+    (win_search.find_win, forced=True, gated to opp life <= solve_gate for cost). A state the solver can win
+    from is labeled +1 NOW — a dense, directional 'this is a winnable position' signal that propagates backward
+    into the net (the chess endgame-tablebase->NN bootstrap), instead of waiting for the sparse terminal z.
+
+    Returns {'z': rows, 'solver': rows, 'n': N, 'n_solved': K}: TWO target sets over the SAME states (rows are
+    (objs, owner, glob, target)) so the z-vs-solver A/B is matched (identical trajectories, only the target
+    differs). 'z' is the existing discounted-outcome target; 'solver' overrides solved states to +1. Keep
+    gamma=1.0 — this is NOT the failed faster-win reward (which compressed the terminal scalar); it ADDS labeled
+    states. Only the +1 (forced win for me) label is applied; the symmetric -1 (opponent forces a win on us)
+    needs a forall-over-MY-moves search and is left for later."""
+    import win_search
+    if incremental:
+        _engage_incremental()
+    pf = player_factory or (lambda _seat: RandomPlayer())
+    pool_rng = random.Random(seed * 2 + 1)
+    z_rows, solver_rows = [], []
+    n_solved = 0
+    for gi in range(games):
+        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}
+                   if deck_pool else decks)
+        players = {"alice": pf("alice"), "bob": pf("bob")}
+        policies = {s: p.as_policy() for s, p in players.items()}
+        g = Game(g_decks, variant=variant, seed=seed + gi, policies=policies)
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                seat = g.turn
+                opp_life = min((v for (p, v) in g.state.get("life", ()) if p != seat), default=99)
+                solved = False
+                if opp_life <= solve_gate:                         # gate the expensive solver to in-range states
+                    path, _ = win_search.find_win(g.state, me=seat, max_turns=solve_turns,
+                                                  node_budget=solve_budget, forced=True)
+                    solved = path is not None
+                rows.append((card_features(g.state, seat, abilities), seat, g.state.get("_turn") or 0, solved))
+                g.push(players[seat].choose_move(g))
+        w = g.winner()
+        end_turn = max([t for *_r, t, _s in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob), seat, turn_no, solved in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
+            z_rows.append((objs, owner, glob, z))
+            if solved:
+                n_solved += 1
+                solver_rows.append((objs, owner, glob, 1.0))       # dense +1: a solver-verified winnable state
+            else:
+                solver_rows.append((objs, owner, glob, z))
+    return {"z": z_rows, "solver": solver_rows, "n": len(z_rows), "n_solved": n_solved}
+
+
 def generate_eval(games: int = 30, *, decks=None, deck_pool=None, variant: str = "two-player", seed: int = 0,
                   player_factory=None, max_moves: int = 4000, incremental: bool = True, abilities: bool = False):
     """GAME-DISJOINT self-play EVAL rows (objs, owner, glob, z, h) for `value_metrics`. Use a DISJOINT seed
@@ -1048,7 +1105,7 @@ def gated_train_loop(rounds: int = 10, *, games_per_round: int = 20, epochs: int
                      hidden: int = 64, lr: float = 1e-3, epsilon: float = 0.25, decks=None, deck_pool=None,
                      variant: str = "two-player", seed: int = 0, buffer_rounds: int = 8, gate_games: int = 64,
                      gate_thr: float = 0.55, gamma: float = DEFAULT_GAMMA, ladder_every: int = 0,
-                     ladder_games: int = 24, verbose: bool = True):
+                     ladder_games: int = 24, gate_fn=None, verbose: bool = True):
     """AlphaZero-style GATED self-play (Phase 1). Replaces `train_loop`'s refit-fresh-on-ALL-data — which
     plateaued the only metric (win_rate_vs_random) at 1.0 — with three pieces:
 
@@ -1087,7 +1144,10 @@ def gated_train_loop(rounds: int = 10, *, games_per_round: int = 20, epochs: int
 
         if best_vf is None:                                     # round 0: the first net unconditionally seeds best
             promoted, score = True, None
-        else:
+        elif gate_fn is not None:                               # injected gate (e.g. ladder.gauntlet_gate): the
+            g = gate_fn(ValuePlayer(trainee_vf), ValuePlayer(best_vf), seed + r)   # fixed-gauntlet, non-regress
+            promoted, score = g["promoted"], g.get("score")     # gate that catches mutual-drift pockets vs-best
+        else:                                                   # misses (handoff Step 0). Default: vs-best promote.
             gate = _ladder.promote(ValuePlayer(trainee_vf), ValuePlayer(best_vf), n=gate_games, thr=gate_thr,
                                    seed=seed + r, decks=decks, variant=variant)
             promoted, score = gate["promoted"], gate["score"]
