@@ -35,6 +35,15 @@ def _must() -> None:
           (lambda e: e is not None and e.verb == "must_attack")(parse_clause("~ attacks each combat if able")))
     check("'~ blocks if able' still must_block",
           (lambda e: e is not None and e.verb == "must_block")(parse_clause("~ blocks if able")))
+    # PLURAL subject 'they block … if able' (base-form 'block', not 'blocks') — _MR_BLOCK_ABLE now allows it
+    check("'they block this turn if able' -> must_block(they)",
+          (lambda e: e is not None and e.verb == "must_block" and e.target == "they")(parse_clause("they block this turn if able")))
+    # the causative 'have <X> block <Y> if able' must still ABSTAIN (not mis-ground a 'have <X>' subject)
+    check("causative 'have target creature block it … if able' abstains (no garbled subject)",
+          (lambda e: e is None or "have" not in str(e.target))(parse_clause("have target creature block it this turn if able")))
+    # 'this combat' duration now grounds the combat restriction (Canal Courier), like 'this turn'
+    check("'~ can't be blocked this combat' -> cant_be_blocked",
+          (lambda e: e is not None and e.verb == "cant_be_blocked")(parse_clause("~ can't be blocked this combat")))
 
 
 def _copy() -> None:

@@ -1173,7 +1173,10 @@ _MS_NUM = re.compile(r"^(?:\d+|one|two|three|four|five|x)$", re.I)   # monstrosi
 # duration. A non-`_TGT` (lossy/compound) subject matches none -> abstain to the regex.
 _MR_ATTACK = re.compile(r"^(" + _TGT + r") attacks?(?: (?!each combat|this turn|this combat)(" + _TGT + r"))?(?: each combat| this turn| this combat)?$", re.I)
 _MR_BLOCK_TGT = re.compile(r"^(" + _TGT + r") blocks (" + _TGT + r")(?: this turn| this combat)?$", re.I)
-_MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks(?: this turn| this combat| each combat)?$", re.I)
+# bare-form (no object): 'blocks?' so a PLURAL subject 'they block … if able' grounds (the singular 'blocks'
+# missed it). Kept off _MR_BLOCK_TGT: 'block' there would let a causative 'have <X> block <Y>' match with a
+# garbled 'have <X>' subject; with an object the bare form can't match, so the causative still abstains.
+_MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks?(?: this turn| this combat| each combat)?$", re.I)
 # combined '<subj> attacks or blocks [each combat] if able' (§508/§509) — the must-do mirror of the existing
 # cant_attack_or_block; ATTACK/BLOCK singly already ground, this is the disjunction (Khârn the Betrayer, …).
 _MR_ATTACK_OR_BLOCK = re.compile(r"^(" + _TGT + r") attacks? or blocks?(?: each combat| this turn| this combat)?$", re.I)
@@ -1437,11 +1440,11 @@ def _sh_frame(subj, body):
 _NS_CANT_SUBJ = re.compile(r"^(?:" + _TGT + r")$", re.I)                        # _cant_combat g1 (the `_TGT` subject)
 _NS_CANT_REST = re.compile(                                                     # _cant_combat post-"can't" portion
     r"^(be blocked|block or be blocked|attack or block|block|attack)"
-    r"(?: (" + _TGT + r"))? this turn$", re.I)
+    r"(?: (" + _TGT + r"))? this (?:turn|combat)$", re.I)                       # 'this combat' too (Canal Courier)
 _NS_CANT_SET_SUBJ = re.compile(                                                 # _cant_combat_set g1 (creatures set)
     r"^(?:[\w' -]+ )?creatures?(?: with(?:out)? [\w' -]+?)?$", re.I)
 _NS_CANT_SET_REST = re.compile(                                                 # _cant_combat_set post-"can't" portion
-    r"^(be blocked|attack or block|block|attack)(?: this turn)?$", re.I)
+    r"^(be blocked|attack or block|block|attack)(?: this turn| this combat)?$", re.I)
 
 # DOESNT_UNTAP operand validators — the `_doesnt_untap` template split into two anchored operand-span
 # certifiers (the GRAMMAR owns the shape `nssubj NS_DUVERB nstail`, the distinctive 'doesn't/don't untap'
