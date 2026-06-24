@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -351,6 +351,14 @@ rvbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | FACE_D
 pvclause.-2: PVPREVENT pvpre DMG pvtail      -> prevent
 pvpre:  (WORD | QUANT | NUM)+                                                // 'all [combat]' / 'the next <count>'
 pvtail: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | EQUALTO | THATMANY | MDUR)+  // 'that would be dealt [this turn] [to <tgt>] [this turn]'
+// PREVENT consequent, NO tail (§615) — 'prevent that damage' / 'prevent the next N damage' / 'prevent N of
+// that damage' (the `_prevent_that` template; the consequent of an 'if damage would be dealt …' wrapper).
+// These lack the 'that would be dealt …' tail that pvclause requires, so they're a DISJOINT production:
+// PVPREVENT + a body span + the structural DMG as the FINAL token (the start rule consumes the whole clause,
+// so nothing follows 'damage' — that's what separates this from pvclause). The transformer re-applies
+// `_prevent_that`'s EXACT regex to self._src -> prevent_damage(<n|that>, -), byte-identical.
+pvtclause.-2: PVPREVENT pvtbody DMG          -> prevent_that
+pvtbody: (WORD | QUANT | NUM)+                                               // 'that' / 'the next <n>' / '<n> of that'
 
 // PHASE_OUT / PHASE_IN (§702.26/§502.15) — '<permanent> phases out/in [until …]' (the `_phase` template
 // `^(_TGT) phases? (out|in)(?: until …)?$`). A TRUE grammar production: the distinctive PHASE terminal
@@ -3604,6 +3612,18 @@ class _ToEffect(Transformer):
 
     def pvtail(self, *toks):
         return _PvTail(" ".join(str(t) for t in toks))
+
+    def prevent_that(self, *args):
+        # 'prevent that damage' / 'prevent the next N damage' / 'prevent N of that damage' (§615 consequent,
+        # no tail) — the EXACT `_prevent_that` template re-applied to self._src: prevent_damage(<n|that>, -).
+        # The grammar already guaranteed PVPREVENT … DMG with nothing after; the re-match certifies the body
+        # is one of the three forms (else abstain -> a body the regex doesn't accept stays on the regex leaf).
+        s = (getattr(self, "_src", None) or "").strip()
+        m = re.match(r"^prevent (that damage|the next (\w+) damage|(\w+) of that damage)$", s, re.I)
+        if not m:
+            return None
+        n = _amount(m.group(2) or m.group(3)) if (m.group(2) or m.group(3)) else None
+        return Effect("prevent_damage", n if n is not None else "that", "-")
 
     def prevent(self, *args):
         # 'prevent <pre> damage <tail>' — the EXACT `_fog`/`_prevent` templates. The grammar carved the
