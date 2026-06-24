@@ -65,7 +65,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -73,6 +73,11 @@ start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | c
 // to the anchored `^…$` regex, or no parse.
 litclause: LITEFFECT                                          -> lit
 LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
+// GET ENERGY (§107.16) — 'you get {E}{E}…' (the `_get_energy` template). A whole-phrase GETENERGY terminal
+// (requires the trailing {e} symbol(s), so it can't steal 'you get an emblem'/'you get N poison counters');
+// the transformer counts the {e} glyphs for the amount -> get_energy(<N>, you). (src is lowercased, so {e}.)
+geclause: GETENERGY                                           -> get_energy_v
+GETENERGY.5: /you get (?:\{e\})+/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -1964,6 +1969,11 @@ class _ToEffect(Transformer):
     def lit(self, tok):                            # §720/§701 literal keyword-action effects (see litclause)
         v = _LIT_EFFECTS.get(str(tok).strip())
         return Effect(*v) if v else None
+
+    def get_energy_v(self, tok):
+        # 'you get {E}{E}…' (§107.16) — the EXACT `_get_energy` template: get_energy(<#{e}>, you). Count the
+        # energy glyphs in the matched terminal text (== the regex's m.group(1).count('{') — 'you get' has no '{').
+        return Effect("get_energy", str(tok).count("{"), "you")
 
     def ceqmlead(self, *toks):
         return _Body(" ".join(str(t) for t in toks))   # leading 'the <kw>' span (src is re-matched)

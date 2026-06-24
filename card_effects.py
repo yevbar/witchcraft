@@ -437,9 +437,9 @@ def _return_zone_rev(m):
     return Effect(_RET_DEST[m.group(1).lower()], "-", _target(m.group(2)))
 
 
-@_t(r"^you get ((?:\{e\})+)$")
-def _get_energy(m):
-    return Effect("get_energy", m.group(1).count("{"), "you")
+# 'you get {E}{E}…' fully MIGRATED to card_lark (geclause/GETENERGY; byte-identical, ABSTAINS=0) — the
+# `_get_energy` @_t template is dead (lark answers first) and was removed. ('you get that many {E}' is a
+# DIFFERENT template, `_get_energy_that_many` below, which stays.)
 
 
 @_t(r"^you get (twice |half )?that many (\{e\})$")
