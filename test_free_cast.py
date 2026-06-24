@@ -41,6 +41,18 @@ def _clauses() -> None:
           parse_clause_lark("flip a coin") is not None and parse_clause_lark("flip a coin").verb == "flip_coin")
 
 
+def _duration() -> None:
+    # impulse play-duration: 'play/cast <X> for as long as <cond>' — the duration was garbled into the target
+    # by the regex leaf; now it lands in cond as for_as_long_as_<cond>.
+    e = parse_clause_lark("play it for as long as you control this creature")
+    check("'play it for as long as …' -> play(it), cond=for_as_long_as_…",
+          e is not None and e.verb == "play" and e.target == "it" and e.cond == "for_as_long_as_you_control_this_creature")
+    e2 = parse_clause("you may play that card for as long as it remains exiled")
+    check("'you may play that card for as long as it remains exiled' grounds with both wrappers",
+          e2 is not None and e2.verb == "play" and e2.target == "that_card"
+          and "for_as_long_as_it_remains_exiled" in e2.cond and "may" in e2.cond)
+
+
 def _cards_full() -> None:
     cards = {c["name"]: c for c in card_corpus.load_cards()}
     for n in ["Ziatora's Envoy", "Quicksilver Sea"]:
@@ -55,6 +67,7 @@ def _cards_full() -> None:
 
 def run() -> None:
     _clauses()
+    _duration()
     _cards_full()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -138,6 +138,10 @@ cntobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
 fcastclause.2: fcastverb fcastobj WITHOUT_PAY              -> free_cast
 fcastverb: WORD
 fcastobj: (WORD | QUANT | NUM | ZONE)+
+// IMPULSE PLAY DURATION — '[you may] play/cast <X> for as long as <cond>' (impulse-exile). The duration was
+// GARBLED into the target by the regex leaf; FORASLONGAS anchors it -> play|cast(-, <X>, -, for_as_long_as_<cond>).
+pdurclause.2: fcastverb fcastobj FORASLONGAS pdcond       -> play_dur
+pdcond: (WORD | QUANT | NUM | ZONE)+
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -724,6 +728,7 @@ QUOTED.5: /"[^"]*"/                    // a quoted ability (bounded — an unanc
 CHS_CHOOSE.3: /\bchooses?\b/         // 'choose'/'chooses' — the §700.2 choice verb (namespaced; below DIVIDED's 'choose')
 CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect anchor (beats CHS_CHOOSE)
 WITHOUT_PAY.6: /\bwithout paying its mana cost\b/   // §601 free-cast modifier anchor (distinctive phrase)
+FORASLONGAS.6: /\bfor as long as\b/   // impulse play-duration anchor ('play X for as long as it remains exiled')
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -1567,6 +1572,10 @@ class _FcVerb(str):    # the play/cast verb of a free-cast clause (fcastverb)
 
 
 class _FcObj(str):     # the object span of a free-cast clause (fcastobj) — slugged to the effect target
+    pass
+
+
+class _PdCond(str):    # the condition span of an impulse play-duration clause (pdcond)
     pass
 
 
@@ -3543,6 +3552,19 @@ class _ToEffect(Transformer):
         if not o:
             return None
         return Effect(verb, "-", _target(o), "without_paying_mana_cost")
+
+    def pdcond(self, *toks):
+        return _PdCond(" ".join(str(t) for t in toks))
+
+    def play_dur(self, *args):
+        # '[you may] play/cast <X> for as long as <cond>' (impulse-exile) -> <verb>(-, _target(X), -,
+        # for_as_long_as_<cond>). The duration was garbled into the target by the regex leaf.
+        verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
+        obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
+        cond = next((str(a) for a in args if isinstance(a, _PdCond)), None)
+        if verb not in ("play", "cast") or obj is None or cond is None:
+            return None
+        return Effect(verb, "-", _target(obj.strip().lower()), "-", "for_as_long_as_" + ground.slug(cond.strip().lower()))
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
