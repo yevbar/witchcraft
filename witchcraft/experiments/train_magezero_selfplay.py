@@ -50,7 +50,8 @@ log(f"baseline (bootstrap brain): {row(best_scores)}")
 buf = collections.deque(maxlen=BUFFER)
 for r in range(ROUNDS):
     tr = time.time()
-    data = generate_selfplay(best, games=GEN, sims=SIMS, temperature=1.0, seed=1000 + r * 7, max_moves=MAXM)
+    data = generate_selfplay(best, games=GEN, sims=SIMS, temperature=1.0, seed=1000 + r * 7, max_moves=MAXM,
+                             opponent=lambda: HeuristicPlayer(), clone_opponent=True)   # EXPERT ITERATION vs teacher
     buf.append(data)
     rows = [x for d in buf for x in d]
     trainee = MageZeroNet(embed=EMBED, hidden=HIDDEN); trainee.load_state_dict(best.state_dict())

@@ -56,7 +56,7 @@ import torch.nn as nn
 import driver
 import env
 from .cardnet import (CardNetValue, CardPVNet, DEFAULT_GAMMA, GLOBAL_FEATURES, MOVE_KINDS, OBJ_FEATURES,
-                      _discounted_target, card_features, move_features, net_abilities)
+                      _discounted_target, _move_index, card_features, move_features, net_abilities)
 from .game import Game
 from .models import Move
 from .players import Player
@@ -298,24 +298,38 @@ class MageZeroPlayer(Player):
 
 def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temperature: float = 1.0,
                       seed: int = 0, gamma: float = DEFAULT_GAMMA, max_moves: int = 800,
-                      explicit_lands: bool = True, time_budget: float = 0.5):
-    """Self-play training data: a MageZeroPlayer (MCTS, SAMPLING at `temperature` for exploration) plays BOTH
-    seats. At each branching decision it records `(objs, owner, glob, z, kinds, idx_lists, pi)` where `pi` is the
-    MCTS VISIT DISTRIBUTION (AlphaZero's policy-improvement target — search distilled back into the heads) and
-    `z` is the discounted SELF-PLAY outcome from the deciding seat. Same row format as `cardnet.generate_clone`,
-    so `fit_clone` trains value (MSE vs z) + both heads (soft-CE vs pi) on it unchanged.
+                      explicit_lands: bool = True, time_budget: float = 0.5, opponent=None,
+                      clone_opponent: bool = True):
+    """Training data from the brain's own play. Each branching decision records `(objs, owner, glob, z, kinds,
+    idx_lists, pi)` — same row format as `cardnet.generate_clone`, so `fit_clone` trains value (MSE vs z) + both
+    heads (soft-CE vs pi) unchanged. `z` is the discounted outcome from the deciding seat.
 
-    This is the Stage-2 fix for the two Stage-1 failures: the states are the brain's OWN trajectories (not the
-    heuristic's), curing the BC off-distribution collapse; and `z` is a REAL outcome of those trajectories,
-    curing the value head that overfit to heuristic-vs-heuristic games (the diagnosed reason search was inert).
+    Two modes:
+      * SELF-PLAY (`opponent=None`): a MageZeroPlayer (MCTS, sampling at `temperature`) plays BOTH seats; `pi`
+        is the MCTS VISIT DISTRIBUTION (AlphaZero's policy-improvement target). States are the brain's OWN
+        trajectories (cures the BC off-distribution collapse).
+      * EXPERT ITERATION (`opponent` = a zero-arg factory -> Player, e.g. HeuristicPlayer): the brain plays ONE
+        seat (alternating per game) and the teacher the other. Brain decisions still record visit-pi; the
+        teacher's branching decisions record a ONE-HOT clone target when `clone_opponent`. Crucially `z` is the
+        real outcome AGAINST A STRONG OPPONENT — so the value learns what actually WINS vs the teacher, the
+        signal pure self-play lacked (with a stuck BC net, self-play outcomes are weak-vs-weak and leave the
+        value flat -> search inert, per confirm_search_lever.py). This is DAgger (brain-generated states,
+        teacher labels) + ExIt (outcome-driven value) — the standard cure for a BC cold start.
     Exploration comes from temperature sampling + the engine's shuffle randomness (MageZero uses no Dirichlet)."""
     abilities = net_abilities(net)
     data = []
     for gi in range(games):
         g = Game(seed=seed + gi, explicit_lands=explicit_lands)
-        players = {s: MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
-                                     explicit_lands=explicit_lands, seed=seed * 7 + gi * 2 + (s == "bob"))
-                   for s in ("alice", "bob")}
+        bp = MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
+                            explicit_lands=explicit_lands, seed=seed * 7 + gi * 2)
+        if opponent is None:
+            other = MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
+                                   explicit_lands=explicit_lands, seed=seed * 7 + gi * 2 + 1)
+            players = {"alice": bp, "bob": other}; is_brain = {"alice": True, "bob": True}
+        else:
+            bseat = "alice" if gi % 2 == 0 else "bob"                   # alternate the brain's seat across games
+            oseat = "bob" if bseat == "alice" else "alice"
+            players = {bseat: bp, oseat: opponent()}; is_brain = {bseat: True, oseat: False}
         rows = []
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(max_moves):
@@ -327,12 +341,18 @@ def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temp
                 mv = p.choose_move(g)
                 if mv is None:
                     break
-                vis = p.last_visits
-                if len(moves) > 1 and vis is not None and vis.sum() > 0:   # a real, searched decision
-                    objs, owner, glob = card_features(g.state, seat, abilities)
-                    kinds, idx_lists = move_features(g.state, seat, moves)
-                    pi = (vis / vis.sum()).astype(np.float32)               # the visit-count policy target
-                    rows.append([objs, owner, glob, seat, kinds, idx_lists, pi, g.state.get("_turn") or 0])
+                if len(moves) > 1:
+                    pi = None
+                    if is_brain[seat]:
+                        vis = p.last_visits
+                        if vis is not None and vis.sum() > 0:           # a real, searched decision -> visit-pi
+                            pi = (vis / vis.sum()).astype(np.float32)
+                    elif clone_opponent:                                # teacher move -> one-hot clone target
+                        pi = np.zeros(len(moves), dtype=np.float32); pi[_move_index(moves, mv)] = 1.0
+                    if pi is not None:
+                        objs, owner, glob = card_features(g.state, seat, abilities)
+                        kinds, idx_lists = move_features(g.state, seat, moves)
+                        rows.append([objs, owner, glob, seat, kinds, idx_lists, pi, g.state.get("_turn") or 0])
                 g.push(mv)
         w = g.winner()
         end_turn = max([r[7] for r in rows] + [g.state.get("_turn") or 0]) if rows else 0
