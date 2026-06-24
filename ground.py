@@ -104,6 +104,8 @@ _CORE_ACTIONS = frozenset({
     "cant_have_counters",   # §122 — a 'can't have [more than N] <kind> counters' limit
     "cant_untap",           # §502 — a "can't untap [more than N] <permanents> during <their> untap step" limit
     "activate_only",        # §602.5 — an activated-ability timing/frequency restriction ('activate only as a sorcery')
+    "triggers_only",        # §603.3 — a triggered-ability frequency restriction ('this ability triggers only once each turn')
+    "do_this_only",         # §603.3e — a frequency cap on the prior effect ('do this only once each turn')
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
     "turn_face_up",         # §708.5 — turn a face-down permanent face up (morph/disguise/manifest/cloak)
     "turn_face_down",       # §708 — turn a permanent face down

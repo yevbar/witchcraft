@@ -65,7 +65,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -141,6 +141,14 @@ cntobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
 acronlyclause: ACT_ONLY acronlyrest              -> activate_only
 acronlyrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
 ACT_ONLY.6: /\bactivate (?:this ability )?only\b/
+// sibling §603.3 / §603.3e frequency restrictions, same restriction-tail shape (reusing acronlyrest):
+// 'This ability triggers only <once each turn|…>' -> triggers_only; 'Do this only <…>' (the prior effect's
+// frequency cap) -> do_this_only. Each anchor is a distinctive contiguous phrase (so it can't steal a bare
+// 'triggers'/'do this'); the restriction rides the slug.
+trgonlyclause: TRG_ONLY acronlyrest              -> triggers_only
+dothisonlyclause: DOTHIS_ONLY acronlyrest        -> do_this_only
+TRG_ONLY.6: /\bthis ability triggers only\b/
+DOTHIS_ONLY.6: /\bdo this only\b/
 // FREE CAST (§601/§118.5) — '[you may] play/cast <X> [this turn] without paying its mana cost' (impulse-draw
 // / free-cast). The trailing WITHOUT_PAY phrase anchors it (so the play/cast verb stays a plain WORD elsewhere,
 // no collision); the modifier was DROPPED/garbled by the regex leaf. -> play|cast(-, <X>, without_paying_mana_cost).
@@ -3707,6 +3715,20 @@ class _ToEffect(Transformer):
         if rest is None or not rest.strip():
             return None
         return Effect("activate_only", "-", "-", ground.slug(rest.strip().lower()))
+
+    def triggers_only(self, *args):
+        # 'This ability triggers only <restriction>' (§603.3) -> triggers_only(-, -, slug(restriction)).
+        rest = next((str(a) for a in args if isinstance(a, _AcrRest)), None)
+        if rest is None or not rest.strip():
+            return None
+        return Effect("triggers_only", "-", "-", ground.slug(rest.strip().lower()))
+
+    def do_this_only(self, *args):
+        # 'Do this only <restriction>' (a §603.3e frequency cap on the prior effect) -> do_this_only(-, -, slug).
+        rest = next((str(a) for a in args if isinstance(a, _AcrRest)), None)
+        if rest is None or not rest.strip():
+            return None
+        return Effect("do_this_only", "-", "-", ground.slug(rest.strip().lower()))
 
     def fcastverb(self, tok):
         return _FcVerb(str(tok))
