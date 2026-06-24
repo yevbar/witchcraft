@@ -19,7 +19,7 @@ import re
 from lark import Lark, Transformer, v_args
 
 import ground
-from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _kw_list, _TGT, _LIB_OWNER, _mana_production
+from card_effects import Effect, _target, _amount, _is_compound_object, _kw_ok, _kw_list, _TGT, _LIB_OWNER, _mana_production, _SIDED
 import card_effects as _ce
 # 'Return <obj> [from <zone>] to the battlefield [tapped/under-ctrl/with-counter/at the beginning of <step>]'
 # (composite extra slug). NOTE: card_effects has TWO `_return_bf` defs — the module attribute `_ce._return_bf`
@@ -68,7 +68,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -88,6 +88,12 @@ GETENERGY.5: /you get (?:\{e\})+/
 // validates against keyword_actions() -> <verb>(-, you). (The clause must BE the phrase, like `_bare_action`.)
 kvmclause: KV_MULTI                                           -> kvmulti
 KV_MULTI.5: /manifest dread|time travel|the ring tempts you|open an attraction|collect evidence|venture into the dungeon|roll to visit your attractions|set in motion|face a villainous choice/
+// ROLL A DIE (§705) — 'roll a d6' / 'roll two d20s' / 'roll a six-sided die' (the `_roll`/`_roll_sided`
+// templates). The ROLLDIE whole-phrase terminal REQUIRES the die-spec ('dN' or '<word>-sided die'), so it
+// can't steal the KV_MULTI 'roll to visit your attractions' phrase (no die-spec there). The transformer
+// re-applies the two templates' OWN regexes to the matched text -> roll_die(<N>, you, dN), byte-identical.
+rollclause: ROLLDIE                                           -> roll_die_v
+ROLLDIE.5: /\broll \w+ (?:d\d+s?|[\w]+-sided (?:die|dice))/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -1990,6 +1996,22 @@ class _ToEffect(Transformer):
         # `_bare_action` leaf: slug the matched phrase to its verb, ground only if it's a real keyword action.
         v = ground.slug(str(tok))
         return Effect(v, "-", "you") if v in ground.keyword_actions() else None
+
+    def roll_die_v(self, tok):
+        # 'roll <count> d<N>' / 'roll <count> <word>-sided die' (§705) — the EXACT `_roll`/`_roll_sided`
+        # templates re-applied to the matched phrase: roll_die(<n|1>, you, dN). _SIDED maps the spelled-out
+        # face count (six->6) exactly as the regex does. Default count 1 when the quant word isn't numeric.
+        s = str(tok).strip()
+        m = re.match(r"^roll (a|an|one|two|three|\w+) (d\d+)s?$", s, re.I)
+        if m:
+            n = _amount(m.group(1))
+            return Effect("roll_die", n if n is not None else 1, "you", m.group(2).lower())
+        m = re.match(r"^roll (a|an|one|two|three|\w+) ([\w]+)-sided (?:die|dice)$", s, re.I)
+        if m:
+            n = _amount(m.group(1))
+            sides = _SIDED.get(m.group(2).lower()) or (int(m.group(2)) if m.group(2).isdigit() else None)
+            return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
+        return None
 
     def ceqmlead(self, *toks):
         return _Body(" ".join(str(t) for t in toks))   # leading 'the <kw>' span (src is re-matched)

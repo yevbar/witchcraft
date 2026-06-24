@@ -1261,20 +1261,10 @@ def _shuffle_subj(m):
     return Effect("shuffle", "-", _target(m.group(1)), "from_" + ground.slug(m.group(2)))
 
 
-@_t(r"^roll (a|an|one|two|three|\w+) (d\d+)s?$")
-def _roll(m):
-    n = _amount(m.group(1))
-    return Effect("roll_die", n if n is not None else 1, "you", m.group(2).lower())
-
-
+# 'roll a d6' / 'roll a six-sided die' (§705) fully MIGRATED to card_lark (rollclause/ROLLDIE; byte-identical,
+# ABSTAINS=0) — the `_roll` / `_roll_sided` @_t templates are dead (lark answers first) and were removed.
+# `_SIDED` (the spelled-out face-count map) stays — card_lark imports it for the rollclause transformer.
 _SIDED = {"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12, "twenty": 20, "100": 100}
-
-
-@_t(r"^roll (a|an|one|two|three|\w+) ([\w]+)-sided (?:die|dice)$")
-def _roll_sided(m):
-    n = _amount(m.group(1))
-    sides = _SIDED.get(m.group(2).lower()) or (int(m.group(2)) if m.group(2).isdigit() else None)
-    return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
 
 
 @_t(rf"^(?:{_TGT} )?plays? (that card|those cards|them|it|~|the (?:top|exiled) cards?[\w ]*?|the top card of (?:their|your|his or her) library|that [\w ]+?)(?: this turn| until [\w ' ]+| if able)?$")
