@@ -67,6 +67,17 @@ def _as_though_flash() -> None:
           atk is None or atk.verb not in ("play", "cast"))
 
 
+def _from_zone() -> None:
+    # cast/play <X> from <zone> (graveyard-recursion) -> extra=from_<zone>; defers to return/exile (which keep
+    # their own parse via the shared fromphrase).
+    e = parse_clause("you may cast it from your graveyard")
+    check("'cast it from your graveyard' -> cast(it, from_graveyard), cond=may",
+          e is not None and e.verb == "cast" and e.target == "it" and e.extra == "from_graveyard" and e.cond == "may")
+    # return-from-graveyard is UNTOUCHED (negative priority — rclause still wins)
+    r = parse_clause_lark("return it from your graveyard to your hand")
+    check("'return … from your graveyard …' unchanged (return_to_hand)", r is not None and r.verb == "return_to_hand")
+
+
 def _cards_full() -> None:
     cards = {c["name"]: c for c in card_corpus.load_cards()}
     for n in ["Ziatora's Envoy", "Quicksilver Sea"]:
@@ -83,6 +94,7 @@ def run() -> None:
     _clauses()
     _duration()
     _as_though_flash()
+    _from_zone()
     _cards_full()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

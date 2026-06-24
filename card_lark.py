@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -146,6 +146,11 @@ pdcond: (WORD | QUANT | NUM | ZONE)+
 // speed). The whole 'as though … flash' phrase is the anchor (NOT bare 'as though', so attack/block
 // 'as though' permissions are untouched). -> play|cast(-, <X>, as_though_flash).
 pflashclause.2: fcastverb fcastobj ASTHOUGH_FLASH         -> play_flash
+// CAST FROM A ZONE (§601) — '[you may] play/cast <X> from your graveyard/hand/...' (graveyard-recursion).
+// Reuses the existing fromphrase (FROM zwords? ZONE); NEGATIVE priority so return/exile/etc. (which also use
+// fromphrase) keep their parse — pfromclause only wins for play/cast, where nothing else matches. The xf
+// abstains on any non-play/cast verb. -> play|cast(-, <X>, from_<zone>).
+pfromclause.-3: fcastverb fcastobj fromphrase            -> play_from
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -3579,6 +3584,16 @@ class _ToEffect(Transformer):
         if verb not in ("play", "cast") or obj is None:
             return None
         return Effect(verb, "-", _target(obj.strip().lower()), "as_though_flash")
+
+    def play_from(self, *args):
+        # '[you may] play/cast <X> from <zone>' (graveyard-recursion etc.) -> <verb>(-, _target(X), from_<zone>).
+        # Abstains on any non-play/cast verb (return/exile/... keep their own, higher-priority parse).
+        verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
+        obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
+        src = next((a for a in args if isinstance(a, _Source)), None)
+        if verb not in ("play", "cast") or obj is None or src is None or not src.zone:
+            return None
+        return Effect(verb, "-", _target(obj.strip().lower()), "from_" + src.zone)
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:
