@@ -43,6 +43,8 @@ the next step — intentionally not run here. PyTorch is the optional [learn] de
 
 from __future__ import annotations
 
+import contextlib
+import io
 import math
 import random
 import time
@@ -53,8 +55,9 @@ import torch.nn as nn
 
 import driver
 import env
-from .cardnet import (CardNetValue, CardPVNet, GLOBAL_FEATURES, MOVE_KINDS, OBJ_FEATURES,
-                      card_features, move_features, net_abilities)
+from .cardnet import (CardNetValue, CardPVNet, DEFAULT_GAMMA, GLOBAL_FEATURES, MOVE_KINDS, OBJ_FEATURES,
+                      _discounted_target, card_features, move_features, net_abilities)
+from .game import Game
 from .models import Move
 from .players import Player
 
@@ -287,3 +290,54 @@ class MageZeroPlayer(Player):
                     return moves[i]
             return moves[-1]
         return moves[int(np.argmax(N))]
+
+
+# --------------------------------------------------------------------------------------------------------
+# Self-play data (Stage 2): the brain plays itself; record MCTS visit distributions + real outcomes.
+# --------------------------------------------------------------------------------------------------------
+
+def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temperature: float = 1.0,
+                      seed: int = 0, gamma: float = DEFAULT_GAMMA, max_moves: int = 800,
+                      explicit_lands: bool = True, time_budget: float = 0.5):
+    """Self-play training data: a MageZeroPlayer (MCTS, SAMPLING at `temperature` for exploration) plays BOTH
+    seats. At each branching decision it records `(objs, owner, glob, z, kinds, idx_lists, pi)` where `pi` is the
+    MCTS VISIT DISTRIBUTION (AlphaZero's policy-improvement target — search distilled back into the heads) and
+    `z` is the discounted SELF-PLAY outcome from the deciding seat. Same row format as `cardnet.generate_clone`,
+    so `fit_clone` trains value (MSE vs z) + both heads (soft-CE vs pi) on it unchanged.
+
+    This is the Stage-2 fix for the two Stage-1 failures: the states are the brain's OWN trajectories (not the
+    heuristic's), curing the BC off-distribution collapse; and `z` is a REAL outcome of those trajectories,
+    curing the value head that overfit to heuristic-vs-heuristic games (the diagnosed reason search was inert).
+    Exploration comes from temperature sampling + the engine's shuffle randomness (MageZero uses no Dirichlet)."""
+    abilities = net_abilities(net)
+    data = []
+    for gi in range(games):
+        g = Game(seed=seed + gi, explicit_lands=explicit_lands)
+        players = {s: MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
+                                     explicit_lands=explicit_lands, seed=seed * 7 + gi * 2 + (s == "bob"))
+                   for s in ("alice", "bob")}
+        rows = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(max_moves):
+                if g.is_game_over() or not g.legal_moves:
+                    break
+                moves = g.legal_moves
+                seat = g.turn
+                p = players[seat].bind(g, seat)
+                mv = p.choose_move(g)
+                if mv is None:
+                    break
+                vis = p.last_visits
+                if len(moves) > 1 and vis is not None and vis.sum() > 0:   # a real, searched decision
+                    objs, owner, glob = card_features(g.state, seat, abilities)
+                    kinds, idx_lists = move_features(g.state, seat, moves)
+                    pi = (vis / vis.sum()).astype(np.float32)               # the visit-count policy target
+                    rows.append([objs, owner, glob, seat, kinds, idx_lists, pi, g.state.get("_turn") or 0])
+                g.push(mv)
+        w = g.winner()
+        end_turn = max([r[7] for r in rows] + [g.state.get("_turn") or 0]) if rows else 0
+        for (objs, owner, glob, seat, kinds, idx_lists, pi, turn_no) in rows:
+            sign = 1.0 if w == seat else (-1.0 if w is not None else 0.0)
+            z = _discounted_target(sign, end_turn - turn_no, gamma)
+            data.append((objs, owner, glob, z, kinds, idx_lists, pi))
+    return data
