@@ -65,7 +65,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -132,6 +132,15 @@ chsclause: CHS_CHOOSE chsquant chsrest            -> chs
 // 'choose_new_targets' verb is already §707.10-grounded; this just reads the object. -> choose_new_targets(-, X).
 cntclause: CHOOSE_NEW_TGT cntobj                  -> choose_new_targets
 cntobj: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
+// §602.5 ACTIVATION restriction tail: 'Activate [this ability] only <as a sorcery|once each turn|during
+// your turn|…>'. A whole-clause timing/frequency restriction on an activated ability (often the last line
+// of the ability's text). ACT_ONLY (the distinctive 'activate [this ability] only' bigram, high-prio so it
+// outranks the bare 'activate' keyword-action WORD) anchors it; the rest is the restriction span, slugged
+// to extra. -> activate_only(-, -, <restriction>). The keyword-action 'activate target X' lacks the 'only'
+// and never matches, so this can't steal it.
+acronlyclause: ACT_ONLY acronlyrest              -> activate_only
+acronlyrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE)+
+ACT_ONLY.6: /\bactivate (?:this ability )?only\b/
 // FREE CAST (§601/§118.5) — '[you may] play/cast <X> [this turn] without paying its mana cost' (impulse-draw
 // / free-cast). The trailing WITHOUT_PAY phrase anchors it (so the play/cast verb stays a plain WORD elsewhere,
 // no collision); the modifier was DROPPED/garbled by the regex leaf. -> play|cast(-, <X>, without_paying_mana_cost).
@@ -1700,6 +1709,10 @@ class _KwnNum(str):    # the numbered-keyword-action count token (kwnnum) — va
 
 
 class _CntObj(str):    # the object span after 'choose new targets for' (cntobj) — slugged to the effect target
+    pass
+
+
+class _AcrRest(str):   # the restriction span after 'activate [this ability] only' (§602.5) — slugged to extra
     pass
 
 
@@ -3684,6 +3697,16 @@ class _ToEffect(Transformer):
         if obj is None:
             return None
         return Effect("choose_new_targets", "-", _target(obj.strip().lower()))
+
+    def acronlyrest(self, *toks):
+        return _AcrRest(" ".join(str(t) for t in toks))
+
+    def activate_only(self, *args):
+        # 'Activate [this ability] only <restriction>' (§602.5) -> activate_only(-, -, slug(restriction)).
+        rest = next((str(a) for a in args if isinstance(a, _AcrRest)), None)
+        if rest is None or not rest.strip():
+            return None
+        return Effect("activate_only", "-", "-", ground.slug(rest.strip().lower()))
 
     def fcastverb(self, tok):
         return _FcVerb(str(tok))
