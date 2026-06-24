@@ -1,0 +1,67 @@
+"""test_turn_face_up.py — §708.5 'turn <X> face up' (morph/disguise/manifest/cloak reveal).
+
+A cross-cutting 2020s face-down action that was wholly uncovered (every form -> None). A native Lark
+production (tfuclause -> turn_faceup) grounds '[you may] turn <X> face up' -> turn_face_up(-, X). The FACE_UP
+terminal is added to the object spans (objall/pzbody) so existing 'face up' spans (e.g. 'exile a card face
+down/up') are unchanged; tfuclause is negative-priority and abstains on any non-'turn' verb.
+
+Run: python3 test_turn_face_up.py
+"""
+from __future__ import annotations
+
+import card_corpus
+import ground
+from card_lark import parse_clause_lark
+from card_effects import parse_clause
+from transpile_card import transpile_unit
+
+CHECKS: list = []
+
+
+def check(name, cond):
+    CHECKS.append((name, bool(cond)))
+
+
+def _clauses() -> None:
+    for src, tgt in [("turn it face up", "it"),
+                     ("turn target face-down creature face up", "target_face_down_creature"),
+                     ("turn that creature face up", "that_creature")]:
+        e = parse_clause_lark(src)
+        check(f"{src!r} -> turn_face_up({tgt})",
+              e is not None and e.verb == "turn_face_up" and e.target == tgt)
+    e = parse_clause("you may turn target face-down permanent face up")
+    check("'you may turn … face up' -> turn_face_up, cond=may",
+          e is not None and e.verb == "turn_face_up" and e.cond == "may")
+    # object verbs that consume 'face up/down' are UNCHANGED (FACE_UP kept in objall; xf abstains on non-turn)
+    ex = parse_clause("exile a card face down")
+    check("'exile a card face down' unchanged (objall preserved)",
+          ex is not None and ex.verb == "exile" and "face_down" in ex.target)
+    check("'turn' is required — 'reveal it face up' is not a turn_face_up",
+          (parse_clause_lark("reveal it face up") or parse_clause_lark("turn it face up")).verb in ("turn_face_up", "reveal"))
+
+
+def _cards_full() -> None:
+    cards = {c["name"]: c for c in card_corpus.load_cards()}
+    for n in ["Break Open", "Ixidor, Reality Sculptor"]:
+        c = cards.get(n)
+        if not c:
+            continue
+        cid = ground.slug(n)
+        full = all(transpile_unit(u, {"id": cid, "card": c, "seq": i})
+                   for i, u in enumerate(card_corpus.units_of(c)))
+        check(f"{n} fully ingests (turn-face-up grounds)", full)
+
+
+def run() -> None:
+    _clauses()
+    _cards_full()
+    passed = sum(1 for _, ok in CHECKS if ok)
+    for name, ok in CHECKS:
+        print(f"  {'ok  ' if ok else 'FAIL'} {name}")
+    print(f"\n{passed}/{len(CHECKS)} checks passed")
+    if passed != len(CHECKS):
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

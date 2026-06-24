@@ -63,7 +63,7 @@ _NEEDS_CARD = {"draw", "mill", "discard"}
 _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
-start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | aclause
+start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfuclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause
 
@@ -151,6 +151,11 @@ pflashclause.2: fcastverb fcastobj ASTHOUGH_FLASH         -> play_flash
 // fromphrase) keep their parse — pfromclause only wins for play/cast, where nothing else matches. The xf
 // abstains on any non-play/cast verb. -> play|cast(-, <X>, from_<zone>).
 pfromclause.-3: fcastverb fcastobj fromphrase            -> play_from
+// TURN FACE UP (§708.5) — '[you may] turn <X> face up' (morph/disguise/manifest/cloak reveal). The FACE_UP
+// terminal is also added to the object spans (objall/pzbody) so existing 'face up' spans are unchanged.
+// NEGATIVE priority so object verbs keep their parse — tfuclause only wins for 'turn'; the xf abstains
+// otherwise. (No 'turn face DOWN' counterpart: a FACE_DOWN terminal broke the conjure→hand parse.)
+tfuclause.-3: fcastverb fcastobj FACE_UP                 -> turn_faceup
 chsquant: QUANT                                   // reuse the shared QUANT terminal (no new quant terminal)
 chsrest: chstok+                                  // the chosen-thing NP, opaque to end (rejoined + slugged)
 chstok: WORD | NUM | QUANT | TOPREP | FROM | ZONE | EQUALTO | THATMANY | ONPREP | COUNTER
@@ -548,7 +553,7 @@ pzhandclause.-2: PZ_CONJURE pzbody          -> pzhand
 // would offer a competing pzput parse that Earley can pick over putctr, turning an existing put_counter
 // grounding into an abstain (a regression). No real put-to-zone clause contains 'counter', so stopping
 // pzbody at COUNTER costs nothing and keeps putctr the sole parse for counter clauses (faithful).
-pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA)+
+pzbody:  (WORD | QUANT | NUM | ZONE | TOPREP | FROM | ONPREP | EQUALTO | PTDELTA | FACE_UP)+
 
 // LOOK family (§701.x 'look at') — the three dominant frames the regex templates ground:
 //   '[<subject> ]look[s] at [the top N cards of ]<owner> hand/library'   (_look_at)
@@ -677,7 +682,7 @@ zwords: (WORD | TOPREP)+
 trailer: BOUND (WORD | TOPREP | ZONE | QUANT | NUM)*   -> trailer
 quant: QUANT
 robj: (WORD | ZONE | EQUALTO)+          // return object stops at from/to; 'equal to' stays content
-objall: (WORD | TOPREP | ZONE | FROM | EQUALTO)+   // object verbs: 'equal to' stays content ('destroy each … equal to N')
+objall: (WORD | TOPREP | ZONE | FROM | EQUALTO | FACE_UP)+   // object verbs ('equal to' stays content); FACE_UP/DOWN kept in-span so 'exile a card face down' is unchanged
 
 RVERB: "return"
 // RETHAND — the distinctive trailing owner-hand destination of the §614 bounce (`_bounce`/`_regrowth`).
@@ -739,6 +744,7 @@ CHOOSE_NEW_TGT.6: /\bchoose new targets for\b/   // §707.10 copy-redirect ancho
 WITHOUT_PAY.6: /\bwithout paying its mana cost\b/   // §601 free-cast modifier anchor (distinctive phrase)
 FORASLONGAS.6: /\bfor as long as\b/   // impulse play-duration anchor ('play X for as long as it remains exiled')
 ASTHOUGH_FLASH.6: /\bas though (?:it|they) (?:had|have) flash\b/   // §117.1a impulse instant-speed anchor (full phrase, not bare 'as though')
+FACE_UP.6: /\bface up\b/      // §708.5 'turn <X> face up' anchor (also kept in objall to preserve existing spans)
 PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
@@ -3594,6 +3600,18 @@ class _ToEffect(Transformer):
         if verb not in ("play", "cast") or obj is None or src is None or not src.zone:
             return None
         return Effect(verb, "-", _target(obj.strip().lower()), "from_" + src.zone)
+
+    def turn_faceup(self, *args):
+        return self._turn_face(args, "turn_face_up")
+
+    def _turn_face(self, args, verb_out):
+        # '[you may] turn <X> face up/down' (§708.5) -> turn_face_up|down(-, _target(X)). Abstains unless the
+        # verb is 'turn' (object verbs keep their own, higher-priority parse via objall).
+        verb = next((str(a).lower() for a in args if isinstance(a, _FcVerb)), None)
+        obj = next((str(a) for a in args if isinstance(a, _FcObj)), None)
+        if verb not in ("turn", "turns") or obj is None:
+            return None
+        return Effect(verb_out, "-", _target(obj.strip().lower()))
 
     def kvintrans(self, *args):
         # '[<subject>] investigate[s]/explore[s]/proliferate[s]' — the `_bare_action`/`_subject_action` leaves:

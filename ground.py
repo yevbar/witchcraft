@@ -92,6 +92,8 @@ _CORE_ACTIONS = frozenset({
     "remove_counter",       # §122 — removing a counter
     "play",                 # §601/§116 — playing a card (cast a spell or play a land)
     "choose_new_targets",   # §707.10 — choosing new targets for a copy
+    "turn_face_up",         # §708.5 — turn a face-down permanent face up (morph/disguise/manifest/cloak)
+    "turn_face_down",       # §708 — turn a permanent face down
     "doesnt_untap",         # §502 — a 'doesn't untap during its next untap step' restriction
     "choose",               # §601.2d/§700.2 — making a choice (a color, a creature type, …)
     "extra_combat",         # §505.1b — an additional combat phase
