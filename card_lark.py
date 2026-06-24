@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -113,6 +113,13 @@ SPEND_AS.5: /(?:you )?(?:may )?spend mana as though it were mana of any (?:color
 // template's EXACT pattern to the matched text -> extra_turn(<n|->, _target(subj|you)), byte-identical.
 xtnclause: EXTRATURN                                          -> extra_turn_v
 EXTRATURN.5: /(?:[\w'][\w' ]* )?takes? (?:an|one|two|three|\w+) extra turns? after this one/
+// 'put them back in any order' (§401 scry-like reorder of looked-at cards back on top) — the dedicated
+// `_put_back_any_order` template, a single fixed whole-clause phrase -> put_on_top(-, them, any_order). A
+// high-prio whole-phrase PUTBACKAO terminal owns it; the clause must BE the phrase (start consumes all), so
+// it's byte-identical to the `^…$` regex. The longer 'put them back … on top of your library in any order'
+// forms carry extra words and ground via the existing put productions (no theft — verified by regression).
+pbaoclause: PUTBACKAO                                         -> put_back_any_order
+PUTBACKAO.5: /put them back in any order/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -2070,6 +2077,11 @@ class _ToEffect(Transformer):
             sides = _SIDED.get(m.group(2).lower()) or (int(m.group(2)) if m.group(2).isdigit() else None)
             return Effect("roll_die", n if n is not None else 1, "you", f"d{sides}") if sides else None
         return None
+
+    def put_back_any_order(self, tok):
+        # 'put them back in any order' (§401) — the EXACT `_put_back_any_order` template: a fixed phrase
+        # grounding to put_on_top(-, them, any_order). The whole clause is the phrase (no operands to read).
+        return Effect("put_on_top", "-", "them", "any_order")
 
     def extra_turn_v(self, tok):
         # '[<player>] take[s] [an|N] extra turn(s) after this one' (§500.7) — the EXACT `_extra_turn` template

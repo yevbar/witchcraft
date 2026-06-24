@@ -514,10 +514,10 @@ def _put_counter(m):
                   ground.slug(m.group(2)) if "/" not in m.group(2) else m.group(2))
 
 
-@_t(r"^put them back in any order$")
-def _put_back_any_order(m):
-    """'Put them back in any order' — reorder looked-at cards on top of the library (§401, scry-like)."""
-    return Effect("put_on_top", "-", "them", "any_order")
+# 'Put them back in any order' (§401 scry-like reorder of looked-at cards on top) — fully MIGRATED to card_lark
+# (pbaoclause / the whole-phrase PUTBACKAO terminal + put_back_any_order, which emits the same fixed tuple).
+# This was the ENTIRE put_on_top regex-only family; all corpus instances ground in lark byte-identically, so
+# the dedicated template is dead and removed.
 
 
 @_t(rf"^put (its|all|all of its) counters on ({_TGT})$")
