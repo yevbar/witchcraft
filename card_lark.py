@@ -1611,7 +1611,7 @@ def _ns_player_restrict(subj, rest):
 # subjects it can't match. The whole subject is slugged faithfully (a type list 'instant and sorcery spells
 # you control' is the SUBJECT, not an action conflation, so its 'and' is kept); '~' -> 'self' so the slug
 # isn't lossy. A trailing 'this turn' rides cond. Guarded so each verb only claims its own kind of subject.
-_NS_PASSIVE = re.compile(r"^be (countered|prevented|activated)( this turn)?$", re.I)
+_NS_PASSIVE = re.compile(r"^be (countered|prevented|activated|regenerated)( this turn)?$", re.I)
 
 
 def _ns_passive_restrict(subj, rest):
@@ -1629,6 +1629,12 @@ def _ns_passive_restrict(subj, rest):
         return Effect("cant_prevent_damage", "-", ground.slug(s), "-", cond)
     if kind == "activated" and "abilit" in s:
         return Effect("cant_be_activated", "-", ground.slug(s), "-", cond)
+    # '<creature> can't be regenerated [this turn]' (§701.19) — the `_cant_regen` template: cant_be_regenerated
+    # (-, _target(subj)); the subject is its OWN _TGT (or the literal 'a creature destroyed this way') and the
+    # 'this turn' duration is DROPPED, exactly as the regex does. (Bare 'can't be regenerated'->'it' has no
+    # nssubj so it never reaches here — stays on the regex template, FLIP-ONLY.)
+    if kind == "regenerated" and (re.fullmatch(_TGT, subj.strip(), re.I) or subj.strip() == "a creature destroyed this way"):
+        return Effect("cant_be_regenerated", "-", _target(subj.strip()))
     return None
 
 
