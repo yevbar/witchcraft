@@ -65,7 +65,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -78,6 +78,13 @@ LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiat
 // the transformer counts the {e} glyphs for the amount -> get_energy(<N>, you). (src is lowercased, so {e}.)
 geclause: GETENERGY                                           -> get_energy_v
 GETENERGY.5: /you get (?:\{e\})+/
+// MULTI-WORD nullary keyword actions (§701.x) — 'Manifest dread'/'Time travel'/'The Ring tempts you'/'Open an
+// Attraction'/'Collect evidence'/'Venture into the dungeon'/… (the `_bare_action` catch-all, FLIP-ONLY since
+// that catch-all serves many verbs). KVINTRANS is single-word; these are DISTINCTIVE multi-word phrases, so a
+// whole-phrase KV_MULTI terminal can't steal them mid-clause. The transformer slugs the phrase to its verb and
+// validates against keyword_actions() -> <verb>(-, you). (The clause must BE the phrase, like `_bare_action`.)
+kvmclause: KV_MULTI                                           -> kvmulti
+KV_MULTI.5: /manifest dread|time travel|the ring tempts you|open an attraction|collect evidence|venture into the dungeon|roll to visit your attractions|set in motion|face a villainous choice/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
@@ -1974,6 +1981,12 @@ class _ToEffect(Transformer):
         # 'you get {E}{E}…' (§107.16) — the EXACT `_get_energy` template: get_energy(<#{e}>, you). Count the
         # energy glyphs in the matched terminal text (== the regex's m.group(1).count('{') — 'you get' has no '{').
         return Effect("get_energy", str(tok).count("{"), "you")
+
+    def kvmulti(self, tok):
+        # a multi-word nullary §701 keyword action ('manifest dread', 'the ring tempts you', …) — the EXACT
+        # `_bare_action` leaf: slug the matched phrase to its verb, ground only if it's a real keyword action.
+        v = ground.slug(str(tok))
+        return Effect(v, "-", "you") if v in ground.keyword_actions() else None
 
     def ceqmlead(self, *toks):
         return _Body(" ".join(str(t) for t in toks))   # leading 'the <kw>' span (src is re-matched)
