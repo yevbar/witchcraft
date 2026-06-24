@@ -157,7 +157,13 @@ fcastverb: WORD
 fcastobj: (WORD | QUANT | NUM | ZONE)+
 // IMPULSE PLAY DURATION — '[you may] play/cast <X> for as long as <cond>' (impulse-exile). The duration was
 // GARBLED into the target by the regex leaf; FORASLONGAS anchors it -> play|cast(-, <X>, -, for_as_long_as_<cond>).
-pdurclause.2: fcastverb fcastobj FORASLONGAS pdcond       -> play_dur
+// NEGATIVE priority (lowered from +2): the FORASLONGAS tail is now also reachable by nstail (the §502
+// "<perm> doesn't untap during … for as long as …" no-untap static), and `fcastverb` is an unconstrained
+// WORD, so a positive priority let play_dur STEAL that untap clause (then abstain, since fcastverb isn't
+// play/cast). At -3 the play_dur transformer's own play/cast guard still rejects non-play/cast, and the
+// nsuntap rule (-2) wins the untap clause; on a real 'play/cast X for as long as …' nothing else matches, so
+// play_dur still wins. (Same negative-defer rationale as pfromclause.)
+pdurclause.-3: fcastverb fcastobj FORASLONGAS pdcond      -> play_dur
 pdcond: (WORD | QUANT | NUM | ZONE)+
 // CAST-AS-THOUGH-FLASH (§117.1a) — '[you may] play/cast <X> as though it/they had flash' (impulse instant-
 // speed). The whole 'as though … flash' phrase is the anchor (NOT bare 'as though', so attack/block
@@ -626,7 +632,7 @@ nsclause.-2: nssubj NS_CANT nsverb nstail?     -> nscant     // '<subj> can't <c
            | nssubj NS_DUVERB nstail           -> nsuntap    // "<subj> doesn't/don't untap during …"
 nssubj: (WORD | QUANT | NUM | ZONE)+           // the subject NP (validated by the frame regex's _TGT)
 nsverb: (WORD | ZONE)+                          // 'be blocked' / 'block' / 'attack' / 'block or be blocked' …
-nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA | MDUR | FACE_DIR)+  // 'this turn', 'during …', a rider
+nstail: (WORD | QUANT | NUM | ZONE | COUNTER | FROM | ONPREP | TOPREP | PTDELTA | MDUR | FACE_DIR | FORASLONGAS)+  // 'this turn', 'during …', 'for as long as …', a rider
 
 NS_CANT.5: /\bcan't\b/                          // the §509/§508 prohibition modal (outranks WORD)
 NS_DUVERB.5: /\b(?:doesn't|don't) untap\b/      // the §502 no-untap static verb (outranks WORD)
@@ -1440,7 +1446,7 @@ _NS_CANT_SET_REST = re.compile(                                                 
 _NS_UNTAP_SUBJ = re.compile(r"^(?:" + _TGT + r")$", re.I)
 _NS_UNTAP_TAIL = re.compile(
     r"^during (?:its controller's|their controller's|their controllers'|your|their)"
-    r"( next)? untap steps?(?: for as long as .+?)?$", re.I)
+    r"( next)? untap steps?(?: for as long as (.+?))?$", re.I)   # g2 = the for-as-long-as duration (or None)
 
 # the block-template verb-slot -> grounded verb; ONLY the three negative-statics verbs are ours. The same
 # template ALSO grounds cant_attack / cant_attack_or_block / cant_block_or_be_blocked (OTHER families) ->
@@ -3104,7 +3110,8 @@ class _ToEffect(Transformer):
         m = _NS_UNTAP_TAIL.match(tail.strip())
         if not m:
             return None                          # tail isn't the 'during <ctrl> … untap step' skeleton
-        return Effect("doesnt_untap", "-", _target(subj), "next" if m.group(1) else "-")
+        cond = "for_as_long_as_" + ground.slug(m.group(2).replace("~", "self")) if m.group(2) else "-"   # capture the duration ('~'->self so not lossy)
+        return Effect("doesnt_untap", "-", _target(subj), "next" if m.group(1) else "-", cond)
 
     # --- ATTACH ---------------------------------------------------------------
     def atsrc(self, *toks):
