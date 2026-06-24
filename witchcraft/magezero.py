@@ -299,7 +299,7 @@ class MageZeroPlayer(Player):
 def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temperature: float = 1.0,
                       seed: int = 0, gamma: float = DEFAULT_GAMMA, max_moves: int = 800,
                       explicit_lands: bool = True, time_budget: float = 0.5, opponent=None,
-                      clone_opponent: bool = True, deck_pool=None):
+                      clone_opponent: bool = True, deck_pool=None, brain_deck=None):
     """Training data from the brain's own play. Each branching decision records `(objs, owner, glob, z, kinds,
     idx_lists, pi)` — same row format as `cardnet.generate_clone`, so `fit_clone` trains value (MSE vs z) + both
     heads (soft-CE vs pi) unchanged. `z` is the discounted outcome from the deciding seat.
@@ -315,13 +315,23 @@ def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temp
         signal pure self-play lacked (with a stuck BC net, self-play outcomes are weak-vs-weak and leave the
         value flat -> search inert, per confirm_search_lever.py). This is DAgger (brain-generated states,
         teacher labels) + ExIt (outcome-driven value) — the standard cure for a BC cold start.
+    `brain_deck` (a card-list) PINS the deck the brain pilots while the opponent's deck is drawn from
+    `deck_pool` (the field) — the unit of a SEQUENTIAL per-deck curriculum: train deck A for a while, then B,
+    cycling back. With `brain_deck` unset the matchup is mixed (both seats from `deck_pool`) or fixed (DEMO).
     Exploration comes from temperature sampling + the engine's shuffle randomness (MageZero uses no Dirichlet)."""
     abilities = net_abilities(net)
-    pool_rng = random.Random(seed * 2 + 1) if deck_pool else None
+    pool_rng = random.Random(seed * 2 + 1) if (deck_pool or brain_deck) else None
     data = []
     for gi in range(games):
-        g_decks = ({"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}
-                   if deck_pool else None)                              # mixed matchups -> train for generalization
+        bseat = "alice" if (opponent is None or gi % 2 == 0) else "bob"   # which seat the brain pilots
+        oseat = "bob" if bseat == "alice" else "alice"
+        if brain_deck is not None:                                        # CURRICULUM: brain fixed to one deck,
+            opp_deck = pool_rng.choice(deck_pool) if deck_pool else brain_deck   # opponent drawn from the field
+            g_decks = {bseat: brain_deck, oseat: opp_deck}
+        elif deck_pool:
+            g_decks = {"alice": pool_rng.choice(deck_pool), "bob": pool_rng.choice(deck_pool)}  # mixed matchups
+        else:
+            g_decks = None
         g = Game(g_decks, seed=seed + gi, explicit_lands=explicit_lands)
         bp = MageZeroPlayer(net, simulations=sims, temperature=temperature, time_budget=time_budget,
                             explicit_lands=explicit_lands, seed=seed * 7 + gi * 2)
@@ -330,8 +340,6 @@ def generate_selfplay(net: MageZeroNet, games: int = 20, *, sims: int = 16, temp
                                    explicit_lands=explicit_lands, seed=seed * 7 + gi * 2 + 1)
             players = {"alice": bp, "bob": other}; is_brain = {"alice": True, "bob": True}
         else:
-            bseat = "alice" if gi % 2 == 0 else "bob"                   # alternate the brain's seat across games
-            oseat = "bob" if bseat == "alice" else "alice"
             players = {bseat: bp, oseat: opponent()}; is_brain = {bseat: True, oseat: False}
         rows = []
         with contextlib.redirect_stdout(io.StringIO()):
