@@ -294,8 +294,11 @@ bchtail: MDUR                                          // optional 'until end of
 // transformer re-matches src against the template's exact pattern (the CLOSED card-type word list: only a
 // real type word grounds, so 'is a black Zombie' / 'is a Forest in addition to its other LAND types' defer
 // to `_becomes_color_type`/the added_ templates). becomes(-, _target(subj), slug(type), <for_as_long_as|->).
-// An `_is_compound_object(src)` guard defers run-ons.
-bctclause.-2: bcmtgt BCM_COP QUANT ctrest             -> bctype_v
+// An `_is_compound_object(src)` guard defers run-ons. The QUANT (a/an article) is OPTIONAL: the ARTICLE-LESS
+// forms — '<subj> are <Type>s in addition to their other types' (`_type_add_plural`) and '<subj> is every
+// <kind> type' (`_all_types`) — must also reach bctype_v, which re-matches src against the precise per-template
+// regexes (so the loosened gate can't mis-ground: a clause outside every _BC*/_ALLT/_TAP pattern abstains).
+bctclause.-2: bcmtgt BCM_COP QUANT? ctrest            -> bctype_v
 ctrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+
 
 // BASE POWER AND TOUGHNESS (§208/§613.3) — the base-P/T-set family, anchored on the highly distinctive
@@ -1110,6 +1113,12 @@ _BCCT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ((?:whi
 # BECOMES a/an <X> in addition to (its|their) other [creature|land] types|colors -> added_<X> (`_type_add`).
 from card_effects import _COPULA_RUNON as _BT_RUNON
 _BTA_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$", re.I)
+# BECOMES every <kind> type -> every_<kind>_type (`_all_types`); and the ARTICLE-LESS plural type addition
+# '<subj> are <Type>s in addition to their other types' -> added_<X> (`_type_add_plural`). Both re-applied to
+# src by bctype_v (after _BCT_RE); _ALLT_RE precedes _TAP_RE to match the regex chain order (`_all_types` is
+# registered before `_type_add_plural`, so 'is every creature type in addition …' grounds every_, not added_).
+_ALLT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) every (creature|basic land|nonbasic land|land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$", re.I)
+_TAP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) ([\w' ,-]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$", re.I)
 # BASE-P/T-set family — `_becomes_base_pt` / `_base_pt_perpetual` / `_base_pt` exact patterns (re-applied
 # to src by basept_v in that precedence order).
 _BBPT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:becomes?|is|are) an? ([\w' -]+?) with base power and toughness ([\dxX]+/[\dxX]+)(?: in addition to (?:its|their) other (?:colors and types|types and colors|creature types|types|colors))?(?: until end of turn| for as long as (.+?))?$", re.I)
@@ -3455,6 +3464,12 @@ class _ToEffect(Transformer):
         if m:
             cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
             return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
+        # FALLBACK (`_all_types`, registered right after `_becomes_type` and BEFORE the color-type/added forms):
+        # '<subj> is/are/becomes every <creature|basic land|nonbasic land|land> type [in addition …]' ->
+        # 'every_'+slug(kind)+'_type'. Precedes _TAP_RE so 'every creature type in addition …' grounds here.
+        m = _ALLT_RE.match(src.strip())
+        if m:
+            return Effect("becomes", "-", _target(m.group(1)), "every_" + ground.slug(m.group(2)) + "_type")
         # FALLBACK (matching the regex chain's `_becomes_type` -> `_becomes_color_type` order): a color-led
         # type ('is a black Zombie') the card-type list above didn't match -> the `_becomes_color_type` slug.
         m = _BCCT_RE.match(src.strip())
@@ -3464,6 +3479,11 @@ class _ToEffect(Transformer):
         # (its|their) other [creature|land] types|colors' -> 'added_'+slug(X) (subtype / plural-'their' /
         # 'colors' adds). Replicate the template's own object guard (compound / embedded copula run-on).
         m = _BTA_RE.match(src.strip())
+        if m and not (_is_compound_object(m.group(2)) or _BT_RUNON.search(m.group(2))):
+            return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+        # FALLBACK 3 (`_type_add_plural`, registered right after `_type_add`): the ARTICLE-LESS plural form
+        # '<subj> are <Type>s in addition to their other types' -> 'added_'+slug(X). Same template object guard.
+        m = _TAP_RE.match(src.strip())
         if m and not (_is_compound_object(m.group(2)) or _BT_RUNON.search(m.group(2))):
             return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
         return None
