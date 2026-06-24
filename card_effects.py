@@ -517,19 +517,10 @@ def _put_counter(m):
 # the dedicated template is dead and removed.
 
 
-@_t(rf"^put (its|all|all of its) counters on ({_TGT})$")
-def _move_counters(m):
-    """'Put its/all counters on <target>' — moving existing counters (§122) to another permanent."""
-    return Effect("put_counter", ground.slug(m.group(1)), _target(m.group(2)), "moved")
-
-
-@_t(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT}) (?:onto|to) ({_TGT})$")
-def _move_counter_from(m):
-    """'Move N <kind> counter(s) from <X> onto <Y>' — relocating counters between permanents (§122).
-    Source recorded in cond, destination is the target."""
-    n = _amount(m.group(1))
-    kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
-    return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind, "moved_from_" + _target(m.group(3)))
+# 'Put its/all counters on <target>' (§122 relocation) and 'Move N <kind> counter(s) from <X> onto <Y>' (§122
+# relocation between permanents) — fully MIGRATED to card_lark (pmcclause/move_counters_v and mcfclause/
+# move_counter_from_v, which re-apply these templates' EXACT regexes to self._src). All 9 corpus relocation
+# clauses ground in lark byte-identically with 0 abstains, so both dedicated templates are dead and removed.
 
 
 @_t(rf"^put that many ([+-]\d+/[+-]\d+|[\w ]+?) counters? on ({_TGT})$")

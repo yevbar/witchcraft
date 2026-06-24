@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -246,6 +246,17 @@ cconjclause: csubj? PUT ccount ckind COUNTER "and" ccount ckind COUNTER ONPREP c
 // wins (one earley tree, no fallthrough) — only a pure distribute-counters clause, with no other parse, lands here.
 dcclause.-2: DISTRIBUTE dcbody                 -> distribute_v
 dcbody: (WORD | QUANT | NUM | PTDELTA | COUNTER | TOPREP | FROM | ZONE | ONPREP | EQUALTO)+
+// MOVE/relocate EXISTING counters (§122) — two shapes recorded as a put_counter with the relocation in cond:
+//   'put <its|all|all of its> counters on <tgt>'            (`_move_counters`)     -> put_counter(slug(q), tgt, moved)
+//   'move <N> <kind> counters from <src> onto|to <tgt>'     (`_move_counter_from`) -> put_counter(<n|X>, tgt, kind, moved_from_<src>)
+// pmcclause reuses PUT but is NEGATIVE priority so cclause (which REQUIRES a ckind token) wins whenever it
+// applies — only a kind-less 'put its/all counters on …' lands here. mcfclause is anchored by a distinctive
+// MOVE terminal ('move' is otherwise unused in lark). Each transformer re-applies its template's EXACT regex to src.
+pmcclause.-2: PUT pmccount COUNTER ONPREP pmctarget   -> move_counters_v
+pmccount: (WORD | QUANT)+
+pmctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+
+mcfclause.-2: MOVE mcfbody                            -> move_counter_from_v
+mcfbody: (WORD | QUANT | NUM | PTDELTA | COUNTER | FROM | TOPREP | ZONE | ONPREP)+
 tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
 // COMPOUND tokens (AST conjunction): 'create <c1> <spec1> token(s) and <c2> <spec2> token(s)' — the two
 // token NPs share ONE 'create', so a flat split strands the verb-less 2nd half and `create` would DROP it
@@ -850,6 +861,7 @@ PUT.3: /\bputs?\b/
 PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for the put_in_hand (conjure …) clause
 COUNTER.4: /\bcounters?\b/
 DISTRIBUTE.4: /\bdistribute\b/   // §122 'distribute <N> <kind> counters among …' anchor (_distribute_counters)
+MOVE.3: /\bmoves?\b/   // §122 'move <N> <kind> counters from <X> onto <Y>' anchor (_move_counter_from)
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
@@ -1295,6 +1307,10 @@ _GCC_BLOCKMORE = re.compile(rf"^(?:({_TGT}) )?can block (an additional creature|
 
 # DISTRIBUTE counters — `_distribute_counters`'s exact pattern, re-applied to src by distribute_v.
 _DC_RE = re.compile(r"^distribute (\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? among (.+?)$", re.I)
+# MOVE/relocate existing counters (§122) — `_move_counters` ('put <its|all|all of its> counters on <tgt>') and
+# `_move_counter_from` ('move <N> <kind> counters from <src> onto|to <tgt>') exact patterns, re-applied to src.
+_MC_RE = re.compile(rf"^put (its|all|all of its) counters on ({_TGT})$", re.I)
+_MCF_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT}) (?:onto|to) ({_TGT})$", re.I)
 
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
@@ -2120,6 +2136,41 @@ class _ToEffect(Transformer):
         n = _amount(m.group(1))
         kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
         return Effect("put_counter", n if n is not None else "X", _target(m.group(3)), kind, "distributed")
+
+    def pmccount(self, *toks):
+        return None                                # value unused; re-matched from self._src
+
+    def pmctarget(self, *toks):
+        return None
+
+    def move_counters_v(self, *args):
+        # 'put <its|all|all of its> counters on <tgt>' (§122 relocation) — the EXACT `_move_counters` template
+        # re-applied to self._src: put_counter(slug(<its|all|all of its>), _target(tgt), moved).
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _MC_RE.match(src.strip())
+        if not m:
+            return None
+        return Effect("put_counter", ground.slug(m.group(1)), _target(m.group(2)), "moved")
+
+    def mcfbody(self, *toks):
+        return None
+
+    def move_counter_from_v(self, *args):
+        # 'move <N> <kind> counters from <src> onto|to <tgt>' (§122 relocation) — the EXACT `_move_counter_from`
+        # template re-applied to self._src: put_counter(<n|X>, _target(tgt), <kind>, moved_from_<src>). A P/T
+        # kind ('+1/+1') is kept raw; a word kind is slugged — byte-identical to the regex.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _MCF_RE.match(src.strip())
+        if not m:
+            return None
+        n = _amount(m.group(1))
+        kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
+        return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind,
+                      "moved_from_" + _target(m.group(3)))
 
     def extra_turn_v(self, tok):
         # '[<player>] take[s] [an|N] extra turn(s) after this one' (§500.7) — the EXACT `_extra_turn` template
