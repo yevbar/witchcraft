@@ -18,6 +18,7 @@ refine exact button positions later. Assumes the client occupies the given rect 
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
@@ -50,6 +51,22 @@ def resolve(element: ViewElement, rect: Rect) -> tuple:
     return int(rect.x + rect.w * fx), int(rect.y + rect.h * fy)
 
 
+def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
+                      rng: random.Random) -> list:
+    """Split the straight line a -> b into `steps` equal-distance waypoints, each paired with a duration that
+    varies by ±`jitter` (the per-segment times are randomized then normalized to `total_duration`). Equal
+    distance covered in varying time => the cursor's SPEED is non-constant along the line — a human-ish glide
+    that speeds up and slows down, not a single static sweep. Returns [(waypoint, segment_duration), …] whose
+    final waypoint is exactly b."""
+    ax, ay = a
+    bx, by = b
+    steps = max(1, int(steps))
+    pts = [(round(ax + (bx - ax) * i / steps), round(ay + (by - ay) * i / steps)) for i in range(1, steps + 1)]
+    weights = [max(0.05, 1.0 + rng.uniform(-jitter, jitter)) for _ in range(steps)]
+    total = sum(weights)
+    return [(pt, total_duration * w / total) for pt, w in zip(pts, weights)]
+
+
 class Actuator(Protocol):
     """Performs physical interactions. `window_rect()` locates the client; `move_and_click(x, y)` travels the
     cursor along a line from where it is (point A) to (x, y) (point B), then clicks."""
@@ -69,19 +86,27 @@ class DryRunActuator:
 
     rect: Rect = field(default_factory=lambda: Rect(0, 0, 1920, 1080))
     pos: Optional[tuple] = None
-    moves: list = field(default_factory=list)              # (from, to) line segments travelled
+    steps: int = 6                                         # sub-segments per move (the granularity of the glide)
+    jitter: float = 0.4                                    # ± fraction of speed variation across segments
+    duration: float = 0.4                                  # default total travel time
+    seed: Optional[int] = None
+    moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
 
     def __post_init__(self):
         if self.pos is None:                               # start at the client's center
             self.pos = (self.rect.x + self.rect.w // 2, self.rect.y + self.rect.h // 2)
+        self._rng = random.Random(self.seed)
 
     def window_rect(self) -> Optional[Rect]:
         return self.rect
 
     def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        self.moves.append((self.pos, (x, y)))              # the line A -> B
-        self.pos = (x, y)
+        total = self.duration if duration is None else duration
+        for pt, dur in jittered_segments(self.pos, (x, y), steps=self.steps, total_duration=total,
+                                         jitter=self.jitter, rng=self._rng):
+            self.moves.append((self.pos, pt, round(dur, 4)))   # one jittered sub-segment of the A->B line
+            self.pos = pt
 
     def click(self) -> None:
         self.clicks.append(self.pos)
@@ -97,7 +122,8 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, tween=None):
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
+                 jitter: float = 0.4, tween=None, seed: Optional[int] = None):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
@@ -105,17 +131,24 @@ class PyAutoGuiActuator:
             rect = Rect(0, 0, int(w), int(h))
         self._rect = rect
         self._duration = duration
+        self._steps = steps
+        self._jitter = jitter
         self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
+        self._rng = random.Random(seed)
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
 
     def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        d = self._duration if duration is None else duration
-        if self._tween is not None:
-            self._pg.moveTo(x, y, duration=d, tween=self._tween)   # travel from the current pos along the line
-        else:
-            self._pg.moveTo(x, y, duration=d)
+        total = self._duration if duration is None else duration
+        cur = self._pg.position()
+        # travel the A->B line in jittered sub-segments so the real cursor's SPEED varies along the way
+        for (px, py), dur in jittered_segments((cur[0], cur[1]), (x, y), steps=self._steps,
+                                               total_duration=total, jitter=self._jitter, rng=self._rng):
+            if self._tween is not None:
+                self._pg.moveTo(px, py, duration=dur, tween=self._tween)
+            else:
+                self._pg.moveTo(px, py, duration=dur)
 
     def click(self) -> None:
         self._pg.click()                                   # click wherever the cursor now rests

@@ -358,14 +358,22 @@ def _navigate_checks():
     x, y = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     check("resolve: bottom-right anchor -> bottom-right pixels", x > 500 and y > 400)
 
-    # interaction is a MOVE along a line (A->B) then a click — not a teleported click
-    dry = DryRunActuator(rect=Rect(0, 0, 1000, 800))
+    # interaction is a MOVE along the line (A->B) in jittered-speed sub-segments, then a click — not a teleport
+    dry = DryRunActuator(rect=Rect(0, 0, 1000, 800), steps=6, jitter=0.5, seed=1)
     start = dry.pos
     dry.move_and_click(900, 720)
-    check("move_and_click travels a line A->B then clicks at B",
-          dry.moves == [(start, (900, 720))] and dry.clicks == [(900, 720)])
-    check("the movement begins at the cursor (point A) and ends at the target (point B)",
-          dry.moves[0][0] == start and dry.moves[0][1] == (900, 720))
+    check("move travels in multiple sub-segments (a glide, not one static sweep)", len(dry.moves) == 6)
+    check("path begins at the cursor (A) and ends exactly at the target (B)",
+          dry.moves[0][0] == start and dry.moves[-1][1] == (900, 720))
+    import math
+    ax, ay, bx, by = start[0], start[1], 900, 720
+    length = math.hypot(bx - ax, by - ay)
+    # perpendicular distance of each waypoint from the A->B line (<= ~1px, just pixel rounding)
+    on_line = lambda p: abs((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)) / length <= 1.5
+    check("all waypoints stay on the straight A->B line", all(on_line(to) for _, to, _ in dry.moves))
+    durs = [d for _, _, d in dry.moves]
+    check("per-segment durations vary -> jittery (non-constant) speed", len(set(durs)) > 1)
+    check("clicks at the destination B", dry.clicks == [(900, 720)])
 
     # navigate_to_game: HOME --move+click Play--> (simulated client response) GAMEPLAY
     state = {"view": RV.HOME}
@@ -381,7 +389,7 @@ def _navigate_checks():
     check("Navigator drives a non-game view (HOME) into GAMEPLAY",
           nav.navigate_to_game() and state["view"] is RV.GAMEPLAY)
     check("Navigator traveled to Play (bottom-right) and clicked once",
-          len(fa.moves) == 1 and len(fa.clicks) == 1 and fa.clicks[0][0] > 500)
+          len(fa.clicks) == 1 and fa.clicks[0][0] > 500 and fa.moves[-1][1][0] > 500)
 
     in_game = Navigator(DryRunActuator(), lambda: RV.GAMEPLAY)
     check("already in a game -> no action, navigate returns True",
