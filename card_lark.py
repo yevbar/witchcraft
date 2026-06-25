@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -257,6 +257,16 @@ pmccount: (WORD | QUANT)+
 pmctarget: (WORD | QUANT | NUM | ZONE | PTDELTA | THATMANY)+
 mcfclause.-2: MOVE mcfbody                            -> move_counter_from_v
 mcfbody: (WORD | QUANT | NUM | PTDELTA | COUNTER | FROM | TOPREP | ZONE | ONPREP)+
+// §509 COMBAT REQUIREMENTS — three clean families grounded by dedicated templates:
+//   '[after this [main] phase,] there is an additional combat phase [followed by …]' (`_extra_combat`) — a
+//      CONSTANT tuple extra_combat(-, you); the whole-phrase ECOMBAT terminal IS the regex, so just emit it.
+//   'all creatures able to block <X> [this turn|this combat] do so' (`_lure`)      -> lure(-, X)
+// lure carries an object SPAN and re-applies its template's EXACT regex to self._src (object outside `_TGT`
+// abstains -> regex leaf). NEGATIVE priority. ('<X> must be blocked … if able' is NOT a new production — it
+// already parses as mrclause/mustreq via the shared MRABLE 'if able' anchor; that transformer is extended below.)
+ecclause: ECOMBAT                                     -> extra_combat_v
+lureclause.-2: LURELEAD lurebody DOSO                 -> lure_v
+lurebody: (WORD | QUANT | NUM | MDUR)+
 tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
 // COMPOUND tokens (AST conjunction): 'create <c1> <spec1> token(s) and <c2> <spec2> token(s)' — the two
 // token NPs share ONE 'create', so a flat split strands the verb-less 2nd half and `create` would DROP it
@@ -862,6 +872,9 @@ PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for th
 COUNTER.4: /\bcounters?\b/
 DISTRIBUTE.4: /\bdistribute\b/   // §122 'distribute <N> <kind> counters among …' anchor (_distribute_counters)
 MOVE.3: /\bmoves?\b/   // §122 'move <N> <kind> counters from <X> onto <Y>' anchor (_move_counter_from)
+ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple)
+LURELEAD.5: /all creatures? able to block/   // §509 lure lead anchor (_lure)
+DOSO.5: /do so/   // §509 lure trailing anchor
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
@@ -1284,6 +1297,10 @@ _MR_BLOCK_ABLE = re.compile(r"^(" + _TGT + r") blocks?(?: this turn| this combat
 # combined '<subj> attacks or blocks [each combat] if able' (§508/§509) — the must-do mirror of the existing
 # cant_attack_or_block; ATTACK/BLOCK singly already ground, this is the disjunction (Khârn the Betrayer, …).
 _MR_ATTACK_OR_BLOCK = re.compile(r"^(" + _TGT + r") attacks? or blocks?(?: each combat| this turn| this combat)?$", re.I)
+# PASSIVE '<X> must be blocked [this turn|this combat]' (`_must_be_blocked`, the 'if able' MRABLE already
+# stripped) — the §509 lure-like requirement. -> must_be_blocked(-, X). A non-`_TGT` subject (a run-on 'gains …
+# and must be blocked') matches none of these -> abstain to the regex.
+_MR_MUST_BE_BLOCKED = re.compile(r"^(" + _TGT + r") must be blocked(?: this turn| this combat)?$", re.I)
 
 # GRANT_COMBAT (can attack/block …) — the clean §509/§508 combat-PERMISSION subfamily of grant_ability,
 # the EXACT mirror of two card_effects templates re-applied to the captured clause (the GCC_CAN 'can
@@ -1311,6 +1328,10 @@ _DC_RE = re.compile(r"^distribute (\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? amon
 # `_move_counter_from` ('move <N> <kind> counters from <src> onto|to <tgt>') exact patterns, re-applied to src.
 _MC_RE = re.compile(rf"^put (its|all|all of its) counters on ({_TGT})$", re.I)
 _MCF_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT}) (?:onto|to) ({_TGT})$", re.I)
+# §509 combat-requirement — `_lure` ('all creatures able to block <X> [dur] do so' -> lure(-, X)) exact pattern,
+# re-applied to src by lure_v. (extra_combat is a constant-tuple whole-phrase terminal, so it needs no re-apply
+# regex; '<X> must be blocked … if able' is handled in the mustreq transformer via the body-level _MR_MUST_BE_BLOCKED.)
+_LURE_RE = re.compile(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT), re.I)
 
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
@@ -2171,6 +2192,24 @@ class _ToEffect(Transformer):
         kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
         return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind,
                       "moved_from_" + _target(m.group(3)))
+
+    def extra_combat_v(self, tok):
+        # '[after this [main] phase,] there is an additional combat phase [followed by an additional main phase]'
+        # (§505) — the EXACT `_extra_combat` template: a CONSTANT tuple. The ECOMBAT terminal already matched the
+        # whole phrase (start consumes all), so emit it directly. extra_combat(-, you).
+        return Effect("extra_combat", "-", "you")
+
+    def lurebody(self, *toks):
+        return None
+
+    def lure_v(self, *args):
+        # 'all creatures able to block <X> [this turn|this combat] do so' (§509) — the EXACT `_lure` template
+        # re-applied to self._src: lure(-, _target(X)). Object outside `_TGT` abstains -> regex leaf.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _LURE_RE.match(src.strip())
+        return Effect("lure", "-", _target(m.group(1))) if m else None
 
     def extra_turn_v(self, tok):
         # '[<player>] take[s] [an|N] extra turn(s) after this one' (§500.7) — the EXACT `_extra_turn` template
@@ -4274,6 +4313,9 @@ class _ToEffect(Transformer):
         m = _MR_BLOCK_ABLE.match(body)
         if m:
             return Effect("must_block", "-", _target(m.group(1)))
+        m = _MR_MUST_BE_BLOCKED.match(body)          # PASSIVE '<X> must be blocked [dur]' (_must_be_blocked)
+        if m:
+            return Effect("must_be_blocked", "-", _target(m.group(1)))
         return None
 
     # --- GRANT_COMBAT (can attack/block …; §509/§508) -------------------------

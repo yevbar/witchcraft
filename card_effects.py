@@ -564,6 +564,9 @@ def _discard_hand(m):
 
 @_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?$")
 def _extra_combat(m):
+    # MIGRATED to card_lark (ecclause / the whole-phrase ECOMBAT terminal + extra_combat_v) for the corpus forms,
+    # but KEPT FLIP-ONLY: the rare '… followed by an additional main phase' tail variant is shadowed in lark by
+    # bctclause ('there is an …' parses as a becomes copula), so lark abstains on it and the regex leaf owns it.
     return Effect("extra_combat", "-", "you")
 
 
@@ -1531,10 +1534,9 @@ def _cant_prevent(m):
 # `_spend_as` / `_mana_any_for` @_t templates are dead (lark answers first in parse_clause) and were removed.
 
 
-@_t(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT))
-def _lure(m):
-    """'All creatures able to block <X> this turn do so' — a §509 lure block requirement on a target."""
-    return Effect("lure", "-", _target(m.group(1)))
+# 'All creatures able to block <X> [this turn|this combat] do so' (§509 lure) — fully MIGRATED to card_lark
+# (lureclause / the LURELEAD…DOSO-anchored production + lure_v, which re-applies this template's EXACT regex to
+# self._src). All corpus instances ground in lark byte-identically with 0 abstains, so the template is removed.
 
 
 # a comma-separated ENUMERATION of multiple distinct sought cards ('a white card, a blue card, … and a
