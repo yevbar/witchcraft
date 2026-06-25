@@ -1993,6 +1993,13 @@ def parse_clauses(sentence: str) -> "list | None":
     return [e] if e else None
 
 
+# name-first token creation: 'create <Name>, a/an [legendary|snow]* <P/T> …' — capitalized proper name,
+# article, then a power/toughness spec. The name is [A-Z]-led so a compound 'create a 1/1 token, …' (article-
+# led) can't match; the P/T requirement keeps it off any non-creature-token 'create <Name>, a …' shape.
+_NAME_FIRST_TOKEN = re.compile(
+    r"^(?P<v>[Cc]reate )(?P<name>[A-Z][^,]*?), (?P<art>an? )(?P<spec>(?:legendary |snow )*[\dX*]+/[\dX*]+\b)")
+
+
 @functools.lru_cache(maxsize=None)
 def parse_clause(sentence: str) -> "Effect | None":
     """Like parse_effect, but recognizes the optional/conditional wrappers that dominate the tail:
@@ -2016,6 +2023,13 @@ def parse_clause(sentence: str) -> "Effect | None":
             return inner if (not mu or inner.cond != "-") else _dc.replace(inner, cond="until_end_of_turn")
         return None
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
+    # NAME-FIRST token creation (§111.10) — 'create <Name>, a/an [legendary] <P/T> … token' (the named
+    # legendary-token form: 'create Marit Lage, a legendary 20/20 black Avatar creature token'). STRUCTURAL
+    # reorder only: drop the leading flavor name so the canonical 'create a/an <P/T> … token' tail grounds
+    # via the normal create-token rule — loss-free, since the leaf already DROPS a token's flavor name (the
+    # trailing 'named X' is not captured either). Gated on a capitalized name + article + a P/T spec, so it
+    # can't touch a compound 'create a 1/1 token, a 2/2 token' (which starts with the lowercase article).
+    s = _NAME_FIRST_TOKEN.sub(lambda m: f"{m.group('v')}{m.group('art')}{m.group('spec')}", s)
     s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
     s = re.sub(r"^(they|those [\w-]+|these [\w-]+) each\b", r"\1", s, flags=re.I)  # 'They each get +N/+N' -> 'They get'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
