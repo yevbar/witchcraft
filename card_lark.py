@@ -89,7 +89,8 @@ GETENERGY.5: /you get (?:\{e\})+/
 // that catch-all serves many verbs). KVINTRANS is single-word; these are DISTINCTIVE multi-word phrases, so a
 // whole-phrase KV_MULTI terminal can't steal them mid-clause. The transformer slugs the phrase to its verb and
 // validates against keyword_actions() -> <verb>(-, you). (The clause must BE the phrase, like `_bare_action`.)
-kvmclause: KV_MULTI                                           -> kvmulti
+kvmclause: KV_MULTI kvmnum?                                   -> kvmulti
+kvmnum: NUM | QUANT                                            // optional trailing count: 'collect evidence N' (the only NUMBERED multi-word §701 kw action; the regex `_kwaction_n` grounds '<phrase> <N>')
 KV_MULTI.5: /manifest dread|time travel|the ring tempts you|open an attraction|collect evidence|venture into the dungeon|roll to visit your attractions|set in motion|face a villainous choice/
 // ROLL A DIE (§705) — 'roll a d6' / 'roll two d20s' / 'roll a six-sided die' (the `_roll`/`_roll_sided`
 // templates). The ROLLDIE whole-phrase terminal REQUIRES the die-spec ('dN' or '<word>-sided die'), so it
@@ -2148,11 +2149,27 @@ class _ToEffect(Transformer):
         # energy glyphs in the matched terminal text (== the regex's m.group(1).count('{') — 'you get' has no '{').
         return Effect("get_energy", str(tok).count("{"), "you")
 
-    def kvmulti(self, tok):
-        # a multi-word nullary §701 keyword action ('manifest dread', 'the ring tempts you', …) — the EXACT
-        # `_bare_action` leaf: slug the matched phrase to its verb, ground only if it's a real keyword action.
-        v = ground.slug(str(tok))
-        return Effect(v, "-", "you") if v in ground.keyword_actions() else None
+    def kvmnum(self, tok):
+        return _KwnNum(str(tok))                   # optional 'collect evidence N' count (reuses the kw-action marker)
+
+    def kvmulti(self, *args):
+        # a multi-word §701 keyword action ('manifest dread', 'the ring tempts you', …) — the `_bare_action`
+        # leaf: slug the matched phrase to its verb, ground only if it's a real keyword action -> <verb>(-, you).
+        # With an optional trailing count ('collect evidence N', the lone NUMBERED multi-word action) the EXACT
+        # `_kwaction_n` template applies instead -> <verb>(<n>, you); the count is restricted to its numeric set.
+        tok = next((str(a) for a in args if getattr(a, "type", None) == "KV_MULTI"), None)
+        num = next((a for a in args if isinstance(a, _KwnNum)), None)
+        if tok is None:
+            return None
+        v = ground.slug(tok)
+        if v not in ground.keyword_actions():
+            return None
+        if num is not None:
+            if not _MS_NUM.match(str(num).strip()):
+                return None
+            n = _amount(str(num).strip())
+            return Effect(v, n if n is not None else "-", "you")
+        return Effect(v, "-", "you")
 
     def smaobj(self, *toks):
         return _SmaObj(" ".join(str(t) for t in toks))
