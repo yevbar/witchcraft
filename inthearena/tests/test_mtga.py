@@ -7,7 +7,20 @@ import json
 import os
 import tempfile
 
-from inthearena.mtga import AggroPolicy, GameView, cards, iter_decisions, snapshot, to_engine_facts
+from inthearena.mtga import (
+    AggroPolicy,
+    CallableRecognizer,
+    GameView,
+    RecognizedViews,
+    ScreenAnchor,
+    cards,
+    current_view,
+    from_scene_name,
+    iter_decisions,
+    latest_view,
+    snapshot,
+    to_engine_facts,
+)
 from inthearena.mtga.gre import GreMessage, messages
 
 CHECKS: list[tuple[str, bool]] = []
@@ -123,6 +136,37 @@ def _diff_checks():
     check("engine facts: active_player", f["active_player"] == {(1,)})
 
 
+def _views_checks():
+    """RecognizedViews enum + screen recognition (log scene + a pluggable image model)."""
+    check("RecognizedViews has Home and Recently played",
+          RecognizedViews.HOME.value == "Home" and RecognizedViews.RECENTLY_PLAYED.value == "Recently played")
+    home = RecognizedViews.HOME.elements
+    check("Home's Play button is bottom-right",
+          len(home) == 1 and home[0].name == "Play" and home[0].anchor == ScreenAnchor.BOTTOM_RIGHT)
+    check("Recently played has no known elements yet", RecognizedViews.RECENTLY_PLAYED.elements == ())
+    check("from_scene_name maps Home but not an unknown scene",
+          from_scene_name("Home") == RecognizedViews.HOME and from_scene_name("DeckBuilder") is None)
+    check("Home surfaces as a log scene; Recently played is visual-only",
+          RecognizedViews.HOME.scene_name == "Home" and RecognizedViews.RECENTLY_PLAYED.scene_name is None)
+
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, ("noise\n"
+                  '[UnityCrossThreadLogger]x SceneChange {"fromSceneName":"None","toSceneName":"DeckBuilder"}\n'
+                  '[UnityCrossThreadLogger]x SceneChange {"fromSceneName":"DeckBuilder","toSceneName":"Home"}\n'
+                  ).encode())
+    os.close(fd)
+    try:
+        check("latest_view reads the most recent scene from the log", latest_view(p) == RecognizedViews.HOME)
+        rec = CallableRecognizer(lambda image: "Recently played")     # a stand-in for a small local image model
+        check("CallableRecognizer maps a label to the enum",
+              rec.recognize(None) == RecognizedViews.RECENTLY_PLAYED)
+        check("current_view: the image model wins for a visual-only view",
+              current_view(p, recognizer=rec, image=object()) == RecognizedViews.RECENTLY_PLAYED)
+        check("current_view: falls back to the log scene with no image model", current_view(p) == RecognizedViews.HOME)
+    finally:
+        os.unlink(p)
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -160,6 +204,7 @@ def run():
         os.unlink(path)
 
     _diff_checks()
+    _views_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

@@ -31,6 +31,15 @@ from .gre import (
 )
 from .policy import AggroPolicy, Policy, describe
 from .snapshot import Card, GameSnapshot, Permanent, SeatSnapshot, snapshot, to_engine_facts
+from .screen import (
+    CallableRecognizer,
+    ViewRecognizer,
+    current_view,
+    iter_scene_changes,
+    latest_scene_name,
+    latest_view,
+)
+from .views import RecognizedViews, ScreenAnchor, ViewElement, from_scene_name
 
 __all__ = [
     "DEFAULT_LOG", "cards",
@@ -38,4 +47,7 @@ __all__ = [
     "GameView", "Decision", "iter_decisions", "messages",
     "AggroPolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
+    "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
+    "current_view", "latest_view", "latest_scene_name", "iter_scene_changes",
+    "ViewRecognizer", "CallableRecognizer",
 ]
