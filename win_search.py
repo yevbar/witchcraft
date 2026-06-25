@@ -485,7 +485,8 @@ def _win_order_key(a):
 
 
 def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, node_budget: int = 4000,
-                     forced: bool = False, order: bool = True, beam: int | None = None, opp_move=None):
+                     forced: bool = False, order: bool = True, beam: int | None = None, opp_move=None,
+                     self_move=None):
     """Find the NEAREST win — the win that lands in the FEWEST TURNS — by iterative deepening over the TURN
     horizon (env `_turn`-passes), NOT plies. Counting TURNS rather than actions is rules-agnostic and the right
     metric across INSTANT SPEED: casting several spells in one turn (or instants on the opponent's turn) doesn't
@@ -502,7 +503,12 @@ def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, nod
     its blocks) the search steps that one deterministic reply instead of the generic passive/`forced` model —
     turning the search into a forward SIMULATION against a known policy (e.g. AggroPlayer). The win found (and
     its projected `turns`) is then honest against THAT opponent, not against a do-nothing or worst-case one.
-    `opp_move` takes precedence over `forced` at opponent nodes; pass forced=False with it."""
+    `opp_move` takes precedence over `forced` at opponent nodes; pass forced=False with it.
+
+    `self_move(state) -> action` MIRRORS that for MY OWN nodes: instead of branching over my moves to find a
+    win, the search takes that one deterministic move (e.g. AggroPlayer's pick for my seat). With BOTH
+    `self_move` and `opp_move` set to the same policy the search is a single mirror ROLLOUT — 'if we both play
+    aggro, do I win, and in how many turns?' — and the returned `path` is that rollout's line."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     start_turn = s0.get("_turn", 0)
@@ -523,7 +529,10 @@ def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, nod
         if not forced and seen.get(k, -1) >= remaining:          # proven win-less within at least this many turns
             return None
         result = None
-        if env.to_move(s) == me:                                 # MY decision: any move that leads to a win
+        if env.to_move(s) == me and self_move is not None:       # MIRROR: take my one (aggressive) move, no branching
+            a = self_move(s)
+            result = dfs(env.step(s, a), horizon, seen) if a is not None else None
+        elif env.to_move(s) == me:                               # MY decision: any move that leads to a win
             acts = _dedup_actions(s, env.legal_actions(s))        # §move-symmetry (one of N identical copies)
             if order or beam is not None:
                 acts = sorted(acts, key=_win_order_key)

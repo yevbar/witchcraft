@@ -233,3 +233,37 @@ class AwarePlayer(EnhancedLookaheadPlayer):
             if mv is not None:
                 return mv
         return _dont_blunder(game, me, moves)
+
+
+class MirrorAwarePlayer(AwarePlayer):
+    """A MIRROR of `AwarePlayer`: it models the opponent accurately (the aggro policy) AND models ITSELF with
+    that same aggressive policy in the search — instead of `AwarePlayer`, which simulates the opponent
+    accurately but explores its OWN moves to hunt a win. So the search is a single aggro-vs-aggro ROLLOUT ('if
+    we both play aggro, do I win, and when?'), and the player simply OPTS FOR THE AGGRESSIVE MOVE every
+    decision. `last_win = (turns, path)` exposes whether that mirror line reaches a win (the honest projection)
+    — but the move it plays is aggro's, not a searched finisher. This is the natural fix for AwarePlayer's
+    durdle: where AwarePlayer falls back to a passive don't-blunder when it sees no win, this presses the
+    attack like its model of the opponent.
+
+        from witchcraft.lookahead import MirrorAwarePlayer
+        MirrorAwarePlayer()                          # both seats simulated as aggro
+    """
+
+    name = "mirror_aware"
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        me = game.turn
+        mover = _player_opp_move(self.opponent_model)              # plays the aggressive move for WHOEVER is to move
+        # mirror rollout: both my nodes and the opponent's step the aggressive policy -> the win projection
+        path, turns, _ = win_search.find_nearest_win(
+            game.state, me=me, max_turns=self.max_turns, node_budget=self.node_budget,
+            order=self.order, beam=self.beam, opp_move=mover, self_move=mover)
+        self.last_win = (turns, path) if path else None
+        # OPT FOR THE AGGRESSIVE MOVE: play the opponent-model's pick for my own seat
+        mv = self.opponent_model.bind(game, me).choose_move(game)
+        return mv if mv is not None else _dont_blunder(game, me, moves)
