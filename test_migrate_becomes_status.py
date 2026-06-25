@@ -21,6 +21,15 @@ def run():
         ck(f"lark grounds {s[:40]!r} -> becomes({tgt}, blocked)",
            tp(parse_clause_lark(s))==("becomes","-",tgt,"blocked","-"))
         ck(f"parse_clause end-to-end {s[:30]!r}", tp(parse_clause(s))==("becomes","-",tgt,"blocked","-"))
+    # §205 'becomes snow' (supertype set) — same BECOMESDESIG path; the optional bdgtail drops a trailing duration
+    ck("'target nonsnow basic land becomes snow' -> becomes(snow)",
+       tp(parse_clause_lark("target nonsnow basic land becomes snow"))==("becomes","-","target_nonsnow_basic_land","snow","-"))
+    ck("'target nonsnow permanent becomes snow until end of turn' (tail dropped) -> becomes(snow)",
+       tp(parse_clause_lark("target nonsnow permanent becomes snow until end of turn"))==("becomes","-","target_nonsnow_permanent","snow","-"))
+    ck("'it becomes plotted until end of turn' (tail dropped) -> becomes(plotted)",
+       tp(parse_clause_lark("it becomes plotted until end of turn"))==("becomes","-","it","plotted","-"))
+    # 'snow' elsewhere isn't stolen (needs 'becomes ' before it)
+    ck("'snow lands you control' not mis-grounded as becomes-snow", parse_clause_lark("snow lands you control") is None)
     # guards: the existing status designations + the block-RESTRICTION families are unchanged
     ck("'~ becomes foretold' unchanged", tp(parse_clause_lark("~ becomes foretold"))==("becomes","-","self","foretold","-"))
     ck("'it becomes plotted' unchanged", tp(parse_clause_lark("it becomes plotted"))==("becomes","-","it","plotted","-"))
