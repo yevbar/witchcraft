@@ -23,6 +23,8 @@ from .navigate import (
     PyAutoGuiActuator,
     Rect,
     resolve,
+    take_over,
+    target_point,
 )
 from .gre import (
     DEFAULT_LOG,
@@ -66,4 +68,5 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
+    "take_over", "target_point",
 ]

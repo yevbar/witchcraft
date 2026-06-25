@@ -47,9 +47,17 @@ _ANCHOR_FRAC = {
 
 
 def resolve(element: ViewElement, rect: Rect) -> tuple:
-    """The pixel (x, y) for a view element within `rect`, from its coarse anchor."""
+    """The nominal pixel (x, y) for a view element within `rect`, from its coarse anchor."""
     fx, fy = _ANCHOR_FRAC[element.anchor]
     return int(rect.x + rect.w * fx), int(rect.y + rect.h * fy)
+
+
+def target_point(element: ViewElement, rect: Rect, rng: random.Random) -> tuple:
+    """A click point for `element`: its anchor pixel jittered by up to ±`element.spread` px in x and y — so the
+    cursor lands SOMEWHERE within the element (give or take a few pixels), never the exact same spot twice."""
+    x, y = resolve(element, rect)
+    s = element.spread
+    return x + rng.randint(-s, s), y + rng.randint(-s, s)
 
 
 def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
@@ -186,11 +194,12 @@ class Navigator:
     """Drive the client toward a game. Reads the current view via `view_provider`, acts via `actuator`."""
 
     def __init__(self, actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,
-                 poll: float = 0.5, change_timeout: float = 15.0):
+                 poll: float = 0.5, change_timeout: float = 15.0, rng: Optional[random.Random] = None):
         self._act = actuator
         self._view = view_provider
         self._poll = poll
         self._timeout = change_timeout
+        self._rng = rng or random.Random()
 
     def current(self) -> Optional[RecognizedViews]:
         return self._view()
@@ -206,7 +215,7 @@ class Navigator:
         rect = self._act.window_rect()
         if element is None or rect is None:
             return False
-        self._act.move_and_click(*resolve(element, rect))
+        self._act.move_and_click(*target_point(element, rect, self._rng))
         return True
 
     def _wait_for_change(self, previous: Optional[RecognizedViews]) -> Optional[RecognizedViews]:
@@ -229,3 +238,20 @@ class Navigator:
                 break                                       # already in game, or an unmapped view — stop
             self._wait_for_change(v)
         return self.current() is RecognizedViews.GAMEPLAY
+
+
+def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
+              rng: Optional[random.Random] = None) -> bool:
+    """Take control and perform the appropriate action for the current `view`. Today: on HOME, identify the
+    Play button and move-and-click SOMEWHERE within it (its anchor jittered by a few px, via target_point), so
+    the cursor doesn't land on the same spot each time. Returns True if it acted, False if the view has no
+    take-over action yet — the seam where more views plug in (PLAY_MENU deck-select/queue, in-game play). Pass
+    the recognized current view, e.g. from `latest_view()` / a `LiveState.current_view` / a vision recognizer."""
+    rng = rng or random.Random()
+    if view is RecognizedViews.HOME:
+        rect = actuator.window_rect()
+        element = next((e for e in RecognizedViews.HOME.elements if e.name == "Play"), None)
+        if rect is not None and element is not None:
+            actuator.move_and_click(*target_point(element, rect, rng))
+            return True
+    return False

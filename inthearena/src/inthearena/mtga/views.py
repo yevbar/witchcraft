@@ -29,10 +29,13 @@ class ScreenAnchor(enum.Enum):
 
 @dataclass(frozen=True)
 class ViewElement:
-    """A clickable element the bot can target within a view, at a coarse screen anchor."""
+    """A clickable element the bot can target within a view, at a coarse screen anchor. `spread` is how many
+    pixels the click point may be jittered off the nominal anchor (in x and y) so the cursor doesn't land on
+    the exact same spot within the element every time."""
 
     name: str
     anchor: ScreenAnchor
+    spread: int = 6
 
 
 class RecognizedViews(enum.Enum):

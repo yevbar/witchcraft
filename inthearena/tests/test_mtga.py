@@ -401,6 +401,22 @@ def _navigate_checks():
     check("unmapped view -> no action, navigate returns False",
           stuck.step_toward_game() is False and stuck.navigate_to_game() is False)
 
+    # take_over: on HOME, click somewhere WITHIN the Play button (anchor +/- a few px), varying each call
+    import random as _r
+    from inthearena.mtga import take_over
+    nominal = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
+    spread = next(e for e in RV.HOME.elements if e.name == "Play").spread
+    landings = []
+    for s in range(6):
+        a = DryRunActuator(rect=Rect(0, 0, 1000, 800))
+        check(f"take_over acts on HOME (call {s})", take_over(a, RV.HOME, rng=_r.Random(s)) is True)
+        landings.append(a.clicks[0])
+    check("take_over lands within the Play button (anchor +/- spread)",
+          all(abs(x - nominal[0]) <= spread and abs(y - nominal[1]) <= spread for x, y in landings))
+    check("take_over does NOT land on the exact same pixel every time", len(set(landings)) > 1)
+    check("take_over is a no-op off HOME (GAMEPLAY) for now",
+          take_over(DryRunActuator(), RV.GAMEPLAY) is False)
+
 
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
