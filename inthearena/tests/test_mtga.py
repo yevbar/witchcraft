@@ -358,16 +358,21 @@ def _navigate_checks():
     x, y = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     check("resolve: bottom-right anchor -> bottom-right pixels", x > 500 and y > 400)
 
+    # interaction is a MOVE along a line (A->B) then a click — not a teleported click
     dry = DryRunActuator(rect=Rect(0, 0, 1000, 800))
-    dry.click(10, 20)
-    check("DryRunActuator records clicks but performs nothing", dry.clicks == [(10, 20)])
+    start = dry.pos
+    dry.move_and_click(900, 720)
+    check("move_and_click travels a line A->B then clicks at B",
+          dry.moves == [(start, (900, 720))] and dry.clicks == [(900, 720)])
+    check("the movement begins at the cursor (point A) and ends at the target (point B)",
+          dry.moves[0][0] == start and dry.moves[0][1] == (900, 720))
 
-    # navigate_to_game: HOME --click Play--> (simulated client response) GAMEPLAY
+    # navigate_to_game: HOME --move+click Play--> (simulated client response) GAMEPLAY
     state = {"view": RV.HOME}
 
     class Fake(DryRunActuator):
-        def click(self, cx, cy):
-            super().click(cx, cy)
+        def move_and_click(self, cx, cy, **kw):
+            super().move_and_click(cx, cy, **kw)
             if state["view"] is RV.HOME:
                 state["view"] = RV.GAMEPLAY
 
@@ -375,7 +380,8 @@ def _navigate_checks():
     nav = Navigator(fa, lambda: state["view"], poll=0.001, change_timeout=1.0)
     check("Navigator drives a non-game view (HOME) into GAMEPLAY",
           nav.navigate_to_game() and state["view"] is RV.GAMEPLAY)
-    check("Navigator clicked Play (bottom-right) exactly once", len(fa.clicks) == 1 and fa.clicks[0][0] > 500)
+    check("Navigator traveled to Play (bottom-right) and clicked once",
+          len(fa.moves) == 1 and len(fa.clicks) == 1 and fa.clicks[0][0] > 500)
 
     in_game = Navigator(DryRunActuator(), lambda: RV.GAMEPLAY)
     check("already in a game -> no action, navigate returns True",

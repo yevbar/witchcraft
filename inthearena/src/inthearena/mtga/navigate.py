@@ -5,9 +5,12 @@ wait for the view to change, and repeat. The view is read through a `view_provid
 log's `latest_view`, or a `LiveState.current_view`, or a vision recognizer), so navigation is decoupled from
 how the screen is detected.
 
-Interactions go through an `Actuator`, and the DEFAULT (`DryRunActuator`) performs NOTHING — it only records
-the clicks it would make. Actually driving the live MTGA client (the `PyAutoGuiActuator`) is against MTGA's
-Terms of Service and can get an account banned (see DISCLAIMER.md); it's an explicit opt-in, never the default.
+Interactions go through an `Actuator`. The primitive is a MOVE-then-click: the cursor travels along a line from
+where it is (point A) to the target (point B) over a short duration, then clicks — rather than teleporting a
+literal click onto a coordinate (more human-like, and less obviously automated). The DEFAULT (`DryRunActuator`)
+performs NOTHING — it only records the movement segments + clicks it would make. Actually driving the live MTGA
+client (the `PyAutoGuiActuator`) is against MTGA's Terms of Service and can get an account banned (see
+DISCLAIMER.md); it's an explicit opt-in, never the default.
 
 Anchors resolve to pixels by fraction of the client rect — a coarse first pass; a vision/template step can
 refine exact button positions later. Assumes the client occupies the given rect (full screen by default).
@@ -48,52 +51,82 @@ def resolve(element: ViewElement, rect: Rect) -> tuple:
 
 
 class Actuator(Protocol):
-    """Performs physical interactions. `window_rect()` locates the client; `click(x, y)` clicks a pixel."""
+    """Performs physical interactions. `window_rect()` locates the client; `move_and_click(x, y)` travels the
+    cursor along a line from where it is (point A) to (x, y) (point B), then clicks."""
 
     def window_rect(self) -> Optional[Rect]:
         ...
 
-    def click(self, x: int, y: int) -> None:
+    def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         ...
 
 
 @dataclass
 class DryRunActuator:
-    """The safe default: records the clicks it WOULD make, performs nothing. Use for planning and tests; swap
-    in a real actuator to actually drive the client (ToS-relevant)."""
+    """The safe default: records the movement segments + clicks it WOULD make, performs nothing. `pos` is the
+    cursor's current spot (point A); each move logs the line `(A, B)`. Use for planning and tests; swap in a
+    real actuator to actually drive the client (ToS-relevant)."""
 
     rect: Rect = field(default_factory=lambda: Rect(0, 0, 1920, 1080))
-    clicks: list = field(default_factory=list)
+    pos: Optional[tuple] = None
+    moves: list = field(default_factory=list)              # (from, to) line segments travelled
+    clicks: list = field(default_factory=list)             # positions clicked (end of a move)
+
+    def __post_init__(self):
+        if self.pos is None:                               # start at the client's center
+            self.pos = (self.rect.x + self.rect.w // 2, self.rect.y + self.rect.h // 2)
 
     def window_rect(self) -> Optional[Rect]:
         return self.rect
 
-    def click(self, x: int, y: int) -> None:
-        self.clicks.append((x, y))
+    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        self.moves.append((self.pos, (x, y)))              # the line A -> B
+        self.pos = (x, y)
+
+    def click(self) -> None:
+        self.clicks.append(self.pos)
+
+    def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration)
+        self.click()
 
 
 class PyAutoGuiActuator:
     """Drives the LIVE client with pyautogui — THIS is the Terms-of-Service-crossing backend (opt-in only;
     `pip install inthearena[act]`). `rect` defaults to the full primary screen; pass the MTGA window rect for
-    precision. pyautogui is imported lazily so the base package never requires it."""
+    precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
+    speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None):
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, tween=None):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
             w, h = pyautogui.size()
             rect = Rect(0, 0, int(w), int(h))
         self._rect = rect
+        self._duration = duration
+        self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
 
-    def click(self, x: int, y: int) -> None:
-        self._pg.click(x, y)
+    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        d = self._duration if duration is None else duration
+        if self._tween is not None:
+            self._pg.moveTo(x, y, duration=d, tween=self._tween)   # travel from the current pos along the line
+        else:
+            self._pg.moveTo(x, y, duration=d)
+
+    def click(self) -> None:
+        self._pg.click()                                   # click wherever the cursor now rests
+
+    def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration)
+        self.click()
 
 
-# For each non-game view, the element to click to advance toward a game. Extend as each view's UI is mapped
-# (PLAY_MENU still needs its deck-select + queue elements; until then navigation stops there).
+# For each non-game view, the element to move-and-click to advance toward a game. Extend as each view's UI is
+# mapped (PLAY_MENU still needs its deck-select + queue elements; until then navigation stops there).
 _TOWARD_GAME = {
     RecognizedViews.HOME: ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT),
 }
@@ -113,8 +146,9 @@ class Navigator:
         return self._view()
 
     def step_toward_game(self) -> bool:
-        """Take ONE transition toward a game from the current view (click its advance element). Returns True if
-        an action was taken, False if already in a game or the current view has no mapped transition."""
+        """Take ONE transition toward a game from the current view (travel the cursor to its advance element
+        and click). Returns True if an action was taken, False if already in a game or the current view has no
+        mapped transition."""
         v = self.current()
         if v is RecognizedViews.GAMEPLAY:
             return False
@@ -122,7 +156,7 @@ class Navigator:
         rect = self._act.window_rect()
         if element is None or rect is None:
             return False
-        self._act.click(*resolve(element, rect))
+        self._act.move_and_click(*resolve(element, rect))
         return True
 
     def _wait_for_change(self, previous: Optional[RecognizedViews]) -> Optional[RecognizedViews]:
