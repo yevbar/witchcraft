@@ -1,4 +1,4 @@
-// ForgeVsBot.java — a REAL game: our Python engine (witchcraft) plays a seat vs Forge's AI, Forge owning
+// ForgeVsBot.java — a REAL game: our Python engine (mtg) plays a seat vs Forge's AI, Forge owning
 // the state. PURE ENGINE: every STRATEGIC decision Forge asks our seat to make — which spell/land to play
 // (chooseSpellAbilityToPlay), which creatures attack (declareAttackers), which block (declareBlockers),
 // keep/mulligan (mulliganKeepHand) — is forwarded to the Python bot (forge_bridge.serve + EnginePolicy)
@@ -380,7 +380,7 @@ public class ForgeVsBot {
         }
 
         // Remaining mechanical choices: a DETERMINISTIC non-strategic legal default (first/min/decline) — NEVER
-        // super (PlayerControllerAi). The witchcraft seat consults Forge's AI for NOTHING.
+        // super (PlayerControllerAi). The mtg seat consults Forge's AI for NOTHING.
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
             tally("orderBlockers (as-is, no-AI)"); return b; }
         @Override public CardCollection chooseCardsToDiscardToMaximumHandSize(int n) {
@@ -558,7 +558,7 @@ public class ForgeVsBot {
         return d;
     }
 
-    // "izzet": the real Standard Izzet Prowess list witchcraft models 100% CLEAN (18/18 distinct).
+    // "izzet": the real Standard Izzet Prowess list mtg models 100% CLEAN (18/18 distinct).
     static Deck izzet(String name) {
         Deck d = new Deck(name);
         d.getMain().add(card("Riverpyre Verge"), 4);
@@ -606,7 +606,7 @@ public class ForgeVsBot {
 
     public static void main(String[] args) {
         initForge();
-        // args/props: -DwitchDeck=izzet|vanilla (the witchcraft seat) -DoppDeck=izzet|vanilla (Forge-AI seat).
+        // args/props: -DwitchDeck=izzet|vanilla (the mtg seat) -DoppDeck=izzet|vanilla (Forge-AI seat).
         String witchDeck = System.getProperty("witchDeck", args.length > 0 ? args[0] : "vanilla");
         String oppDeck = System.getProperty("oppDeck", args.length > 1 ? args[1] : "vanilla");
         List<RegisteredPlayer> players = Lists.newArrayList();

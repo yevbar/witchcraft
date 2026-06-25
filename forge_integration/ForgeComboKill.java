@@ -1,4 +1,4 @@
-// ForgeComboKill.java — a REAL game proving witchcraft can PILOT a turn-1 combo with Forge as the source of
+// ForgeComboKill.java — a REAL game proving mtg can PILOT a turn-1 combo with Forge as the source of
 // truth: the seat opens a STACKED hand (a storm / Thassa's-Oracle line, see COMBO[] + the startGameHook),
 // and OUR lookahead drives it all — spells (win_search), the 'choose a card name', targeting, and even mana
 // payment (payManaCost -> enginePay over driver.mana_plan). Like ForgeVsBot below, but combo-piloting; the
@@ -332,7 +332,7 @@ public class ForgeComboKill {
         static final java.util.Map<String, Integer> FORGE_AI = new java.util.TreeMap<>();
         private static void tally(String m) { FORGE_AI.merge(m, 1, Integer::sum); }
 
-        // OUR mana payment is DELEGATED to the witchcraft engine: ask it WHICH sources to tap/sacrifice and
+        // OUR mana payment is DELEGATED to the mtg engine: ask it WHICH sources to tap/sacrifice and
         // what COLOR each should make (driver.mana_plan), then execute that exact plan in Forge — the precise
         // sources/colors a combo can hinge on (pay {B} from a Mox, not by sacrificing a Black Lotus needed
         // for a later {U}{U}). Falls back to super only for costs the engine can't cover or won't model
@@ -558,7 +558,7 @@ public class ForgeComboKill {
         return c;
     }
 
-    // The witchcraft combo deck: the cEDH Thassa's-Oracle line — Lotus Petal x3 for mana, Demonic
+    // The mtg combo deck: the cEDH Thassa's-Oracle line — Lotus Petal x3 for mana, Demonic
     // Consultation (name a card NOT in the deck -> exile the whole library), Thassa's Oracle (empty library
     // -> win). 5 cards, fits a real opening hand; the rest is filler the combo exiles. The lookahead drives
     // the whole thing (sequence + the 'name a card' choice) — nothing combo-specific in the bot. (3 Petals,
@@ -592,7 +592,7 @@ public class ForgeComboKill {
         return d;
     }
 
-    // §103.5 CHEAT THE OPENING HAND — move the combo cards into the witchcraft seat's hand and shove the
+    // §103.5 CHEAT THE OPENING HAND — move the combo cards into the mtg seat's hand and shove the
     // rest back to the library, run from the startGameHook (after the opening draw, at the start of turn 1,
     // BEFORE any player gets priority). Forge owns every rule from here; we only fixed which 7→N cards we
     // opened with, exactly as a stacked playtest hand would.
@@ -634,7 +634,7 @@ public class ForgeComboKill {
             } catch (Exception e) { System.out.println("[dump] failed: " + e); }
         }
 
-        // the hand-stacker hook: at the start of turn 1, force the witchcraft seat's opening hand to the combo.
+        // the hand-stacker hook: at the start of turn 1, force the mtg seat's opening hand to the combo.
         Runnable stacker = () -> {
             for (Player p : game.getPlayers()) {
                 if (p.getName().equals("Witchcraft-Engine")) stackHand(game, p, COMBO);

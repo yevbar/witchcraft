@@ -1,7 +1,7 @@
 // ForgeHeadless.java — prove Forge runs headless here: a full AI-vs-AI game, no GUI.
 //
 // Built from the canonical headless setup in Forge's own AITest (GuiBase.setInterface(new GuiDesktop())
-// + FModel.initialize) and the deck/match wiring in SimulateMatch / witchcraft's BattleHarness. This is
+// + FModel.initialize) and the deck/match wiring in SimulateMatch / mtg's BattleHarness. This is
 // step 1 of wiring our Python engine in as a player: first confirm a headless Forge game completes here.
 //
 // Compile:  javac -cp $FATJAR -d out forge_integration/ForgeHeadless.java

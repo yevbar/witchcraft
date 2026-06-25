@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — play the witchcraft datalog engine against Forge's AI in a real, Forge-refereed game.
+# run.sh — play the mtg datalog engine against Forge's AI in a real, Forge-refereed game.
 #
 # Forge owns the state; our Python engine (forge_bridge.EnginePolicy) is consulted for every main-phase
 # play decision (land drops + spell casts) over a socket and returns a move Forge accepts. Every other
@@ -17,13 +17,13 @@ FORGE="${FORGE:-/home/zucc/Development/witchcraft/forge}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PORT="${PORT:-8765}"
 FATJAR="$FORGE/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar"
-OUT=/tmp/forge_witchcraft_out
+OUT=/tmp/forge_mtg_out
 
 echo "== compiling the Forge connector =="
 mkdir -p "$OUT"
 "$JDK/bin/javac" -cp "$FATJAR" -d "$OUT" "$HERE/ForgeVsBot.java"
 
-echo "== starting the witchcraft engine bot on :$PORT =="
+echo "== starting the mtg engine bot on :$PORT =="
 python3 "$HERE/run_bot.py" "$PORT" &
 BOT=$!
 sleep 1
@@ -39,5 +39,5 @@ wait "$BOT" 2>/dev/null || true
 
 if [ "${RECORD:-0}" = "1" ]; then
     echo "== rendering tabletop mp4 =="
-    python3 "$HERE/render.py" /tmp/forge_game.jsonl "${VIDEO:-/tmp/witchcraft_vs_forge.mp4}" "${FPS:-4}"
+    python3 "$HERE/render.py" /tmp/forge_game.jsonl "${VIDEO:-/tmp/mtg_vs_forge.mp4}" "${FPS:-4}"
 fi

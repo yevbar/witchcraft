@@ -1,6 +1,6 @@
 // ForgeBench.java — throughput benchmark for Forge's per-node search primitives.
 //   GameCopier.makeCopy()             : deep-copy a game state (what Forge's AI pays per lookahead node)
-//   GameStateEvaluator.getScore...    : the positional eval (analog of witchcraft's leaf eval)
+//   GameStateEvaluator.getScore...    : the positional eval (analog of mtg's leaf eval)
 // Two AI players play a real game; once a board has developed we grab the live Game and time the loop.
 // Run: java -Dheadless=... -Ddeck0=.. -Ddeck1=.. -cp <fatjar>:<out> ForgeBench
 import com.google.common.collect.Lists;
