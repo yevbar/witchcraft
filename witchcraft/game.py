@@ -221,6 +221,23 @@ class Game:
         return [Move.of(a, types, supers) for a in env.legal_actions(self._state)]
 
     @property
+    def only_legal_move(self) -> "Move | None":
+        """The sole legal `Move` when the decision is FORCED (exactly one option), else None — lets a policy
+        shortcut forced steps without re-deriving the list: `if (m := game.only_legal_move) is not None: return m`."""
+        moves = self.legal_moves
+        return moves[0] if len(moves) == 1 else None
+
+    def win_conditions(self, seat=None) -> set:
+        """The `wincon.WinCon`s `seat`'s deck can actually pursue (defaults to whoever has priority now),
+        derived from that seat's cards via the engine's own card facts — so a policy/search can target only the
+        live axes (e.g. a creature deck with no infect/mill/alt-win resolves to just `{WinCon.LIFE_ZERO}`).
+        `seat` accepts a seat name, a `SeatView` (a player's `self.me`), or a `Player` — anything carrying a
+        `.seat` — so a policy reads naturally as `game.win_conditions(self.me)`."""
+        from . import wincon
+        seat = self.turn if seat is None else getattr(seat, "seat", seat)
+        return wincon.reachable(self._state, seat)
+
+    @property
     def priority(self) -> Priority:
         """The current decision as a `Priority` view — `legal_moves` pre-sliced by kind, for the player to
         act now. Sugar for policy code: `p = game.priority; if p.lands: ...; if p.spells: ...` reads like a
