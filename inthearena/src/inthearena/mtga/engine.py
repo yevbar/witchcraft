@@ -1,0 +1,162 @@
+"""inthearena.mtga.engine — position an `mtg.Game` at the current MTGA board by DETERMINIZATION.
+
+The opponent's hand and both libraries are hidden information. The standard move for imperfect-information
+games is to determinize: feed the KNOWN info and sample a plausible filling for the unknown. So:
+
+  * KNOWN, fed directly  — our hand, BOTH battlefields, life totals, whose turn/phase it is. Card
+    characteristics come from the GRE objects themselves (types / P-T / colors), so this works even for cards
+    the engine's corpus doesn't cover yet.
+  * HIDDEN, randomly held — the opponent's hand (we know the count, not the cards) and the libraries are filled
+    with a seeded random configuration drawn from an imagined pool (`opponent_deck=`, else a generic default).
+
+`to_game(view, me)` returns a real `mtg.Game` (via `Game.from_state`) sitting at that board, which you can
+query (life, battlefield, …). This is the one module that bridges into the engine.
+
+SCOPE: reconstructs the BOARD (zones / types / P-T / life / turn). It does NOT load card ABILITY rules — full
+rules-awareness depends on the engine's card coverage, tracked separately. Re-call it as the log advances to
+re-position the Game (the GameView is updated by the diff reader; this projects a fresh determinized state).
+"""
+
+from __future__ import annotations
+
+import random
+from typing import Optional
+
+from . import cards
+from .gre import GameObject, GameView
+
+# (phase, step) -> engine current_step; main phases fall back by phase alone.
+_STEP = {
+    ("Phase_Beginning", "Step_Untap"): "untap",
+    ("Phase_Beginning", "Step_Upkeep"): "upkeep",
+    ("Phase_Beginning", "Step_Draw"): "draw",
+    ("Phase_Main1", "Step_Main"): "precombat_main",
+    ("Phase_Combat", "Step_BeginCombat"): "begin_combat",
+    ("Phase_Combat", "Step_DeclareAttack"): "declare_attackers",
+    ("Phase_Combat", "Step_DeclareAttackers"): "declare_attackers",
+    ("Phase_Combat", "Step_DeclareBlock"): "declare_blockers",
+    ("Phase_Combat", "Step_DeclareBlockers"): "declare_blockers",
+    ("Phase_Combat", "Step_CombatDamage"): "combat_damage",
+    ("Phase_Combat", "Step_EndCombat"): "end_combat",
+    ("Phase_Main2", "Step_Main"): "postcombat_main",
+    ("Phase_Ending", "Step_End"): "end_step",
+    ("Phase_Ending", "Step_Cleanup"): "cleanup",
+}
+_PHASE_FALLBACK = {"Phase_Main1": "precombat_main", "Phase_Main2": "postcombat_main"}
+
+# A generic pool to fill imagined hidden cards (valid engine identities) when no opponent_deck is given.
+_DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "mountain", "swamp"]
+
+_RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
+              "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
+              "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
+              "command_zone", "is_commander")
+
+
+def _eng(token: str) -> str:
+    """'CardType_Creature' -> 'creature', 'SubType_Plains' -> 'plains' (MTGA enum -> engine vocabulary)."""
+    return token.split("_", 1)[1].lower() if "_" in token else token.lower()
+
+
+def _engine_step(turn) -> str:
+    return _STEP.get((turn.phase, turn.step)) or _PHASE_FALLBACK.get(turn.phase, "precombat_main")
+
+
+def _slug(name: str) -> str:
+    import ground
+    return ground.slug(name)
+
+
+def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0) -> dict:
+    """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
+    zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill."""
+    rng = random.Random(seed)
+    s = {k: set() for k in _RELATIONS}
+    seats = view.seats() or [me]
+    name_of = {sid: ("alice" if sid == me else "bob") for sid in seats}
+    opp = next((x for x in seats if x != me), None)
+    if opp is not None and opp not in name_of:
+        name_of[opp] = "bob"
+
+    for sid in seats:
+        s["is_player"].add((name_of[sid],))
+        if view.life.get(sid) is not None:
+            s["life"].add((name_of[sid], view.life[sid]))
+    if view.turn.activePlayer is not None and view.turn.activePlayer in name_of:
+        s["active_player"].add((name_of[view.turn.activePlayer],))
+    s["current_step"].add((_engine_step(view.turn),))
+
+    pool = [_slug(n) for n in (opponent_deck or _DEFAULT_POOL)]
+    hidden_n = [0]
+
+    def place_visible(o: GameObject, zone: str, seat_name: str) -> None:
+        slug = _slug(cards.card_name(o.grpId))
+        inst = f"{slug}_{o.instanceId}"
+        s["instance_of"].add((inst, slug))
+        for ct in o.cardTypes:
+            s["printed_type"].add((inst, _eng(ct)))
+        for st in o.subtypes:
+            s["printed_subtype"].add((inst, _eng(st)))
+        for sup in o.superTypes:
+            s["has_supertype"].add((inst, _eng(sup)))
+        for c in o.color:
+            s["printed_color"].add((inst, _eng(c)))
+        if o.p is not None:
+            s["printed_power"].add((inst, o.p))
+        if o.t is not None:
+            s["printed_toughness"].add((inst, o.t))
+        if zone == "hand":
+            s["in_hand"].add((seat_name, inst))
+        elif zone == "library":
+            s["in_library"].add((seat_name, inst))
+        elif zone == "command":                            # the commander (Brawl/Commander) — public
+            s["command_zone"].add((seat_name, inst))
+            s["is_commander"].add((inst,))
+        else:                                              # battlefield
+            s["on_battlefield"].add((inst,))
+            s["printed_control"].add((seat_name, inst))
+            if o.isTapped:
+                s["tapped"].add((inst,))
+
+    def place_hidden(seat_name: str, zone: str) -> None:
+        slug = rng.choice(pool)
+        hidden_n[0] += 1
+        inst = f"{slug}_x{hidden_n[0]}"                    # an imagined card: identity only, no revealed P/T
+        s["instance_of"].add((inst, slug))
+        (s["in_hand"] if zone == "hand" else s["in_library"]).add((seat_name, inst))
+
+    # 1) place every VISIBLE object by its own zoneId (reliable per-object)
+    placed = set()
+    _ZONE = {"ZoneType_Battlefield": "battlefield", "ZoneType_Hand": "hand", "ZoneType_Library": "library",
+             "ZoneType_Command": "command"}
+    for o in view.objects.values():
+        z = view.zones.get(o.zoneId)
+        seat = view._seat_of(o)
+        zone = _ZONE.get(z.type) if z else None
+        if zone is None or seat not in name_of or not cards.card_name(o.grpId):
+            continue
+        place_visible(o, zone, name_of[seat])
+        placed.add(o.instanceId)
+
+    # 2) DETERMINIZE the hidden remainder: each hand/library lists its instance ids (incl. face-down ones we
+    #    can't see); any id not placed above is an imagined card sampled from the pool — count-accurate.
+    for z in view.zones.values():
+        zone = _ZONE.get(z.type)
+        if zone not in ("hand", "library") or z.ownerSeatId not in name_of:
+            continue
+        nm = name_of[z.ownerSeatId]
+        for iid in z.objectInstanceIds:
+            if iid not in placed:
+                place_hidden(nm, zone)
+
+    s["_turn"] = view.turn.turnNumber or 0
+    s["_seed"] = seed
+    s["_variant"] = view.variant                           # brawl / two-player, from the match's format
+    return s
+
+
+def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0):
+    """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
+    log advances to re-derive the Game from the updated view."""
+    from mtg.game import Game
+    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed))

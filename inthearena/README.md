@@ -33,6 +33,8 @@ prior art already exists, and this is shared for research — treat it sensitive
 - `mtga/snapshot.py` — the gameplay state as a readable snapshot and as `mtg`-engine facts.
 - `mtga/policy.py` — `Policy` protocol + `AggroPolicy` (chooses from MTGA's legal menu; no rules engine needed).
 - `mtga/cards.py` — resolve `grpId` → English card name from the client's local SQLite card database.
+- `mtga/engine.py` — position an `mtg.Game` at the current board by determinization (visible info fed, hidden
+  zones random-filled); format-aware (Brawl vs Standard → engine variant + commander).
 - `mtga/views.py` — `RecognizedViews` (Home, Recently played) + where each view's clickable elements sit.
 - `mtga/screen.py` — recognize the current view from the latest log scene and/or a pluggable image model.
 - `mtga/shadow.py` — run a policy read-only over a log.

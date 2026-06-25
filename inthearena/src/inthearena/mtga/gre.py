@@ -148,9 +148,29 @@ class MulliganReq(_M):
     freeMulliganCount: Optional[int] = None
 
 
+class DeckConstraintInfo(_M):
+    minDeckSize: Optional[int] = None
+    maxDeckSize: Optional[int] = None
+    minCommanderSize: Optional[int] = None
+    maxCommanderSize: Optional[int] = None
+
+
+class GameInfo(_M):
+    """The match's format/rules, from a GameStateMessage's gameInfo (present on the GameStage_Start frame)."""
+    matchID: Optional[str] = None
+    gameNumber: Optional[int] = None
+    variant: Optional[str] = None                          # GameVariant_Brawl / ... (the format)
+    superFormat: Optional[str] = None                      # SuperFormat_Constructed / ...
+    type: Optional[str] = None                             # GameType_Duel / ...
+    matchWinCondition: Optional[str] = None
+    mulliganType: Optional[str] = None
+    deckConstraintInfo: Optional[DeckConstraintInfo] = None
+
+
 class GameStateMessage(_M):
     type: Optional[str] = None                              # GameStateType_Full | _Diff
     gameStateId: Optional[int] = None
+    gameInfo: Optional[GameInfo] = None
     turnInfo: Optional[TurnInfo] = None
     players: list[PlayerState] = []
     zones: list[Zone] = []
@@ -208,8 +228,11 @@ class GameView:
     life: dict = field(default_factory=dict)               # seat -> lifeTotal
     objects: dict = field(default_factory=dict)            # instanceId -> GameObject
     zones: dict = field(default_factory=dict)              # zoneId -> Zone (type / ownerSeatId metadata)
+    game_info: Optional["GameInfo"] = None                 # the match's format/rules (variant, deck constraints)
 
     def apply(self, gsm: GameStateMessage) -> None:
+        if gsm.gameInfo:                                   # the format frame (GameStage_Start) — sticks for the match
+            self.game_info = gsm.gameInfo
         if gsm.type == "GameStateType_Full":               # new game / full resync — drop stale state
             self.objects.clear()
             self.zones.clear()
@@ -266,9 +289,24 @@ class GameView:
                                             if (s := self._seat_of(o)) is not None})
 
     @property
+    def variant(self) -> str:
+        """The `mtg`-engine variant for this match's format — 'brawl' (25 life, singleton + commander) vs the
+        1v1 'two-player' default — derived from gameInfo.variant. Unknown/absent -> 'two-player'."""
+        raw = self.game_info.variant if self.game_info else None
+        return _ENGINE_VARIANT.get(raw, "two-player")
+
+    @property
     def phase(self) -> str:
         return f"T{self.turn.turnNumber if self.turn.turnNumber is not None else '?'} " \
                f"{self.turn.phase or ''}/{self.turn.step or ''}"
+
+
+# MTGA game variant -> mtg-engine variant string (Game(variant=...)). Brawl is commander-style (25 life).
+_ENGINE_VARIANT = {
+    "GameVariant_Brawl": "brawl",
+    "GameVariant_NormalGame": "two-player",
+    "GameVariant_Standard": "two-player",
+}
 
 
 # kind -> (attribute on GreMessage holding the req, attribute on the req holding the options)

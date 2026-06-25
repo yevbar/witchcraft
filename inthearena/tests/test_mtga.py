@@ -207,6 +207,63 @@ def _views_checks():
         os.unlink(r)
 
 
+def _engine_checks():
+    """The determinization bridge to mtg.Game: visible info fed, hidden zones random-filled. Skips cleanly if
+    the mtg engine isn't on the path (inthearena run standalone)."""
+    try:
+        import mtg  # noqa: F401
+        from inthearena.mtga.engine import build_state, to_game
+    except Exception:
+        print("  --   (engine bridge skipped — mtg engine not importable)")
+        return
+
+    full = {"type": "GameStateType_Full",
+            "turnInfo": {"turnNumber": 2, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+            "players": [{"controllerSeatId": 1, "lifeTotal": 18}, {"controllerSeatId": 2, "lifeTotal": 15}],
+            "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [100]},
+                      {"zoneId": 12, "type": "ZoneType_Library", "ownerSeatId": 1,
+                       "objectInstanceIds": [201, 202, 203, 204, 205, 206, 207, 208]},
+                      {"zoneId": 15, "type": "ZoneType_Hand", "ownerSeatId": 2, "objectInstanceIds": [300, 301]},
+                      {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+            "gameObjects": [{"instanceId": 100, "grpId": 105174, "zoneId": 10, "ownerSeatId": 1,
+                             "controllerSeatId": 1, "cardTypes": ["CardType_Land"]}]}     # 105174 = Plains
+    view = _apply(full)
+    st = build_state(view, me=1, seed=7)
+
+    def cnt(rel, seat):
+        return len([1 for s, i in st[rel] if s == seat])
+
+    check("engine: opponent hand determinized to its hidden count (2)", cnt("in_hand", "bob") == 2)
+    check("engine: my library determinized to its hidden count (8)", cnt("in_library", "alice") == 8)
+    check("engine: life mapped (me->alice, opp->bob)", st["life"] == {("alice", 18), ("bob", 15)})
+    check("engine: active player + step mapped",
+          st["active_player"] == {("alice",)} and st["current_step"] == {("precombat_main",)})
+    check("engine: same seed -> identical hidden fill", build_state(view, 1, seed=7)["in_library"] == st["in_library"])
+    check("engine: different seed -> different hidden fill", build_state(view, 1, seed=8)["in_library"] != st["in_library"])
+
+    g = to_game(view, me=1, seed=7)
+    check("engine: to_game returns an mtg.Game at the right life", g.life() == {"alice": 18, "bob": 15})
+    if cards.available():
+        check("engine: my visible hand card is fed directly (DB present)", cnt("in_hand", "alice") == 1)
+
+    # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
+    brawl = _apply({"type": "GameStateType_Full",
+                    "gameInfo": {"variant": "GameVariant_Brawl", "superFormat": "SuperFormat_Constructed"},
+                    "players": [{"controllerSeatId": 1, "lifeTotal": 25}, {"controllerSeatId": 2, "lifeTotal": 25}],
+                    "zones": [{"zoneId": 9, "type": "ZoneType_Command", "objectInstanceIds": [50]}],
+                    "gameObjects": [{"instanceId": 50, "grpId": 105108, "zoneId": 9, "ownerSeatId": 1,
+                                     "controllerSeatId": 1, "cardTypes": ["CardType_Creature"]}]})  # 105108 real
+    check("format: GameVariant_Brawl -> view.variant 'brawl'", brawl.variant == "brawl")
+    bs = build_state(brawl, me=1, seed=0)
+    check("format: engine state carries _variant brawl", bs["_variant"] == "brawl")
+    if cards.available():
+        check("format: command-zone card placed as the commander",
+              len(bs["is_commander"]) == 1 and ("alice", next(iter(bs["is_commander"]))[0]) in bs["command_zone"])
+    plain = _apply({"type": "GameStateType_Full",
+                    "players": [{"controllerSeatId": 1, "lifeTotal": 20}]})
+    check("format: no gameInfo -> defaults to 'two-player'", plain.variant == "two-player")
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -245,6 +302,7 @@ def run():
 
     _diff_checks()
     _views_checks()
+    _engine_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
