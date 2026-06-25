@@ -348,6 +348,45 @@ def _live_checks():
         os.unlink(p)
 
 
+def _navigate_checks():
+    """Navigation to a game via a pluggable, no-op-by-default actuator (no real clicking)."""
+    from inthearena.mtga import DryRunActuator, Navigator, Rect, resolve
+    from inthearena.mtga.views import ScreenAnchor as SA
+    from inthearena.mtga.views import ViewElement
+    RV = RecognizedViews
+
+    x, y = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
+    check("resolve: bottom-right anchor -> bottom-right pixels", x > 500 and y > 400)
+
+    dry = DryRunActuator(rect=Rect(0, 0, 1000, 800))
+    dry.click(10, 20)
+    check("DryRunActuator records clicks but performs nothing", dry.clicks == [(10, 20)])
+
+    # navigate_to_game: HOME --click Play--> (simulated client response) GAMEPLAY
+    state = {"view": RV.HOME}
+
+    class Fake(DryRunActuator):
+        def click(self, cx, cy):
+            super().click(cx, cy)
+            if state["view"] is RV.HOME:
+                state["view"] = RV.GAMEPLAY
+
+    fa = Fake(rect=Rect(0, 0, 1000, 800))
+    nav = Navigator(fa, lambda: state["view"], poll=0.001, change_timeout=1.0)
+    check("Navigator drives a non-game view (HOME) into GAMEPLAY",
+          nav.navigate_to_game() and state["view"] is RV.GAMEPLAY)
+    check("Navigator clicked Play (bottom-right) exactly once", len(fa.clicks) == 1 and fa.clicks[0][0] > 500)
+
+    in_game = Navigator(DryRunActuator(), lambda: RV.GAMEPLAY)
+    check("already in a game -> no action, navigate returns True",
+          in_game.step_toward_game() is False and in_game.navigate_to_game() is True)
+
+    # an unmapped view (PLAY_MENU's deck-select/queue not mapped yet) -> stop honestly, no flailing
+    stuck = Navigator(DryRunActuator(), lambda: RV.PLAY_MENU, poll=0.001, change_timeout=0.02)
+    check("unmapped view -> no action, navigate returns False",
+          stuck.step_toward_game() is False and stuck.navigate_to_game() is False)
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -388,6 +427,7 @@ def run():
     _views_checks()
     _engine_checks()
     _live_checks()
+    _navigate_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
