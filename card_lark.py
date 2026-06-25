@@ -123,7 +123,12 @@ PUTBACKAO.5: /put them back in any order/
 // 'The <keyword> cost is equal to its mana cost' — the cost spec accompanying a granted alt-cost keyword
 // (flashback/scavenge/embalm/…, §702). PARSE-FAILs every other production; the distinctive CEQMANA tail
 // terminal anchors it and the transformer re-matches src against `_granted_keyword_cost` (validates the kw).
-ceqmclause.-2: ceqmlead CEQMANA                               -> cost_eq_mana
+// POSITIVE priority: the QUANT?-broadened bctclause otherwise parses 'the <kw> cost is equal to its mana cost'
+// as a becomes copula ('the <kw> cost' IS 'equal …') and SHADOWS this production (one-tree/no-fallthrough -> lark
+// abstains). A small negative-vs-negative gap (-1 over -2) did NOT flip earley's ambiguity choice; a positive
+// priority does. The distinctive CEQMANA exact-tail terminal makes a high priority theft-safe (only 'the <X> cost
+// is equal to its mana cost' clauses can match it).
+ceqmclause.5: ceqmlead CEQMANA                               -> cost_eq_mana
 ceqmlead: WORD+
 CEQMANA.6: /\bcost is equal to its mana cost\b/
 rclause: RVERB quant? robj fromphrase? zonephrase? trailer?   -> ret   // 'return': strip from/to
