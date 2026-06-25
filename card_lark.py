@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | alltclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause | endureclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -532,6 +532,13 @@ fesubj: (WORD | QUANT | NUM)+                                                // 
 // `_kwaction_n` catch-all stays). Count restricted to the template's (\d+|one..five|x) set.
 kwnclause.-2: KWACTION_N kwnnum               -> kwaction_n
 kwnnum: NUM | QUANT                                                          // the count ('2'/'x'); validated
+// ENDURE (§701, Bloomburrow/Duskmourn 2024) — '<creature> endures N' (the `_endure` template). Unlike the
+// verb-first KWACTION_N (you-actor), endure is a CREATURE action: the SUBJECT is the actor/target ('it endures
+// 2' -> endure(2, it)), so it has its own subject-prefixed production. The distinctive ENDURE terminal ('endure[s]')
+// + a leading subject SPAN + a count; the transformer re-applies `_endure`'s EXACT regex to src -> byte-identical.
+endureclause.-2: enduresubj ENDURE endurenum  -> endure_v
+enduresubj: (WORD | QUANT | NUM)+                                            // the enduring creature (validated _TGT via re-match)
+endurenum: WORD | NUM | QUANT                                                // the count (_amount; '\w+' in the template)
 
 // INTRANSITIVE KEYWORD ACTIONS (§701.x) — '[<subject>] investigate[s]/explore[s]/proliferate[s]' (the
 // shared `_bare_action` bare-form + `_subject_action` subject-form leaves, for these distinctive verbs).
@@ -876,6 +883,7 @@ NOLONGERSUSP.6: /\b(?:is|are|becomes?) no longer suspected\b/   // '<subj> is/ar
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
 KWACTION_N.4: /\b(?:bolster|adapt|incubate|support|amass|airbend|earthbend|waterbend|discover)\b/   // numbered §701 keyword actions (distinctive; '<verb> <N>'); migrated off _kwaction_n: +amass +the Avatar bending family (air/earth/water; 'firebend' is NOT a keyword action) +discover (§701, LCI 2024 — 'discover N')
+ENDURE.4: /\bendures?\b/   // §701 endure (BLB/DSK 2024) — '<creature> endures N' (subject-prefixed; _endure)
 KVINTRANS.4: /\b(?:investigates?|explores?|proliferates?|connives?|populates?|forages?|planeswalks?|learns?)\b/   // intransitive §701 keyword actions (distinctive); migrated off _bare_action: +populate/forage/planeswalk/learn
 EXCHANGE.3: /\bexchange\b/   // 'exchange <object>' — §701.10 exchange verb (in _OBJ_VERBS; mirrors DB_DOUBLE)
 GCC_CAN.5: /\bcan (?:attack|block)\b/ // '… can attack/block …' — the §509/§508 combat-PERMISSION anchor (grant_combat family; the bigram is distinctive — bare 'can' collides, 'can attack'/'can block' don't; outranks WORD)
@@ -1315,6 +1323,7 @@ _RD_B = re.compile(r"^(" + _TGT + r")(?: instead)?$", re.I)
 _SK_BODY = re.compile(r"^(?:your|its|their|his or her|that|this) (?:next )?([\w ]+? (?:steps?|phases?)|turns?)$", re.I)  # +that/this ('skips that turn' — Stranglehold) + plural step/phase/turn ('skip their upkeep steps' — Eon Hub)
 _AS_NUM = re.compile(r"^(?:\d+|one|two|three|x)$", re.I)
 _MS_NUM = re.compile(r"^(?:\d+|one|two|three|four|five|x)$", re.I)   # monstrosity count (the `_kwaction_n` set)
+_ENDURE_RE = re.compile(rf"^(?:({_TGT}) )?endures? (\w+)$", re.I)    # `_endure`'s exact pattern (re-applied by endure_v)
 
 # MUST_ATTACK / MUST_BLOCK body validators — the `_must_attack` / `_must_block_tgt` / `_must_block_able`
 # template patterns MINUS the trailing ' if able' (the grammar's MRABLE terminal already consumed it),
@@ -1906,6 +1915,10 @@ class _BdgSubj(str):   # the becomes-designation subject span (bdgsubj) — vali
 
 
 class _FeSubj(str):    # the 'fight each other' subject span (fesubj) — validated _TGT, leading 'then' stripped
+    pass
+
+
+class _EndureSubj(str):    # the enduring creature's subject span (enduresubj) — validated via the re-matched _endure
     pass
 
 
@@ -4109,6 +4122,25 @@ class _ToEffect(Transformer):
             return None
         n = _amount(str(num).strip())
         return Effect(v, n if n is not None else "-", "you")
+
+    def enduresubj(self, *toks):
+        return _EndureSubj(" ".join(str(t) for t in toks))
+
+    def endurenum(self, tok):
+        return None                                # presence consumes the count; src is re-matched
+
+    def endure_v(self, *args):
+        # '<creature> endures N' (§701, BLB/DSK 2024) — the EXACT `_endure` template re-applied to self._src:
+        # endure(<n|->, _target(subj)). The subject is the actor/target (the enduring creature), NOT 'you' — so
+        # this is a subject-prefixed production, re-matched against _endure's own `(?:(_TGT) )?endures? (\w+)`.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _ENDURE_RE.match(src.strip())
+        if not m or "endure" not in ground.effect_verbs():
+            return None
+        n = _amount(m.group(2))
+        return Effect("endure", n if n is not None else "-", _target(m.group(1) or "~"))
 
     # --- INTRANSITIVE KEYWORD ACTIONS (investigate/explore/proliferate) -------
     def kvisubj(self, *toks):
