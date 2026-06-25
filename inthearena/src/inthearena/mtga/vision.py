@@ -40,10 +40,12 @@ class MoondreamLocator:
     `.detect` — a local moondream2 from `load_moondream()`, or a cloud `moondream.vl(api_key=...)` handle); with
     no model and `local=True` it loads moondream2 locally (the default — keeps the screen on your machine).
     `scale` maps image pixels back to click coordinates (set ~0.5 on a 2x Retina display); or pass
-    `screen_size=(w, h)` in click coords and the scale is derived from each screenshot's size."""
+    `screen_size=(w, h)` in click coords and the scale is derived from each screenshot's size. `origin` is added
+    AFTER scaling — set it to a captured region's top-left (in click coords) when the image isn't the full
+    screen, so returned boxes come back in absolute cursor coordinates."""
 
     def __init__(self, model=None, *, local: bool = True, api_key: Optional[str] = None,
-                 scale: float = 1.0, screen_size: Optional[tuple] = None):
+                 scale: float = 1.0, screen_size: Optional[tuple] = None, origin: tuple = (0, 0)):
         if model is None:
             if api_key and not local:
                 import moondream as md                      # cloud (sends the image off-machine)
@@ -53,6 +55,7 @@ class MoondreamLocator:
         self._model = model
         self._scale = scale
         self._screen_size = screen_size
+        self._ox, self._oy = origin
 
     def _scale_for(self, image) -> float:
         if self._screen_size is not None:                  # derive scale from image-px vs click-coord width
@@ -74,14 +77,15 @@ class MoondreamLocator:
         if objects:
             o = objects[0]
             x0, y0, x1, y1 = o["x_min"] * iw, o["y_min"] * ih, o["x_max"] * iw, o["y_max"] * ih
-            return Rect(int(x0 * sc), int(y0 * sc), int((x1 - x0) * sc), int((y1 - y0) * sc))
+            return Rect(int(self._ox + x0 * sc), int(self._oy + y0 * sc),
+                        int((x1 - x0) * sc), int((y1 - y0) * sc))
 
         try:
             points = (self._model.point(image, query) or {}).get("points") or []
         except Exception:
             points = []
         if points:
-            cx, cy = points[0]["x"] * iw * sc, points[0]["y"] * ih * sc
+            cx, cy = self._ox + points[0]["x"] * iw * sc, self._oy + points[0]["y"] * ih * sc
             r = 24                                          # no extent from a point — assume a small button area
             return Rect(int(cx - r), int(cy - r), 2 * r, 2 * r)
         return None

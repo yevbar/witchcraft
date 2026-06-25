@@ -89,15 +89,31 @@ def main(argv) -> int:
     if view not in NAVIGATABLE:
         return report_game_state(args.log)
 
-    # 2) build the actuator (live unless --dry-run) and the vision locator (on unless --no-vision)
+    # 2) auto-pick the monitor MTGA is on (macOS): find its window, that display's scale, and capture just it —
+    #    so navigation works whether MTGA is on the primary display or a Retina/secondary one. Falls back to the
+    #    whole primary screen if the window can't be found (or off macOS).
     rng = random.Random()
     locator = None
+    win = scale = capture = None
+    try:
+        from inthearena.mtga.macos import find_mtga_window, display_scale, capture_rect
+        win = find_mtga_window()
+        if win:
+            scale = display_scale(win)
+            capture = (lambda w=win: capture_rect(w))
+            print(f"MTGA window @ {win.x},{win.y} {win.w}x{win.h} (display scale {scale:g})")
+        else:
+            print("couldn't find the MTGA window — falling back to the primary display.")
+    except Exception as e:
+        print(f"window auto-pick unavailable ({type(e).__name__}: {e}) — using the primary display.")
+
+    # 3) build the actuator (live unless --dry-run) and the vision locator (on unless --no-vision)
     if args.dry_run:
         actuator = DryRunActuator()                        # records intentions, performs nothing
     else:
         try:
             from inthearena.mtga import PyAutoGuiActuator
-            actuator = PyAutoGuiActuator(no_click=args.no_click)
+            actuator = PyAutoGuiActuator(rect=win, no_click=args.no_click, capture=capture)
         except Exception as e:
             print(f"can't start the live actuator ({type(e).__name__}: {e}). "
                   f"Install input deps: pip install -e '.[act,vision]'  — or use --dry-run.")
@@ -106,7 +122,10 @@ def main(argv) -> int:
         try:
             from inthearena.mtga import MoondreamLocator
             print("loading local Moondream (first run downloads ~3.7 GB; then offline)...")
-            locator = MoondreamLocator(scale=args.scale)   # local moondream2 via transformers
+            if win:                                        # located boxes -> absolute cursor coords for THIS monitor
+                locator = MoondreamLocator(origin=(win.x, win.y), scale=1.0 / scale)
+            else:
+                locator = MoondreamLocator(scale=args.scale)
         except Exception as e:
             print(f"couldn't load the vision model ({type(e).__name__}: {e}) — falling back to a coarse "
                   f"estimate. Install vision deps: pip install -e '.[vision]'  — or pass --no-vision.")

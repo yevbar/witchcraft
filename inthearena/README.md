@@ -43,6 +43,8 @@ prior art already exists, and this is shared for research — treat it sensitive
   the move if it's already there.
 - `mtga/vision.py` — locate a button on screen with a small local vision model (`MoondreamLocator`) so click
   targets come from the live screen, not coordinate estimates (opt-in, `pip install inthearena[vision]`).
+- `mtga/macos.py` — find MTGA's window on whichever monitor it's on (`find_mtga_window`) and capture just that
+  region, so navigation/vision work on a secondary or Retina display, not only the primary one.
 - `mtga/live.py` — follow `Player.log` as it's written (tail -f); `LiveState` keeps board + view current.
 - `mtga/shadow.py` — run a policy read-only over a log.
 

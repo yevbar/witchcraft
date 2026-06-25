@@ -234,7 +234,7 @@ class PyAutoGuiActuator:
 
     def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
                  jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None,
-                 no_click: bool = False):
+                 no_click: bool = False, capture=None):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
@@ -248,6 +248,7 @@ class PyAutoGuiActuator:
         self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
         self._rng = random.Random(seed)
         self._no_click = no_click                          # move the cursor but never press (safe verification)
+        self._capture = capture                            # optional region grabber (e.g. just the MTGA window)
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
@@ -257,7 +258,9 @@ class PyAutoGuiActuator:
         return int(p[0]), int(p[1])
 
     def screenshot(self):
-        return self._pg.screenshot()                       # a PIL image of the screen (for a vision locator)
+        if self._capture is not None:
+            return self._capture()                         # just the MTGA window (multi-monitor / Retina aware)
+        return self._pg.screenshot()                       # else a PIL image of the whole primary screen
 
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)

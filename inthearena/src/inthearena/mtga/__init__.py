@@ -59,6 +59,7 @@ from .screen import (
     latest_view,
 )
 from .views import RecognizedViews, ScreenAnchor, ViewElement, from_scene_name
+from .macos import capture_rect, display_scale, find_mtga_window
 
 __all__ = [
     "DEFAULT_LOG", "cards",
@@ -73,4 +74,5 @@ __all__ = [
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
     "take_over", "target_point", "interact", "ElementLocator", "MoondreamLocator",
+    "find_mtga_window", "display_scale", "capture_rect",
 ]
