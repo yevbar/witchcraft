@@ -1245,6 +1245,49 @@ def _as_enters(unit, ctx):
                    + _effect_facts(cid, aid, effects), "triggered")
 
 
+# 'As <subj> <event>, <effect>' for the §603.6/§614.12 NON-enters as-events that no pattern reached: 'is turned
+# face up' (§702.36 morph / §702.166 disguise flip), 'becomes attached to …' (§702 aura/equipment), 'transforms
+# into …', 'becomes monstrous'. The subject must be ~/it or this card's own short name (normalized to ~). The
+# closed event list excludes 'As long as …' (a static, owned by _as_long_as), 'As you draft/create …', and
+# 'enters' (see NOTE below).
+# NOTE: 'enters' is deliberately NOT in this event list — the as-enters event is fully owned upstream
+# (_as_enters for '~/it enters', and _etb_choose for the legend-short-name 'As <Name> enters, choose <X>' form,
+# which records the richer etb_choose(<X>) fact). Including 'enters' here would STEAL those into a generic
+# triggered+choose grounding. This pattern covers only the NON-enters as-events.
+_AS_EVENT = re.compile(
+    r"^As (?P<subj>.+?) (?P<event>is turned face up|becomes monstrous"
+    r"|becomes attached to [\w' -]+|transforms into [\w' -]+), (?P<body>.+)$", re.I)
+
+
+def _as_event(unit, ctx):
+    """'As <subj> <event>, <effect>' — a §603.6/§614.12 as-event ability (the non-bare-'~/it-enters' cases). The
+    subject must be ~, 'it', or this card's own short name (normalized to ~); the body must ground, else abstain.
+    Grounded as a triggered ability on the event (the same shape as _as_enters)."""
+    if '"' in unit.raw:
+        return None
+    m = _AS_EVENT.match(unit.raw)
+    if not m:
+        return None
+    subj = m.group("subj").strip()
+    if subj.lower() not in ("~", "it"):
+        short = _short_name(ctx.get("card") or {})
+        if not (short and subj == short):              # only the card's OWN short name is a self-reference
+            return None
+    ev = m.group("event").lower()
+    trig = ("enters" if ev == "enters" else
+            "turned_face_up" if "turned face up" in ev else
+            "becomes_monstrous" if "monstrous" in ev else
+            "becomes_attached" if "attached" in ev else
+            "transforms" if "transform" in ev else ground.slug(ev))
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "triggered")',
+                         f'ability_trigger("{cid}", "{aid}", "{trig}")']
+                   + _effect_facts(cid, aid, effects), "triggered")
+
+
 # static player-rule modifications, each grounded: hand size §402.2, extra land §505.5b/§116.2a,
 # top-card play §601/§715, no max hand size §402.2.
 _STATIC_PLAYER = [
@@ -2560,7 +2603,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
              _cost_modifier, _class_level, _cda, _cast_restriction, _etb_tapped, _enters_with_counters,
              _doesnt_untap,
-             _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _static_player, _exert, _enter_as_copy,
+             _attacks_each_combat, _assigns_toughness, _etb_choose, _as_enters, _as_event, _static_player, _exert, _enter_as_copy,
              _escapes_with, _assign_damage_unblocked, _cast_as_flash, _alt_cost, _card_static, _mana_rider,
              _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
