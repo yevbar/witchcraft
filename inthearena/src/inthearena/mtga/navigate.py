@@ -281,7 +281,14 @@ class PyAutoGuiActuator:
     def click(self) -> None:
         if self._no_click:                                 # move-only mode: skip the press
             return
-        self._pg.click()                                   # click wherever the cursor now rests
+        x, y = self._pg.position()                         # press wherever the cursor now rests
+        self._pg.moveTo(x, y)                              # nudge so the client registers hover before the press
+        self.wait(self._rng.uniform(0.04, 0.10))
+        # an instantaneous down+up (plain .click()) is often dropped by game clients (MTGA is Unity) — hold the
+        # button down for a human-ish beat between press and release so the click actually registers.
+        self._pg.mouseDown(x, y, button="left")
+        self.wait(self._rng.uniform(0.06, 0.14))
+        self._pg.mouseUp(x, y, button="left")
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
