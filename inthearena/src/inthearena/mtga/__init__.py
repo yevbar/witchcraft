@@ -19,6 +19,7 @@ from .live import LiveState, follow, tail_lines, tail_messages
 from .navigate import (
     Actuator,
     DryRunActuator,
+    ElementLocator,
     Navigator,
     PyAutoGuiActuator,
     Rect,
@@ -27,6 +28,7 @@ from .navigate import (
     take_over,
     target_point,
 )
+from .vision import MoondreamLocator
 from .gre import (
     DEFAULT_LOG,
     Action,
@@ -69,5 +71,5 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
-    "take_over", "target_point", "interact",
+    "take_over", "target_point", "interact", "ElementLocator", "MoondreamLocator",
 ]

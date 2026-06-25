@@ -23,6 +23,8 @@ dependencies = ["pydantic>=2"]
 # a no-op DryRunActuator. `pip install inthearena[act]`.
 [project.optional-dependencies]
 act = ["pyautogui"]
+# Opt-in: a small local vision model (Moondream) to locate buttons on screen instead of coordinate estimates.
+vision = ["moondream", "pillow"]
 
 [project.urls]
 Homepage = "https://github.com/yevbar"

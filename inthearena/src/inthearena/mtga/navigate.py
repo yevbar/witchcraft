@@ -69,17 +69,49 @@ def _within_bounds(pos: tuple, anchor: tuple, element: ViewElement) -> bool:
     return abs(pos[0] - anchor[0]) <= r and abs(pos[1] - anchor[1]) <= r
 
 
-def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random.Random) -> None:
-    """Click `element`. If the cursor is ALREADY within the element's bounds, don't move at all — wait a brief
-    moment and click in place; otherwise glide (wobbled, speed-jittered) to a jittered point within it, then
-    click. Avoids an unnatural re-approach when the pointer is already on the button."""
-    anchor = resolve(element, rect)
+def _within_box(pos: tuple, box: Rect) -> bool:
+    return box.x <= pos[0] <= box.x + box.w and box.y <= pos[1] <= box.y + box.h
+
+
+def _point_in_box(box: Rect, rng: random.Random, inset: float = 0.25) -> tuple:
+    """A jittered click point inside `box`, kept `inset` away from the edges so a click never clips the border."""
+    mx, my = int(box.w * inset), int(box.h * inset)
+    return (rng.randint(box.x + mx, box.x + box.w - mx),
+            rng.randint(box.y + my, box.y + box.h - my))
+
+
+def _locate(actuator, element: ViewElement, locator) -> Optional[Rect]:
+    """Ask the vision `locator` where `element` is on screen (its bounding box), or None if no locator / not
+    found — in which case callers fall back to the coarse anchor estimate."""
+    if locator is None:
+        return None
+    image = actuator.screenshot()
+    if image is None:
+        return None
+    try:
+        return locator.locate(image, f"{element.name} button")
+    except Exception:
+        return None
+
+
+def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random.Random, *,
+             locator: "Optional[ElementLocator]" = None) -> None:
+    """Click `element`. If a vision `locator` is given, the target + bounds come from where the button ACTUALLY
+    is on screen; otherwise they fall back to the coarse anchor (`resolve`) + `spread`/`radius` estimate. Either
+    way: if the cursor is already within the element, wait a beat and click in place (no move); else glide
+    (wobbled, speed-jittered) to a jittered point within it, then click."""
+    box = _locate(actuator, element, locator)
+    if box is not None:                                    # VISION: real on-screen button bounds
+        target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
+    else:                                                  # FALLBACK: coarse anchor estimate
+        anchor = resolve(element, rect)
+        target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
     pos = actuator.position()
-    if pos is not None and _within_bounds(pos, anchor, element):
+    if pos is not None and in_region(pos):
         actuator.wait(rng.uniform(0.08, 0.25))             # already on it: a human beat, then click in place
         actuator.click()
     else:
-        actuator.move_and_click(*target_point(element, rect, rng))
+        actuator.move_and_click(*target)
 
 
 def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
@@ -112,13 +144,16 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
 
 class Actuator(Protocol):
     """Performs physical interactions. `window_rect()` locates the client, `position()` reads the cursor,
-    `move_and_click(x, y)` travels the cursor from where it is to (x, y) then clicks, `click()` clicks in
-    place, and `wait(s)` pauses."""
+    `screenshot()` grabs the screen (for a vision locator), `move_and_click(x, y)` travels the cursor from where
+    it is to (x, y) then clicks, `click()` clicks in place, and `wait(s)` pauses."""
 
     def window_rect(self) -> Optional[Rect]:
         ...
 
     def position(self) -> Optional[tuple]:
+        ...
+
+    def screenshot(self):
         ...
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
@@ -128,6 +163,16 @@ class Actuator(Protocol):
         ...
 
     def wait(self, seconds: float) -> None:
+        ...
+
+
+class ElementLocator(Protocol):
+    """Finds where a UI element actually is on screen, so click targets come from the live screen rather than
+    hardcoded coordinate estimates. `locate(image, query)` returns the element's bounding box (in the
+    actuator's click-coordinate space), or None if not found. `MoondreamLocator` (inthearena.mtga.vision) backs
+    it with a small local vision model."""
+
+    def locate(self, image, query: str) -> Optional[Rect]:
         ...
 
 
@@ -144,6 +189,7 @@ class DryRunActuator:
     wobble: float = 6.0                                    # ± px the path deviates off the straight line
     duration: float = 0.4                                  # default total travel time
     seed: Optional[int] = None
+    image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
     waits: list = field(default_factory=list)              # pauses taken (seconds)
@@ -158,6 +204,9 @@ class DryRunActuator:
 
     def position(self) -> Optional[tuple]:
         return self.pos
+
+    def screenshot(self):
+        return self.image
 
     def wait(self, seconds: float) -> None:
         self.waits.append(seconds)
@@ -205,6 +254,9 @@ class PyAutoGuiActuator:
         p = self._pg.position()
         return int(p[0]), int(p[1])
 
+    def screenshot(self):
+        return self._pg.screenshot()                       # a PIL image of the screen (for a vision locator)
+
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)
 
@@ -241,12 +293,14 @@ class Navigator:
     """Drive the client toward a game. Reads the current view via `view_provider`, acts via `actuator`."""
 
     def __init__(self, actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,
-                 poll: float = 0.5, change_timeout: float = 15.0, rng: Optional[random.Random] = None):
+                 poll: float = 0.5, change_timeout: float = 15.0, rng: Optional[random.Random] = None,
+                 locator: "Optional[ElementLocator]" = None):
         self._act = actuator
         self._view = view_provider
         self._poll = poll
         self._timeout = change_timeout
         self._rng = rng or random.Random()
+        self._locator = locator
 
     def current(self) -> Optional[RecognizedViews]:
         return self._view()
@@ -262,7 +316,7 @@ class Navigator:
         rect = self._act.window_rect()
         if element is None or rect is None:
             return False
-        interact(self._act, element, rect, self._rng)      # glides, or just clicks if already on the element
+        interact(self._act, element, rect, self._rng, locator=self._locator)  # vision-located if a locator is set
         return True
 
     def _wait_for_change(self, previous: Optional[RecognizedViews]) -> Optional[RecognizedViews]:
@@ -296,13 +350,13 @@ _TAKEOVER = {
 
 
 def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
-              rng: Optional[random.Random] = None) -> bool:
+              rng: Optional[random.Random] = None, locator: "Optional[ElementLocator]" = None) -> bool:
     """Take control and perform the appropriate action for the current `view`. Today: on HOME and on the
-    Recently-played decks view, identify the Play button and click it — gliding to a jittered point within it
+    Recently-played decks view, find the Play button and click it — gliding to a jittered point within it
     (never the same spot), OR, if the cursor is already on the button, just pausing a beat and clicking in
-    place. Returns True if it acted, False if the view has no take-over action yet — the seam where more views
-    plug in. Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view` / a vision
-    recognizer."""
+    place. With a `locator` (a small vision model, see inthearena.mtga.vision) the button is found on the live
+    screen instead of a coarse coordinate estimate. Returns True if it acted, False if the view has no
+    take-over action yet. Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view`."""
     rng = rng or random.Random()
     name = _TAKEOVER.get(view)
     if name is None:
@@ -311,5 +365,5 @@ def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
     element = _element(view, name)
     if rect is None or element is None:
         return False
-    interact(actuator, element, rect, rng)                 # glide to it, or just click if already on it
+    interact(actuator, element, rect, rng, locator=locator)
     return True

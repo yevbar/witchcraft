@@ -404,7 +404,7 @@ def _navigate_checks():
 
     # take_over: on HOME, click somewhere WITHIN the Play button (anchor +/- a few px), varying each call
     import random as _r
-    from inthearena.mtga import take_over
+    from inthearena.mtga import interact, take_over
     nominal = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     spread = next(e for e in RV.HOME.elements if e.name == "Play").spread
     landings = []
@@ -446,6 +446,33 @@ def _navigate_checks():
     take_over(on_rp, RV.RECENTLY_PLAYED, rng=_r.Random(0))
     check("already on RECENTLY_PLAYED's Play button -> no move, wait + click in place",
           on_rp.moves == [] and len(on_rp.waits) == 1 and on_rp.clicks == [(rp_anchor[0] + 2, rp_anchor[1] + 2)])
+
+    # VISION locator: the click box comes from where the model says the button IS, not the coarse anchor
+    class FakeLocator:
+        def __init__(self, box):
+            self.box, self.queries = box, []
+
+        def locate(self, image, query):
+            self.queries.append(query)
+            return self.box
+
+    loc = FakeLocator(Rect(700, 500, 80, 40))              # a button bbox far from the bottom-right anchor
+    av = DryRunActuator(rect=nrect, image=object())        # cursor at center -> away from the located box
+    interact(av, play, av.rect, _r.Random(0), locator=loc)
+    check("vision locator is queried for the element", any("Play" in q for q in loc.queries))
+    vx, vy = av.clicks[0]
+    check("clicks within the VISION-located box (not the coarse anchor)",
+          700 <= vx <= 780 and 500 <= vy <= 540 and len(av.moves) > 0)
+    on_box = DryRunActuator(rect=nrect, image=object(), pos=(730, 515))   # already inside the located box
+    interact(on_box, play, on_box.rect, _r.Random(0), locator=loc)
+    check("already within the located button -> no move, wait + click",
+          on_box.moves == [] and len(on_box.waits) == 1)
+    a_to = DryRunActuator(rect=nrect, image=object())
+    take_over(a_to, RV.HOME, rng=_r.Random(0), locator=loc)
+    check("take_over threads the locator through (clicks the located box)", 700 <= a_to.clicks[0][0] <= 780)
+    a_fb = DryRunActuator(rect=nrect)
+    interact(a_fb, play, a_fb.rect, _r.Random(0))          # no locator -> coarse fallback
+    check("no locator -> coarse-anchor fallback still works", a_fb.clicks[0][0] > 500)
 
 
 def run():
