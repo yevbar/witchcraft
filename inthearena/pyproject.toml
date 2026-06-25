@@ -25,7 +25,8 @@ dependencies = ["pydantic>=2"]
 act = ["pyautogui"]
 # Opt-in: a small LOCAL vision model (moondream2 via transformers) to locate buttons on screen instead of
 # coordinate estimates. Runs offline on CPU/MPS; first use downloads the model (~3.7 GB) from the HF hub.
-vision = ["transformers", "einops", "torch", "torchvision", "pillow"]
+# transformers pinned <5: moondream2's trust_remote_code model targets the 4.x API (5.x breaks its load).
+vision = ["transformers>=4.44,<5", "einops", "torch", "torchvision", "pillow"]
 
 [project.urls]
 Homepage = "https://github.com/yevbar"
