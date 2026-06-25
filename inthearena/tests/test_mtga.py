@@ -147,7 +147,8 @@ def _views_checks():
     home = RecognizedViews.HOME.elements
     check("Home's Play button is bottom-right",
           len(home) == 1 and home[0].name == "Play" and home[0].anchor == ScreenAnchor.BOTTOM_RIGHT)
-    check("Recently played has no known elements yet", RecognizedViews.RECENTLY_PLAYED.elements == ())
+    check("Recently played has a Play element (queues a game)",
+          any(e.name == "Play" for e in RecognizedViews.RECENTLY_PLAYED.elements))
     check("from_scene_name maps Home but not an unknown scene",
           from_scene_name("Home") == RecognizedViews.HOME and from_scene_name("DeckBuilder") is None)
     check("Home surfaces as a log scene; Recently played is visual-only",
