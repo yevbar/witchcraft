@@ -432,6 +432,20 @@ def _navigate_checks():
     take_over(outside, RV.HOME, rng=_r.Random(0))
     check("outside the button -> glides (moves) to it", len(outside.moves) > 0 and outside.waits == [])
 
+    # Recently-played view gets the same Play-button treatment as HOME
+    rp_play = next((e for e in RV.RECENTLY_PLAYED.elements if e.name == "Play"), None)
+    check("Recently played view has a Play element", rp_play is not None)
+    rp_anchor = resolve(rp_play, nrect)
+    a = DryRunActuator(rect=nrect)                          # starts at center -> away from bottom-right Play
+    check("take_over acts on RECENTLY_PLAYED", take_over(a, RV.RECENTLY_PLAYED, rng=_r.Random(0)) is True)
+    cx, cy = a.clicks[0]
+    check("take_over on RECENTLY_PLAYED glides to within its Play button",
+          len(a.moves) > 0 and abs(cx - rp_anchor[0]) <= rp_play.spread and abs(cy - rp_anchor[1]) <= rp_play.spread)
+    on_rp = DryRunActuator(rect=nrect, pos=(rp_anchor[0] + 2, rp_anchor[1] + 2))   # already on it
+    take_over(on_rp, RV.RECENTLY_PLAYED, rng=_r.Random(0))
+    check("already on RECENTLY_PLAYED's Play button -> no move, wait + click in place",
+          on_rp.moves == [] and len(on_rp.waits) == 1 and on_rp.clicks == [(rp_anchor[0] + 2, rp_anchor[1] + 2)])
+
 
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")

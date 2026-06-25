@@ -64,7 +64,8 @@ class RecognizedViews(enum.Enum):
 # Known clickable elements per view (the user-noted anchors; extend as the navigation layer grows).
 _ELEMENTS = {
     RecognizedViews.HOME: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
-    RecognizedViews.RECENTLY_PLAYED: (),
+    # the recently-played decks section also has a Play button (bottom-right) that queues a game
+    RecognizedViews.RECENTLY_PLAYED: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
 }
 
 # Which views correspond to a logged `toSceneName` (so the current view can be tracked from the log too).

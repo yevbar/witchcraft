@@ -233,6 +233,7 @@ class PyAutoGuiActuator:
 # so its bounds/spread are shared). Extend as each view's UI is mapped (PLAY_MENU still needs deck-select/queue).
 _TOWARD_GAME = {
     RecognizedViews.HOME: _element(RecognizedViews.HOME, "Play"),
+    RecognizedViews.RECENTLY_PLAYED: _element(RecognizedViews.RECENTLY_PLAYED, "Play"),
 }
 
 
@@ -286,19 +287,29 @@ class Navigator:
         return self.current() is RecognizedViews.GAMEPLAY
 
 
+# The element to interact with per view when taking control (the view's "what do I press here"). Extend as
+# more views are handled (PLAY_MENU deck-select/queue, in-game play, …).
+_TAKEOVER = {
+    RecognizedViews.HOME: "Play",
+    RecognizedViews.RECENTLY_PLAYED: "Play",
+}
+
+
 def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
               rng: Optional[random.Random] = None) -> bool:
-    """Take control and perform the appropriate action for the current `view`. Today: on HOME, identify the
-    Play button and click it — gliding to a jittered point within it (never the same spot), OR, if the cursor
-    is already on the button, just pausing a beat and clicking in place. Returns True if it acted, False if the
-    view has no take-over action yet — the seam where more views plug in (PLAY_MENU deck-select/queue, in-game
-    play). Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view` / a vision
+    """Take control and perform the appropriate action for the current `view`. Today: on HOME and on the
+    Recently-played decks view, identify the Play button and click it — gliding to a jittered point within it
+    (never the same spot), OR, if the cursor is already on the button, just pausing a beat and clicking in
+    place. Returns True if it acted, False if the view has no take-over action yet — the seam where more views
+    plug in. Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view` / a vision
     recognizer."""
     rng = rng or random.Random()
-    if view is RecognizedViews.HOME:
-        rect = actuator.window_rect()
-        element = _element(RecognizedViews.HOME, "Play")
-        if rect is not None and element is not None:
-            interact(actuator, element, rect, rng)         # glide to it, or just click if already on it
-            return True
-    return False
+    name = _TAKEOVER.get(view)
+    if name is None:
+        return False
+    rect = actuator.window_rect()
+    element = _element(view, name)
+    if rect is None or element is None:
+        return False
+    interact(actuator, element, rect, rng)                 # glide to it, or just click if already on it
+    return True
