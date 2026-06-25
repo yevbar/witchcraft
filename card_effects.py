@@ -1352,11 +1352,10 @@ def _base_pt(m):
     return Effect("becomes", m.group(2), _target(m.group(1)), "base_pt")
 
 
-@_t(rf"^({_TGT}) (?:is|are|becomes?) every (creature|basic land|nonbasic land|land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$")
-def _all_types(m):
-    """'<target> is every creature/basic land type' — a §205 all-types effect (changeling / Dryad of
-    the Ilysian Grove omni-land)."""
-    return Effect("becomes", "-", _target(m.group(1)), "every_" + ground.slug(m.group(2)) + "_type")
+# '<target> is/are/becomes every creature/basic land/… type' (§205 all-types — changeling / Dryad of the Ilysian
+# Grove omni-land) — fully MIGRATED to card_lark (alltclause / the distinctive EVERYTYPE terminal + alltypes_v,
+# which re-applies this template's EXACT regex). All corpus instances ground in lark byte-identically with 0
+# abstains, so the dedicated template is dead and removed.
 
 
 @_t(rf"^({_TGT}) (?:is|are|becomes?) an? ((?:white|blue|black|red|green|colorless)(?: (?:and )?(?:white|blue|black|red|green|colorless))* [\w' -]+?)(?: in addition to its other (?:types and colors|colors and types|types|colors))?(?: until end of turn)?$")

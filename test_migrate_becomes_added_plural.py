@@ -54,8 +54,11 @@ def run() -> None:
          ("becomes", "-", "lands_you_control", "every_basic_land_type", "-")),
     ]
     for s, want in everytype:
+        # the _all_types regex template is now DELETED (alltclause owns these) -> assert the tuple DIRECTLY,
+        # and confirm parse_clause (lark-first) grounds it end-to-end
         check(f"lark grounds every-type {s[:40]!r} -> {want[3]}", _tup(parse_clause_lark(s)) == want)
-        check(f"byte-identical to regex for {s[:30]!r}", _tup(parse_clause_lark(s)) == _tup(parse_effect(s)))
+        check(f"parse_clause grounds every-type {s[:30]!r} (template deleted, lark owns it)",
+              _tup(parse_clause(s)) == want)
 
     # WITH-ARTICLE forms still ground in lark (bctclause, QUANT required — never depended on the broadening)
     with_article = [
