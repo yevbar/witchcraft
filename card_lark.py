@@ -79,11 +79,13 @@ start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | c
 // to the anchored `^…$` regex, or no parse.
 litclause: LITEFFECT                                          -> lit
 LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
-// GET ENERGY (§107.16) — 'you get {E}{E}…' (the `_get_energy` template). A whole-phrase GETENERGY terminal
+// GET ENERGY (§107.16) — '[you] get {E}{E}…' (the `_get_energy` template). A whole-phrase GETENERGY terminal
 // (requires the trailing {e} symbol(s), so it can't steal 'you get an emblem'/'you get N poison counters');
 // the transformer counts the {e} glyphs for the amount -> get_energy(<N>, you). (src is lowercased, so {e}.)
+// The 'you' is OPTIONAL so a subject-ELIDED conjunct grounds — 'you gain 1 life and get {E}' splits into
+// ['you gain 1 life', 'get {E}'] and the second (shared-subject) conjunct still parses; the actor is always you.
 geclause: GETENERGY                                           -> get_energy_v
-GETENERGY.5: /you get (?:\{e\})+/
+GETENERGY.5: /(?:you )?get (?:\{e\})+/
 // MULTI-WORD nullary keyword actions (§701.x) — 'Manifest dread'/'Time travel'/'The Ring tempts you'/'Open an
 // Attraction'/'Collect evidence'/'Venture into the dungeon'/… (the `_bare_action` catch-all, FLIP-ONLY since
 // that catch-all serves many verbs). KVINTRANS is single-word; these are DISTINCTIVE multi-word phrases, so a
