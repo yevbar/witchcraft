@@ -71,6 +71,26 @@ class GameObject(_M):
     color: list[str] = []
     power: Optional[Pt] = None
     toughness: Optional[Pt] = None
+    loyalty: Optional[Pt] = None
+    # gameplay state (everything here matters to play; presentation fields — skinCode/overlayGrpId/viewers — drop)
+    isTapped: bool = False
+    hasSummoningSickness: bool = False
+    isFacedown: bool = False
+    isCopy: bool = False
+    damage: int = 0
+    parentId: Optional[int] = None
+
+    @property
+    def p(self) -> Optional[int]:
+        return self.power.value if self.power else None
+
+    @property
+    def t(self) -> Optional[int]:
+        return self.toughness.value if self.toughness else None
+
+    @property
+    def is_creature(self) -> bool:
+        return "CardType_Creature" in self.cardTypes
 
 
 class Zone(_M):
@@ -171,28 +191,79 @@ def messages(path: str = DEFAULT_LOG) -> Iterator[GreMessage]:
                     yield GreMessage.model_validate(raw)
 
 
+# MTGA zones owned by a player carry ownerSeatId; the rest are shared and split by an object's controller.
+_OWNED_ZONES = {"ZoneType_Hand", "ZoneType_Library", "ZoneType_Graveyard", "ZoneType_Sideboard",
+                "ZoneType_Revealed"}
+
+
 @dataclass
 class GameView:
-    """A running view accumulated from GameStateMessage frames (full + diff): whose turn it is, each seat's
-    life, and objects keyed by instanceId. Holds the typed pydantic objects."""
+    """The accurate, diff-tracked GAMEPLAY state — and only that (settings, menus, decklists, cosmetics are
+    never modeled). Accumulated from GameStateMessage frames: a Full frame resyncs from scratch; the ~99.6%
+    of frames that are Diffs each carry FULL snapshots of the objects that changed (so update = replace) plus
+    `diffDeletedInstanceIds` for objects that left. Object position is read from each object's own `zoneId`
+    against the `zones` registry (authoritative), not from possibly-stale zone object lists."""
 
     turn: TurnInfo = field(default_factory=TurnInfo)
     life: dict = field(default_factory=dict)               # seat -> lifeTotal
     objects: dict = field(default_factory=dict)            # instanceId -> GameObject
+    zones: dict = field(default_factory=dict)              # zoneId -> Zone (type / ownerSeatId metadata)
 
     def apply(self, gsm: GameStateMessage) -> None:
-        if gsm.type == "GameStateType_Full":               # a new game / full resync — drop stale objects
+        if gsm.type == "GameStateType_Full":               # new game / full resync — drop stale state
             self.objects.clear()
+            self.zones.clear()
         if gsm.turnInfo:
             merged = {**self.turn.model_dump(exclude_none=True), **gsm.turnInfo.model_dump(exclude_none=True)}
             self.turn = TurnInfo.model_validate(merged)     # diffs carry a partial turnInfo — merge non-null
+        for z in gsm.zones:
+            if z.zoneId is not None:
+                self.zones[z.zoneId] = z                    # registry of zone type/owner (membership via objects)
         for p in gsm.players:
             if p.seat is not None and p.lifeTotal is not None:
                 self.life[p.seat] = p.lifeTotal
-        for o in gsm.gameObjects:
+        for o in gsm.gameObjects:                           # full object snapshots -> replace
             self.objects[o.instanceId] = o
         for gone in gsm.diffDeletedInstanceIds:
             self.objects.pop(gone, None)
+
+    # ── zone-accurate accessors ─────────────────────────────────────────────────────────────────────────
+    def _seat_of(self, o: "GameObject") -> Optional[int]:
+        """Which seat an object belongs to in its zone: the zone owner for owned zones, else its controller."""
+        z = self.zones.get(o.zoneId)
+        if z and z.ownerSeatId is not None:
+            return z.ownerSeatId
+        return o.controllerSeatId
+
+    def in_zone(self, zone_type: str, seat: Optional[int] = None) -> list:
+        """Objects currently in a zone of `zone_type` (optionally for one `seat`), computed from object zoneIds."""
+        out = []
+        for o in self.objects.values():
+            z = self.zones.get(o.zoneId)
+            if z is None or z.type != zone_type:
+                continue
+            if seat is None or self._seat_of(o) == seat:
+                out.append(o)
+        return out
+
+    def hand(self, seat: int) -> list:
+        return self.in_zone("ZoneType_Hand", seat)
+
+    def battlefield(self, seat: Optional[int] = None) -> list:
+        return self.in_zone("ZoneType_Battlefield", seat)
+
+    def graveyard(self, seat: int) -> list:
+        return self.in_zone("ZoneType_Graveyard", seat)
+
+    def library(self, seat: int) -> list:
+        return self.in_zone("ZoneType_Library", seat)
+
+    def stack(self) -> list:
+        return self.in_zone("ZoneType_Stack")
+
+    def seats(self) -> list:
+        return sorted(self.life) or sorted({s for o in self.objects.values()
+                                            if (s := self._seat_of(o)) is not None})
 
     @property
     def phase(self) -> str:
