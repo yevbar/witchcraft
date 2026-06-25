@@ -485,7 +485,7 @@ def _win_order_key(a):
 
 
 def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, node_budget: int = 4000,
-                     forced: bool = False, order: bool = True, beam: int | None = None):
+                     forced: bool = False, order: bool = True, beam: int | None = None, opp_move=None):
     """Find the NEAREST win — the win that lands in the FEWEST TURNS — by iterative deepening over the TURN
     horizon (env `_turn`-passes), NOT plies. Counting TURNS rather than actions is rules-agnostic and the right
     metric across INSTANT SPEED: casting several spells in one turn (or instants on the opponent's turn) doesn't
@@ -496,7 +496,13 @@ def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, nod
     …), or (None, None, nodes). `forced` requires the win to survive every opponent block (a true forced win).
     `order` tries win-relevant moves first (fewer nodes, complete); `beam` caps MY decisions to the top-`beam`
     ordered moves to push the horizon on cluttered boards (HEURISTIC — can miss, never fabricate; `pass`, the
-    gateway across phases/turns, is always kept). Shares one node budget across the deepening levels."""
+    gateway across phases/turns, is always kept). Shares one node budget across the deepening levels.
+
+    `opp_move(state) -> action` plugs in a CONCRETE opponent model: at every opponent decision (its turn AND
+    its blocks) the search steps that one deterministic reply instead of the generic passive/`forced` model —
+    turning the search into a forward SIMULATION against a known policy (e.g. AggroPlayer). The win found (and
+    its projected `turns`) is then honest against THAT opponent, not against a do-nothing or worst-case one.
+    `opp_move` takes precedence over `forced` at opponent nodes; pass forced=False with it."""
     s0 = env.start(state)
     me = me or env.to_move(s0)
     start_turn = s0.get("_turn", 0)
@@ -534,6 +540,9 @@ def find_nearest_win(state: dict, me: str | None = None, max_turns: int = 8, nod
                     break
                 if nodes[0] > node_budget:
                     break
+        elif opp_move is not None:                               # concrete opponent model: one deterministic reply
+            a = opp_move(s)
+            result = dfs(env.step(s, a), horizon, seen) if a is not None else None
         elif forced and any(a[0] == "block" for a in env.legal_actions(s)):
             rep, ok = None, True                                 # adversarial: the win must hold against EVERY block
             for b in [a for a in env.legal_actions(s) if a[0] == "block"]:

@@ -160,3 +160,76 @@ class EnhancedLookaheadPlayer(Player):
             if mv is not None:
                 return mv
         return _dont_blunder(game, me, moves)
+
+
+def _player_opp_move(opponent: "Player"):
+    """An `opp_move(state) -> action` for win_search: model the opponent as a CONCRETE player. At each
+    opponent decision in the search we wrap the raw state in a Game (a python-chess FEN-style position),
+    bind `opponent` to the seat-to-move, and ask it for its move — so the search steps the opponent's ACTUAL
+    reply (e.g. AggroPlayer's swing/develop) instead of a generic passive/worst-case one. Falls back to pass
+    if the player abstains or returns an action that isn't legal here."""
+    import env
+
+    from .game import Game
+
+    def opp_move(state):
+        acts = env.legal_actions(state)
+        if not acts:
+            return None
+        passish = next((a for a in acts if a[0] == "pass"), acts[0])
+        g = Game.from_state(state)
+        mv = opponent.bind(g, env.to_move(state)).choose_move(g)
+        if mv is None:
+            return passish
+        raw = getattr(mv, "raw", mv)
+        return raw if raw in acts else passish
+
+    return opp_move
+
+
+class AwarePlayer(EnhancedLookaheadPlayer):
+    """`EnhancedLookaheadPlayer`, but OPPONENT-AWARE: it searches for the nearest win while modeling the
+    opponent as a concrete player (default `AggroPlayer`) rather than the generic passive (`forced=False`) or
+    worst-case-block (`forced=True`) opponent. Every opponent node in the search steps that player's ACTUAL
+    move, so the search is a forward simulation against the real policy — the win it commits to (and the
+    `last_win` turn projection) holds against THAT opponent specifically, not a strawman. A reachable-win
+    finder that assumed a passive defender finds 'wins' that evaporate when a real aggro races back or blocks;
+    modeling the opponent removes that gap. Still domain-knowledge-free about its OWN plays (only legal moves
+    + terminal). Falls back to don't-blunder when no win survives the opponent.
+
+        from witchcraft.aggro import AggroPlayer
+        from witchcraft.lookahead import AwarePlayer
+        AwarePlayer(opponent=AggroPlayer())          # search assuming the opponent plays aggro
+    """
+
+    name = "aware"
+
+    def __init__(self, opponent: "Player | None" = None, max_turns: int = 8, node_budget: int = 8000,
+                 order: bool = True, beam: int | None = None, seed: int | None = None):
+        """`opponent` is the policy the search assumes the foe plays (default AggroPlayer). max_turns /
+        node_budget / order / beam bound the search exactly as in EnhancedLookaheadPlayer; there's no `forced`
+        flag — the opponent model IS the (deterministic) reply, so adversarial block-branching doesn't apply."""
+        super().__init__(max_turns=max_turns, node_budget=node_budget, forced=False, order=order,
+                         beam=beam, seed=seed)
+        if opponent is None:
+            from .aggro import AggroPlayer
+            opponent = AggroPlayer()
+        self.opponent_model = opponent
+
+    def choose_move(self, game):
+        moves = game.legal_moves
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+        me = game.turn
+        path, turns, _ = win_search.find_nearest_win(
+            game.state, me=me, max_turns=self.max_turns, node_budget=self.node_budget,
+            order=self.order, beam=self.beam, opp_move=_player_opp_move(self.opponent_model))
+        self.last_win = (turns, path) if path else None
+        if path:
+            raw = getattr(path[0], "raw", path[0])
+            mv = next((m for m in moves if getattr(m, "raw", m) == raw), None)
+            if mv is not None:
+                return mv
+        return _dont_blunder(game, me, moves)
