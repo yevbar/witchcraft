@@ -233,7 +233,8 @@ class PyAutoGuiActuator:
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
     def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
-                 jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None):
+                 jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None,
+                 no_click: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
@@ -246,6 +247,7 @@ class PyAutoGuiActuator:
         self._wobble = wobble
         self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
         self._rng = random.Random(seed)
+        self._no_click = no_click                          # move the cursor but never press (safe verification)
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
@@ -274,6 +276,8 @@ class PyAutoGuiActuator:
                 self._pg.moveTo(px, py, duration=dur)
 
     def click(self) -> None:
+        if self._no_click:                                 # move-only mode: skip the press
+            return
         self._pg.click()                                   # click wherever the cursor now rests
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:

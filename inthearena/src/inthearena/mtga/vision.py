@@ -18,20 +18,38 @@ from typing import Optional
 from .navigate import Rect
 
 
-class MoondreamLocator:
-    """Find a UI element with Moondream's point/detect. Provide a ready `model` (a moondream VL handle), or a
-    local `model_path` / cloud `endpoint`+`api_key` to construct one lazily. `scale` maps image pixels back to
-    click coordinates (set ~0.5 on a 2x Retina display); alternatively pass `screen_size=(w, h)` in click coords
-    and the scale is derived from each screenshot's size."""
+def load_moondream(*, revision: str = "2025-06-21", device: Optional[str] = None):
+    """Load Moondream LOCALLY (vikhyatk/moondream2 via transformers) — a ~3.7 GB download on first use, then it
+    runs on CPU/MPS. Returns a model exposing `.point(image, query)` / `.detect(image, query)`. (The `moondream`
+    pip package's `vl()` is cloud-first; this is the offline path.)"""
+    import torch
+    from transformers import AutoModelForCausalLM
+    if device is None:
+        device = "mps" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "cpu"
+    model = AutoModelForCausalLM.from_pretrained(
+        "vikhyatk/moondream2", revision=revision, trust_remote_code=True)
+    try:
+        model = model.to(device)
+    except Exception:
+        pass
+    return model
 
-    def __init__(self, model=None, *, model_path: Optional[str] = None, endpoint: Optional[str] = None,
-                 api_key: Optional[str] = None, scale: float = 1.0, screen_size: Optional[tuple] = None):
+
+class MoondreamLocator:
+    """Find a UI element with Moondream's point/detect. Pass a ready `model` (anything exposing `.point`/
+    `.detect` — a local moondream2 from `load_moondream()`, or a cloud `moondream.vl(api_key=...)` handle); with
+    no model and `local=True` it loads moondream2 locally (the default — keeps the screen on your machine).
+    `scale` maps image pixels back to click coordinates (set ~0.5 on a 2x Retina display); or pass
+    `screen_size=(w, h)` in click coords and the scale is derived from each screenshot's size."""
+
+    def __init__(self, model=None, *, local: bool = True, api_key: Optional[str] = None,
+                 scale: float = 1.0, screen_size: Optional[tuple] = None):
         if model is None:
-            import moondream as md                          # lazy: only when a vision locator is actually used
-            if endpoint or api_key:
-                model = md.vl(endpoint=endpoint, api_key=api_key)
+            if api_key and not local:
+                import moondream as md                      # cloud (sends the image off-machine)
+                model = md.vl(api_key=api_key)
             else:
-                model = md.vl(model=model_path)
+                model = load_moondream()                    # local, offline
         self._model = model
         self._scale = scale
         self._screen_size = screen_size

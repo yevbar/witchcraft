@@ -11,8 +11,8 @@ Automating the MTGA client is against its Terms of Service and can get an accoun
 Running this with no flags WILL move your mouse and click — pass --dry-run first if you want to look before it leaps.
 
 Setup (run from the inthearena/ directory):
-    pip install -e '.[act,vision]'                 # pyautogui (input) + moondream (vision)
-    export INTHEARENA_MOONDREAM_MODEL=moondream.mf  # or pass --model; download a Moondream model file
+    pip install -e '.[act,vision]'                 # pyautogui (input) + local moondream2 (vision, transformers)
+    #  vision runs LOCALLY: first use downloads vikhyatk/moondream2 (~3.7 GB), then it runs offline on CPU/MPS
     #  macOS: grant your terminal/Python Accessibility permission (System Settings > Privacy & Security)
     #  MTGA must be the frontmost window; on a Retina display pass --scale 0.5
 
@@ -24,7 +24,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import os
 import random
 import sys
 
@@ -43,8 +42,8 @@ def main(argv) -> int:
                     help="don't drive the client; just print the planned interaction (no input).")
     ap.add_argument("--no-vision", action="store_true",
                     help="don't use the vision locator; fall back to a coarse coordinate estimate.")
-    ap.add_argument("--model", default=os.environ.get("INTHEARENA_MOONDREAM_MODEL"),
-                    help="Moondream model file for vision (default: $INTHEARENA_MOONDREAM_MODEL).")
+    ap.add_argument("--no-click", action="store_true",
+                    help="move the cursor to the target but DON'T click — safe to verify aim + permissions.")
     ap.add_argument("--scale", type=float, default=1.0,
                     help="image->click coordinate scale; use ~0.5 on a Retina display.")
     ap.add_argument("--log", default=DEFAULT_LOG, help="MTGA Player.log path.")
@@ -73,18 +72,19 @@ def main(argv) -> int:
     else:
         try:
             from inthearena.mtga import PyAutoGuiActuator
-            actuator = PyAutoGuiActuator()
+            actuator = PyAutoGuiActuator(no_click=args.no_click)
         except Exception as e:
             print(f"can't start the live actuator ({type(e).__name__}: {e}). "
                   f"Install input deps: pip install -e '.[act,vision]'  — or use --dry-run.")
             return 1
     if not args.no_vision:
-        if args.model:
+        try:
             from inthearena.mtga import MoondreamLocator
-            locator = MoondreamLocator(model_path=args.model, scale=args.scale)
-        else:
-            print("note: no model (set --model or $INTHEARENA_MOONDREAM_MODEL) — using a coarse estimate. "
-                  "Pass --no-vision to silence this.")
+            print("loading local Moondream (first run downloads ~3.7 GB; then offline)...")
+            locator = MoondreamLocator(scale=args.scale)   # local moondream2 via transformers
+        except Exception as e:
+            print(f"couldn't load the vision model ({type(e).__name__}: {e}) — falling back to a coarse "
+                  f"estimate. Install vision deps: pip install -e '.[vision]'  — or pass --no-vision.")
 
     # 3) take over
     acted = take_over(actuator, view, rng=rng, locator=locator)
@@ -100,6 +100,9 @@ def main(argv) -> int:
         else:
             print(f"  glide from {actuator.moves[0][0]} -> {actuator.clicks[-1]} "
                   f"in {len(actuator.moves)} wobbled, speed-jittered hops, then click")
+    elif args.no_click:
+        print(f"MOVE-ONLY: on {view.name} the cursor traveled to the Play target — NO click. "
+              f"Check whether it landed on the Play button.")
     else:
         print(f"took over on {view.name} — moved the cursor to Play and clicked.")
     return 0
