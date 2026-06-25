@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "inthearena"
 version = "0.0.1"
-description = "Placeholder reserving the `inthearena` distribution"
+description = "Research bridge for driving Magic: The Gathering agents from MTG Arena game logs (see DISCLAIMER.md)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
