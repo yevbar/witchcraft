@@ -358,19 +358,20 @@ def _navigate_checks():
     x, y = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     check("resolve: bottom-right anchor -> bottom-right pixels", x > 500 and y > 400)
 
-    # interaction is a MOVE along the line (A->B) in jittered-speed sub-segments, then a click — not a teleport
-    dry = DryRunActuator(rect=Rect(0, 0, 1000, 800), steps=6, jitter=0.5, seed=1)
+    # interaction is a wobbled, speed-jittered glide A->B then a click — not a straight teleport
+    import math
+    dry = DryRunActuator(rect=Rect(0, 0, 1000, 800), steps=6, jitter=0.5, wobble=12, seed=1)
     start = dry.pos
     dry.move_and_click(900, 720)
     check("move travels in multiple sub-segments (a glide, not one static sweep)", len(dry.moves) == 6)
-    check("path begins at the cursor (A) and ends exactly at the target (B)",
+    check("path begins at the cursor (A) and ends EXACTLY at the target (B) so the click lands",
           dry.moves[0][0] == start and dry.moves[-1][1] == (900, 720))
-    import math
     ax, ay, bx, by = start[0], start[1], 900, 720
     length = math.hypot(bx - ax, by - ay)
-    # perpendicular distance of each waypoint from the A->B line (<= ~1px, just pixel rounding)
-    on_line = lambda p: abs((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)) / length <= 1.5
-    check("all waypoints stay on the straight A->B line", all(on_line(to) for _, to, _ in dry.moves))
+    perp = lambda p: abs((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)) / length   # dist off the A->B line
+    devs = [perp(to) for _, to, _ in dry.moves]
+    check("path DEVIATES off the straight line (wobble, not a dead-straight shot)", max(devs) > 1.5)
+    check("deviation stays bounded (~within wobble)", max(devs) <= 12 + 2)
     durs = [d for _, _, d in dry.moves]
     check("per-segment durations vary -> jittery (non-constant) speed", len(set(durs)) > 1)
     check("clicks at the destination B", dry.clicks == [(900, 720)])
