@@ -870,7 +870,7 @@ XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the dis
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
-BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP)
+BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted|blocked)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP); + §509 'becomes blocked' (forced-block state change, same becomes(-, subj, <state>) shape)
 NOLONGERSUSP.6: /\b(?:is|are|becomes?) no longer suspected\b/   // '<subj> is/are/become no longer suspected' — §701.60 suspect removal (outranks BCM_COP)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
