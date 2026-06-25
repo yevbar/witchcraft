@@ -48,7 +48,11 @@ def locate_play(win, scale, *, use_vision: bool):
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description="Probe which click method MTGA accepts.")
     ap.add_argument("--method", choices=["applescript", "quartz", "quartz-pid", "pyautogui"],
-                    default="applescript")
+                    default="quartz-pid")
+    ap.add_argument("--activate", action="store_true",
+                    help="bring MTGA frontmost before clicking (some clients ignore clicks while backgrounded).")
+    ap.add_argument("--hover", action="store_true",
+                    help="just move onto Play and wait 4s — no click. Watch whether the button HIGHLIGHTS.")
     ap.add_argument("--no-vision", action="store_true", help="use the coarse anchor instead of the vision model.")
     ap.add_argument("--x", type=int, help="click this exact global x (skips locating).")
     ap.add_argument("--y", type=int, help="click this exact global y (skips locating).")
@@ -73,13 +77,27 @@ def main(argv) -> int:
         x, y = locate_play(win, scale, use_vision=not args.no_vision)
     print(f"target (global points): ({x}, {y})")
 
+    from inthearena.mtga.macos import activate_app, click_applescript, click_quartz, mtga_pid
+
     # move the cursor there first (movement works), then click via the chosen method
     import pyautogui
     pyautogui.FAILSAFE = False
     pyautogui.moveTo(x, y, duration=0.4)
     time.sleep(0.15)
 
-    from inthearena.mtga.macos import click_applescript, click_quartz, mtga_pid
+    if args.hover:
+        print("HOVER ONLY: cursor is on Play, no click. Does the button highlight/glow? (waiting 4s)")
+        time.sleep(4)
+        return 0
+
+    if args.activate:
+        pid = mtga_pid()
+        ok = activate_app(pid)
+        print(f"activated MTGA (pid {pid}): {ok}")
+        time.sleep(0.4)
+        pyautogui.moveTo(x, y, duration=0.1)               # re-assert cursor position after the app switch
+        time.sleep(0.1)
+
     print(f"clicking via: {args.method}")
     if args.method == "applescript":
         click_applescript(x, y)

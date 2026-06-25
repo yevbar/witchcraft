@@ -102,14 +102,19 @@ def click_applescript(x: int, y: int) -> None:
 
 
 def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = None) -> None:
-    """Click via Quartz CGEvents: a mouse-moved, then left-down, hold, left-up. With `pid` the events are posted
-    STRAIGHT TO that process (CGEventPostToPid) — which often lands when the global HID tap is ignored."""
+    """Click via Quartz CGEvents: a mouse-moved, then left-down, hold, left-up. Uses a shared HID event source
+    and sets the clickState field (1) — both of which some apps require to recognize a real click. With `pid`
+    the events are posted STRAIGHT TO that process (CGEventPostToPid)."""
     import time
     import Quartz
     pt = Quartz.CGPointMake(float(x), float(y))
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
 
-    def _ev(kind):
-        return Quartz.CGEventCreateMouseEvent(None, kind, pt, Quartz.kCGMouseButtonLeft)
+    def _ev(kind, click_state=0):
+        e = Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft)
+        if click_state:
+            Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, click_state)
+        return e
 
     def _post(ev):
         if pid:
@@ -119,6 +124,19 @@ def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = Non
 
     _post(_ev(Quartz.kCGEventMouseMoved))
     time.sleep(0.02)
-    _post(_ev(Quartz.kCGEventLeftMouseDown))
+    _post(_ev(Quartz.kCGEventLeftMouseDown, 1))
     time.sleep(hold)
-    _post(_ev(Quartz.kCGEventLeftMouseUp))
+    _post(_ev(Quartz.kCGEventLeftMouseUp, 1))
+
+
+def activate_app(pid: int) -> bool:
+    """Bring the app with `pid` to the front (frontmost/active). Some clients ignore clicks while backgrounded.
+    Returns True on success."""
+    try:
+        from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
+    except Exception:
+        return False
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    if app is None:
+        return False
+    return bool(app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
