@@ -43,6 +43,7 @@ from .gre import (
     TurnInfo,
     Zone,
     iter_decisions,
+    latest_game_view,
     messages,
 )
 from .policy import AggroPolicy, Policy, describe
@@ -62,7 +63,7 @@ from .views import RecognizedViews, ScreenAnchor, ViewElement, from_scene_name
 __all__ = [
     "DEFAULT_LOG", "cards",
     "GreMessage", "GameStateMessage", "GameInfo", "GameObject", "TurnInfo", "PlayerState", "Action", "Attacker", "Zone",
-    "GameView", "Decision", "iter_decisions", "messages",
+    "GameView", "Decision", "iter_decisions", "latest_game_view", "messages",
     "AggroPolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
     "to_game", "build_state",

@@ -369,3 +369,16 @@ def iter_decisions(path: str = DEFAULT_LOG) -> Iterator[Decision]:
         d = update(view, m)
         if d is not None:
             yield d
+
+
+def latest_game_view(path: str = DEFAULT_LOG) -> Optional[GameView]:
+    """Replay the whole log and return the final `GameView` — the most recent gameplay state. Useful when the
+    client is already in a match (no menu to navigate): pick the board state up straight from the log. Returns
+    None if the log carried no GameStateMessages at all (e.g. never in a game)."""
+    view = GameView()
+    saw_state = False
+    for m in messages(path):
+        if m.gameStateMessage is not None:
+            view.apply(m.gameStateMessage)
+            saw_state = True
+    return view if saw_state else None

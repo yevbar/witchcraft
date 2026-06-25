@@ -2,8 +2,12 @@
 """take_over_home.py — take over the MTG Arena client on the Home view and click Play.
 
 By DEFAULT this drives the real client: it reads your Player.log, recognizes the current view, and on
-Home/Recently-played moves the cursor to the Play button (located by a small vision model) and clicks. The
-flags only DISABLE things:
+Home/Recently-played moves the cursor to the Play button (located by a small vision model) and clicks.
+
+If you're NOT on a navigatable menu — namely you're already IN A GAME — there's nothing to click, so it
+instead picks the latest gameplay state up straight from the log and prints it (the diff-accurate board).
+
+The flags only DISABLE things:
     --dry-run     don't perform any input — just print the planned interaction
     --no-vision   don't use the vision locator — fall back to a coarse coordinate estimate
 
@@ -31,9 +35,26 @@ from inthearena.mtga import (
     DEFAULT_LOG,
     DryRunActuator,
     RecognizedViews,
+    latest_game_view,
     latest_view,
+    snapshot,
     take_over,
 )
+
+# The menus we know how to take over (click Play). Anything else — most importantly an in-progress game — is
+# "not navigatable": there's no button to press, so we read the latest game state from the log instead.
+NAVIGATABLE = {RecognizedViews.HOME, RecognizedViews.RECENTLY_PLAYED}
+
+
+def report_game_state(log_path: str) -> int:
+    """Not on a navigatable screen: reconstruct the latest gameplay state from the log and print it."""
+    gv = latest_game_view(log_path)
+    if gv is None:
+        print("not a navigatable menu, and the log holds no gameplay state yet — nothing to do.")
+        return 0
+    print(f"in a game ({gv.variant}) — latest state from the log:")
+    print(snapshot(gv).render())
+    return 0
 
 
 def main(argv) -> int:
@@ -63,6 +84,10 @@ def main(argv) -> int:
     if view is None:
         print("couldn't recognize the view from the log — is MTGA running with Detailed Logs (Plugin Support) on?")
         return 1
+
+    # 1b) not on a screen we can navigate (in a game / some other view)? read the game state from the log.
+    if view not in NAVIGATABLE:
+        return report_game_state(args.log)
 
     # 2) build the actuator (live unless --dry-run) and the vision locator (on unless --no-vision)
     rng = random.Random()
