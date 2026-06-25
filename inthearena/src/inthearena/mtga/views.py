@@ -40,7 +40,8 @@ class RecognizedViews(enum.Enum):
     to act on a new view; navigation/UI scope only — NOT gameplay."""
 
     HOME = "Home"                        # landing page; the Play button is in the BOTTOM-RIGHT
-    RECENTLY_PLAYED = "Recently played"  # the recently-played decks section (recognized visually, not a scene)
+    PLAY_MENU = "Play menu"              # the play / event-landing & matchmaking menu (logs as scene 'EventLanding')
+    RECENTLY_PLAYED = "Recently played"  # a recently-played-decks section WITHIN the play menu (recognized visually)
     GAMEPLAY = "GamePlay"                # a game in progress — detected from MATCH STATE, not a scene; in-game
     #                                      actions come from the GRE decision menu (see gre/policy), not view UI
 
@@ -64,6 +65,7 @@ _ELEMENTS = {
 # Which views correspond to a logged `toSceneName` (so the current view can be tracked from the log too).
 _SCENE_NAMES = {
     RecognizedViews.HOME: "Home",
+    RecognizedViews.PLAY_MENU: "EventLanding",
 }
 
 

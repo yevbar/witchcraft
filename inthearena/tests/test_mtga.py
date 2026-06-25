@@ -150,6 +150,20 @@ def _views_checks():
     check("Home surfaces as a log scene; Recently played is visual-only",
           RecognizedViews.HOME.scene_name == "Home" and RecognizedViews.RECENTLY_PLAYED.scene_name is None)
 
+    # PLAY_MENU (aligns with Burning Lotus's PLAY_MENU state) — the play/matchmaking menu, scene 'EventLanding'
+    check("RecognizedViews has Play menu", RecognizedViews.PLAY_MENU.value == "Play menu")
+    check("Play menu maps to the EventLanding scene",
+          RecognizedViews.PLAY_MENU.scene_name == "EventLanding"
+          and from_scene_name("EventLanding") == RecognizedViews.PLAY_MENU)
+    fd, pm = tempfile.mkstemp(suffix=".log")
+    os.write(fd, 'z SceneChange {"fromSceneName":"Home","toSceneName":"EventLanding"}\n'.encode())
+    os.close(fd)
+    try:
+        check("latest_view detects PLAY_MENU from the EventLanding scene",
+              latest_view(pm) == RecognizedViews.PLAY_MENU)
+    finally:
+        os.unlink(pm)
+
     fd, p = tempfile.mkstemp(suffix=".log")
     os.write(fd, ("noise\n"
                   '[UnityCrossThreadLogger]x SceneChange {"fromSceneName":"None","toSceneName":"DeckBuilder"}\n'
