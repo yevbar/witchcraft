@@ -1785,6 +1785,37 @@ def _spree_mode(unit, ctx):
                   + _effect_facts(cid, aid, effects), "spree_mode")
 
 
+# A Tiered mode bullet (§702.x, FIN): '• <Name> — <cost> — <effect>'. Like Spree, each tier carries an
+# additional COST, but the modes are bulleted under a 'Tiered (Choose one additional cost.)' header and
+# carry a flavor mode-name (Cross-Slash / Fire / Cura — no rules meaning, §207.2c). The two em-dashes are
+# the structural skeleton: <name> | <cost> | <body>. Plain string ops peel them off (NOT interpretation);
+# the cost is Lark-validated (`cost_lark`) and the body delegated to the hybrid leaf (`_parse_body`).
+_TIERED_BULLET = re.compile(
+    r"^[•·∙]\s*"
+    r"(?:(?P<name>[^—–{}]+?)\s*[—–]\s*)?"                            # optional flavor mode-name
+    r"(?P<cost>\{[^}]+\}(?:\s*\{[^}]+\})*)"                          # the per-tier additional cost
+    r"\s*[—–]\s*(?P<body>.+)$")
+def _tiered_mode(unit, ctx):
+    """'• <Name> — <cost> — <effect>' — one Tiered mode (FIN): an additional cost + effect, like a bulleted
+    Spree mode. STRUCTURAL split only (the two em-dashes); cost Lark-validated, body via the hybrid leaf.
+    Records the per-tier cost FAITHFULLY (ability_cost) — the plain `_mode_option` path drops it. Placed
+    before `_mode_option` in `_PATTERNS` so priced bullets are caught here; un-priced bullets fall through."""
+    m = _TIERED_BULLET.match(unit.raw)
+    if not m:
+        return None
+    cost = m.group("cost").strip()
+    if not cost_lark.cost_ok(cost):                                 # cost must be a §602-shaped cost
+        return None
+    effects = _parse_body(m.group("body"))                          # the effect body grounds via the hybrid leaf
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"tier{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "tiered_mode")',
+                         f'ability_cost("{cid}", "{aid}", "{cost}")',
+                         f'mode_option("{cid}", "{aid}")']
+                  + _effect_facts(cid, aid, effects), "tiered_mode")
+
+
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
@@ -2608,7 +2639,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
-             _ability_activation_static, _modal, _mode_option, _spree_mode, _cant, _combat_restriction,
+             _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_effect]
