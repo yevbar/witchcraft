@@ -71,7 +71,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -267,6 +267,13 @@ mcfbody: (WORD | QUANT | NUM | PTDELTA | COUNTER | FROM | TOPREP | ZONE | ONPREP
 ecclause: ECOMBAT                                     -> extra_combat_v
 lureclause.-2: LURELEAD lurebody DOSO                 -> lure_v
 lurebody: (WORD | QUANT | NUM | MDUR)+
+// §720 STATIC 'you control <X>' (no 'gain') — the bare-control aura form ('you control enchanted creature/
+// permanent/…') that lark's grant gc-branch (which only fires via GVERB gains/has/have) misses. Anchored on a
+// clause-INITIAL YOUCTRL terminal so it can only match a whole 'you control …' clause — a mid-clause 'creatures
+// you control' can't satisfy it (the clause doesn't START with 'you control'). NEGATIVE priority so any other
+// production wins, and the transformer re-applies `_control`'s EXACT regex to src (non-matching clause abstains).
+youctrlclause.-3: YOUCTRL ycbody                      -> you_control_v
+ycbody: (WORD | QUANT | NUM | ZONE | TOPREP | FROM | MDUR)+
 tclause: ccreator? CVERB (CCOUNT | THATMANY) cspec TOKEN cforeach? ctail?  -> create  // 'create N <spec> token[s] [for each X]'; THATMANY = anaphoric 'create that many <spec> tokens'
 // COMPOUND tokens (AST conjunction): 'create <c1> <spec1> token(s) and <c2> <spec2> token(s)' — the two
 // token NPs share ONE 'create', so a flat split strands the verb-less 2nd half and `create` would DROP it
@@ -875,6 +882,7 @@ MOVE.3: /\bmoves?\b/   // §122 'move <N> <kind> counters from <X> onto <Y>' anc
 ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple)
 LURELEAD.5: /all creatures? able to block/   // §509 lure lead anchor (_lure)
 DOSO.5: /do so/   // §509 lure trailing anchor
+YOUCTRL.5: /you control/   // §720 clause-initial 'you control <X>' static-control anchor (_control bare branch)
 ONPREP.3: /\bon\b/
 THATMANY.4: /\bthat many\b/
 PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
@@ -1332,6 +1340,9 @@ _MCF_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+
 # re-applied to src by lure_v. (extra_combat is a constant-tuple whole-phrase terminal, so it needs no re-apply
 # regex; '<X> must be blocked … if able' is handled in the mustreq transformer via the body-level _MR_MUST_BE_BLOCKED.)
 _LURE_RE = re.compile(r"^all creatures? able to block ({0}) (?:this turn |this combat )?do so$".format(_TGT), re.I)
+# §720 STATIC 'you control <X>' (no 'gain') — the bare-control branch of `_control` that lark's grant gc-branch
+# (GVERB-routed) misses. The 'you control enchanted <type>' aura form dominates. Re-applied to src by you_control_v.
+_CTRL_RE = re.compile(rf"^(?:you )?(?:gain )?control (?:of )?({_TGT})( until end of turn| for as long as .+?)?$", re.I)
 
 
 # REMOVE_COUNTER operand validator — the anchored `_TGT` noun-phrase (mirrors `_DB_TGT`/`_AT_TGT`). The
@@ -2198,6 +2209,24 @@ class _ToEffect(Transformer):
         # (§505) — the EXACT `_extra_combat` template: a CONSTANT tuple. The ECOMBAT terminal already matched the
         # whole phrase (start consumes all), so emit it directly. extra_combat(-, you).
         return Effect("extra_combat", "-", "you")
+
+    def ycbody(self, *toks):
+        return None                                # value unused; re-matched from self._src
+
+    def you_control_v(self, *args):
+        # clause-initial 'you control <X> [dur]' (§720 static control, no 'gain') — the EXACT `_control` template
+        # re-applied to self._src: gain_control(-, _target(X), <until_end_of_turn|slug(dur)|->). A non-`_control`
+        # clause abstains. The dominant corpus form is the aura 'you control enchanted <type>'.
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _CTRL_RE.match(src.strip())
+        if not m:
+            return None
+        g2 = m.group(2)
+        extra = ("until_end_of_turn" if g2 and "end of turn" in g2
+                 else (ground.slug(g2) if g2 else "-"))
+        return Effect("gain_control", "-", _target(m.group(1)), extra)
 
     def lurebody(self, *toks):
         return None
