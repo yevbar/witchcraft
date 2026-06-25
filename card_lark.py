@@ -811,7 +811,7 @@ mtgt: (WORD | QUANT)+                   // the creature getting the P/T boost
 mdur: MDUR
 mferest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+   // the 'for each <X>' object span
 gtgt: (WORD | QUANT | NUM)+             // the permanent/player receiving the grant (stops at gains/has/have)
-gkw: WORD (WORD | NUM | QUANT | TOPREP | FROM | ZONE)*   // keyword phrase: first token a plain WORD (so 'gains 3 life' -> pcount, not here)
+gkw: WORD (WORD | NUM | QUANT | TOPREP | FROM | ZONE | AM_MANASYM)*   // keyword phrase: first token a plain WORD (so 'gains 3 life' -> pcount, not here); AM_MANASYM lets a kw carry its cost ('ward {2}', 'ninjutsu {1}{u}') — _kw_ok slugs it ('ward_2') exactly as the bare-number 'ward 2' already grounds
 csubj: (WORD | QUANT | NUM | ZONE)+     // a player phrase before 'put' (DROPPED — must be a clean player, else abstain)
 ccount: THATMANY | QUANT | WORD | NUM   // the counter count: 'a'/'two'/'up to N'/'that many'/N/X/word
 ckind: PTDELTA | ckwords               // the counter KIND: a P/T delta (kept verbatim) or word(s) -> slugged
