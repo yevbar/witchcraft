@@ -15,7 +15,8 @@ classifiers = [
     "Development Status :: 1 - Planning",
     "Programming Language :: Python :: 3",
 ]
-dependencies = []
+# the mtga bridge parses the GRE log into typed models
+dependencies = ["pydantic>=2"]
 
 [project.urls]
 Homepage = "https://github.com/yevbar"

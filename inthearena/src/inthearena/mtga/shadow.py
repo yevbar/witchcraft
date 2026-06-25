@@ -36,7 +36,7 @@ def main(argv: list[str]) -> int:
         kinds[d.kind] += 1
         n += 1
         # show the meatier decisions (skip the flood of trivial single-pass priority windows)
-        if d.kind == "actions" and (not choice or choice.get("actionType") == "ActionType_Pass"):
+        if d.kind == "actions" and (not choice or choice.actionType == "ActionType_Pass"):
             continue
         print(f"  {d.view.phase:24s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {describe(d, choice)}")
     print(f"\n{n} decisions seen: " + ", ".join(f"{k}={c}" for k, c in kinds.most_common()))

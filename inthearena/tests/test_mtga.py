@@ -7,8 +7,8 @@ import json
 import os
 import tempfile
 
-from inthearena.mtga import AggroPolicy, GameView, iter_decisions
-from inthearena.mtga.gre import messages
+from inthearena.mtga import AggroPolicy, cards, iter_decisions
+from inthearena.mtga.gre import GreMessage, messages
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -55,7 +55,8 @@ def run():
     os.close(fd)
     try:
         msgs = list(messages(path))
-        check("reader skips non-GRE lines, yields the 4 GRE messages", len(msgs) == 4)
+        check("reader yields 4 typed GreMessages, skipping non-GRE lines",
+              len(msgs) == 4 and all(isinstance(m, GreMessage) for m in msgs))
 
         decisions = list(iter_decisions(path))
         kinds = [d.kind for d in decisions]
@@ -63,18 +64,24 @@ def run():
 
         d_actions = decisions[0]
         check("GameView tracked life from the state frame", d_actions.view.life == {1: 20, 2: 17})
-        check("GameView tracked turn", d_actions.view.turn.get("turnNumber") == 3)
+        check("GameView tracked turn (typed TurnInfo)", d_actions.view.turn.turnNumber == 3)
+        check("typed options are Action models", d_actions.options[0].__class__.__name__ == "Action")
         check("decision seat read from systemSeatIds", d_actions.seat == 1)
 
         pol = AggroPolicy()
         a = pol.decide(d_actions)
-        check("aggro prefers PLAY (land) over cast/pass", a.get("actionType") == "ActionType_Play")
+        check("aggro prefers PLAY (land) over cast/pass", a.actionType == "ActionType_Play")
 
         atk = pol.decide(decisions[1])
         check("aggro attacks with ALL qualified attackers", sorted(x["attackerInstanceId"] for x in atk) == [51, 60])
-        check("attackers aimed at the opponent player", atk[0]["target"].get("playerSystemSeatId") == 2)
+        check("attackers aimed at the opponent player", atk[0]["target"].playerSystemSeatId == 2)
 
         check("aggro keeps on mulligan", pol.decide(decisions[2]) == "keep")
+
+        # card mapper: label always degrades to grp<id>; resolves real names when the MTGA DB is present
+        check("cards.label falls back to grp<id> for unknown ids", cards.label(999999999) == "grp999999999")
+        if cards.available():
+            check("cards resolves a real grpId to a name (DB present)", bool(cards.card_name(105108)))
     finally:
         os.unlink(path)
 
