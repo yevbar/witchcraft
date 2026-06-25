@@ -31,18 +31,16 @@ class EagerPlayer(Player):
         forced = game.only_legal_move                      # a forced step (one option) -> take it, skip the search
         if forced is not None:
             return forced
-        moves = game.legal_moves
-        if not moves:
+        if not game.legal_moves:
             return None
 
-        wincons = game.win_conditions(self.me)            # the axes MY deck can pursue
-        for wc in self._PRIORITY:                          # the switch: dispatch to each available axis's strategy
-            if wc in wincons:
-                move = self._DISPATCH[wc](self, game)
-                if move is not None:
+        viable_wincons = game.win_conditions(self.me)      # the axes MY deck can pursue
+        for approach in self._PRIORITY:
+            if approach in viable_wincons:
+                if (move := self._DISPATCH[approach](self, game)) is not None:
                     return move
 
-        return moves[0]                                    # no axis handler produced a move yet -> default legal move
+        return game.legal_moves[0]                         # no axis handler produced a move yet -> default legal move
 
     # ---- per-win-condition strategies (placeholders — each returns None for now) ------------------------------
 
