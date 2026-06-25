@@ -73,3 +73,52 @@ def capture_rect(rect: Rect):
     path = tempfile.mktemp(suffix=".png")                   # noqa: S306 - throwaway capture file
     subprocess.run(["screencapture", "-x", f"-R{rect.x},{rect.y},{rect.w},{rect.h}", path], check=True)
     return Image.open(path).convert("RGB")
+
+
+def mtga_pid(names=("MTGA", "Arena")) -> Optional[int]:
+    """The MTGA process id (for posting events straight to it), or None."""
+    try:
+        import Quartz
+    except Exception:
+        return None
+    wins = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID) or []
+    for w in wins:
+        owner = w.get("kCGWindowOwnerName", "") or ""
+        if any(n.lower() in owner.lower() for n in names):
+            return w.get("kCGWindowOwnerPID")
+    return None
+
+
+# ── click backends ───────────────────────────────────────────────────────────────────────────────────────
+# (x, y) are global points. pyautogui's plain click is an instantaneous down+up that Unity clients like MTGA
+# often drop; these are progressively more forceful ways to land a real click. Each holds the button briefly.
+
+def click_applescript(x: int, y: int) -> None:
+    """Click via AppleScript (System Events). Needs Accessibility for the controlling app; least reliable for
+    games (no AX hierarchy), but cheap to try."""
+    subprocess.run(["osascript", "-e",
+                    f'tell application "System Events" to click at {{{int(x)}, {int(y)}}}'], check=False)
+
+
+def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = None) -> None:
+    """Click via Quartz CGEvents: a mouse-moved, then left-down, hold, left-up. With `pid` the events are posted
+    STRAIGHT TO that process (CGEventPostToPid) — which often lands when the global HID tap is ignored."""
+    import time
+    import Quartz
+    pt = Quartz.CGPointMake(float(x), float(y))
+
+    def _ev(kind):
+        return Quartz.CGEventCreateMouseEvent(None, kind, pt, Quartz.kCGMouseButtonLeft)
+
+    def _post(ev):
+        if pid:
+            Quartz.CGEventPostToPid(pid, ev)
+        else:
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+
+    _post(_ev(Quartz.kCGEventMouseMoved))
+    time.sleep(0.02)
+    _post(_ev(Quartz.kCGEventLeftMouseDown))
+    time.sleep(hold)
+    _post(_ev(Quartz.kCGEventLeftMouseUp))

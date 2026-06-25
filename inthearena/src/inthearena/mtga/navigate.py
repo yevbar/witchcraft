@@ -234,7 +234,7 @@ class PyAutoGuiActuator:
 
     def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
                  jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None,
-                 no_click: bool = False, capture=None):
+                 no_click: bool = False, capture=None, click_backend=None):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
@@ -249,6 +249,7 @@ class PyAutoGuiActuator:
         self._rng = random.Random(seed)
         self._no_click = no_click                          # move the cursor but never press (safe verification)
         self._capture = capture                            # optional region grabber (e.g. just the MTGA window)
+        self._click_backend = click_backend                # optional click(x, y) — e.g. Quartz-to-pid for Unity
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
@@ -282,6 +283,9 @@ class PyAutoGuiActuator:
         if self._no_click:                                 # move-only mode: skip the press
             return
         x, y = self._pg.position()                         # press wherever the cursor now rests
+        if self._click_backend is not None:                # a stronger backend (e.g. Quartz-to-pid) for Unity
+            self._click_backend(x, y)
+            return
         self._pg.moveTo(x, y)                              # nudge so the client registers hover before the press
         self.wait(self._rng.uniform(0.04, 0.10))
         # an instantaneous down+up (plain .click()) is often dropped by game clients (MTGA is Unity) — hold the
