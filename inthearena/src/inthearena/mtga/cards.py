@@ -19,8 +19,11 @@ from __future__ import annotations
 import functools
 import glob
 import os
+import re
 import sqlite3
 from typing import Optional
+
+_TAG = re.compile(r"<[^>]+>")                               # some localized names carry markup, e.g. "<nobr>"
 
 _DB_GLOB = os.path.expanduser(
     "~/Library/Application Support/com.wizards.mtga/Downloads/Raw/Raw_CardDatabase_*.mtga")
@@ -53,7 +56,7 @@ def _name_map() -> dict:
             "SELECT c.GrpId, l.Loc FROM Cards c "
             "JOIN Localizations_enUS l ON l.LocId = c.TitleId "
             "WHERE l.Formatted = 1")                        # 1 = the card-name rows (covers all ~26k cards)
-        return {grp: name for grp, name in rows}
+        return {grp: _TAG.sub("", name) for grp, name in rows}
     except sqlite3.Error:
         return {}
     finally:
