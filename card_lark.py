@@ -1083,6 +1083,10 @@ _ENTERS_CTR_RE = re.compile(rf"^(?:({_TGT}) )?enters with (\w+) (?:additional )?
 # (690) in the chain, but their patterns are disjoint ('your hand' ∉ _discard_set's set), so order is moot.
 _DH_RE = re.compile(r"^discard your hand$", re.I)
 _DSET_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?discards? (their hand|those cards|that card|all the cards in their hand)$", re.I)
+# 'discard all the cards in YOUR hand' — NOT in `_discard_set` (which only matches 'their hand'), so the regex
+# grounds it via the generic object-verb leaf as discard(-, _target('all the cards in your hand')) — the whole
+# phrase in the TARGET slot (vs _discard_set's 'their' form, which puts the slug in EXTRA). Reproduce that exactly.
+_DAYH_RE = re.compile(r"^discards? all the cards in your hand$", re.I)
 # DISCARD '[twice|half] that many cards [plus|minus N]' anaphoric amount — `_discard_that_many`'s exact pattern
 # (amount via _that_amt; the trailing 'at random' rider is DROPPED, as the regex does). pcount routes discard
 # here but dies on `_amount('that many')`=None. Re-applied to src; reproduces the tuple byte-for-byte.
@@ -3071,6 +3075,8 @@ class _ToEffect(Transformer):
                 s = src.strip()
                 if _DH_RE.match(s):
                     return Effect("discard", "all", "you")
+                if _DAYH_RE.match(s):           # 'discard all the cards in your hand' — generic-leaf shape:
+                    return Effect("discard", "-", _target("all the cards in your hand"))   # whole phrase -> TARGET
                 m = _DSET_RE.match(s)
                 if m:
                     return Effect("discard", "-", _target(m.group(1) or "you"), ground.slug(m.group(2)))
