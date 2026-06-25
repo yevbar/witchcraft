@@ -1180,6 +1180,10 @@ _BTA_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]
 # src by bctype_v (after _BCT_RE); _ALLT_RE precedes _TAP_RE to match the regex chain order (`_all_types` is
 # registered before `_type_add_plural`, so 'is every creature type in addition …' grounds every_, not added_).
 _ALLT_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) every (creature|basic land|nonbasic land|land) type(?: in addition to (?:its|their) other types)?(?: until end of turn)?$", re.I)
+# '<subj> becomes a/an <subtype> [until eot| for as long as …]' (§205 type SET to a permanent subtype) — net-new,
+# gated by ground.permanent_subtypes in bctype_v (every type word must be a grounded subtype, else abstain).
+_BCSUB_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) an? ([\w' -]+?)(?: until end of turn| for as long as (.+?))?$", re.I)
+_PERM_SUBTYPES = ground.permanent_subtypes()
 _TAP_RE = re.compile(r"^(" + _BCM_TGT_SRC + r") (?:is|are|becomes?) ([\w' ,-]+?) in addition to (?:its|their) other (?:creature |land )?(?:types|colors)(?: until end of turn)?$", re.I)
 # BASE-P/T-set family — `_becomes_base_pt` / `_base_pt_perpetual` / `_base_pt` exact patterns (re-applied
 # to src by basept_v in that precedence order).
@@ -3657,6 +3661,18 @@ class _ToEffect(Transformer):
         m = _TAP_RE.match(src.strip())
         if m and not (_is_compound_object(m.group(2)) or _BT_RUNON.search(m.group(2))):
             return Effect("becomes", "-", _target(m.group(1)), "added_" + ground.slug(m.group(2)))
+        # FALLBACK 4 (NET-NEW, no regex template): '<subj> becomes a/an <subtype> [until eot| for as long as …]'
+        # — a §205 type SET to a permanent SUBTYPE (Coward/Warrior/Flagbearer/Demon Spirit/…) that the closed
+        # card-type list (_BCT) doesn't cover. GATED: every word of the type phrase must be a grounded §205
+        # subtype (ground.permanent_subtypes) — so a non-subtype ('a black Zombie' -> color, already handled by
+        # _BCCT above; junk) abstains instead of slugging garbage. -> becomes(-, _target(subj), slug(subtype),
+        # <for_as_long_as|->). Comes LAST so the card-type/color-type/in-addition forms keep precedence.
+        m = _BCSUB_RE.match(src.strip())
+        if m and not _is_compound_object(m.group(2)):
+            words = m.group(2).split()
+            if words and all(ground.slug(w) in _PERM_SUBTYPES for w in words):
+                cond = "for_as_long_as_" + ground.slug(m.group(3)) if m.group(3) else "-"
+                return Effect("becomes", "-", _target(m.group(1)), ground.slug(m.group(2)), cond)
         return None
 
     def bptpre(self, *toks):

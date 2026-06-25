@@ -49,6 +49,40 @@ def keyword_actions() -> frozenset:
     return _names("keyword_action_index.dl", "keyword_action_index")
 
 
+_ENUM = re.compile(r'enum_member\("([^"]+)", "([^"]+)"\)\.')
+
+
+@lru_cache(maxsize=1)
+def _enum_members() -> dict:
+    """{category: frozenset(slugged members)} from §205 enum_member facts (enumerations.dl) — the grounded
+    type enumerations (creature_type/artifact_type/enchantment_type/land_type/basic_land_type/…)."""
+    out: dict[str, set] = {}
+    for line in (_DL / "enumerations.dl").read_text(encoding="utf-8").splitlines():
+        m = _ENUM.search(line.strip())
+        if m:
+            out.setdefault(m.group(1), set()).add(slug(m.group(2)))
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+@lru_cache(maxsize=1)
+def creature_types() -> frozenset:
+    """The §205.3 creature-type roster (Coward, Warrior, Wizard, …) — grounded subtypes."""
+    return _enum_members().get("creature_type", frozenset())
+
+
+@lru_cache(maxsize=1)
+def permanent_subtypes() -> frozenset:
+    """All grounded §205 permanent SUBTYPES (creature + artifact + enchantment + land + basic-land + planeswalker
+    types) — the closed set a '<subj> becomes a <subtype>' clause may name (so the becomes interpreter abstains
+    on a non-subtype word instead of slugging garbage)."""
+    e = _enum_members()
+    out: set = set()
+    for cat in ("creature_type", "artifact_type", "enchantment_type", "land_type",
+                "basic_land_type", "planeswalker_type"):
+        out |= e.get(cat, frozenset())
+    return frozenset(out)
+
+
 _SYMCOLOR = re.compile(r'symbol_color\("(\{[^"]+\})", "([a-z]+)"\)\.')
 
 
