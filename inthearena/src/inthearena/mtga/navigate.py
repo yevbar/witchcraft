@@ -60,6 +60,28 @@ def target_point(element: ViewElement, rect: Rect, rng: random.Random) -> tuple:
     return x + rng.randint(-s, s), y + rng.randint(-s, s)
 
 
+def _element(view: RecognizedViews, name: str) -> Optional[ViewElement]:
+    return next((e for e in view.elements if e.name == name), None)
+
+
+def _within_bounds(pos: tuple, anchor: tuple, element: ViewElement) -> bool:
+    r = element.radius if element.radius is not None else element.spread
+    return abs(pos[0] - anchor[0]) <= r and abs(pos[1] - anchor[1]) <= r
+
+
+def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random.Random) -> None:
+    """Click `element`. If the cursor is ALREADY within the element's bounds, don't move at all — wait a brief
+    moment and click in place; otherwise glide (wobbled, speed-jittered) to a jittered point within it, then
+    click. Avoids an unnatural re-approach when the pointer is already on the button."""
+    anchor = resolve(element, rect)
+    pos = actuator.position()
+    if pos is not None and _within_bounds(pos, anchor, element):
+        actuator.wait(rng.uniform(0.08, 0.25))             # already on it: a human beat, then click in place
+        actuator.click()
+    else:
+        actuator.move_and_click(*target_point(element, rect, rng))
+
+
 def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
                       rng: random.Random, wobble: float = 6.0) -> list:
     """A human-ish glide from a to b in `steps` sub-segments. Each waypoint:
@@ -89,13 +111,23 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
 
 
 class Actuator(Protocol):
-    """Performs physical interactions. `window_rect()` locates the client; `move_and_click(x, y)` travels the
-    cursor along a line from where it is (point A) to (x, y) (point B), then clicks."""
+    """Performs physical interactions. `window_rect()` locates the client, `position()` reads the cursor,
+    `move_and_click(x, y)` travels the cursor from where it is to (x, y) then clicks, `click()` clicks in
+    place, and `wait(s)` pauses."""
 
     def window_rect(self) -> Optional[Rect]:
         ...
 
+    def position(self) -> Optional[tuple]:
+        ...
+
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        ...
+
+    def click(self) -> None:
+        ...
+
+    def wait(self, seconds: float) -> None:
         ...
 
 
@@ -114,6 +146,7 @@ class DryRunActuator:
     seed: Optional[int] = None
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
+    waits: list = field(default_factory=list)              # pauses taken (seconds)
 
     def __post_init__(self):
         if self.pos is None:                               # start at the client's center
@@ -122,6 +155,12 @@ class DryRunActuator:
 
     def window_rect(self) -> Optional[Rect]:
         return self.rect
+
+    def position(self) -> Optional[tuple]:
+        return self.pos
+
+    def wait(self, seconds: float) -> None:
+        self.waits.append(seconds)
 
     def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         total = self.duration if duration is None else duration
@@ -162,6 +201,13 @@ class PyAutoGuiActuator:
     def window_rect(self) -> Optional[Rect]:
         return self._rect
 
+    def position(self) -> Optional[tuple]:
+        p = self._pg.position()
+        return int(p[0]), int(p[1])
+
+    def wait(self, seconds: float) -> None:
+        time.sleep(seconds)
+
     def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         total = self._duration if duration is None else duration
         cur = self._pg.position()
@@ -183,10 +229,10 @@ class PyAutoGuiActuator:
         self.click()
 
 
-# For each non-game view, the element to move-and-click to advance toward a game. Extend as each view's UI is
-# mapped (PLAY_MENU still needs its deck-select + queue elements; until then navigation stops there).
+# For each non-game view, the element to interact with to advance toward a game (from the view's own elements,
+# so its bounds/spread are shared). Extend as each view's UI is mapped (PLAY_MENU still needs deck-select/queue).
 _TOWARD_GAME = {
-    RecognizedViews.HOME: ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT),
+    RecognizedViews.HOME: _element(RecognizedViews.HOME, "Play"),
 }
 
 
@@ -215,7 +261,7 @@ class Navigator:
         rect = self._act.window_rect()
         if element is None or rect is None:
             return False
-        self._act.move_and_click(*target_point(element, rect, self._rng))
+        interact(self._act, element, rect, self._rng)      # glides, or just clicks if already on the element
         return True
 
     def _wait_for_change(self, previous: Optional[RecognizedViews]) -> Optional[RecognizedViews]:
@@ -243,15 +289,16 @@ class Navigator:
 def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
               rng: Optional[random.Random] = None) -> bool:
     """Take control and perform the appropriate action for the current `view`. Today: on HOME, identify the
-    Play button and move-and-click SOMEWHERE within it (its anchor jittered by a few px, via target_point), so
-    the cursor doesn't land on the same spot each time. Returns True if it acted, False if the view has no
-    take-over action yet — the seam where more views plug in (PLAY_MENU deck-select/queue, in-game play). Pass
-    the recognized current view, e.g. from `latest_view()` / a `LiveState.current_view` / a vision recognizer."""
+    Play button and click it — gliding to a jittered point within it (never the same spot), OR, if the cursor
+    is already on the button, just pausing a beat and clicking in place. Returns True if it acted, False if the
+    view has no take-over action yet — the seam where more views plug in (PLAY_MENU deck-select/queue, in-game
+    play). Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view` / a vision
+    recognizer."""
     rng = rng or random.Random()
     if view is RecognizedViews.HOME:
         rect = actuator.window_rect()
-        element = next((e for e in RecognizedViews.HOME.elements if e.name == "Play"), None)
+        element = _element(RecognizedViews.HOME, "Play")
         if rect is not None and element is not None:
-            actuator.move_and_click(*target_point(element, rect, rng))
+            interact(actuator, element, rect, rng)         # glide to it, or just click if already on it
             return True
     return False

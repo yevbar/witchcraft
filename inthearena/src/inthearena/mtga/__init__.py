@@ -22,6 +22,7 @@ from .navigate import (
     Navigator,
     PyAutoGuiActuator,
     Rect,
+    interact,
     resolve,
     take_over,
     target_point,
@@ -68,5 +69,5 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
-    "take_over", "target_point",
+    "take_over", "target_point", "interact",
 ]

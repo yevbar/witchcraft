@@ -417,6 +417,21 @@ def _navigate_checks():
     check("take_over is a no-op off HOME (GAMEPLAY) for now",
           take_over(DryRunActuator(), RV.GAMEPLAY) is False)
 
+    # cursor ALREADY within the Play button -> do not move, just wait a moment and click in place
+    play = next(e for e in RV.HOME.elements if e.name == "Play")
+    nrect = Rect(0, 0, 1000, 800)
+    anchor = resolve(play, nrect)
+    here = (anchor[0] + 3, anchor[1] - 4)                  # inside the button radius
+    onbtn = DryRunActuator(rect=nrect, pos=here)
+    take_over(onbtn, RV.HOME, rng=_r.Random(0))
+    check("already on the button -> no cursor movement at all", onbtn.moves == [])
+    check("already on the button -> waits a moment, then clicks in place",
+          len(onbtn.waits) == 1 and onbtn.clicks == [here])
+    # just OUTSIDE the button -> it does glide
+    outside = DryRunActuator(rect=nrect, pos=(anchor[0] - play.radius - 20, anchor[1]))
+    take_over(outside, RV.HOME, rng=_r.Random(0))
+    check("outside the button -> glides (moves) to it", len(outside.moves) > 0 and outside.waits == [])
+
 
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")

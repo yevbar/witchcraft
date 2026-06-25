@@ -30,12 +30,14 @@ class ScreenAnchor(enum.Enum):
 @dataclass(frozen=True)
 class ViewElement:
     """A clickable element the bot can target within a view, at a coarse screen anchor. `spread` is how many
-    pixels the click point may be jittered off the nominal anchor (in x and y) so the cursor doesn't land on
-    the exact same spot within the element every time."""
+    pixels the click point may be jittered off the nominal anchor (so the cursor doesn't land on the exact same
+    spot every time). `radius` is the element's clickable half-extent — if the cursor is already within it,
+    there's no need to move (just click) — and defaults to `spread` when not known."""
 
     name: str
     anchor: ScreenAnchor
     spread: int = 6
+    radius: Optional[int] = None
 
 
 class RecognizedViews(enum.Enum):
@@ -61,7 +63,7 @@ class RecognizedViews(enum.Enum):
 
 # Known clickable elements per view (the user-noted anchors; extend as the navigation layer grows).
 _ELEMENTS = {
-    RecognizedViews.HOME: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT),),
+    RecognizedViews.HOME: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
     RecognizedViews.RECENTLY_PLAYED: (),
 }
 
