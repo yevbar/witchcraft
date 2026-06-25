@@ -41,7 +41,7 @@ _ANCHOR_FRAC = {
     ScreenAnchor.TOP_LEFT: (0.08, 0.08),
     ScreenAnchor.TOP_RIGHT: (0.92, 0.08),
     ScreenAnchor.BOTTOM_LEFT: (0.08, 0.92),
-    ScreenAnchor.BOTTOM_RIGHT: (0.90, 0.90),
+    ScreenAnchor.BOTTOM_RIGHT: (0.90, 0.93),    # MTGA's Play button sits low-right; 0.90y landed a touch high
     ScreenAnchor.CENTER: (0.50, 0.50),
 }
 
