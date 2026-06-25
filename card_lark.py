@@ -334,11 +334,14 @@ bchtail: MDUR                                          // optional 'until end of
 // transformer re-matches src against the template's exact pattern (the CLOSED card-type word list: only a
 // real type word grounds, so 'is a black Zombie' / 'is a Forest in addition to its other LAND types' defer
 // to `_becomes_color_type`/the added_ templates). becomes(-, _target(subj), slug(type), <for_as_long_as|->).
-// An `_is_compound_object(src)` guard defers run-ons. The QUANT (a/an article) is OPTIONAL: the ARTICLE-LESS
-// forms — '<subj> are <Type>s in addition to their other types' (`_type_add_plural`) and '<subj> is every
-// <kind> type' (`_all_types`) — must also reach bctype_v, which re-matches src against the precise per-template
-// regexes (so the loosened gate can't mis-ground: a clause outside every _BC*/_ALLT/_TAP pattern abstains).
-bctclause.-2: bcmtgt BCM_COP QUANT? ctrest            -> bctype_v
+// An `_is_compound_object(src)` guard defers run-ons. NOTE: the QUANT (a/an article) is REQUIRED. An earlier
+// commit (9e22c5e) made it optional (QUANT?) to reach the ARTICLE-LESS forms ('<subj> are <Type>s in addition
+// to their other types' / '<subj> is every <kind> type'), but QUANT? let bctclause match ANY '<NP> is/are
+// <non-article>' clause — shadowing ~32 productions (relative-clause modify_pt anthems, conditional deal_damage,
+// becomes_day/night, ceqmclause) via one-tree/no-fallthrough, a NET -9 lark coverage loss. Reverted to QUANT;
+// the article-less becomes forms fall back to the regex leaf (parse_clause output unchanged) pending a clean
+// dedicated-anchor re-implementation (EVERYTYPE / article-less-INADD productions) that won't shadow.
+bctclause.-2: bcmtgt BCM_COP QUANT ctrest             -> bctype_v
 ctrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+
 
 // BASE POWER AND TOUGHNESS (§208/§613.3) — the base-P/T-set family, anchored on the highly distinctive

@@ -41,16 +41,23 @@ def run() -> None:
     check("'the foo cost is equal to its mana cost' (non-keyword) abstains",
           parse_clause_lark("the foo cost is equal to its mana cost") is None)
 
-    # GUARD: the becomes family (the QUANT?-broadened bctclause) is UNCHANGED by the priority bump
+    # GUARD: the WITH-ARTICLE becomes forms (bctclause, QUANT required) still ground in lark unchanged
     becomes = [
         ("enchanted creature is a black zombie", ("becomes", "-", "enchanted_creature", "black_zombie", "-")),
-        ("all lands are islands in addition to their other types", ("becomes", "-", "all_lands", "added_islands", "-")),
-        ("~ is every creature type", ("becomes", "-", "self", "every_creature_type", "-")),
         ("target permanent is an artifact in addition to its other types until end of turn",
          ("becomes", "-", "target_permanent", "artifact", "-")),
     ]
     for s, want in becomes:
-        check(f"becomes unchanged: {s[:40]!r}", _tup(parse_clause_lark(s)) == want)
+        check(f"becomes (with-article) unchanged in lark: {s[:40]!r}", _tup(parse_clause_lark(s)) == want)
+
+    # the ARTICLE-LESS becomes forms now abstain in lark (the QUANT? broadening was reverted) but remain covered
+    # end-to-end via the regex leaf — parse_clause still grounds them (output unchanged)
+    from card_effects import parse_clause
+    for s, want in [("all lands are islands in addition to their other types",
+                     ("becomes", "-", "all_lands", "added_islands", "-")),
+                    ("~ is every creature type", ("becomes", "-", "self", "every_creature_type", "-"))]:
+        check(f"article-less becomes regex-covered via parse_clause: {s[:36]!r}",
+              parse_clause_lark(s) is None and _tup(parse_clause(s)) == want)
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
