@@ -70,7 +70,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
-     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | chsclause | rvclause | pvclause
+     | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | alltclause | chsclause | rvclause | pvclause
      | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
@@ -343,6 +343,14 @@ bchtail: MDUR                                          // optional 'until end of
 // dedicated-anchor re-implementation (EVERYTYPE / article-less-INADD productions) that won't shadow.
 bctclause.-2: bcmtgt BCM_COP QUANT ctrest             -> bctype_v
 ctrest: (WORD | QUANT | NUM | TOPREP | FROM | ZONE | MDUR | BOUND | PTDELTA | EQUALTO | DEALS | DMG | GETS | ONPREP | COUNTER)+
+// ARTICLE-LESS ALL-TYPES (§205) — '<subj> is/are/becomes every <kind> type [in addition to other types]' (the
+// `_all_types` template). The CORRECT way to reach this article-less form (vs the reverted QUANT? blunt-instrument):
+// a DEDICATED production anchored on a DISTINCTIVE EVERYTYPE terminal ('every <creature|basic land|…> type'),
+// which appears ONLY in all-types becomes clauses — so it can't shadow unrelated productions. The optional 'in
+// addition …'/duration tail rides alltail (plain WORDs, NOT a shared terminal). Transformer re-applies `_all_types`'
+// EXACT regex (_ALLT_RE) to src -> becomes(-, _target(subj), 'every_'+slug(kind)+'_type').
+alltclause.-2: bcmtgt BCM_COP EVERYTYPE alltail?      -> alltypes_v
+alltail: (WORD | QUANT | NUM | MDUR)+
 
 // BASE POWER AND TOUGHNESS (§208/§613.3) — the base-P/T-set family, anchored on the highly distinctive
 // BASEPT phrase 'base power and toughness'. The transformer re-matches src against the three templates in
@@ -897,6 +905,7 @@ PTDELTA.4: /[+-](?:\d+|x)\/[+-](?:\d+|x)/
 BASEPT.6: /\bbase power and toughness\b/   // §208/§613.3 base-P/T-set anchor (distinctive)
 ALSO.4: /\balso\b/                  // 'is/are also a <type>' — §205 type-addition anchor (_type_also)
 CHOSENTYPE.6: /\bthe chosen type\b/   // 'is the chosen type' — §205 (_becomes_chosen type branch; 'chosen color' is the color slice)
+EVERYTYPE.6: /\bevery (?:creature|basic land|nonbasic land|land) type\b/   // '<subj> is every <kind> type' — §205 all-types anchor (_all_types); distinctive, becomes-only
 BCM_PT.5: /(?:[0-9]|x|\*)+\/(?:[0-9]|x|\*)+/   // a set base P/T ('2/1','x/x','*/*') — regex `[\dX*]+/[\dX*]+` (input is lowercased). Outranks WORD so the P/T slot is unambiguous.
 BCM_COP.4: /\b(?:becomes?|are|is)\b/             // the becomes/is/are copula (the optional 'a/an' reuses QUANT, not a new terminal)
 COLOR.6: /\b(?:white|blue|black|red|green|colorless|all colors|that color|the chosen color)(?: in addition to its other colors)?(?: until end of turn)?\b/   // _becomes_color literal-color slice + greedy riders
@@ -3678,6 +3687,20 @@ class _ToEffect(Transformer):
         if m:
             return Effect("becomes", m.group(2).upper(), _target(m.group(1)), "base_pt")
         return None
+
+    def alltail(self, *toks):
+        return None                                # value unused; src is re-matched
+
+    def alltypes_v(self, *args):
+        # '<subj> is/are/becomes every <kind> type [in addition to other types] [until eot]' (§205) — the EXACT
+        # `_all_types` template re-applied to self._src: becomes(-, _target(subj), 'every_'+slug(kind)+'_type').
+        src = getattr(self, "_src", None)
+        if src is None:
+            return None
+        m = _ALLT_RE.match(src.strip())
+        if not m:
+            return None
+        return Effect("becomes", "-", _target(m.group(1)), "every_" + ground.slug(m.group(2)) + "_type")
 
     def btaorest(self, *toks):
         return None

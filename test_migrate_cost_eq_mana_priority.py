@@ -53,11 +53,14 @@ def run() -> None:
     # the ARTICLE-LESS becomes forms now abstain in lark (the QUANT? broadening was reverted) but remain covered
     # end-to-end via the regex leaf — parse_clause still grounds them (output unchanged)
     from card_effects import parse_clause
-    for s, want in [("all lands are islands in addition to their other types",
-                     ("becomes", "-", "all_lands", "added_islands", "-")),
-                    ("~ is every creature type", ("becomes", "-", "self", "every_creature_type", "-"))]:
-        check(f"article-less becomes regex-covered via parse_clause: {s[:36]!r}",
-              parse_clause_lark(s) is None and _tup(parse_clause(s)) == want)
+    # the 'in addition' article-less form is still regex-only (lark abstains, parse_clause covers it)
+    check("article-less in-addition regex-covered via parse_clause",
+          parse_clause_lark("all lands are islands in addition to their other types") is None
+          and _tup(parse_clause("all lands are islands in addition to their other types"))
+          == ("becomes", "-", "all_lands", "added_islands", "-"))
+    # the 'every <kind> type' article-less form now grounds in lark again (dedicated alltclause)
+    check("article-less every-type now grounds in lark (alltclause)",
+          _tup(parse_clause_lark("~ is every creature type")) == ("becomes", "-", "self", "every_creature_type", "-"))
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

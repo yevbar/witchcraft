@@ -30,23 +30,32 @@ def _tup(e):
 
 
 def run() -> None:
-    # ARTICLE-LESS forms: lark abstains (QUANT? reverted), but parse_clause grounds them via the regex leaf
-    article_less = [
+    # ARTICLE-LESS 'in addition' forms (`_type_add_plural`): lark abstains (the QUANT? broadening was reverted and
+    # the dedicated article-less-INADD production is still deferred), but parse_clause grounds them via the regex leaf
+    inaddition = [
         ("all lands are islands in addition to their other types", ("becomes", "-", "all_lands", "added_islands", "-")),
         ("creatures you control are artifacts in addition to their other types",
          ("becomes", "-", "creatures_you_control", "added_artifacts", "-")),
         ("those creatures are vampires in addition to their other types",
          ("becomes", "-", "those_creatures", "added_vampires", "-")),
+    ]
+    for s, want in inaddition:
+        check(f"lark abstains on article-less in-addition {s[:36]!r}", parse_clause_lark(s) is None)
+        check(f"parse_clause (regex leaf) still grounds {s[:30]!r} -> {want[3]}", _tup(parse_clause(s)) == want)
+        check(f"regex grounds {s[:26]!r}", _tup(parse_effect(s)) == want)
+
+    # ARTICLE-LESS 'every <kind> type' forms (`_all_types`): NOW ground in lark again via the dedicated alltclause
+    # (EVERYTYPE anchor — the CORRECT re-add, vs the reverted QUANT?), byte-identical to the regex
+    everytype = [
         ("~ is every creature type", ("becomes", "-", "self", "every_creature_type", "-")),
+        ("~ is every nonbasic land type", ("becomes", "-", "self", "every_nonbasic_land_type", "-")),
+        ("creatures you control are every creature type", ("becomes", "-", "creatures_you_control", "every_creature_type", "-")),
         ("lands you control are every basic land type in addition to their other types",
          ("becomes", "-", "lands_you_control", "every_basic_land_type", "-")),
     ]
-    for s, want in article_less:
-        check(f"lark abstains on article-less {s[:40]!r}", parse_clause_lark(s) is None)
-        check(f"parse_clause (regex leaf) still grounds {s[:34]!r} -> {want[3]}",
-              _tup(parse_clause(s)) == want)
-        # the regex leaf is the source of that grounding
-        check(f"regex grounds {s[:28]!r}", _tup(parse_effect(s)) == want)
+    for s, want in everytype:
+        check(f"lark grounds every-type {s[:40]!r} -> {want[3]}", _tup(parse_clause_lark(s)) == want)
+        check(f"byte-identical to regex for {s[:30]!r}", _tup(parse_clause_lark(s)) == _tup(parse_effect(s)))
 
     # WITH-ARTICLE forms still ground in lark (bctclause, QUANT required — never depended on the broadening)
     with_article = [
