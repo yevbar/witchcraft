@@ -13,13 +13,16 @@ from inthearena.mtga import (
     GameView,
     RecognizedViews,
     ScreenAnchor,
+    LiveState,
     cards,
     current_view,
+    follow,
     from_scene_name,
     in_game,
     iter_decisions,
     latest_view,
     snapshot,
+    tail_lines,
     to_engine_facts,
 )
 from inthearena.mtga.gre import GreMessage, messages
@@ -264,6 +267,87 @@ def _engine_checks():
     check("format: no gameInfo -> defaults to 'two-player'", plain.variant == "two-player")
 
 
+def _live_checks():
+    """Tail mode: follow a growing/rotating log and keep state updated incrementally."""
+    # 1) reads existing complete lines
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, b"a\nb\nc\n")
+    os.close(fd)
+    try:
+        got = []
+        for ln in tail_lines(p, poll=0.01, stop=lambda: len(got) >= 3):
+            got.append(ln)
+        check("tail_lines reads existing complete lines", got == ["a", "b", "c"])
+    finally:
+        os.unlink(p)
+
+    # 2) FOLLOWS appended lines (the core tail behavior)
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, b"one\ntwo\n")
+    os.close(fd)
+    try:
+        done = [False]
+        gen = tail_lines(p, poll=0.01, stop=lambda: done[0])
+        first = [next(gen), next(gen)]
+        with open(p, "a") as fa:
+            fa.write("three\n")
+        third = next(gen)
+        done[0] = True
+        gen.close()
+        check("tail_lines follows appended lines", first == ["one", "two"] and third == "three")
+    finally:
+        os.unlink(p)
+
+    # 3) resets when the file is truncated / rotated
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, b"x\ny\n")
+    os.close(fd)
+    try:
+        done = [False]
+        gen = tail_lines(p, poll=0.01, stop=lambda: done[0])
+        before = [next(gen), next(gen)]
+        with open(p, "w") as fw:
+            fw.write("z\n")
+        after = next(gen)
+        done[0] = True
+        gen.close()
+        check("tail_lines resets on truncation/rotation", before == ["x", "y"] and after == "z")
+    finally:
+        os.unlink(p)
+
+    # 4) LiveState updates current_view (scene/match) + view (GRE) and surfaces decisions
+    st = LiveState()
+    st.feed_line('q SceneChange {"toSceneName":"Home"}')
+    check("LiveState: scene sets current_view", st.current_view == RecognizedViews.HOME)
+    st.feed_line('q MatchGameRoomStateChangedEvent {"stateType":"MatchGameRoomStateType_Playing"}')
+    check("LiveState: match Playing -> GAMEPLAY", st.current_view == RecognizedViews.GAMEPLAY)
+    st.feed_line(_gre({"type": "GREMessageType_GameStateMessage", "gameStateMessage": {
+        "turnInfo": {"turnNumber": 4}, "players": [{"controllerSeatId": 1, "lifeTotal": 19}]}}))
+    check("LiveState: GRE frame advances the live view",
+          st.view.turn.turnNumber == 4 and st.view.life.get(1) == 19)
+    ds = st.feed_line(_gre({"type": "GREMessageType_ActionsAvailableReq", "systemSeatIds": [1],
+                            "actionsAvailableReq": {"actions": [{"actionType": "ActionType_Pass"}]}}))
+    check("LiveState: feed_line surfaces a Decision", len(ds) == 1 and ds[0].kind == "actions")
+
+    # 5) follow() yields live Decisions
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, (_gre({"type": "GREMessageType_ActionsAvailableReq", "systemSeatIds": [1],
+                        "actionsAvailableReq": {"actions": [{"actionType": "ActionType_Play",
+                                                             "grpId": 1, "instanceId": 1}]}}) + "\n").encode())
+    os.close(fd)
+    try:
+        live = LiveState()
+        done = [False]
+        gen = follow(p, state=live, poll=0.01, stop=lambda: done[0])
+        d1 = next(gen)
+        check("follow yields a live Decision; shared LiveState carries current_view",
+              d1.kind == "actions" and live.view is d1.view)
+        done[0] = True
+        gen.close()
+    finally:
+        os.unlink(p)
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -303,6 +387,7 @@ def run():
     _diff_checks()
     _views_checks()
     _engine_checks()
+    _live_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

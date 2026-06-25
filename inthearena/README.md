@@ -37,6 +37,7 @@ prior art already exists, and this is shared for research — treat it sensitive
   zones random-filled); format-aware (Brawl vs Standard → engine variant + commander).
 - `mtga/views.py` — `RecognizedViews` (Home, Recently played) + where each view's clickable elements sit.
 - `mtga/screen.py` — recognize the current view from the latest log scene and/or a pluggable image model.
+- `mtga/live.py` — follow `Player.log` as it's written (tail -f); `LiveState` keeps board + view current.
 - `mtga/shadow.py` — run a policy read-only over a log.
 
 ## Status

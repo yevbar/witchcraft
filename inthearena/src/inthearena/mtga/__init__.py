@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from . import cards
 from .engine import build_state, to_game
+from .live import LiveState, follow, tail_lines, tail_messages
 from .gre import (
     DEFAULT_LOG,
     Action,
@@ -55,4 +56,5 @@ __all__ = [
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
     "current_view", "latest_view", "latest_scene_name", "iter_scene_changes", "iter_view_events", "in_game",
     "ViewRecognizer", "CallableRecognizer",
+    "tail_lines", "tail_messages", "LiveState", "follow",
 ]

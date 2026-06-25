@@ -192,23 +192,26 @@ class GreMessage(_M):
 
 
 # ── stream + accumulation ───────────────────────────────────────────────────────────────────────────────
+def parse_line(line: str) -> list:
+    """The typed `GreMessage`s carried by one raw log line (empty if it has none). Shared by batch + tail."""
+    brace = line.find("{")
+    if brace < 0:
+        return []
+    try:
+        obj = json.loads(line[brace:].strip())
+    except ValueError:
+        return []
+    ev = obj.get("greToClientEvent")
+    if not ev:
+        return []
+    return [GreMessage.model_validate(raw) for raw in ev.get("greToClientMessages", []) if raw.get("type")]
+
+
 def messages(path: str = DEFAULT_LOG) -> Iterator[GreMessage]:
     """Yield a typed `GreMessage` for every GRE message in the log, in order. Non-game lines are skipped."""
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
-            brace = line.find("{")
-            if brace < 0:
-                continue
-            try:
-                obj = json.loads(line[brace:].strip())
-            except ValueError:
-                continue
-            ev = obj.get("greToClientEvent")
-            if not ev:
-                continue
-            for raw in ev.get("greToClientMessages", []):
-                if raw.get("type"):
-                    yield GreMessage.model_validate(raw)
+            yield from parse_line(line)
 
 
 # MTGA zones owned by a player carry ownerSeatId; the rest are shared and split by an object's controller.
@@ -342,19 +345,27 @@ class Decision:
         return f"<Decision {self.kind} opts={len(self.options)} seat={self.seat} {self.view.phase}>"
 
 
+def update(view: GameView, m: GreMessage) -> Optional[Decision]:
+    """Fold one `GreMessage` into `view` (a GameStateMessage advances the state); return a `Decision` if it's a
+    request to the local player, else None. The single step shared by `iter_decisions` (batch) and live tail."""
+    if m.gameStateMessage is not None:
+        view.apply(m.gameStateMessage)
+        return None
+    kind = _TYPE_TO_KIND.get(m.type)
+    if kind is None:
+        return None
+    req_attr, opt_attr = _DECISIONS[kind]
+    req = getattr(m, req_attr)
+    options = list(getattr(req, opt_attr) or []) if (req and opt_attr) else []
+    seat = m.systemSeatIds[0] if m.systemSeatIds else view.turn.decisionPlayer
+    return Decision(kind=kind, options=options, seat=seat, view=view, req=req)
+
+
 def iter_decisions(path: str = DEFAULT_LOG) -> Iterator[Decision]:
     """Replay the log, maintaining a `GameView`, and yield a `Decision` at every GRE request to the local
     player. The view reflects all state seen up to and including that request."""
     view = GameView()
     for m in messages(path):
-        if m.gameStateMessage is not None:
-            view.apply(m.gameStateMessage)
-            continue
-        kind = _TYPE_TO_KIND.get(m.type)
-        if kind is None:
-            continue
-        req_attr, opt_attr = _DECISIONS[kind]
-        req = getattr(m, req_attr)
-        options = list(getattr(req, opt_attr) or []) if (req and opt_attr) else []
-        seat = m.systemSeatIds[0] if m.systemSeatIds else view.turn.decisionPlayer
-        yield Decision(kind=kind, options=options, seat=seat, view=view, req=req)
+        d = update(view, m)
+        if d is not None:
+            yield d
