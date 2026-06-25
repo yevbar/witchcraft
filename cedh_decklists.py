@@ -1,5 +1,5 @@
 """cedh_decklists.py — recent (2026) cEDH tournament/top-deck lists, gathered from Moxfield
-via the public deck API (api2.moxfield.com/v3/decks/all/<id>), for the witchcraft card-target
+via the public deck API (api2.moxfield.com/v3/decks/all/<id>), for the mtg card-target
 analysis. cEDH is 100-card singleton Commander, so every count is 1 except basic lands.
 
 Each deck: {commander:[...], archetype, source (Moxfield URL), date (lastUpdated), cards:{name:count}}.

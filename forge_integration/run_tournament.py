@@ -1,12 +1,12 @@
-"""run_tournament.py — the Forge-refereed witchcraft regression tournament.
+"""run_tournament.py — the Forge-refereed mtg regression tournament.
 
-Forge is the source of truth; the witchcraft datalog engine (forge_bridge.EnginePolicy) drives its seat's
+Forge is the source of truth; the mtg datalog engine (forge_bridge.EnginePolicy) drives its seat's
 plays (and validates its rules interpretation by agreeing with Forge). Two kinds of scenario:
 
-  WIN-CON REGRESSIONS (ForgeComboKill): witchcraft pilots a stacked turn-1 kill the lookahead rediscovers;
+  WIN-CON REGRESSIONS (ForgeComboKill): mtg pilots a stacked turn-1 kill the lookahead rediscovers;
     Forge must confirm winner=Witchcraft-Engine. Two lines — Thassa's Oracle (library-out) + Tendrils storm.
 
-  DECK MATCHUPS (ForgeVsBot): a full game, witchcraft drives its seat (win_search where it sees a win, else
+  DECK MATCHUPS (ForgeVsBot): a full game, mtg drives its seat (win_search where it sees a win, else
     Forge AI fallback), Forge refereeing. The 2x2 of {izzet, vanilla} decks, BEST OF 3 (first to 2 wins).
     The generic tree search shows "partial results" here: it models every option and endorses the plays it
     can prove win, deferring the rest to Forge's AI.
@@ -97,7 +97,7 @@ def _discover_assets(forge: str, fatjar: str) -> str:
 
 
 JDK = _discover_jdk("/home/zucc/opt/jdk-17.0.13+11")
-FORGE = os.environ.get("FORGE", "/home/zucc/Development/witchcraft/forge")
+FORGE = os.environ.get("FORGE", "/home/zucc/Development/mtg/forge")
 # Default to the from-source build path under $FORGE; auto-discover an installed Forge release elsewhere.
 FATJAR = _discover_fatjar(FORGE, f"{FORGE}/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar")
 FORGE_ASSETS = _discover_assets(FORGE, FATJAR)
@@ -142,7 +142,7 @@ def free_port(base: int) -> int:
 
 
 def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEOUT, bot_env: dict = None) -> dict:
-    """Start the witchcraft bot, run one Forge game with `main_class` + `-D` props, return parsed result.
+    """Start the mtg bot, run one Forge game with `main_class` + `-D` props, return parsed result.
     `bot_env` sets the bot process's environment (MTG_SEARCH_TURNS / MTG_SEARCH_BUDGET -> the search depth)."""
     bot = subprocess.Popen([sys.executable, f"{HERE}/run_bot.py", str(port)],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -174,7 +174,7 @@ def run_game(main_class: str, jprops: dict, port: int, timeout: int = GAME_TIMEO
 
 
 def run_combo(name: str, combo: str, port: int, timeout: int = GAME_TIMEOUT) -> dict:
-    print(f"\n=== WIN-CON: {name} (witchcraft pilots; Forge confirms) ===", flush=True)
+    print(f"\n=== WIN-CON: {name} (mtg pilots; Forge confirms) ===", flush=True)
     res = run_game("ForgeComboKill", {"combo": combo}, port, timeout=timeout)
     ok = res["winner"] == "Witchcraft-Engine"
     status = "PASS" if ok else ("SLOW" if res["winner"] == "TIMEOUT/ERR" else "FAIL")
@@ -206,7 +206,7 @@ def _synergy_of(name: str) -> dict:
 
 
 def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
-    """One deck matchup: the witchcraft win_search ENGINE seat (develops toward the witch deck's win axis via
+    """One deck matchup: the mtg win_search ENGINE seat (develops toward the witch deck's win axis via
     MTG_DECK_AXIS, and toward assembling/invoking its synergy combo via MTG_SYNERGY, when it sees no forced
     win) vs Forge-AI, Forge refereeing. Returns the series + stats."""
     syn = _synergy_of(witch)
@@ -218,13 +218,13 @@ def run_matchup(witch: str, opp: str, port_base: int, best_of: int = 1) -> dict:
                "MTG_SEARCH_TURNS": "1", "MTG_SEARCH_BUDGET": "20000", "MTG_START_LIFE": "20",
                "MTG_SYNERGY": ",".join(sorted(syn["slugs"])), "MTG_SYNERGY_SIZE": str(syn["size"])}
     need = best_of // 2 + 1
-    wins = {"witchcraft": 0, "Forge-AI": 0}
+    wins = {"mtg": 0, "Forge-AI": 0}
     games = []
     for g in range(best_of):
         port = free_port(port_base + g)
         res = run_game("ForgeVsBot", {"witchDeck": witch, "oppDeck": opp}, port, bot_env=bot_env)
         games.append(res)
-        seat = "witchcraft" if res["winner"] == "Witchcraft-Engine" else res["winner"]
+        seat = "mtg" if res["winner"] == "Witchcraft-Engine" else res["winner"]
         if seat in wins:
             wins[seat] += 1
         print(f"  {witch}-vs-{opp} g{g + 1}: winner={seat} turns={res['turns']} "
@@ -253,21 +253,21 @@ def main() -> None:
     best_of = 1 if quick else 3                                # BEST OF 3 (first to 2) for the full tournament
     matchups = []
     for pi, (w, o) in enumerate(pairings):
-        print(f"\n=== {w} (witchcraft) vs {o} (forge-ai)  [best of {best_of}] ===", flush=True)
+        print(f"\n=== {w} (mtg) vs {o} (forge-ai)  [best of {best_of}] ===", flush=True)
         matchups.append(run_matchup(w, o, 8900 + pi * 12, best_of=best_of))
 
     print("\n" + "=" * 78)
-    print("TOURNAMENT SUMMARY  (Forge = referee + opponent; witchcraft drives its seat via win_search)")
+    print("TOURNAMENT SUMMARY  (Forge = referee + opponent; mtg drives its seat via win_search)")
     print("=" * 78)
-    print("\nWIN-CON REGRESSIONS (witchcraft must win as the piloting seat):")
+    print("\nWIN-CON REGRESSIONS (mtg must win as the piloting seat):")
     for c in combos:
         print(f"  {c['status']:5} {('winner=' + c['winner']):32} endorsed={c['endorsed']}")
-    print("\nDECK MATCHUPS — witchcraft (win_search, adversarial minimax) vs Forge-AI  [best of 3]:")
-    print(f"  {'witchcraft':10} {'forge-ai':10} {'series':10} {'winner':12} {'modeled':9} {'endorsed':9}")
+    print("\nDECK MATCHUPS — mtg (win_search, adversarial minimax) vs Forge-AI  [best of 3]:")
+    print(f"  {'mtg':10} {'forge-ai':10} {'series':10} {'winner':12} {'modeled':9} {'endorsed':9}")
     for m in matchups:
-        w_, f_ = m["wins"]["witchcraft"], m["wins"]["Forge-AI"]
+        w_, f_ = m["wins"]["mtg"], m["wins"]["Forge-AI"]
         series = f"{w_}-{f_}"
-        champ = "witchcraft" if w_ > f_ else ("Forge-AI" if f_ > w_ else "split")
+        champ = "mtg" if w_ > f_ else ("Forge-AI" if f_ > w_ else "split")
         # average modeled/endorsed across the games actually played
         mods = [g["modeled"] for g in m["games"] if g["modeled"] is not None]
         ends = [g["endorsed"] for g in m["games"] if g["endorsed"] is not None]

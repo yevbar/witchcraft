@@ -1,7 +1,7 @@
 # Self-Play Agent Brief — Gap Analysis Against the Current Engine
 
 A response to the "MTG Self-Play Agent — Exploration & Build Brief" (AlphaZero/ReBeL-style
-self-play agent), assessed against what the witchcraft engine **already has**, now that the
+self-play agent), assessed against what the mtg engine **already has**, now that the
 player layer includes the heuristic, lookahead, and information players.
 
 **Bottom line:** the brief reads as a greenfield plan, but the codebase has already built —
@@ -20,7 +20,7 @@ Every method in the brief's `GameState`/`Action` contract already exists. (file:
 
 | Brief §6 contract | Status | Where |
 |---|---|---|
-| Structured `Action` exposing referenced objects (not ints) | **Done** | `witchcraft/models.py:122` `Move` (`kind`/`card`/`choices`/`attackers`/`blocks`) |
+| Structured `Action` exposing referenced objects (not ints) | **Done** | `mtg/models.py:122` `Move` (`kind`/`card`/`choices`/`attackers`/`blocks`) |
 | `legal_actions()` (structured, variable length) | **Done** | `Game.legal_moves` → `env.legal_actions` (`env.py:340`) |
 | `apply_action()` pure / copy-on-write + cheap clone + undo | **Done** | `env.step` is pure (`env.py:493`); `driver.clone_state` ~17× faster than deepcopy; `Game.push/pop` O(1) |
 | `is_terminal()` / `returns()` / winner (zero-sum) | **Done** | `env.is_terminal`/`env.winner` (`env.py:75/79`); `Game.outcome` |
@@ -99,7 +99,7 @@ determinize/CFR/self-play machinery untouched.
 
 Concrete first increment (this branch prototypes it):
 
-1. A **card-aware value net** (`witchcraft/cardnet.py`, PyTorch, optional dep) that encodes
+1. A **card-aware value net** (`mtg/cardnet.py`, PyTorch, optional dep) that encodes
    each visible object from **structured features + a bag-of-keywords** (the brief's own
    "start simple" suggestion — no text transformer yet), pools per side (Deep Sets — the
    prototype of the brief's §3.3 set attention), and predicts a scalar value.
@@ -134,7 +134,7 @@ laptop; samples are small, so read the *direction*, not the third decimal.
 
 ### 7.1 The card-aware net beats the 14-feature net (the core claim)
 
-`witchcraft/cardnet.py` — encode each visible object from structured features + a bag-of-
+`mtg/cardnet.py` — encode each visible object from structured features + a bag-of-
 keywords, shared encoder → Deep-Sets pool per side → value head; featurized from the belief
 view (`observe.observe`) so it's determinization-consistent. Trained on **identical** self-play
 trajectories vs the numpy `TinyValueNet` (14 global features):
@@ -270,4 +270,4 @@ for Sets"). Verdict, split by half:
 
 Runners: `cardnet_selfplay.py` (A/B), `cardnet_iterate.py` (iterated self-play),
 `cardnet_decks.py` (complex-deck train + cross-deck/ReBeL eval, `--mix`/`--rebel`/cap), and the
-`train_loop`/`ValuePlayer`/`deck_pool` APIs in `witchcraft/cardnet.py` + `witchcraft/rebel.py`.
+`train_loop`/`ValuePlayer`/`deck_pool` APIs in `mtg/cardnet.py` + `mtg/rebel.py`.

@@ -1,4 +1,4 @@
-# Simulation-throughput benchmark — witchcraft vs Forge (states/sec)
+# Simulation-throughput benchmark — mtg vs Forge (states/sec)
 
 Goal: establish, *before* any gameplay/eval work, how many game states each engine can simulate per
 second — the number that gates search depth. This is an **engineering** target (raw throughput), not a
@@ -6,7 +6,7 @@ modeling one. Measured on a 24 GB Mac (JDK 17, the same Forge fatjar the tournam
 a comparable mid-game state (~200 cards in game, turn ~5, ~6 permanents on the battlefield).
 
 Harnesses (in this branch):
-- `bench_witchcraft.py` — the witchcraft side (native binary / driver.run / env.step).
+- `bench_mtg.py` — the mtg side (native binary / driver.run / env.step).
 - `forge_integration/ForgeBench.java` — the Forge side (two AI seats play until a board develops, then it
   times `GameCopier.makeCopy()` and `GameStateEvaluator.getScoreForGameState()` on the live `Game`).
 
@@ -14,16 +14,16 @@ Harnesses (in this branch):
 
 | engine — primitive | states/sec | 1s | 5s | 10s | per-state |
 |--------------------|-----------:|---:|---:|----:|----------:|
-| **witchcraft** — `evaluate()` (derive a state's consequences) | 138 | 138 | 689 | 1,378 | 7.3 ms |
-| **witchcraft** — `env.step()` (full search-node expansion)    |  15 |  15 |  75 |   151 | 66 ms |
+| **mtg** — `evaluate()` (derive a state's consequences) | 138 | 138 | 689 | 1,378 | 7.3 ms |
+| **mtg** — `env.step()` (full search-node expansion)    |  15 |  15 |  75 |   151 | 66 ms |
 | **forge** — `GameCopier.makeCopy()` (per-node state copy)      | 244 | 244 | 1,219 | 2,439 | 4.1 ms |
 | **forge** — `GameStateEvaluator.getScore()` (positional eval)  |  67 |  67 |  334 |   668 | 15 ms |
 
-Units aren't identical — witchcraft's `evaluate` *derives* a state's logical consequences (a Soufflé
+Units aren't identical — mtg's `evaluate` *derives* a state's logical consequences (a Soufflé
 fixpoint), Forge's `makeCopy` *snapshots* a state for branching — but both are "the cost to produce one
 search node", which is the comparable number. Forge is ~1.8× faster at its per-node primitive today.
 
-## Where witchcraft's time goes (the actionable part)
+## Where mtg's time goes (the actionable part)
 
 `evaluate()` is **7.3 ms/state, but ~75% of that is overhead, not compute.** Earlier profiling of the
 native path (see `engine_native.py` history) breaks the 7.3 ms down as roughly:
@@ -56,7 +56,7 @@ So **>5 ms of every 7.3 ms is fork + file I/O**, not the rules computation.
 
    The ~5 ms fork+I/O floor is gone; what's left is ~0.7 ms (the Soufflé fixpoint, slightly under the earlier
    1.9 ms estimate because reusing the instance skips per-call program init). This **exceeds Forge** on every
-   primitive (Forge: 244/sec copy, 67/sec eval) — witchcraft is now the faster simulator. `env.step` at
+   primitive (Forge: 244/sec copy, 67/sec eval) — mtg is now the faster simulator. `env.step` at
    530/sec (was 15) is the search-depth number; levers #2/#3 stack on top of this.
 
 2. **Cut the evaluate-count per `env.step` — ✅ addressed via a bounded LRU eval cache (the win is amortization,
@@ -101,16 +101,16 @@ So **>5 ms of every 7.3 ms is fork + file I/O**, not the rules computation.
 
 ## Note on the comparison
 
-Forge's *own* eval is slow (`getScoreForGameState` = 67/sec, 15 ms). So witchcraft does **not** need to win
+Forge's *own* eval is slow (`getScoreForGameState` = 67/sec, 15 ms). So mtg does **not** need to win
 the raw copy-speed race to be competitive inside a search — it needs to **remove its own I/O overhead** (#1)
 so the irreducible ~1.9 ms datalog is what's left. After #1 the two engines would be in the same throughput
-class, and #3 could put witchcraft ahead on the search-node path where most simulation actually happens.
+class, and #3 could put mtg ahead on the search-node path where most simulation actually happens.
 
 ## How to reproduce
 
 ```bash
-# witchcraft
-python3 bench_witchcraft.py
+# mtg
+python3 bench_mtg.py
 
 # forge (needs JDK 17 + the fatjar; decks are the generated cEDH lists)
 python3 -c "import sys; sys.path.insert(0,'forge_integration'); from run_commander_tournament import write_decks; write_decks()"

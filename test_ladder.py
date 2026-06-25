@@ -1,4 +1,4 @@
-"""test_ladder.py — the strength ruler (witchcraft/ladder.py).
+"""test_ladder.py — the strength ruler (mtg/ladder.py).
 
 The self-play loop's only metric (win_rate_vs_random) saturated at 1.0 and stopped moving. The ladder is the
 fix: an Elo scale anchored Random=0 with Greedy/Heuristic rungs, plus an AlphaZero-style promotion gate. These
@@ -10,9 +10,9 @@ Run: python3 test_ladder.py   (a couple minutes — it plays real self-play game
 
 from __future__ import annotations
 
-from witchcraft import ladder
-from witchcraft.players import RandomPlayer, GreedyPlayer
-from witchcraft.heuristic import HeuristicPlayer
+from mtg import ladder
+from mtg.players import RandomPlayer, GreedyPlayer
+from mtg.heuristic import HeuristicPlayer
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -62,8 +62,8 @@ def _score_stats_and_significance():
     check("games_for_precision(±0.05) = 385 (⌈(1.96·0.5/0.05)²⌉ = ⌈384.16⌉)", ladder.games_for_precision(0.05) == 385)
     check("tighter precision needs more games", ladder.games_for_precision(0.03) > ladder.games_for_precision(0.05))
 
-    from witchcraft.players import RandomPlayer
-    from witchcraft.heuristic import HeuristicPlayer
+    from mtg.players import RandomPlayer
+    from mtg.heuristic import HeuristicPlayer
     c = ladder.compare(HeuristicPlayer(), RandomPlayer(seed=0), games=40, seed=1)
     check("compare returns score+CI+significance+verdict",
           {"score", "se", "lo", "hi", "n", "significant", "verdict"} <= set(c))

@@ -21,9 +21,9 @@ import contextlib
 import io
 import time
 
-import witchcraft.cardnet as cn
-from witchcraft.decks import load_deck, bundled_decks
-from witchcraft.players import play, RandomPlayer
+import mtg.cardnet as cn
+from mtg.decks import load_deck, bundled_decks
+from mtg.players import play, RandomPlayer
 
 
 def matchup_winrate(make_me, my_deck, opp_deck, games: int, seed: int = 300, move_cap: int = 400):
@@ -70,7 +70,7 @@ def main():
     ap.add_argument("--tbudget", type=float, default=1.0)
     a = ap.parse_args()
 
-    import witchcraft.game as _wg                              # engage the ~2.8x incremental backend (byte-identical)
+    import mtg.game as _wg                              # engage the ~2.8x incremental backend (byte-identical)
     print(f"incremental backend engaged: {_wg._select_incremental()}", flush=True)
 
     t0 = time.perf_counter()
@@ -91,11 +91,11 @@ def main():
     print(f"\ntraining curve (vs Random): {[h['win_rate_vs_random'] for h in res['history']]}")
 
     if a.rebel:
-        from witchcraft.rebel import ReBeLPlayer
+        from mtg.rebel import ReBeLPlayer
         rk = dict(worlds=a.worlds, iterations=a.iters, depth=a.depth, time_budget=a.tbudget, action_cap=5)
         make_me, label = (lambda: ReBeLPlayer(value_fn=vf, **rk)), f"ReBeL{rk}"
     else:
-        from witchcraft.rebel import ValuePlayer
+        from mtg.rebel import ValuePlayer
         make_me, label = (lambda: ValuePlayer(vf)), "ValuePlayer (1-ply)"
 
     print(f"\n{label} on {a.deck} vs Random across MATCHUPS ({a.eval} games each, seat-swapped, "

@@ -1,5 +1,5 @@
 """Cross-reference the recent META decklists (meta_decklists_constructed.py) against the
-witchcraft engine's actual card-processing reality.
+mtg engine's actual card-processing reality.
 
 For every distinct card across all decks we classify it via bridge_to_engine.card_facts:
   ABSENT  — name not in the oracle corpus at all
@@ -91,7 +91,7 @@ def main():
     w = out.append
 
     w("=" * 78)
-    w("META CARD-TARGET ANALYSIS  (witchcraft card-processing pipeline)")
+    w("META CARD-TARGET ANALYSIS  (mtg card-processing pipeline)")
     w("=" * 78)
 
     total_distinct = len(status)

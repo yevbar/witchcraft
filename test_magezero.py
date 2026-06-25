@@ -1,4 +1,4 @@
-"""test_magezero.py — the MageZero brain (witchcraft/magezero.py): typed policy/value net + PUCT-MCTS, the
+"""test_magezero.py — the MageZero brain (mtg/magezero.py): typed policy/value net + PUCT-MCTS, the
 behavioral-clone trainer (fit_clone), and self-play/expert-iteration data generation (generate_selfplay).
 These are the least battle-tested paths (training code, deferred from the original commit), so this is their
 smoke: shapes/ranges are right, MCTS plays legally and is bounded, training runs and moves the weights, and the
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 try:
     import torch  # noqa: F401
-    import witchcraft.magezero as mz
+    import mtg.magezero as mz
 except Exception as e:                                          # torch not installed -> skip, don't fail
     print(f"SKIP test_magezero: optional 'learn' extra (PyTorch) not available — {type(e).__name__}")
     raise SystemExit(0)
@@ -21,10 +21,10 @@ import io
 
 import numpy as np
 
-import witchcraft.cardnet as cn
-from witchcraft.game import Game
-from witchcraft.heuristic import HeuristicPlayer
-from witchcraft.players import RandomPlayer
+import mtg.cardnet as cn
+from mtg.game import Game
+from mtg.heuristic import HeuristicPlayer
+from mtg.players import RandomPlayer
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -73,7 +73,7 @@ def _mcts_plays_legal_and_bounded() -> None:
     check("MCTS returns a legal move", mv in g.legal_moves)
     check("root visit counts sum to `simulations` (search ran)",
           bot.last_visits is not None and int(bot.last_visits.sum()) == bot.simulations)
-    from witchcraft.players import play
+    from mtg.players import play
     with contextlib.redirect_stdout(io.StringIO()):
         res = play({"alice": bot, "bob": RandomPlayer(seed=1)}, seed=3, max_moves=120)
     check("MageZeroPlayer drives a game forward", res.turn_number > 0)
@@ -118,8 +118,8 @@ def _generate_selfplay_both_modes() -> None:
 def _deck_pool_seam_crn() -> None:
     """The generalization seam: benchmark with a deck_pool spans many matchups AND keeps paired CRN (the
     matchup is sampled per pair, so pair_scores are still produced)."""
-    from witchcraft.benchmark import benchmark
-    from witchcraft.decks import deck_pool
+    from mtg.benchmark import benchmark
+    from mtg.decks import deck_pool
     net = mz.MageZeroNet(embed=16, hidden=32, seed=0)
     pool = deck_pool()
     rec = benchmark(mz.MageZeroPlayer(net, simulations=2, seed=0), RandomPlayer(seed=0),

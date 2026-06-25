@@ -123,7 +123,7 @@ python3 incremental/harness/profile_strata.py # per-stratum recompute cost (the 
   the rules/shim invalidates it → the next run recompiles (~4–7 min). The recompute-relation set is also cached
   (`/tmp/mtg_recompute_*.txt`).
 - **No MTG references in `third_party/souffle/`** — the souffle engine is domain-agnostic by design (say
-  "witchcraft" only if a comment truly needs a domain word). All MTG logic lives in `datalog/` + the Python.
+  "mtg" only if a comment truly needs a domain word). All MTG logic lives in `datalog/` + the Python.
 - **Where things are:** the `--incremental` C++ strategy is `third_party/souffle/src/ast2ram/incremental/`;
   the ctypes shim + harness + tests are `incremental/harness/`; the Python backends are `engine_incremental.py`
   / `engine_inproc.py` / `engine_native.py`; the rules are `datalog/`.

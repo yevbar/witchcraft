@@ -1,7 +1,7 @@
-# witchcraft — an MTG rules engine interpreted from the Comprehensive Rules
+# mtg — an MTG rules engine interpreted from the Comprehensive Rules
 
-> Formerly `mtg_parser`. Renamed to **witchcraft**: this engine is built from the rules/card-texts
-> *up* (the Comprehensive Rules → Datalog), as distinct from the earlier `~/Development/witchcraft`
+> Formerly `mtg_parser`. Renamed to **mtg**: this engine is built from the rules/card-texts
+> *up* (the Comprehensive Rules → Datalog), as distinct from the earlier `~/Development/mtg`
 > attempt that built a player *on top of* Forge.
 
 This project **interprets the English Comprehensive Rules** (`rules.txt`) into deterministic
@@ -27,12 +27,12 @@ interpreters abstain rather than emit lossy or uncertain output.
 - `coverage.py` — reports per-section semantic interpretation coverage.
 - `bridge_cards.py` — measures how far the interpreted keyword map reaches into real cards
   (requires `AllPrintings.json` from MTGJSON, not committed).
-- `forge_bridge.py` + `forge_integration/` — a **validation** layer (not the foundation): witchcraft
+- `forge_bridge.py` + `forge_integration/` — a **validation** layer (not the foundation): mtg
   plays one seat inside a **real, headless [Forge](https://github.com/Card-Forge/forge)** match — Forge
   is the authoritative referee, our engine drives the seat via its lookahead. The real Forge JVM connector
   lives in `forge_integration/` (run with `run.sh` / `run_combo.sh`; needs JDK 17 + a built Forge — see
   `forge_integration/README.md`). The pure-Python `test_forge_bridge.py` / `test_forge_engine.py` test the
-  same adapter against a **mock** Forge (no JVM). Distinct from the earlier `~/Development/witchcraft`
+  same adapter against a **mock** Forge (no JVM). Distinct from the earlier `~/Development/mtg`
   attempt that built a player *on top of* Forge — here Forge is only an external check.
 
 ## Run

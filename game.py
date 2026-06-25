@@ -167,7 +167,7 @@ def new_commander_game(seed: int = 0, policies: dict | None = None) -> dict:
 def new_cedh_game(deck_a: str = "Ral Turbo Storm", deck_b: str = "Stella Lee Wild Card",
                   seed: int = 0, policies: dict | None = None) -> dict:
     """A 1v1 Commander (§903) game between two REAL cEDH decklists from cedh_decklists.DECKS — the full
-    99 + commander each, 40 life, command zone — so the witchcraft 'stockfish' (env.legal_actions/step,
+    99 + commander each, 40 life, command zone — so the mtg 'stockfish' (env.legal_actions/step,
     win_search, the Forge seat) plays a real cEDH list with every interpreted mechanic reachable. Names
     must be keys of cedh_decklists.DECKS (e.g. the two Izzet spellslinger decks above)."""
     from cedh_decklists import DECKS as _CEDH

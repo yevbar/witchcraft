@@ -2067,7 +2067,7 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
     """§106 — WHICH untapped sources `ap` should tap (and, for any-color/bundle sources, what COLOR each
     should produce) to pay a cost of `pips` (a {color: count} of colored pips) + `generic`. Mirrors
     _spend_mana's greedy source selection but RETURNS the plan instead of mutating, so an external engine
-    (Forge) can execute the EXACT payment witchcraft intends — the precise sources/colors a combo can
+    (Forge) can execute the EXACT payment mtg intends — the precise sources/colors a combo can
     depend on (e.g. pay {B} from Mox Jet, NOT by sacrificing a Black Lotus needed later for {U}{U}).
 
     Returns a list of {"id": source, "express": color_to_force_or_'', "sacrifice": bool} in tap order, or

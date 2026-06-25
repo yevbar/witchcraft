@@ -18,10 +18,10 @@ def check(name, cond):
 def run():
     import env
 
-    from witchcraft.aggro import AggroPlayer
-    from witchcraft.game import Game
-    from witchcraft.lookahead import AwarePlayer, _player_opp_move
-    from witchcraft.players import play
+    from mtg.aggro import AggroPlayer
+    from mtg.game import Game
+    from mtg.lookahead import AwarePlayer, _player_opp_move
+    from mtg.players import play
 
     # the opponent-model callback returns a LEGAL action for the seat to move
     g = Game(seed=3, explicit_lands=True)

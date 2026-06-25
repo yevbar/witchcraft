@@ -330,8 +330,8 @@ def _enhanced_player():
     don't-blunder fallback)."""
     import contextlib
     import io
-    from witchcraft.lookahead import EnhancedLookaheadPlayer
-    from witchcraft.players import RandomPlayer, play
+    from mtg.lookahead import EnhancedLookaheadPlayer
+    from mtg.players import RandomPlayer, play
     bot = EnhancedLookaheadPlayer(max_turns=4, node_budget=600, forced=True, seed=0)
     with contextlib.redirect_stdout(io.StringIO()):
         g = play({"alice": bot, "bob": RandomPlayer(seed=1)}, seed=3, max_moves=400)

@@ -1,4 +1,4 @@
-"""test_cardnet.py — the card-aware value net prototype (witchcraft/cardnet.py). Proves the per-card
+"""test_cardnet.py — the card-aware value net prototype (mtg/cardnet.py). Proves the per-card
 feature extraction reads card identity (types/colors/keywords), the Deep-Sets net produces a valid value,
 training reduces error, and it plugs into the ReBeL `value_fn(state, seat)` seam (incl. save/load).
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 try:
     import torch  # noqa: F401
-    import witchcraft.cardnet as cn
+    import mtg.cardnet as cn
 except Exception as e:                                          # torch not installed -> skip, don't fail
     print(f"SKIP test_cardnet: optional 'learn' extra (PyTorch) not available — {type(e).__name__}")
     raise SystemExit(0)
@@ -19,7 +19,7 @@ import io
 
 import numpy as np
 
-from witchcraft.game import Game
+from mtg.game import Game
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -96,8 +96,8 @@ def _value_fn_seam_and_io() -> None:
     check("value_fn: terminal loss scores -1", vf(term, "bob") == -1.0)
 
     # drops into ReBeLPlayer and a game runs to completion
-    from witchcraft.rebel import ReBeLPlayer
-    from witchcraft.players import RandomPlayer, play
+    from mtg.rebel import ReBeLPlayer
+    from mtg.players import RandomPlayer, play
     with contextlib.redirect_stdout(io.StringIO()):
         res = play({"alice": ReBeLPlayer(value_fn=vf, worlds=2, iterations=12, depth=2),
                     "bob": RandomPlayer(seed=2)}, seed=7, max_moves=2000)
@@ -116,8 +116,8 @@ def _value_player_drives_subchoices() -> None:
     card to pitch) where the heuristic — counting only hand SIZE — cannot, and a full game completes."""
     import driver
     import env
-    from witchcraft.rebel import ValuePlayer, GreedyValuePlayer, heuristic_value
-    from witchcraft.players import play, RandomPlayer
+    from mtg.rebel import ValuePlayer, GreedyValuePlayer, heuristic_value
+    from mtg.players import play, RandomPlayer
 
     vf = cn.train(games=15, epochs=30, seed=0)
     cap: dict = {}                                              # capture a real cleanup_discard (heuristic greedy overflows its hand)
@@ -234,7 +234,7 @@ def _ability_verb_channel() -> None:
 def _solver_value_targets() -> None:
     """Steer-and-Solve Step 3a: generate_solver_value returns matched z and solver target sets over the SAME
     states; solver overrides solver-winnable states to +1 (a dense signal), and trains with `fit` unchanged."""
-    from witchcraft.heuristic import HeuristicPlayer
+    from mtg.heuristic import HeuristicPlayer
     out = cn.generate_solver_value(3, seed=0, player_factory=lambda s: HeuristicPlayer(),
                                    solve_turns=1, solve_budget=600, solve_gate=18)
     check("generate_solver_value returns matched z + solver target sets over the same states",
@@ -355,7 +355,7 @@ def _policy_head_pointer_and_M0() -> None:
     check(f"M0: held-out policy top-1 >= 0.45 (got {top1:.2f}, uniform {uni:.2f})", top1 >= 0.45)
     check("policy head beats uniform clearly", top1 > uni + 0.2)
 
-    from witchcraft.players import RandomPlayer, play
+    from mtg.players import RandomPlayer, play
     with contextlib.redirect_stdout(io.StringIO()):
         res = play({"alice": cn.PolicyPlayer(net), "bob": RandomPlayer(seed=1)}, seed=5, max_moves=4000)
     check("PolicyPlayer (one forward pass / move) plays to a terminal result", res.is_game_over())
@@ -405,7 +405,7 @@ def _clone_heuristic_moves() -> None:
     check(f"cloned policy imitates the heuristic's moves >> uniform (top-1 {top1:.2f} vs {uni:.2f})",
           top1 > uni + 0.2)
 
-    from witchcraft.players import RandomPlayer, play
+    from mtg.players import RandomPlayer, play
     with contextlib.redirect_stdout(io.StringIO()):
         res = play({"alice": cn.PolicyPlayer(net), "bob": RandomPlayer(seed=1)}, seed=5, max_moves=4000)
     check("PolicyPlayer(cloned) plays to a terminal result", res.is_game_over())
@@ -432,7 +432,7 @@ def _selfplay_warmstart() -> None:
     check("selfplay_improve changes the trained net's weights",
           not torch.equal(w0, torch.cat([p.flatten() for p in out["net"].parameters()])))
 
-    from witchcraft.players import RandomPlayer, play
+    from mtg.players import RandomPlayer, play
     with contextlib.redirect_stdout(io.StringIO()):
         res = play({"alice": cn.PolicyPlayer(out["net"]), "bob": RandomPlayer(seed=1)},
                    seed=5, max_moves=4000, explicit_lands=True)
@@ -451,7 +451,7 @@ def _selfplay_instant_speed() -> None:
     """Instant-speed self-play: with an instants deck, generate_selfplay(instant_speed=True) surfaces MORE
     decisions than sorcery speed (the active player's §117.1a windows), and PolicyPlayer(instant_speed=True)
     requests those windows so it's evaluated in the same action space it trained in (default stays sorcery)."""
-    from witchcraft.decks import load_deck
+    from mtg.decks import load_deck
     izzet = {"alice": load_deck("izzet_prowess"), "bob": load_deck("izzet_prowess")}
     net = cn.CardPVNet(embed=16, hidden=32, seed=0)
     sorcery = cn.generate_selfplay(net, 6, seed=1, decks=izzet, instant_speed=False)
@@ -463,7 +463,7 @@ def _selfplay_instant_speed() -> None:
     check("PolicyPlayer default stays sorcery speed (backward compatible)",
           cn.PolicyPlayer(net).wants_instant_speed is False)
 
-    from witchcraft.players import RandomPlayer, play
+    from mtg.players import RandomPlayer, play
     with contextlib.redirect_stdout(io.StringIO()):
         g = play({"alice": cn.PolicyPlayer(net, instant_speed=True), "bob": RandomPlayer(seed=1)},
                  izzet, seed=5, max_moves=200)
@@ -474,7 +474,7 @@ def _m2_root_cap_ordering() -> None:
     """Phase 2 M2: a policy_fn ORDERS ReBeLPlayer's root action cap (the cap's slots go to the highest-prior
     moves, not an alphabetical prefix), keeping the cap SIZE unchanged (equal env.step budget) and always
     including a pass move. Without a policy_fn it's the legacy moves[:cap]."""
-    from witchcraft.rebel import ReBeLPlayer
+    from mtg.rebel import ReBeLPlayer
 
     class FM:                                                  # minimal stand-in Move (only .kind is read)
         def __init__(self, kind, tag):
@@ -528,8 +528,8 @@ def _rebel_value_target() -> None:
     """rebel.solve now returns (strategy, root_value) — the CFR root value is the ReBeL self-play training
     target, and ReBeLPlayer exposes it as last_value."""
     import time
-    from witchcraft.rebel import solve, heuristic_value
-    from witchcraft.players import RandomPlayer
+    from mtg.rebel import solve, heuristic_value
+    from mtg.players import RandomPlayer
     g = Game(seed=3)
     for _ in range(60):                                        # advance to a decision with >=2 legal moves
         if g.is_game_over() or len(g.legal_moves) >= 2:

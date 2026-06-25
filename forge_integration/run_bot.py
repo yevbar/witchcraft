@@ -1,9 +1,9 @@
-"""run_bot.py — stand up the witchcraft engine as a Forge bot server, print its completeness coverage.
+"""run_bot.py — stand up the mtg engine as a Forge bot server, print its completeness coverage.
 
     python3 forge_integration/run_bot.py [port]
 
 Listens for ONE connection from the Forge Java connector (ForgeVsBot / ForgeComboKill) and drives every
-decision through a witchcraft policy, then prints its coverage() when the game's socket closes. The policy is
+decision through a mtg policy, then prints its coverage() when the game's socket closes. The policy is
 chosen by MTG_POLICY: `engine` (default) = the win_search 'stockfish' (EnginePolicy, develops toward the
 deck's win axis via MTG_DECK_AXIS); `random` = the uniform-random BASELINE. The run scripts start this
 alongside the JVM; see forge_integration/README.md for the full setup (JDK 17 + a built Forge tree)."""
@@ -17,13 +17,13 @@ import forge_bridge as fb
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 which = os.environ.get("MTG_POLICY", "engine").lower()
 if which == "net":                                          # the trained ReBeL value net drives the seat
-    from witchcraft.rebel_forge import policy_from_env
+    from mtg.rebel_forge import policy_from_env
     policy = policy_from_env()
 elif which == "random":
     policy = fb.RandomPolicy()
 else:
     policy = fb.EnginePolicy()
-player = fb.ForgePlayer(policy=policy, name=f"witchcraft-{which}")
+player = fb.ForgePlayer(policy=policy, name=f"mtg-{which}")
 
 _dumped = [False]
 

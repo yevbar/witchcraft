@@ -1,5 +1,5 @@
 """target_analysis_cedh.py — cross-reference recent cEDH decklists (cedh_decklists.py) against the
-witchcraft engine's card-processing reality, and emit a PRIORITIZED card-target list.
+mtg engine's card-processing reality, and emit a PRIORITIZED card-target list.
 
 For every distinct card across the 12 cEDH decks we classify it through the SAME seam the engine uses
 to load real cards into the rules engine — bridge_to_engine.card_facts(name, ctrl, tid, db, corpus):

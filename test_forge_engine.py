@@ -7,7 +7,7 @@ oracle card NAMES, NOT a live Forge game), our engine RECONSTRUCTS the board, in
 offered options, ENDORSES the legal ones (can_cast / valid target / may_attack / not illegal_block), and
 plays a valid move — while recording coverage + the cards it can't model.
 
-For the REAL round-trip (an actual Forge JVM feeding witchcraft real observations and executing its plays),
+For the REAL round-trip (an actual Forge JVM feeding mtg real observations and executing its plays),
 see forge_integration/ (ForgeVsBot.java / ForgeComboKill.java + forge_integration/README.md for setup).
 
 Needs datalog/cards.dl. Run: python3 test_forge_engine.py

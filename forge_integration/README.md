@@ -1,11 +1,11 @@
-# Forge integration — witchcraft plays a seat in a REAL Forge game
+# Forge integration — mtg plays a seat in a REAL Forge game
 
-This directory wires the witchcraft engine into **[Forge](https://github.com/Card-Forge/forge)** — the
+This directory wires the mtg engine into **[Forge](https://github.com/Card-Forge/forge)** — the
 complete, authoritative Java rules engine for Magic — as a *player*. Forge runs and referees the whole
-match (it owns the rules and the state); witchcraft fills one seat, and every strategic decision Forge
+match (it owns the rules and the state); mtg fills one seat, and every strategic decision Forge
 asks that seat to make is forwarded to our Python engine over a socket.
 
-This is the **real thing**: an actual Forge JVM playing a real game, with witchcraft's lookahead driving
+This is the **real thing**: an actual Forge JVM playing a real game, with mtg's lookahead driving
 its seat. It is distinct from the pure-Python **unit tests** at the repo root — `test_forge_bridge.py` and
 `test_forge_engine.py` — which exercise the same `forge_bridge` adapter against a hand-built **mock** Forge
 (scripted decision requests / a synthetic observation), so they run fast with **no JVM and no Forge build**.
@@ -16,8 +16,8 @@ See the table at the bottom for exactly what runs where.
 | File | What it is |
 |---|---|
 | `../forge_bridge.py` | The Python adapter (repo root): the line-JSON protocol + `EnginePolicy` — reconstruct the board from Forge's observation, run the lookahead, answer the decision. Used by BOTH the real connector here and the mock unit tests. |
-| `run_bot.py` | Stands the witchcraft engine up as a socket server for the Java connector to dial. |
-| `ForgeHeadless.java` | Smallest proof: a headless Forge AI-vs-AI game (no witchcraft, no GUI) — confirms Forge runs here at all. |
+| `run_bot.py` | Stands the mtg engine up as a socket server for the Java connector to dial. |
+| `ForgeHeadless.java` | Smallest proof: a headless Forge AI-vs-AI game (no mtg, no GUI) — confirms Forge runs here at all. |
 | `ForgeVsBot.java` | Witchcraft (every play decision routed to the bot) vs the Forge AI, headless. |
 | `ForgeComboKill.java` | A stacked-hand, lookahead-driven turn-1 combo kill (storm / Thassa's Oracle), Forge as source of truth. |
 | `run.sh` | Compile the connector, start the bot, run `ForgeVsBot` headless. |
@@ -48,7 +48,7 @@ them for your setup**:
 | Var | Meaning | Default in the scripts |
 |---|---|---|
 | `JDK`   | A JDK 17 install root (has `bin/javac`, `bin/java`) | `/home/zucc/opt/jdk-17.0.13+11` |
-| `FORGE` | The built Forge tree (contains `forge-gui-desktop/target/…`) | `/home/zucc/Development/witchcraft/forge` |
+| `FORGE` | The built Forge tree (contains `forge-gui-desktop/target/…`) | `/home/zucc/Development/mtg/forge` |
 
 The fat-jar path inside each script (`FATJAR=…`) pins a Forge **version** (currently `2.0.13-SNAPSHOT`).
 If your build is a different version, edit `FATJAR` in the script to match the jar Maven produced.
@@ -56,7 +56,7 @@ If your build is a different version, edit `FATJAR` in the script to match the j
 ## Run
 
 ```bash
-# witchcraft (engine-driven) vs the Forge AI, headless
+# mtg (engine-driven) vs the Forge AI, headless
 JDK=/path/to/jdk17 FORGE=/path/to/forge ./forge_integration/run.sh
 
 # a stacked-hand, lookahead-driven turn-1 combo kill (Forge confirms the win)

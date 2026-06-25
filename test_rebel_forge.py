@@ -1,4 +1,4 @@
-"""test_rebel_forge.py — the Forge value-net bridge fixes (witchcraft/rebel_forge.py).
+"""test_rebel_forge.py — the Forge value-net bridge fixes (mtg/rebel_forge.py).
 
 Two Phase-0 corrections:
   1. load_value_fn DETECTS the format — the legacy TinyValueNet (.npz) AND the card-aware CardValueNet
@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from witchcraft import rebel_forge as rf
+from mtg import rebel_forge as rf
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -34,7 +34,7 @@ def _state():
 
 
 def _loads_tiny_npz():
-    from witchcraft.rebel_train import TinyValueNet
+    from mtg.rebel_train import TinyValueNet
     path = os.path.join(tempfile.gettempdir(), "tiny_test.npz")
     TinyValueNet().save(path)
     vf = rf.load_value_fn(path)
@@ -47,7 +47,7 @@ def _loads_tiny_npz():
 def _loads_card_net():
     try:
         import torch  # noqa: F401
-        import witchcraft.cardnet as cn
+        import mtg.cardnet as cn
     except Exception as e:
         check(f"SKIP card-net load (no torch: {type(e).__name__})", True)
         return

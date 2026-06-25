@@ -1,12 +1,12 @@
 """run_commander_tournament.py — a Forge-refereed 4-player FREE-FOR-ALL Commander (§903) tournament.
 
 Forge is the source of truth: it runs and referees each game, owns the rules/state, and validates our
-engine by being the authority the witchcraft seats must agree with. Four seats per game — TWO witchcraft
+engine by being the authority the mtg seats must agree with. Four seats per game — TWO mtg
 players (each socket-driven by forge_bridge.EnginePolicy on its own bot port) and TWO Forge AI players —
 play individual Commander (not Two-Headed Giant).
 
 ROUND ROBIN OF DECKS. There are four 100%-CLEAN cEDH decks (Ral / Stella / Blue Farm / Kinnan). The seat
-TYPES are fixed (seats 0,1 = witchcraft, seats 2,3 = Forge AI); the DECKS rotate so each seat pilots each
+TYPES are fixed (seats 0,1 = mtg, seats 2,3 = Forge AI); the DECKS rotate so each seat pilots each
 deck exactly once across the four games (game g: seat i flies deck (i+g) % 4). So every deck is also flown
 by every seat once — a balanced rotation, no seat/deck advantage baked in.
 
@@ -132,12 +132,12 @@ def free_port(base: int) -> int:
 
 
 def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = GAME_TIMEOUT) -> dict:
-    """One 4-player Commander FFA game. `seat_decks[i]` = the deck KEY for seat i. Seats 0,1 are witchcraft
+    """One 4-player Commander FFA game. `seat_decks[i]` = the deck KEY for seat i. Seats 0,1 are mtg
     (each its own bot process+port), seats 2,3 are Forge AI. Returns the parsed result + per-seat deck map."""
     seat_type = ["witch", "witch", "ai", "ai"]
     seat_name = [f"Witch-{seat_decks[0]}", f"Witch-{seat_decks[1]}", f"ForgeAI-{seat_decks[2]}", f"ForgeAI-{seat_decks[3]}"]
     ports = [free_port(port_base), free_port(port_base + 40), 0, 0]
-    # stand up a bot per witchcraft seat
+    # stand up a bot per mtg seat
     os.makedirs(LOG_DIR, exist_ok=True)
     bots = []
     for i in (0, 1):
@@ -163,7 +163,7 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
     except OSError:
         out0 = ""
     r = subprocess.CompletedProcess(cmd, r.returncode, stdout=out0, stderr="")
-    # Collect each witchcraft seat's full coverage dict (run_bot.py prints it on socket close). Previously the
+    # Collect each mtg seat's full coverage dict (run_bot.py prints it on socket close). Previously the
     # bot output was communicated and discarded — so the FFA never surfaced how much of its seat the engine
     # actually drove. We keep the whole dict (not just the modeled/endorsed fractions) so the per-game readout
     # can show engine_decided/decisions (the real drive-rate) and the by_kind breakdown — see SMOKE_FINDINGS.md
@@ -203,7 +203,7 @@ def run_game(seat_decks: list, deck_paths: dict, port_base: int, timeout: int = 
 
 def run_duel(witch_key: str, ai_key: str, deck_paths: dict, port_base: int,
              timeout: int = GAME_TIMEOUT) -> dict:
-    """§903.1 a 1v1 (DUEL) Commander game: seat 0 = witchcraft 'stockfish' (one bot process+port), seat 1 =
+    """§903.1 a 1v1 (DUEL) Commander game: seat 0 = mtg 'stockfish' (one bot process+port), seat 1 =
     Forge AI. ONE bot only -> laptop-survivable (the 4-player FFA's two bots OOM small hosts; see RUNNING.md).
     Reuses the FFA harness with -Dseats=2. Returns the parsed result + per-seat deck map."""
     seat_decks = [witch_key, ai_key]
@@ -261,7 +261,7 @@ def run_duel(witch_key: str, ai_key: str, deck_paths: dict, port_base: int,
 
 
 def main_duel() -> None:
-    """`--1v1 [witch_deck] [ai_deck]` — a single Commander DUEL: witchcraft stockfish vs Forge AI. Deck keys
+    """`--1v1 [witch_deck] [ai_deck]` — a single Commander DUEL: mtg stockfish vs Forge AI. Deck keys
     default to ral (witch) vs kinnan (AI); override positionally (any of ral/stella/bluefarm/kinnan)."""
     args = [a for a in sys.argv[2:] if not a.startswith("-")]
     witch_key = args[0] if len(args) > 0 and args[0] in DECKS else "ral"
@@ -280,7 +280,7 @@ def main_duel() -> None:
               f"drove(engine/decisions)={eng}/{dec}={drive:.2f}", flush=True)
     if res.get("standing"):
         print("     life standing: " + "  ".join(f"{n}={ll}" for n, ll in res["standing"]), flush=True)
-    side = "witchcraft" if res["winner"].startswith("Witch") else (
+    side = "mtg" if res["winner"].startswith("Witch") else (
         "forge-ai" if res["winner"].startswith("ForgeAI") else "draw/none")
     print(f"\n  RESULT: {side}  (winner={res['winner']})   log={res.get('log')}")
     print(f"  wall: {round(time.time() - t0)}s")
@@ -319,9 +319,9 @@ def main() -> None:
             print("     life standing: " + "  ".join(f"{n}={ll}" for n, ll in res["standing"]), flush=True)
 
     print("\n" + "=" * 80)
-    print("COMMANDER FFA TOURNAMENT SUMMARY  (Forge = referee/source-of-truth; 2 witchcraft + 2 Forge-AI)")
+    print("COMMANDER FFA TOURNAMENT SUMMARY  (Forge = referee/source-of-truth; 2 mtg + 2 Forge-AI)")
     print("=" * 80)
-    side = {"witchcraft": 0, "forge-ai": 0, "draw/none": 0}
+    side = {"mtg": 0, "forge-ai": 0, "draw/none": 0}
     deck_wins: dict = {k: 0 for k in keys}
     for i, m in enumerate(games):
         win = m["winner"]
@@ -329,7 +329,7 @@ def main() -> None:
         side_won, deck_won = "draw/none", "-"
         for s in range(4):
             if m["seat_name"][s] == win:
-                side_won = "witchcraft" if m["seat_type"][s] == "witch" else "forge-ai"
+                side_won = "mtg" if m["seat_type"][s] == "witch" else "forge-ai"
                 deck_won = m["seat_decks"][s]
                 break
         side[side_won] = side.get(side_won, 0) + 1
@@ -340,7 +340,7 @@ def main() -> None:
         if win == "TIMEOUT/ERR" and m.get("standing"):
             print("           provisional life standing: "
                   + "  ".join(f"{n}={ll}" for n, ll in m["standing"]))
-    print(f"\n  side tally:  witchcraft={side['witchcraft']}  forge-ai={side['forge-ai']}  "
+    print(f"\n  side tally:  mtg={side['mtg']}  forge-ai={side['forge-ai']}  "
           f"draw/none={side.get('draw/none', 0)}")
     print(f"  deck wins:   " + "  ".join(f"{k}={v}" for k, v in deck_wins.items()))
     print(f"\nwall: {round(time.time() - t0)}s")

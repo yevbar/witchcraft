@@ -1,4 +1,4 @@
-"""test_quiescence.py — combat-quiescence for 1-ply value scoring (witchcraft/rebel.py).
+"""test_quiescence.py — combat-quiescence for 1-ply value scoring (mtg/rebel.py).
 
 `env.step` on an attack stops at the defender's block decision, BEFORE combat damage — so a value applied
 there is blind to the attack's payoff. `_quiesce` rolls the engine through combat (default blocks + damage)
@@ -14,8 +14,8 @@ import contextlib
 import io
 
 import env
-from witchcraft.game import Game
-from witchcraft.rebel import heuristic_value, quiescent, _quiesce, _COMBAT_STEPS
+from mtg.game import Game
+from mtg.rebel import heuristic_value, quiescent, _quiesce, _COMBAT_STEPS
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -77,8 +77,8 @@ def _combat_step_names():
 
 
 def _quiesce_flag():
-    from witchcraft.rebel import GreedyValuePlayer, ValuePlayer
-    from witchcraft.players import RandomPlayer, play
+    from mtg.rebel import GreedyValuePlayer, ValuePlayer
+    from mtg.players import RandomPlayer, play
     check("ValuePlayer accepts quiesce=True", ValuePlayer(heuristic_value, quiesce=True) is not None)
     with contextlib.redirect_stdout(io.StringIO()):
         g = play({"alice": GreedyValuePlayer(heuristic_value, quiesce=True), "bob": RandomPlayer(seed=1)},

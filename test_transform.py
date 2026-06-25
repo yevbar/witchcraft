@@ -1,4 +1,4 @@
-"""test_transform.py — §712 TRANSFORM: a double-faced card's BACK face now exists in witchcraft (added to
+"""test_transform.py — §712 TRANSFORM: a double-faced card's BACK face now exists in mtg (added to
 the oracle corpus from MTGJSON's two card objects), is interpreted into cards.dl (its type/loyalty/abilities),
 and the front's 'flip a coin; if you win, you may exile ~ and return it transformed' resolves end-to-end:
 the object flips to its back-face planeswalker (Ral, Leyline Prodigy) with §306.5b loyalty = base + one per

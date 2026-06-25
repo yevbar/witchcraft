@@ -83,7 +83,7 @@ Ran the complete rotation on the 24 GB Mac (`FORGE_HEADLESS=false`), ~67 min wal
 game 1 ~3 min, game 2 a 24-min grind, game 4 ~10 min). The stats/standings surfacing from `1712b88`
 worked and turned the run into hard data.
 
-### Result: **witchcraft 0 — Forge AI 3 — 1 timeout**
+### Result: **mtg 0 — Forge AI 3 — 1 timeout**
 
 | game | winner | turns | witch modeled / endorsed (per seat) |
 |------|--------|------:|--------------------------------------|
@@ -102,13 +102,13 @@ deck wins: kinnan 2, bluefarm 1.
 - **Endorsement is NEAR-ZERO — mostly 0.01–0.04** (peaked 0.33 once). The engine drove its own seat
   ~1–4% of the time and **fell back to `greedy_policy` ~96–99%**.
 
-Conclusion: the witchcraft seats are **effectively just the greedy fallback playing, not win_search**.
+Conclusion: the mtg seats are **effectively just the greedy fallback playing, not win_search**.
 This is the `_pick_action` "win-this-turn-or-fall-back" policy quantified — it endorses a move only on a
 *complete* kill line, which essentially never exists in a 4-player cEDH game, so endorsement collapses to
 ~0 and the seat never executes its own plan. Forge AI's real cEDH lines beat that every game.
 
 The provisional standing earned its keep once: game 3's timeout would have been a meaningless `draw/none`,
-but it shows a *witchcraft* seat actually ahead (Witch-kinnan, 39 life) — the only competitive glimpse.
+but it shows a *mtg* seat actually ahead (Witch-kinnan, 39 life) — the only competitive glimpse.
 
 ### So the priority for the mac mini is unchanged but now measured
 
@@ -142,10 +142,10 @@ claims above need correcting before they steer the engine work:
 
 3. **The fallback IS Forge AI, which reframes the 0–3.** `greedy_policy` returns Forge's `default`, which
    "defers to Forge's own AI heuristic" (`:75`); the Java side logs these as "FORGE-AI fallbacks taken by
-   witchcraft seats." So the witch seats were **~Forge-AI-piloted** wherever they didn't endorse — the
+   mtg seats." So the witch seats were **~Forge-AI-piloted** wherever they didn't endorse — the
    scoreboard is closer to *Forge-AI-on-our-decklists vs Forge-AI-on-stock-decks*, and the deck-win skew
    (kinnan 2, bluefarm 1) partly reflects **Forge AI's affinity for those decks** (it pilots combo/storm lists
-   like Ral/Stella poorly), not a witchcraft verdict.
+   like Ral/Stella poorly), not a mtg verdict.
 
 **What localizes the real gap (data already in the logs):** `coverage()` also returns `by_kind`
 (`{kind: {offered, modeled, endorsed, engine}}`, `:426`) and `engine_decided`/`decisions`. Slicing the
