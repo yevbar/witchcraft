@@ -1,7 +1,7 @@
-"""standard_decks.py — representative, buildable STANDARD decklists for the witchcraft engine.
+"""standard_decks.py — representative, buildable STANDARD decklists for the mtg engine.
 
 Every card here is STANDARD-LEGAL (in standard_pool.standard_pool(), released MKM 2024 -> HOB 2026 sets)
-and exists in the engine's oracle corpus under the EXACT oracle name (so both witchcraft AND Forge build
+and exists in the engine's oracle corpus under the EXACT oracle name (so both mtg AND Forge build
 them). The decks are intentionally creature-heavy with simple, near-vanilla bodies — the part of MTG the
 datalog engine handles best (combat, P/T, common keywords like flying/haste/trample/lifelink). They are
 real-archetype-shaped (mono-color aggro is safest; one two-color midrange) rather than netdecked

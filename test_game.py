@@ -153,7 +153,7 @@ def _self_play() -> None:
 
 
 def _cedh_commander() -> None:
-    # §903 the witchcraft 'stockfish' can play a REAL cEDH decklist under Commander format: a 1v1 game from
+    # §903 the mtg 'stockfish' can play a REAL cEDH decklist under Commander format: a 1v1 game from
     # two Izzet spellslinger lists, 40 life + command zone, driven through the env referee without error.
     import contextlib
     import io

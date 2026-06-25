@@ -1,4 +1,4 @@
-"""test_steer_solve.py — the Steer-and-Solve hybrid (witchcraft/steer_solve.py): a net STEERS, the forced-win
+"""test_steer_solve.py — the Steer-and-Solve hybrid (mtg/steer_solve.py): a net STEERS, the forced-win
 solver FINISHES. Proves the composition takes over the moment a win is forceable, defers to the brain
 otherwise (and is gated off when no opponent is in kill range), and plays a full game.
 
@@ -10,10 +10,10 @@ import contextlib
 import io
 
 import env
-from witchcraft.models import Move
-from witchcraft.game import Game
-from witchcraft.players import RandomPlayer, play
-from witchcraft.steer_solve import SteerAndSolvePlayer
+from mtg.models import Move
+from mtg.game import Game
+from mtg.players import RandomPlayer, play
+from mtg.steer_solve import SteerAndSolvePlayer
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -87,7 +87,7 @@ def _plays_full_game():
 def _teacher_arms():
     """SolverSeekingPlayer (the Step-3b teacher): the WIN arm fires on a forced lethal; it plays a full game
     through the develop/fallback arms otherwise."""
-    from witchcraft.steer_solve import SolverSeekingPlayer
+    from mtg.steer_solve import SolverSeekingPlayer
     t = SolverSeekingPlayer(RandomPlayer(seed=0), win_turns=1, win_budget=2000, life_gate=None)
     mv = t.choose_move(_FakeGame(_combat_lethal_state()))
     check("teacher WIN arm fires on a forced lethal", t.last_arm == "win")

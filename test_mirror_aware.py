@@ -16,10 +16,10 @@ def check(name, cond):
 
 
 def run():
-    from witchcraft.aggro import AggroPlayer
-    from witchcraft.game import Game
-    from witchcraft.lookahead import MirrorAwarePlayer
-    from witchcraft.players import play
+    from mtg.aggro import AggroPlayer
+    from mtg.game import Game
+    from mtg.lookahead import MirrorAwarePlayer
+    from mtg.players import play
 
     # 1) full game vs aggro to terminal, last_win shape
     m = MirrorAwarePlayer(max_turns=5, node_budget=600, beam=6)

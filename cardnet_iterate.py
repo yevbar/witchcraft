@@ -18,7 +18,7 @@ if os.environ.get("PYTHONHASHSEED") != "0":           # reproducibility: pin set
 import argparse
 import time
 
-import witchcraft.cardnet as cn
+import mtg.cardnet as cn
 
 
 def main():

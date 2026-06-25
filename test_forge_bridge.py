@@ -3,7 +3,7 @@
 This is the fast, hermetic half of the Forge work: it drives forge_bridge with a scripted sequence of
 PlayerController-style decision requests (a MOCK Forge) so it needs NO JVM and NO Forge build — just
 loopback for the socket check. It is NOT running Forge. The REAL integration — an actual headless Forge
-JVM with witchcraft driving a seat — lives in forge_integration/ (ForgeVsBot.java / ForgeComboKill.java,
+JVM with mtg driving a seat — lives in forge_integration/ (ForgeVsBot.java / ForgeComboKill.java,
 run via forge_integration/run.sh, see forge_integration/README.md for setup). Both exercise the same
 forge_bridge adapter; this mock just lets us test the protocol + policy logic quickly.
 
@@ -254,7 +254,7 @@ def _search_driven_oracle() -> None:
 
 
 def _mana_payment_delegated() -> None:
-    """§106 mana payment is delegated to witchcraft: a 'pay' decision returns WHICH sources to tap and what
+    """§106 mana payment is delegated to mtg: a 'pay' decision returns WHICH sources to tap and what
     COLOR each makes, so Forge can execute the exact payment a combo depends on. The classic trap: with
     Black Lotus (3 of ONE color) + Mox Jet, pay {B} from the Mox — NOT by cracking the Lotus needed for a
     later {U}{U}. driver.mana_plan must make that call (and the policy's 'pay' decision relay it)."""

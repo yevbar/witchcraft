@@ -7,7 +7,7 @@ on the gauntlet). See `STEER_AND_SOLVE_PLAN.md` for the plan this gates, and `ST
 proposed next run.
 
 All numbers below: `compare()` on the Random+Aggro+Heuristic gauntlet, with 95% CIs. Scripts archived under
-`witchcraft/experiments/` (`teacher_gauntlet.py`, `teacher_nodev_gauntlet.py`, `hybrid_gauntlet.py`).
+`mtg/experiments/` (`teacher_gauntlet.py`, `teacher_nodev_gauntlet.py`, `hybrid_gauntlet.py`).
 
 ## The four candidates, measured honestly
 

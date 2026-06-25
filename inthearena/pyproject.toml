@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inthearena"
+version = "0.0.1"
+description = "Placeholder reserving the `inthearena` distribution"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "yevbar" }]
+keywords = ["arena", "agents", "placeholder"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/yevbar"
+
+[tool.setuptools.packages.find]
+where = ["src"]

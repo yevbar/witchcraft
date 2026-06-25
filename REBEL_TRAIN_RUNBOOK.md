@@ -13,7 +13,7 @@ itself was fine; only the save path was bad. The launcher below defaults to a wr
 ## One-time setup on the MacBook
 
 ```bash
-git clone <repo-url> witchcraft && cd witchcraft   # or pull latest on an existing clone
+git clone <repo-url> mtg && cd mtg   # or pull latest on an existing clone
 python3 -m pip install numpy                        # the only third-party dep for training
 python3 -c "import numpy; print('numpy', numpy.__version__)"
 ```
@@ -56,7 +56,7 @@ Bundled decks: `izzet_prowess`, `mono_black_zombies`, `mono_green_landfall`,
 ## What it produces
 
 * `<out>.npz` — the trained `TinyValueNet` weights. Reload with
-  `from witchcraft.rebel_train import TinyValueNet, NetValue; vf = NetValue(TinyValueNet.load("<out>"))`,
+  `from mtg.rebel_train import TinyValueNet, NetValue; vf = NetValue(TinyValueNet.load("<out>"))`,
   then pass `vf` to `ReBeLPlayer(value_fn=vf, ...)`.
 * `<out>.history.json` — per-round data counts, the periodic `win_rate_vs_random` (and Forge results
   if run), plus the final self-evaluation win-rate and total train time. This is the artifact to copy

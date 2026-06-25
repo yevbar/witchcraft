@@ -16,7 +16,7 @@ decision LOGIC is `ForgePlayer.handle(msg) -> reply`, a pure function of (messag
 with no socket/JVM.
 
 WHERE THE REAL FORGE LIVES. This module is just the adapter. The actual Forge JVM connector — a headless
-Forge match with witchcraft driving a seat through the socket above — is in `forge_integration/`
+Forge match with mtg driving a seat through the socket above — is in `forge_integration/`
 (ForgeVsBot.java, ForgeComboKill.java; run via forge_integration/run.sh, and see
 forge_integration/README.md for prerequisites + setup). So: the mock tests check this protocol/policy
 fast; forge_integration/ runs it for real against Forge's authoritative rules.

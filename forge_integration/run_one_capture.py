@@ -1,6 +1,6 @@
 """run_one_capture.py — run ONE ForgeVsBot game and save the COMPLETE move record.
 
-Captures both sides: the witchcraft bot's decision trace (MTG_DEBUG -> bot stdout/stderr) and Forge's own
+Captures both sides: the mtg bot's decision trace (MTG_DEBUG -> bot stdout/stderr) and Forge's own
 stdout (the `[bot] engine plays/attacks/blocks` lines + the authoritative chronological GAME LOG dumped at
 RESULT). Writes everything to /tmp/vanilla_mirror_capture.txt.
 
@@ -46,7 +46,7 @@ except subprocess.TimeoutExpired:
 
 forge_out = r.stdout + "\n" + r.stderr
 with open(OUTFILE, "w") as f:
-    f.write(f"=== {witch} (witchcraft) vs {opp} (forge-ai) — FULL CAPTURE ===\n\n")
+    f.write(f"=== {witch} (mtg) vs {opp} (forge-ai) — FULL CAPTURE ===\n\n")
     f.write("########## FORGE SIDE (game log + engine plays) ##########\n")
     f.write(forge_out)
     f.write("\n\n########## WITCHCRAFT BOT SIDE (MTG_DEBUG decision trace + coverage) ##########\n")

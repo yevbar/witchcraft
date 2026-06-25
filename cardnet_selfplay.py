@@ -25,11 +25,11 @@ import time
 
 import numpy as np
 
-import witchcraft.cardnet as cn
-import witchcraft.rebel_train as rt
-from witchcraft.game import Game
-from witchcraft.players import RandomPlayer, play
-from witchcraft.rebel import GreedyValuePlayer
+import mtg.cardnet as cn
+import mtg.rebel_train as rt
+from mtg.game import Game
+from mtg.players import RandomPlayer, play
+from mtg.rebel import GreedyValuePlayer
 
 
 def gen_combined(games: int, seed: int):

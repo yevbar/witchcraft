@@ -1,10 +1,10 @@
-"""test_cards.py — the importable, iterable card corpus (witchcraft.cards). No optional deps.
+"""test_cards.py — the importable, iterable card corpus (mtg.cards). No optional deps.
 Needs mtgjson/oracle_corpus.json (build_oracle_corpus.py). Run: python3 test_cards.py
 """
 from __future__ import annotations
 
-from witchcraft import cards
-from witchcraft.cards import CardCorpus
+from mtg import cards
+from mtg.cards import CardCorpus
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -14,7 +14,7 @@ def check(name, cond):
 
 
 def run():
-    check("witchcraft.cards is the CardCorpus singleton", isinstance(cards, CardCorpus))
+    check("mtg.cards is the CardCorpus singleton", isinstance(cards, CardCorpus))
 
     n = len(cards)
     check("corpus has many unique cards (>1000)", n > 1000)

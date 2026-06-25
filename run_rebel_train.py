@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """run_rebel_train.py — portable launcher for ReBeL value-net training + self-evaluation.
 
-A thin, hand-off-friendly wrapper around `witchcraft.rebel_train.train_loop`. It:
+A thin, hand-off-friendly wrapper around `mtg.rebel_train.train_loop`. It:
   * runs the self-play training loop on a fixed two-deck pairing,
   * saves the value net to a WRITABLE path (defaults under ./rebel_runs/, never the FS root),
   * self-evaluates ReBeL(net) vs a random opponent (and vs Forge, if available),
@@ -76,8 +76,8 @@ def main(argv=None) -> int:
 
     # Import after arg-parsing so --help works even outside the repo root.
     try:
-        from witchcraft.rebel_train import train_loop, _eval_vs_random
-        from witchcraft.decks import load_deck
+        from mtg.rebel_train import train_loop, _eval_vs_random
+        from mtg.decks import load_deck
     except ModuleNotFoundError as e:
         print(f"ERROR: import failed ({e}). Run this from the repo root "
               f"(the dir containing env.py / observe.py).", file=sys.stderr)

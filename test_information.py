@@ -8,8 +8,8 @@ from __future__ import annotations
 import contextlib
 import io
 
-from witchcraft import InformationPlayer, RandomPlayer, play
-from witchcraft.game import Game
+from mtg import InformationPlayer, RandomPlayer, play
+from mtg.game import Game
 
 CHECKS: list[tuple[str, bool]] = []
 

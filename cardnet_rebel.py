@@ -15,10 +15,10 @@ import contextlib
 import io
 import time
 
-import witchcraft.cardnet as cn
-import witchcraft.rebel_train as rt
-from witchcraft.rebel import ReBeLPlayer
-from witchcraft.players import RandomPlayer, play
+import mtg.cardnet as cn
+import mtg.rebel_train as rt
+from mtg.rebel import ReBeLPlayer
+from mtg.players import RandomPlayer, play
 
 
 def winrate(make_a, make_b, games: int, seed: int = 200) -> float:

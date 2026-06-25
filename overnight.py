@@ -9,14 +9,14 @@ Robust: each part is wrapped so one failure doesn't sink the rest; nets are chec
 import time, traceback
 from collections import deque
 
-import witchcraft.game as wg
-import witchcraft.cardnet as cn
-from witchcraft.cardnet import CardNetValue
-from witchcraft.rebel import GreedyValuePlayer, ValuePlayer, ReBeLPlayer, heuristic_value
-from witchcraft import ladder
-from witchcraft.players import RandomPlayer, GreedyPlayer
-from witchcraft.heuristic import HeuristicPlayer
-from witchcraft.decks import load_deck, bundled_decks
+import mtg.game as wg
+import mtg.cardnet as cn
+from mtg.cardnet import CardNetValue
+from mtg.rebel import GreedyValuePlayer, ValuePlayer, ReBeLPlayer, heuristic_value
+from mtg import ladder
+from mtg.players import RandomPlayer, GreedyPlayer
+from mtg.heuristic import HeuristicPlayer
+from mtg.decks import load_deck, bundled_decks
 
 wg._select_incremental()
 POOL = [load_deck(n) for n in bundled_decks()]

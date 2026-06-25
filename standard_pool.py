@@ -3,7 +3,7 @@
 AllPrintings.json (MTGJSON) marks legality PER CARD: card['legalities']['standard'] == 'Legal'.
 We stream that 637MB file (ijson) so we never hold it in memory, collect every distinct card NAME
 flagged Standard-legal, then INTERSECT with oracle_corpus.json (the engine's 34,546-card corpus) so
-the result is only cards the witchcraft engine has parse facts for. We also record which sets the
+the result is only cards the mtg engine has parse facts for. We also record which sets the
 Standard pool spans (set code + type + releaseDate) for the rotation picture.
 
 Usage:

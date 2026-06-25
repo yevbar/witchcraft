@@ -24,11 +24,11 @@ child lives in the same scope the OOM killer destroys.
 
 | Component                         | Count in 4-player FFA | Footprint (observed)        |
 |-----------------------------------|-----------------------|-----------------------------|
-| `run_bot.py` (witchcraft engine)  | 2 (one per witch seat)| 2–3.4 GB **each** (the hog) |
+| `run_bot.py` (mtg engine)  | 2 (one per witch seat)| 2–3.4 GB **each** (the hog) |
 | Forge JVM (`ForgeCommanderFFA`)   | 1                     | ~1.5–2 GB (uncapped heap)   |
 | Orchestrator python + Claude/node | 1 + 1                 | baseline ~2.9 GB            |
 
-Two witchcraft bots + the JVM + the session baseline overflow 7.4 GB. The 1v1 runner (`run_tournament.py`)
+Two mtg bots + the JVM + the session baseline overflow 7.4 GB. The 1v1 runner (`run_tournament.py`)
 uses only **one** bot, which is why it's the laptop-survivable fallback.
 
 ## Target machine spec
@@ -53,8 +53,8 @@ on the new machine and point the env vars at them:
    `$FORGE/forge-gui-desktop/target/forge-gui-desktop-2.0.13-SNAPSHOT-jar-with-dependencies.jar` (38 MB) and
    the assets dir `$FORGE/forge-gui/`. Set `FORGE=/path/to/forge`. Build once with
    `mvn -pl forge-gui-desktop -am package -DskipTests` (or copy the prebuilt tree from the laptop at
-   `/home/zucc/Development/witchcraft/forge`).
-3. **Python 3** with the witchcraft repo importable (the run scripts add the repo root to `sys.path`).
+   `/home/zucc/Development/mtg/forge`).
+3. **Python 3** with the mtg repo importable (the run scripts add the repo root to `sys.path`).
    `forge_bridge` itself is stdlib-only; the engine's own deps (e.g. souffle if regenerating) are unchanged
    from the laptop — if `python3 -c "import deck_evaluator, interaction_evaluator, forge_bridge"` succeeds, the
    bots will run.
@@ -95,7 +95,7 @@ JDK=/path/to/jdk-17 FORGE=/path/to/forge \
 ```
 
 4 games, each ~20–30 min ⇒ budget **~1.5–2 h wall**. Each game rotates which of the four 100%-CLEAN cEDH
-decks (`ral`, `stella`, `bluefarm`, `kinnan`) each seat flies; seats 0–1 are witchcraft, 2–3 are Forge AI.
+decks (`ral`, `stella`, `bluefarm`, `kinnan`) each seat flies; seats 0–1 are mtg, 2–3 are Forge AI.
 
 ### 1v1 (the laptop-survivable fallback — single bot)
 

@@ -18,7 +18,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "forge_integration"))
 import run_tournament as rt
 
-from witchcraft import forge_status
+from mtg import forge_status
 
 CHECKS: list[tuple[str, bool]] = []
 

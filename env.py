@@ -494,7 +494,7 @@ def step(state: dict, action: tuple) -> dict:
     """Pure transition: apply `action` through the driver's real resolution, then auto-advance to the next
     decision point. Leaves `state` untouched."""
     s = _clone(state)
-    action = getattr(action, "raw", action)          # accept a witchcraft.models.Move or a bare action tuple
+    action = getattr(action, "raw", action)          # accept a mtg.models.Move or a bare action tuple
     players = sorted(p for (p,) in s["is_player"])
     kind = action[0]
     with contextlib.redirect_stdout(io.StringIO()):

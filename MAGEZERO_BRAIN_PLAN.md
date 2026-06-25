@@ -128,9 +128,9 @@ without it.
   recompiles — worse, parallel ones across pool workers — 24 GB can exhaust → swap-death / kernel memory
   failure → **hard restart.** Long serial training loops with no per-round memory release compound it.
 
-**The guard** (`witchcraft/experiments/_safe.py`, imported at the top of every experiment):
+**The guard** (`mtg/experiments/_safe.py`, imported at the top of every experiment):
 ```python
-# witchcraft/experiments/_safe.py — import FIRST, before torch does anything.
+# mtg/experiments/_safe.py — import FIRST, before torch does anything.
 import os, resource, signal
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -167,13 +167,13 @@ one process — it can no longer take the machine down. That is the assurance.
 
 ## 5. The smoke test (run THIS before any real experiment — provably bounded)
 
-`witchcraft/experiments/smoke.py`: **single process, no Pool, 2 games, `max_moves=400`, one rung, guard on,
+`mtg/experiments/smoke.py`: **single process, no Pool, 2 games, `max_moves=400`, one rung, guard on,
 60 s watchdog.** It proves (a) the guard arms, (b) a net loads into the seam, (c) the engine round-trips —
 with essentially zero crash surface.
 ```python
 import _safe; _safe.clamp(mem_gb=4); _safe.watchdog(60)
-from witchcraft.ladder import compare
-from witchcraft.heuristic import HeuristicPlayer
+from mtg.ladder import compare
+from mtg.heuristic import HeuristicPlayer
 # brain = the Stage-N candidate (Stage 0: GreedyPlayer; Stage 1+: PolicyPlayer(load(...)))
 print(compare(brain, HeuristicPlayer(), games=2, seed=1, max_moves=400, explicit_lands=True))
 ```
@@ -192,7 +192,7 @@ guard at `Pool(2)`.
 ---
 
 ## 6. First concrete actions (in order)
-1. Write `witchcraft/experiments/_safe.py` + `smoke.py`; run the smoke with `brain=GreedyPlayer` (Stage 0
+1. Write `mtg/experiments/_safe.py` + `smoke.py`; run the smoke with `brain=GreedyPlayer` (Stage 0
    round-trip). *(bounded; safe to hit enter)*
 2. Add the guard to `probe_a`/`probe_b`; finish SPRT + multiprocess in `ladder.py`.
 3. Fix `cardnet.load()` (CardPVNet reconstruction). *(unblocks all of P)*

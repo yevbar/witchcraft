@@ -1,4 +1,4 @@
-"""test_wincon.py — win-condition axis detection (witchcraft.wincon), the Game.win_conditions API, and the
+"""test_wincon.py — win-condition axis detection (mtg.wincon), the Game.win_conditions API, and the
 EagerPlayer scaffold. No optional deps. Run: python3 test_wincon.py
 """
 from __future__ import annotations
@@ -6,8 +6,8 @@ from __future__ import annotations
 import contextlib
 import io
 
-from witchcraft.game import Game
-from witchcraft.wincon import WinCon, reachable
+from mtg.game import Game
+from mtg.wincon import WinCon, reachable
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -51,8 +51,8 @@ def _axes():
 
 
 def _eager():
-    from witchcraft.eager import EagerPlayer
-    from witchcraft.players import RandomPlayer, play
+    from mtg.eager import EagerPlayer
+    from mtg.players import RandomPlayer, play
     check("EagerPlayer dispatches every WinCon", set(EagerPlayer._DISPATCH) == set(WinCon))
 
     g = Game(seed=0)

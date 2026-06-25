@@ -1,6 +1,6 @@
 """deck_evaluator.py — classify a decklist by HOW IT WINS, derived from the engine's KNOWN rules.
 
-Two questions, both answered from mechanics witchcraft already interprets (NOT oracle-text guessing):
+Two questions, both answered from mechanics mtg already interprets (NOT oracle-text guessing):
 
   1. Which cards WIN vs which cards HELP WIN?
        - a card WINS if its interpreted effect can DIRECTLY drive a §104 loss/win condition to its

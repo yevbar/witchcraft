@@ -3,7 +3,7 @@
 Gathered via web research (June 2026) from tournament-coverage sources. Each entry records
 the archetype, source URL + date, format, and the 60-card MAINDECK only (card name -> count).
 Sideboards are intentionally omitted: this corpus targets the cards a deck actually plays
-game-1, which is what the witchcraft card-processing pipeline must cover.
+game-1, which is what the mtg card-processing pipeline must cover.
 
 CARD NAMES are exact MTGJSON oracle names. Split / DFC cards use the full "A // B" name as it
 appears in the corpus. A few snippets reported a name variant (e.g. "Wan Shi Tong Librarian");
