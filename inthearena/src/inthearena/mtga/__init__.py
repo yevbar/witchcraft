@@ -35,7 +35,9 @@ from .screen import (
     CallableRecognizer,
     ViewRecognizer,
     current_view,
+    in_game,
     iter_scene_changes,
+    iter_view_events,
     latest_scene_name,
     latest_view,
 )
@@ -48,6 +50,6 @@ __all__ = [
     "AggroPolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
-    "current_view", "latest_view", "latest_scene_name", "iter_scene_changes",
+    "current_view", "latest_view", "latest_scene_name", "iter_scene_changes", "iter_view_events", "in_game",
     "ViewRecognizer", "CallableRecognizer",
 ]

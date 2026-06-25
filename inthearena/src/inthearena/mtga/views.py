@@ -41,6 +41,8 @@ class RecognizedViews(enum.Enum):
 
     HOME = "Home"                        # landing page; the Play button is in the BOTTOM-RIGHT
     RECENTLY_PLAYED = "Recently played"  # the recently-played decks section (recognized visually, not a scene)
+    GAMEPLAY = "GamePlay"                # a game in progress — detected from MATCH STATE, not a scene; in-game
+    #                                      actions come from the GRE decision menu (see gre/policy), not view UI
 
     @property
     def elements(self) -> tuple:

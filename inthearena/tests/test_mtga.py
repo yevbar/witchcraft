@@ -16,6 +16,7 @@ from inthearena.mtga import (
     cards,
     current_view,
     from_scene_name,
+    in_game,
     iter_decisions,
     latest_view,
     snapshot,
@@ -165,6 +166,31 @@ def _views_checks():
         check("current_view: falls back to the log scene with no image model", current_view(p) == RecognizedViews.HOME)
     finally:
         os.unlink(p)
+
+    # GAMEPLAY is detected from MATCH STATE, not a scene
+    check("RecognizedViews has GamePlay", RecognizedViews.GAMEPLAY.value == "GamePlay")
+    check("GamePlay is not a log scene (match-detected)", RecognizedViews.GAMEPLAY.scene_name is None)
+
+    fd, q = tempfile.mkstemp(suffix=".log")
+    os.write(fd, ("x SceneChange {\"toSceneName\":\"Home\"}\n"
+                  "y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_Playing\"}\n").encode())
+    os.close(fd)
+    try:
+        check("latest_view is GAMEPLAY while a match is live", latest_view(q) == RecognizedViews.GAMEPLAY)
+        check("in_game() True during a match", in_game(q) is True)
+    finally:
+        os.unlink(q)
+
+    fd, r = tempfile.mkstemp(suffix=".log")
+    os.write(fd, ("y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_Playing\"}\n"
+                  "y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_MatchCompleted\"}\n"
+                  "x SceneChange {\"toSceneName\":\"Home\"}\n").encode())
+    os.close(fd)
+    try:
+        check("after match completes + return Home, view is HOME not GAMEPLAY", latest_view(r) == RecognizedViews.HOME)
+        check("in_game() False back in the menu", in_game(r) is False)
+    finally:
+        os.unlink(r)
 
 
 def run():
