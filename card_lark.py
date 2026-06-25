@@ -2409,7 +2409,7 @@ class _ToEffect(Transformer):
         return _CKind(str(tok))
 
     def player_gets_counter(self, *args):
-        # '<player> gets <n> poison/energy/experience counter(s)' -> put_counter on the player. GROUNDED
+        # '<player> gets <n> poison/energy/experience/rad counter(s)' -> put_counter on the player. GROUNDED
         # NATIVELY from the grammar-captured count + kind (no card_effects template): amount = _amount(count)
         # (or 'X'), target = _target(subject), extra = kind. The subject must be a clean target phrase
         # (validated against _TGT — structural, NOT a template re-match): the (WORD|QUANT|NUM)+ span otherwise
@@ -2421,7 +2421,7 @@ class _ToEffect(Transformer):
         if count is None or kind is None or subj is None:
             return None
         k = kind.strip().lower()
-        if k not in ("poison", "energy", "experience"):
+        if k not in ("poison", "energy", "experience", "rad"):
             return None
         if not re.fullmatch(_TGT, subj.strip(), re.I):       # reproduce _gets_counter's ({_TGT}) subject guard
             return None
