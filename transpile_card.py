@@ -1883,7 +1883,7 @@ def _mode_option(unit, ctx):
 # mode bodies that are a whole ABILITY (trigger/static/activated), not a bare effect — the clan-choice
 # Sieges. The mode is grounded by routing the stripped body through transpile_unit and marking the result.
 _MODE_ABILITY_KINDS = frozenset({"triggered", "static", "static_pt", "static_player", "static_grant",
-                                 "activated", "multi", "static_effect"})
+                                 "activated", "multi", "static_effect", "cost_modifier"})
 
 
 def _spree_mode(unit, ctx):
@@ -2329,9 +2329,10 @@ _COST_MOD_ANCHORS = [
     (re.compile(r"^(?:If (?P<lead>.+?), )?~ costs (?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) "
                 r"to (?P<kind>cast)(?:,? (?P<cond>.+?))?\.?$", re.I),
      "self", None, "cond", "lead"),
-    # SET form: '[During <timing>, ]<spell-class> spells you cast cost {N} <dir> to cast' — scope is the
-    # matched NP; an optional leading 'During <timing>,' (your turn / turns other than yours) is the cond.
-    (re.compile(r"^(?:(?P<cond>During [^,]+?), )?(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? "
+    # SET form: '[<timing>, ]<spell-class> spells you cast cost {N} <dir> to cast' — scope is the matched
+    # NP; an optional leading timing condition is the cond: 'During <timing>,' (your turn / turns other than
+    # yours) or a duration 'Until <…>,' (the temporary tax form, e.g. 'Until your next turn,').
+    (re.compile(r"^(?:(?P<cond>(?:During|Until) [^,]+?), )?(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? "
                 r"(?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) to (?P<kind>cast)\.?$", re.I),
      None, "scope", "cond", None),
     # ABILITY form: "~'s abilities / this ability / abilities you activate cost {N} <dir> to activate
