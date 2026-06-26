@@ -898,6 +898,48 @@ def _hand_checks():
           rxs == sorted(rxs) and min(rxs) < 900 and all(abs(x - 900) > 50 and abs(x - 1030) > 50 for x in rxs))
 
 
+def _engine_policy_checks():
+    """EnginePolicy translates a witchcraft engine move back to the MTGA option by the encoded instanceId, and
+    falls back when it can't. Move objects are duck-typed (SimpleNamespace) so the engine needn't be importable."""
+    from types import SimpleNamespace as NS
+    from inthearena.mtga import EnginePolicy, mtga_instance_id
+    from inthearena.mtga.engine_policy import _FALLBACK
+    from inthearena.mtga.gre import Action, Attacker, Decision, GameView
+
+    check("mtga_instance_id parses slug_<id> -> the MTGA instanceId", mtga_instance_id("command_tower_342") == 342)
+    check("mtga_instance_id rejects determinized hidden ids (slug_x<n>)", mtga_instance_id("grizzly_bears_x1") is None)
+    check("mtga_instance_id None for a bare slug / empty", mtga_instance_id("forest") is None and mtga_instance_id("") is None)
+
+    ep = EnginePolicy()
+    move = lambda kind, cid=None, attackers=(): NS(kind=kind, card=(NS(id=cid) if cid else None), attackers=frozenset(attackers))
+
+    # actions: a land-play move maps to the Play option with that instanceId; a cast to the Cast option
+    opts = [Action(actionType="ActionType_Play", instanceId=342),
+            Action(actionType="ActionType_Cast", instanceId=51),
+            Action(actionType="ActionType_Pass")]
+    d_act = Decision(kind="actions", options=opts, seat=1, view=GameView(), req=None)
+    check("engine 'play forest_342' -> the MTGA Play(342) action",
+          ep._translate(d_act, move("play", "forest_342")) is opts[0])
+    check("engine 'cast bolt_51' -> the MTGA Cast(51) action",
+          ep._translate(d_act, move("cast", "bolt_51")) is opts[1])
+    check("engine 'pass' -> the MTGA Pass action", ep._translate(d_act, move("pass")) is opts[2])
+    check("engine move with an unknown instanceId -> fallback",
+          ep._translate(d_act, move("cast", "ghost_999")) is _FALLBACK)
+
+    # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
+    qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
+    d_atk = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
+    chosen = ep._translate(d_atk, move("attack", attackers=["goblin_11", "goblin_13"]))
+    check("engine attack set -> the matching qualified attackers (by instanceId)",
+          sorted(c["attackerInstanceId"] for c in chosen) == [11, 13])
+    check("engine declines combat (pass at attackers) -> no attack ([])",
+          ep._translate(d_atk, move("pass")) == [])
+
+    # decide routes blockers/targets/mulligan without touching the engine
+    check("EnginePolicy never blocks", ep.decide(Decision(kind="blockers", options=[{"x": 1}], seat=1, view=GameView(), req=None)) == [])
+    check("EnginePolicy declines targets", ep.decide(Decision(kind="targets", options=[{"instanceId": 1}], seat=1, view=GameView(), req=None)) is None)
+
+
 def _execute_checks():
     """GameExecutor dispatch: object-free decisions (pass / no-blocks / all-attack) click the bottom-right
     advance button; hand actions route to the hand; partial attacks / board targets aren't wired."""
@@ -1027,6 +1069,7 @@ def run():
     _live_checks()
     _navigate_checks()
     _hand_checks()
+    _engine_policy_checks()
     _execute_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
