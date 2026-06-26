@@ -32,11 +32,6 @@ class AggroPolicy:
     """Develop and attack, relentlessly — the `mtg.aggro.AggroPlayer` policy over the live MTGA menu."""
 
     name = "aggro"
-    min_lands = 2            # mulligan an opening hand with fewer than this many lands…
-    stop_hand_size = 5       # …but stop once a further mulligan would leave only this many cards in hand
-
-    def __init__(self):
-        self._mulls = 0      # London mulligans taken THIS game (keeping after m mulls yields 7-m cards)
 
     def decide(self, d: Decision):
         return getattr(self, f"_on_{d.kind}", self._on_default)(d)
@@ -63,16 +58,7 @@ class AggroPolicy:
         return []                                            # pure aggro: never block
 
     def _on_mulligan(self, d: Decision) -> str:
-        """Keep a hand with >= `min_lands` lands; otherwise mulligan — but stop (keep) once a further mulligan
-        would leave us with only `stop_hand_size` cards. London mulligan: keeping now yields 7-`_mulls` cards,
-        and a further mulligan would make the eventual keep 7-(`_mulls`+1)."""
-        lands = sum(1 for o in d.view.hand(d.seat) if "CardType_Land" in (o.cardTypes or []))
-        cards_after_another_mull = 7 - (self._mulls + 1)
-        if lands >= self.min_lands or cards_after_another_mull <= self.stop_hand_size:
-            self._mulls = 0                                  # mulligan phase over — reset for the next game
-            return "keep"
-        self._mulls += 1
-        return "mulligan"
+        return "keep"                                        # always accept the opening hand
 
     def _on_targets(self, d: Decision):
         return d.options[0] if d.options else None           # best-effort: first legal target

@@ -672,29 +672,7 @@ def run():
         check("aggro attacks with ALL qualified attackers", sorted(x["attackerInstanceId"] for x in atk) == [51, 60])
         check("attackers aimed at the opponent player", atk[0]["target"].playerSystemSeatId == 2)
 
-        check("aggro mulligans a landless opening hand", pol.decide(decisions[2]) == "mulligan")
-
-        # mulligan rule: keep >= min_lands; else mulligan, but stop once a further mulligan would leave <=5 cards
-        from inthearena.mtga.gre import Decision
-
-        def mull(num_lands, total=7, seat=1):
-            objs = [{"instanceId": 1000 + i, "grpId": 100 + i, "zoneId": 9, "ownerSeatId": seat,
-                     "controllerSeatId": seat,
-                     "cardTypes": ["CardType_Land"] if i < num_lands else ["CardType_Creature"]}
-                    for i in range(total)]
-            view = _apply({"type": "GameStateType_Full",
-                           "zones": [{"zoneId": 9, "type": "ZoneType_Hand", "ownerSeatId": seat}],
-                           "gameObjects": objs})
-            return Decision(kind="mulligan", options=[], seat=seat, view=view, req=None)
-
-        check("mulligan: keep a 3-land hand", AggroPolicy().decide(mull(3)) == "keep")
-        check("mulligan: keep on exactly 2 lands", AggroPolicy().decide(mull(2)) == "keep")
-        check("mulligan: 1-land opening hand -> mulligan", AggroPolicy().decide(mull(1)) == "mulligan")
-        p = AggroPolicy()
-        first = p.decide(mull(0))                            # mulls 0 -> 1 (a further mull would keep 5): mulligan
-        second = p.decide(mull(1))                           # mulls 1: another mull would mean 5 cards -> stop
-        check("mulligan: stops (keeps) once a further mulligan would mean 5 cards", first == "mulligan" and second == "keep")
-        check("mulligan: counter resets after a keep (next game mulligans again)", p.decide(mull(0)) == "mulligan")
+        check("aggro keeps (accepts) the opening hand", pol.decide(decisions[2]) == "keep")
 
         # card mapper: label always degrades to grp<id>; resolves real names when the MTGA DB is present
         check("cards.label falls back to grp<id> for unknown ids", cards.label(999999999) == "grp999999999")
