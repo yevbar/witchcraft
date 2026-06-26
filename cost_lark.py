@@ -21,7 +21,7 @@ from lark import Lark
 _GRAMMAR = r"""
 ?start: SYMRUN | PROSE
 SYMRUN: /(?:\{[^}]+\}|[+-]?\d+|[TQ]|\s)+/
-PROSE:  /(?i:sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|forage|waterbend|earthbend|airbend|collect)\b[^,]*/
+PROSE:  /(?i:sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|forage|blight|waterbend|earthbend|airbend|collect)\b[^,]*/
 """
 
 _PART = Lark(_GRAMMAR, parser="lalr")

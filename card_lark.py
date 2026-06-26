@@ -62,7 +62,8 @@ _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
 # object word disambiguates the grounded verb (gain/lose need 'life'; draw/mill/discard need 'card[s]';
 # scry/surveil take a bare number). Defaults subject to 'you' (imperative mood).
 _PVERB = {"draw": "draw", "draws": "draw", "mill": "mill", "mills": "mill",
-          "scry": "scry", "scries": "scry", "surveil": "surveil",
+          "scry": "scry", "scries": "scry", "surveil": "surveil", "surveils": "surveil",
+          "blight": "blight", "blights": "blight",   # §701 blight (2025/26) — bare-number player action, like surveil
           "gain": "gain_life", "gains": "gain_life", "lose": "lose_life", "loses": "lose_life",
           "discard": "discard", "discards": "discard"}
 _NEEDS_CARD = {"draw", "mill", "discard"}
@@ -857,7 +858,7 @@ CVERB.3: /\bcreates?\b/
 CCOUNT.3: /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|[0-9]+)\b/
 TOKEN.4: /\btokens?\b/
 FOREACH.4: /\bfor each\b/
-PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveil|loses|lose|discards|discard)\b/
+PVERB.2: /\b(?:draws|draw|mills|mill|scries|scry|surveils|surveil|blights|blight|loses|lose|discards|discard)\b/
 RVREVEAL.3: /\breveals?\b/
 PVPREVENT.3: /\bprevent\b/
 SF_VERB.3: /\b(?:sacrifices?|exiles?)\b/     // subject-first object verbs (the SUBJECT precedes the verb)
