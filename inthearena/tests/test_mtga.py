@@ -411,6 +411,43 @@ def _navigate_checks():
     pm_nav = Navigator(DryRunActuator(), lambda: RV.PLAY_MENU, poll=0.001, change_timeout=0.02)
     check("PLAY_MENU is mapped toward a game (step acts)", pm_nav.step_toward_game() is True)
 
+    # play-menu sub-tabs (Events / Find Match / Recently Played share one scene): detect by sight, switch tabs
+    import random as _r
+    from inthearena.mtga import advance_play_menu
+    big_rect = Rect(0, 0, 1920, 1080)
+
+    class OnEvents:                                         # queue Play not visible until the RP tab is clicked
+        def __init__(self):
+            self.switched = False
+
+        def locate(self, image, query):
+            if "Recently" in query:
+                self.switched = True
+                return Rect(1810, 100, 100, 70)            # the Recently-played tab (top-right)
+            if "Play" in query:
+                return Rect(1700, 1000, 140, 60) if self.switched else None   # queue button (bottom-right)
+            return None
+
+    ev = DryRunActuator(rect=big_rect, image=object())
+    r_ev = advance_play_menu(ev, big_rect, _r.Random(0), locator=OnEvents(), switch_timeout=0.0)
+    check("play menu on Events -> clicks the Recently-played tab, THEN Play (2 clicks)",
+          r_ev is True and len(ev.clicks) == 2)
+    check("first click is the top-right Recently-played tab", ev.clicks[0][0] > 1500 and ev.clicks[0][1] < 300)
+    check("second click is the bottom-right queue Play", ev.clicks[1][0] > 1500 and ev.clicks[1][1] > 800)
+
+    class OnRecentlyPlayed:                                 # queue Play already visible -> no tab switch
+        def locate(self, image, query):
+            if "Play" in query:
+                return Rect(1700, 1000, 140, 60)
+            if "Recently" in query:
+                return Rect(1810, 100, 100, 70)
+            return None
+
+    rp = DryRunActuator(rect=big_rect, image=object())
+    r_rp = advance_play_menu(rp, big_rect, _r.Random(0), locator=OnRecentlyPlayed(), switch_timeout=0.0)
+    check("play menu already on Recently-played -> just queues Play (1 click)",
+          r_rp is True and len(rp.clicks) == 1 and rp.clicks[0][1] > 800)
+
     # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
     from inthearena.mtga import go_home, take_over as take_over_flow
     check("take_over() reaches a game already in progress",

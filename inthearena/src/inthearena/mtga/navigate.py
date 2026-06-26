@@ -39,7 +39,7 @@ class Rect:
 # Where each coarse anchor sits as a fraction of the client rect.
 _ANCHOR_FRAC = {
     ScreenAnchor.TOP_LEFT: (0.05, 0.035),       # MTGA's Home tab (logo + "Home") sits in the very top-left
-    ScreenAnchor.TOP_RIGHT: (0.92, 0.08),
+    ScreenAnchor.TOP_RIGHT: (0.96, 0.13),       # the play menu's Recently-played tab (next to Events/Find Match)
     ScreenAnchor.BOTTOM_LEFT: (0.08, 0.92),
     ScreenAnchor.BOTTOM_RIGHT: (0.90, 0.93),    # MTGA's Play button sits low-right; 0.90y landed a touch high
     ScreenAnchor.CENTER: (0.50, 0.50),
@@ -376,6 +376,12 @@ _TOWARD_GAME = {
 # recognize (Mastery, Packs, a deck list, …), then the normal Home -> Play menu -> game sequence can run.
 _HOME = ViewElement("Home", ScreenAnchor.TOP_LEFT, radius=40)
 
+# Within the play menu (EventLanding): the Recently-played sub-tab (top-right, next to Events / Find Match) and
+# the bottom-right Play that QUEUES the recently-played deck. These sub-tabs all share one log scene, so we tell
+# them apart by sight, not by the log.
+_RECENTLY_PLAYED_TAB = ViewElement("Recently Played", ScreenAnchor.TOP_RIGHT, radius=40)
+_QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
+
 
 def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,
             locator: "Optional[ElementLocator]" = None) -> bool:
@@ -385,6 +391,28 @@ def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,
     if rect is None:
         return False
     return interact(actuator, _HOME, rect, rng or random.Random(), locator=locator)
+
+
+def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
+                      locator: "Optional[ElementLocator]" = None, switch_timeout: float = 1.0) -> bool:
+    """Queue a game from the play menu. It opens on whichever of its Events / Find-match / Recently-played
+    sub-tabs was last used — all the same log scene — so DETECT (by sight) whether we're on Recently-played:
+    if its bottom-right Play/queue button isn't visible, we're on Events/Find-match, so click the 'Recently
+    Played' tab first. Then click Play to queue. Returns True if it issued the queue click."""
+    if locator is None:
+        # no vision to detect the sub-tab — just select Recently-played, then queue (clicking an already-
+        # selected tab is harmless)
+        interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng)
+        actuator.wait(0.8)
+        return interact(actuator, _QUEUE_PLAY, rect, rng)
+    # vision: is the queue button already on screen (we're on Recently-played)?
+    on_recently_played = _wait_locate(actuator, _QUEUE_PLAY, rect, locator,
+                                      timeout=switch_timeout, poll=0.5, rng=rng) is not None
+    if not on_recently_played:                              # on Events / Find Match -> switch tabs first
+        if not interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator):
+            return False
+        actuator.wait(0.8)                                 # let the recently-played sub-view swap in
+    return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
 
 
 class Navigator:
@@ -416,6 +444,9 @@ class Navigator:
         rect = self._act.window_rect()
         if rect is None:
             return False
+        if v is RecognizedViews.PLAY_MENU:
+            # the play menu has sub-tabs sharing one scene: make sure Recently-played is up, then queue
+            return advance_play_menu(self._act, rect, self._rng, locator=self._locator)
         element = _TOWARD_GAME.get(v)
         if element is None:
             # an unrecognized / unmapped view — optionally recover by clicking the Home tab (top-left)
