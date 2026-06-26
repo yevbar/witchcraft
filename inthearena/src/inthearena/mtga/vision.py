@@ -89,3 +89,19 @@ class MoondreamLocator:
             r = 24                                          # no extent from a point — assume a small button area
             return Rect(int(cx - r), int(cy - r), 2 * r, 2 * r)
         return None
+
+    def locate_all(self, image, query: str) -> list:
+        """EVERY detected box for `query` (not just the first), in click coordinates — for repeated objects like
+        the cards in hand. `detect` only; returns [] if none."""
+        iw, ih = image.size
+        sc = self._scale_for(image)
+        try:
+            objects = (self._model.detect(image, query) or {}).get("objects") or []
+        except Exception:
+            return []
+        out = []
+        for o in objects:
+            x0, y0, x1, y1 = o["x_min"] * iw, o["y_min"] * ih, o["x_max"] * iw, o["y_max"] * ih
+            out.append(Rect(int(self._ox + x0 * sc), int(self._oy + y0 * sc),
+                            int((x1 - x0) * sc), int((y1 - y0) * sc)))
+        return out

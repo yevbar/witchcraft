@@ -15,6 +15,22 @@ from __future__ import annotations
 
 from . import cards
 from .engine import build_state, suggest, to_game
+from .execute import ExecResult, GameExecutor, ObjectLocator
+from .hand import (
+    capture_hand,
+    hand_members,
+    hand_order,
+    hand_screen_order,
+    hover_card,
+    locate_hand_cards,
+    locate_named_cards,
+    match_named_card,
+    play_card,
+    play_hand_object,
+    rest_point,
+    snapshot_hand,
+    sweep_hand,
+)
 from .live import LiveState, follow, tail_lines, tail_messages
 from .navigate import (
     Actuator,
@@ -81,4 +97,8 @@ __all__ = [
     "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu", "click_mulligan",
     "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
+    "GameExecutor", "ObjectLocator", "ExecResult",
+    "snapshot_hand", "capture_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
+    "hand_order", "hand_screen_order", "hand_members", "play_hand_object",
+    "locate_named_cards", "match_named_card",
 ]

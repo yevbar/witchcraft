@@ -659,6 +659,166 @@ def _navigate_checks():
           r_stray is False and stray.clicks == [])
 
 
+def _hand_checks():
+    """Locate hand cards from a snapshot (bottom band + central x, de-duped, left-to-right) and the play gesture."""
+    from inthearena.mtga import (DryRunActuator, Rect, locate_hand_cards, play_card, rest_point,
+                                 snapshot_hand, sweep_hand)
+    rect = Rect(0, 0, 1920, 1080)
+
+    class HandLoc:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(660, 980, 120, 70), Rect(820, 980, 120, 70),
+                    Rect(515, 985, 120, 70),                 # duplicate of card 1 (within _MIN_GAP)
+                    Rect(150, 980, 120, 70),                 # avatar far-left (x-frac < 0.20) -> dropped
+                    Rect(900, 500, 120, 70)]                 # battlefield card (y-frac < 0.85) -> dropped
+
+        def locate(self, image, query):
+            return None
+
+    pts = locate_hand_cards(object(), rect, HandLoc())
+    check("hand: filtered to the central bottom band (3 cards; avatar/battlefield/dup dropped)", len(pts) == 3)
+    check("hand: cards ordered left-to-right", [p[0] for p in pts] == sorted(p[0] for p in pts))
+
+    a = DryRunActuator(rect=rect, image=object())
+    sh = snapshot_hand(a, HandLoc())
+    check("snapshot_hand moves to the rest point (above the hand) before snapping",
+          bool(a.moves) and a.moves[-1][1] == rest_point(rect) and rest_point(rect)[1] < int(rect.h * 0.85))
+    check("snapshot_hand returns the located cards", len(sh) == 3)
+
+    a2 = DryRunActuator(rect=rect)
+    sweep_hand(a2, pts, dwell=0)
+    check("sweep_hand hovers each card (moves, no clicks)", a2.clicks == [] and len(a2.moves) >= 3)
+
+    a3 = DryRunActuator(rect=rect)
+    play_card(a3, pts[0], gap=0.1)
+    check("play_card = click, wait ~0.1s, click (2 clicks + a gap wait)", len(a3.clicks) == 2 and 0.1 in a3.waits)
+
+    # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
+    # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which
+    # lists the hand newest-first. So a descending zone list must come back ascending.
+    from inthearena.mtga import hand_order, hand_screen_order, play_hand_object
+    view = _apply({"type": "GameStateType_Full",
+                   "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                              "objectInstanceIds": [100, 101, 102]}],
+                   "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 10, "ownerSeatId": 1,
+                                    "controllerSeatId": 1, "cardTypes": ["CardType_Land"]} for i in (100, 101, 102)]})
+    check("hand_order returns the on-screen (ascending-instanceId) order", hand_order(view, 1) == [100, 101, 102])
+    desc = _apply({"type": "GameStateType_Full",
+                   "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                              "objectInstanceIds": [479, 462, 344, 343]}],   # GRE order: newest-first
+                   "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 10, "ownerSeatId": 1,
+                                    "controllerSeatId": 1} for i in (479, 462, 344, 343)]})
+    check("hand_screen_order reverses the newest-first zone order to oldest-left screen order",
+          hand_screen_order(desc, 1) == [343, 344, 462, 479])
+
+    class Loc3:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(700, 980, 120, 70), Rect(900, 980, 120, 70)]
+
+    ap = DryRunActuator(rect=rect, image=object())
+    ok = play_hand_object(ap, Loc3(), view, 1, 101)              # instance 101 -> slot index 1 (middle card)
+    check("play_hand_object plays the chosen card's slot (instance 101 -> middle)",
+          ok and len(ap.clicks) == 2 and 700 <= ap.clicks[0][0] <= 820)
+
+    class Loc2:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(900, 980, 120, 70)]
+
+    ap2 = DryRunActuator(rect=rect, image=object())
+    ok2 = play_hand_object(ap2, Loc2(), view, 1, 101)            # snapshot found 2 (x=560,960), hand has 3
+    # extrapolate slot 1 from leftmost 560 + 1*spacing(400) = 960 (detection missed the right card, not the left)
+    check("play_hand_object extrapolates the slot on a count mismatch (best-effort, still plays)",
+          ok2 and len(ap2.clicks) == 2 and 920 <= ap2.clicks[0][0] <= 1000)
+
+    # name-OCR layer: read card names (Vision) and match a target despite OCR grit + duplicate lands. Stub the
+    # OCR so the test is platform-independent (Vision is macOS-only). Coords are normalized (x_frac, y_frac).
+    from inthearena.mtga import locate_named_cards, match_named_card, ocr
+    fake = [("Heroic Intervention", 0.38, 0.90), ("Shimmerwilds Growd", 0.45, 0.89),  # OCR'd 'Growth' as 'Growd'
+            ("(Collector's Vault", 0.58, 0.89),                                        # leading-paren grit
+            ("Spider-Man, Brooklyn Visionary", 0.17, 0.95),     # AVATAR panel (x-frac < 0.20) -> dropped
+            ("Next", 0.93, 0.88), ("You will need to discard", 0.78, 0.80)]            # UI -> dropped (x / y)
+    orig = ocr.recognize_text
+    ocr.recognize_text = lambda image: fake
+    try:
+        named = locate_named_cards(object(), rect)
+        check("locate_named_cards keeps only hand-band names (avatar/Next/UI dropped)",
+              [n for n, _, _ in named] == ["Heroic Intervention", "Shimmerwilds Growd", "(Collector's Vault"])
+        check("locate_named_cards returns screen coords left-to-right",
+              [x for _, x, _ in named] == sorted(x for _, x, _ in named) and named[0][1] == int(0.38 * 1920))
+        check("match_named_card tolerates OCR grit ('Shimmerwilds Growth' ~ 'Growd')",
+              match_named_card("Shimmerwilds Growth", named) == named[1][1:])
+        check("match_named_card matches across a stray prefix char (Collector's Vault)",
+              match_named_card("Collector's Vault", named) == named[2][1:])
+        check("match_named_card returns None for an occluded/absent name (Command Tower)",
+              match_named_card("Command Tower", named) is None)
+    finally:
+        ocr.recognize_text = orig
+
+    # ANCHORED prediction: the target is OCCLUDED (its name isn't legible) but its neighbours are. Pin the
+    # legible names to their (log-derived) slots and predict the target slot's x. Hand = 5 cards, ascending
+    # instanceId 30..34 -> screen slots 0..4. Target inst 30 (slot 0, leftmost = most occluded). Stub cards.label
+    # and OCR so slots 1..3 are legible at a uniform 130px pitch from x=900; predict slot 0 -> ~770.
+    from inthearena.mtga import cards, hand as handmod
+    names = {30: "Forest", 31: "Bravo", 32: "Charlie", 33: "Delta", 34: "Echo"}
+    hview = _apply({"type": "GameStateType_Full",
+                    "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                               "objectInstanceIds": [34, 33, 32, 31, 30]}],   # newest-first
+                    "gameObjects": [{"instanceId": i, "grpId": i, "zoneId": 10, "ownerSeatId": 1,
+                                     "controllerSeatId": 1} for i in (30, 31, 32, 33, 34)]})
+    olabel, orec = cards.label, ocr.recognize_text
+    cards.label = handmod.cards.label = lambda g: names.get(g, "?")
+    # legible: slots 1,2,3 (Bravo/Charlie/Delta) at x 900,1030,1160 (y-frac 0.90); slot 0 (Forest) & 4 occluded
+    ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+        ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90), ("Delta", 1160 / 1920, 0.90)]
+    try:
+        ap3 = DryRunActuator(rect=rect, image=object())
+        ok3 = play_hand_object(ap3, None, hview, 1, 30)          # Forest occluded -> predict slot 0 from anchors
+        check("play_hand_object predicts an occluded slot from legible-name anchors (slot 0 ~ 770)",
+              ok3 and len(ap3.clicks) == 2 and 740 <= ap3.clicks[0][0] <= 800)
+    finally:
+        cards.label = handmod.cards.label = olabel
+        ocr.recognize_text = handmod.ocr.recognize_text = orec
+
+
+def _execute_checks():
+    """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""
+    from inthearena.mtga import DryRunActuator, GameExecutor, Rect
+    from inthearena.mtga.gre import Action, Decision, GameView
+    rect = Rect(0, 0, 1920, 1080)
+    dec_actions = Decision(kind="actions", options=[], seat=1, view=GameView(), req=None)
+    dec_block = Decision(kind="blockers", options=[], seat=1, view=GameView(), req=None)
+
+    class AdvLoc:                                            # the bottom-right advance/confirm button
+        def locate(self, image, query):
+            return Rect(1700, 1000, 120, 50)
+
+        def locate_all(self, image, query):
+            return []
+
+    a = DryRunActuator(rect=rect, image=object())
+    r = GameExecutor(a, locator=AdvLoc()).execute(dec_actions, None)
+    check("execute: pass -> clicks the bottom-right advance button",
+          r.done and bool(a.clicks) and a.clicks[0][0] > 1500)
+    a2 = DryRunActuator(rect=rect, image=object())
+    r2 = GameExecutor(a2, locator=AdvLoc()).execute(dec_block, [])
+    check("execute: no-blocks -> clicks advance", r2.done and len(a2.clicks) == 1)
+
+    cast = Action(actionType="ActionType_Cast", instanceId=51)
+    a3 = DryRunActuator(rect=rect, image=object())
+    r3 = GameExecutor(a3, locator=AdvLoc()).execute(dec_actions, cast)
+    check("execute: cast with NO ObjectLocator -> not executable (caller shadows)",
+          r3.done is False and a3.clicks == [])
+
+    class ObjLoc:
+        def locate(self, instance_id, view, image):
+            return Rect(800, 950, 100, 120)
+
+    a4 = DryRunActuator(rect=rect, image=object())
+    r4 = GameExecutor(a4, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_actions, cast)
+    check("execute: cast WITH an ObjectLocator -> clicks the located card",
+          r4.done and bool(a4.clicks) and 800 <= a4.clicks[0][0] <= 900)
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -700,6 +860,8 @@ def run():
     _engine_checks()
     _live_checks()
     _navigate_checks()
+    _hand_checks()
+    _execute_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

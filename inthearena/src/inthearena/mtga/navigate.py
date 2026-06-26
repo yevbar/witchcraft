@@ -213,6 +213,10 @@ class Actuator(Protocol):
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         ...
 
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing."""
+        ...
+
     def click(self) -> None:
         ...
 
@@ -242,7 +246,7 @@ class DryRunActuator:
     jitter: float = 0.4                                    # ± fraction of speed variation across segments
     wobble: float = 6.0                                    # ± px of per-point tremor on top of the curve
     curve: float = 0.18                                    # arc bow as a fraction of the move distance
-    duration: float = 0.4                                  # default total travel time
+    duration: float = 0.2                                  # default total travel time (faster cursor)
     seed: Optional[int] = None
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
@@ -281,6 +285,9 @@ class DryRunActuator:
         self.move(x, y, duration=duration)
         self.click()
 
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration)   # (live actuator also focuses + IOHID-moves so the client registers it)
+
 
 class PyAutoGuiActuator:
     """Drives the LIVE client with pyautogui — THIS is the Terms-of-Service-crossing backend (opt-in only;
@@ -288,7 +295,7 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.2, steps: int = 6,
                  jitter: float = 0.4, wobble: float = 6.0, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
@@ -338,6 +345,19 @@ class PyAutoGuiActuator:
                 self._pg.moveTo(px, py, duration=dur, tween=self._tween)
             else:
                 self._pg.moveTo(px, py, duration=dur)
+
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        """Move the cursor to (x, y) so the CLIENT registers it (e.g. a hand card magnifies): focus the app
+        (AppleScript) + human glide + a real IOHIDPostEvent motion — the same recipe as click() minus the press
+        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers)."""
+        self._focus()                                      # AppleScript: bring Arena frontmost
+        self.move(x, y, duration=duration)                 # human-like glide (the visible OS cursor)
+        if self._hid_move:
+            try:
+                from .macos import iohid_move
+                iohid_move(x, y)                           # real motion -> the client's pointer tracks here
+            except Exception:
+                pass
 
     def _focus(self) -> None:
         """Bring the target app frontmost (AppleScript). MTGA ignores clicks sent to a backgrounded window."""
