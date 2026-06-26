@@ -389,14 +389,14 @@ _TAKEOVER = {
 }
 
 
-def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
-              rng: Optional[random.Random] = None, locator: "Optional[ElementLocator]" = None) -> bool:
-    """Take control and perform the appropriate action for the current `view`. Today: on HOME and on the
-    Recently-played decks view, find the Play button and click it — gliding to a jittered point within it
-    (never the same spot), OR, if the cursor is already on the button, just pausing a beat and clicking in
-    place. With a `locator` (a small vision model, see inthearena.mtga.vision) the button is found on the live
-    screen instead of a coarse coordinate estimate. Returns True if it acted, False if the view has no
-    take-over action yet. Pass the recognized current view, e.g. from `latest_view()` / `LiveState.current_view`."""
+def take_over_view(actuator: Actuator, view: Optional[RecognizedViews], *,
+                   rng: Optional[random.Random] = None, locator: "Optional[ElementLocator]" = None) -> bool:
+    """Perform the take-over action for ONE view (a single step). On HOME / the Play menu / Recently-played,
+    find the Play button and click it — gliding to a jittered point within it (never the same spot), OR, if the
+    cursor is already on the button, pausing a beat and clicking in place. With a `locator` (a small vision
+    model, see inthearena.mtga.vision) the button is found on the live screen instead of a coarse estimate.
+    Returns True if it acted, False if the view has no take-over action. This is the per-view primitive;
+    `take_over()` chains it all the way into a game."""
     rng = rng or random.Random()
     name = _TAKEOVER.get(view)
     if name is None:
@@ -407,3 +407,17 @@ def take_over(actuator: Actuator, view: Optional[RecognizedViews], *,
         return False
     interact(actuator, element, rect, rng, locator=locator)
     return True
+
+
+def take_over(actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,
+              rng: Optional[random.Random] = None, locator: "Optional[ElementLocator]" = None,
+              max_steps: int = 6, change_timeout: float = 120.0, poll: float = 0.5) -> bool:
+    """TAKE OVER the client and navigate ALL THE WAY into a game: Home -> the Play menu (the recently-played
+    screen) -> queue, clicking each Play button (vision-located if a `locator` is given) and waiting for the
+    client to advance, until a match is live. `view_provider` returns the current view each time it's polled
+    (e.g. `lambda: latest_view(log)`). Returns True if a game was reached (or one was already in progress),
+    False if it stalled on a screen with no mapped transition. This is the whole take-over; for a single
+    screen's action use `take_over_view()`."""
+    nav = Navigator(actuator, view_provider, poll=poll, change_timeout=change_timeout,
+                    rng=rng or random.Random(), locator=locator)
+    return nav.navigate_to_game(max_steps=max_steps)

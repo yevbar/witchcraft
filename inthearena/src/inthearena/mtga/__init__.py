@@ -26,6 +26,7 @@ from .navigate import (
     interact,
     resolve,
     take_over,
+    take_over_view,
     target_point,
 )
 from .vision import MoondreamLocator
@@ -73,6 +74,6 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
-    "take_over", "target_point", "interact", "ElementLocator", "MoondreamLocator",
+    "take_over", "take_over_view", "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
 ]

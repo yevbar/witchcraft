@@ -406,21 +406,28 @@ def _navigate_checks():
     pm_nav = Navigator(DryRunActuator(), lambda: RV.PLAY_MENU, poll=0.001, change_timeout=0.02)
     check("PLAY_MENU is mapped toward a game (step acts)", pm_nav.step_toward_game() is True)
 
+    # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
+    from inthearena.mtga import take_over as take_over_flow
+    check("take_over() reaches a game already in progress",
+          take_over_flow(DryRunActuator(), lambda: RV.GAMEPLAY, poll=0.001, change_timeout=0.02) is True)
+    check("take_over() returns False when it can't recognize the view",
+          take_over_flow(DryRunActuator(), lambda: None, poll=0.001, change_timeout=0.02) is False)
+
     # take_over: on HOME, click somewhere WITHIN the Play button (anchor +/- a few px), varying each call
     import random as _r
-    from inthearena.mtga import interact, take_over
+    from inthearena.mtga import interact, take_over, take_over_view
     nominal = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     spread = next(e for e in RV.HOME.elements if e.name == "Play").spread
     landings = []
     for s in range(6):
         a = DryRunActuator(rect=Rect(0, 0, 1000, 800))
-        check(f"take_over acts on HOME (call {s})", take_over(a, RV.HOME, rng=_r.Random(s)) is True)
+        check(f"take_over acts on HOME (call {s})", take_over_view(a, RV.HOME, rng=_r.Random(s)) is True)
         landings.append(a.clicks[0])
     check("take_over lands within the Play button (anchor +/- spread)",
           all(abs(x - nominal[0]) <= spread and abs(y - nominal[1]) <= spread for x, y in landings))
     check("take_over does NOT land on the exact same pixel every time", len(set(landings)) > 1)
     check("take_over is a no-op off HOME (GAMEPLAY) for now",
-          take_over(DryRunActuator(), RV.GAMEPLAY) is False)
+          take_over_view(DryRunActuator(), RV.GAMEPLAY) is False)
 
     # cursor ALREADY within the Play button -> do not move, just wait a moment and click in place
     play = next(e for e in RV.HOME.elements if e.name == "Play")
@@ -428,13 +435,13 @@ def _navigate_checks():
     anchor = resolve(play, nrect)
     here = (anchor[0] + 3, anchor[1] - 4)                  # inside the button radius
     onbtn = DryRunActuator(rect=nrect, pos=here)
-    take_over(onbtn, RV.HOME, rng=_r.Random(0))
+    take_over_view(onbtn, RV.HOME, rng=_r.Random(0))
     check("already on the button -> no cursor movement at all", onbtn.moves == [])
     check("already on the button -> waits a moment, then clicks in place",
           len(onbtn.waits) == 1 and onbtn.clicks == [here])
     # just OUTSIDE the button -> it does glide
     outside = DryRunActuator(rect=nrect, pos=(anchor[0] - play.radius - 20, anchor[1]))
-    take_over(outside, RV.HOME, rng=_r.Random(0))
+    take_over_view(outside, RV.HOME, rng=_r.Random(0))
     check("outside the button -> glides (moves) to it", len(outside.moves) > 0 and outside.waits == [])
 
     # Recently-played view gets the same Play-button treatment as HOME
@@ -442,12 +449,12 @@ def _navigate_checks():
     check("Recently played view has a Play element", rp_play is not None)
     rp_anchor = resolve(rp_play, nrect)
     a = DryRunActuator(rect=nrect)                          # starts at center -> away from bottom-right Play
-    check("take_over acts on RECENTLY_PLAYED", take_over(a, RV.RECENTLY_PLAYED, rng=_r.Random(0)) is True)
+    check("take_over acts on RECENTLY_PLAYED", take_over_view(a, RV.RECENTLY_PLAYED, rng=_r.Random(0)) is True)
     cx, cy = a.clicks[0]
     check("take_over on RECENTLY_PLAYED glides to within its Play button",
           len(a.moves) > 0 and abs(cx - rp_anchor[0]) <= rp_play.spread and abs(cy - rp_anchor[1]) <= rp_play.spread)
     on_rp = DryRunActuator(rect=nrect, pos=(rp_anchor[0] + 2, rp_anchor[1] + 2))   # already on it
-    take_over(on_rp, RV.RECENTLY_PLAYED, rng=_r.Random(0))
+    take_over_view(on_rp, RV.RECENTLY_PLAYED, rng=_r.Random(0))
     check("already on RECENTLY_PLAYED's Play button -> no move, wait + click in place",
           on_rp.moves == [] and len(on_rp.waits) == 1 and on_rp.clicks == [(rp_anchor[0] + 2, rp_anchor[1] + 2)])
 
@@ -472,7 +479,7 @@ def _navigate_checks():
     check("already within the located button -> no move, wait + click",
           on_box.moves == [] and len(on_box.waits) == 1)
     a_to = DryRunActuator(rect=nrect, image=object())
-    take_over(a_to, RV.HOME, rng=_r.Random(0), locator=loc)
+    take_over_view(a_to, RV.HOME, rng=_r.Random(0), locator=loc)
     check("take_over threads the locator through (clicks the located box)", 700 <= a_to.clicks[0][0] <= 780)
     a_fb = DryRunActuator(rect=nrect)
     interact(a_fb, play, a_fb.rect, _r.Random(0))          # no locator -> coarse fallback

@@ -42,7 +42,6 @@ from inthearena.mtga import (
     AggroPolicy,
     DEFAULT_LOG,
     DryRunActuator,
-    Navigator,
     RecognizedViews,
     describe,
     follow,
@@ -50,6 +49,7 @@ from inthearena.mtga import (
     latest_view,
     snapshot,
     take_over,
+    take_over_view,
 )
 
 
@@ -151,7 +151,7 @@ def main(argv) -> int:
 
     # --dry-run / --no-click can't actually progress through menus (no real clicks) — just preview ONE step.
     if args.dry_run or args.no_click:
-        acted = take_over(actuator, view, rng=rng, locator=locator)
+        acted = take_over_view(actuator, view, rng=rng, locator=locator)
         if not acted:
             print(f"no take-over action defined for {view.name}.")
         elif args.dry_run:
@@ -162,12 +162,12 @@ def main(argv) -> int:
             print(f"MOVE-ONLY: cursor traveled to Play on {view.name} — NO click. Check the aim.")
         return 0
 
-    # LIVE: navigate all the way from the menu into a game (Home -> Play menu -> queue -> match)
-    nav = Navigator(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
-                    change_timeout=args.queue_timeout)
-    print("navigating into a game (Home -> Play menu -> queue)...")
-    if not nav.navigate_to_game(max_steps=args.max_steps):
-        print(f"didn't reach a game — stopped on {nav.current()}. "
+    # LIVE: TAKE OVER — navigate all the way from the menu into a game (Home -> Play menu -> queue -> match)
+    print("taking over: navigating into a game (Home -> Play menu -> queue)...")
+    reached = take_over(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
+                        max_steps=args.max_steps, change_timeout=args.queue_timeout)
+    if not reached:
+        print(f"didn't reach a game — stopped on {latest_view(args.log)}. "
               f"(If it's a menu I don't map yet, that's the next view to add.)")
         return 1
     print("reached a game.")
