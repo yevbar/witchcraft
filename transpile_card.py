@@ -1275,15 +1275,23 @@ def _saga_chapter(unit, ctx):
     m = _SAGA.match(unit.raw)
     if not m:
         return None
-    effects = _parse_body(m.group("body"))
-    if not effects:
-        return None
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     facts = [f'card_ability("{cid}", "{aid}", "saga_chapter")']
     for ch in m.group("ch").split(", "):
         if ch in _ROMAN:
             facts.append(f'ability_trigger("{cid}", "{aid}", "chapter_{_ROMAN[ch]}")')
-    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "saga_chapter")
+    effects = _parse_body(m.group("body"))
+    if effects:
+        return CardOut(cid, facts + _effect_facts(cid, aid, effects), "saga_chapter")
+    # the chapter body may be a card-level STATIC (a one-turn cost reduction 'Artifact spells you cast this
+    # turn cost {1} less', a combat restriction) that _parse_body (effects-only) can't reach. Route it through
+    # full dispatch and graft its facts — but ONLY when the body is a card-level static (its facts carry no
+    # nested card_ability). A triggered/activated body has its own card_ability that would collide on the
+    # chapter aid and is really a delayed-ability creation, so abstain on those (faithful-or-abstain).
+    sub = _try_patterns(dataclasses.replace(unit, raw=m.group("body")), ctx)
+    if sub and not any("card_ability(" in f for f in sub.facts):
+        return CardOut(cid, facts + sub.facts, "saga_chapter")
+    return None
 
 
 def _etb_choose(unit, ctx):
