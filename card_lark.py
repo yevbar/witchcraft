@@ -1150,6 +1150,10 @@ _GTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?gains? (twice |half )?that 
 _LLE_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? life equal to (.+?)$", re.I)
 _LHF_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? half (?:your |their |his or her |its )?life(?:,? rounded (up|down))?$", re.I)
 _LTM_RE = re.compile(r"^(?:(" + _BCM_TGT_SRC + r") )?loses? (twice |half )?that much life( plus \w+| minus \w+)?$", re.I)
+# '<X> gains all creature types [until end of turn]' — the §205 changeling-style omni-type worded as 'gain'
+# (`_gain_all_creature_types`). Routes to gclause (gain ∈ GVERB) but 'all creature types' isn't a §702 keyword,
+# so the grant transformer abstains; reproduce the template's becomes(-, X, every_creature_type) from src here.
+_GAIN_ALL_CT_RE = re.compile(r"^(" + _TGT + r") gains? all creature types(?: until end of turn)?$", re.I)
 # PUT a number of <kind> counters on <obj> equal to <X> — `_put_counter_equal`'s exact pattern (count-scaled
 # counters). Re-applied to src by putctr; the 'a number of' kind makes the span logic abstain, so own it here.
 _PCE_RE = re.compile(r"^put a number of ([+-]\d+/[+-]\d+|[\w ]+?) counters? on (.+?) equal to (.+?)$", re.I)
@@ -2935,6 +2939,9 @@ class _ToEffect(Transformer):
         src = getattr(self, "_src", None)
         if src is not None:
             s = src.strip()
+            m = _GAIN_ALL_CT_RE.match(s)       # '<X> gains all creature types [eot]' -> becomes (§205, _gain_all_creature_types)
+            if m:
+                return Effect("becomes", "-", _target(m.group(1)), "every_creature_type")
             m = _HAVE_DRAW_RE.match(s)         # '[then] <player> may have you draw N cards' (§603 causative) —
             if m:                             # FAITHFUL: YOU are the drawer; the player just directs it (extra)
                 amt = m.group(2)
