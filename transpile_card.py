@@ -2805,7 +2805,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
 # prefix FOLLOWED BY a trigger word (When/Whenever/At): that's the safe signal for a real ability word
 # and avoids the keyword-cost em-dash syntax ('Cumulative upkeep — Pay {1}', 'Buyback — {cost}'), Saga
 # chapters, die tables, loyalty, and the modal header. A grounded keyword prefix is never stripped.
-_ABILITY_WORD = re.compile(r"^(?P<word>[A-Z][a-z][\w'’-]*(?: [a-z]?[\w'’-]+){0,2})\s+—\s+(?P<rest>.+)$")
+_ABILITY_WORD = re.compile(r"^(?P<word>[A-Z][a-z][\w'’-]*(?: [a-z]?[\w'’-]+){0,3})\s+—\s+(?P<rest>.+)$")
 
 
 def _strip_ability_word(raw: str) -> str:
