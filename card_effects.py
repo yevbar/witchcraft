@@ -1789,6 +1789,12 @@ _BECOMES_QUOTED = re.compile(
     rf'(.+? (?:creature|artifact|enchantment|land)(?: with [\w, ]+?)?) (?:with|and) ("[^"]+")'
     r'( until end of turn)?'
     r"(?P<tail>\.? it'?s still a land| and loses? all(?: other)?(?: card types and)? abilities)?\.?$", re.I)
+# '<set> are <type> in addition to their other types and have "<quoted ability>"' — the token-type ANTHEM
+# (Food/Clue/Equipment/Gold; Senator Peacock, Ragost, Gemcutter Buccaneer): the controlled permanents gain a
+# token subtype AND a quoted activated ability. Split the §205 type-add (becomes added_<type>) from the
+# §613.6 quoted-ability grant to the set; both share the subject.
+_ARE_TYPE_HAVE_QUOTED = re.compile(
+    rf'^({_TGT}) (?:are|is) (.+? in addition to their other types) and (?:have|has|gains?) ("[^"]+")$', re.I)
 # a type/color change followed by a SECOND predicate on the same subject: '<t> becomes <X> [until eot]
 # and <pred>' — where <pred> is a P/T pump ('gets +1/+0', Viridescent Wisps / Mizzium Tank), a keyword
 # grant ('gains flying, first strike, …', Enter the Avatar State), or a combat requirement ('attacks
@@ -1947,6 +1953,12 @@ def _eot_compound(s: str):
             elif "abilities" in tail:                   # 'and loses all [other] [card types and] abilities'
                 effs.append(Effect("lose_abilities", "-", _target(m.group(1))))
             return effs
+    m = _ARE_TYPE_HAVE_QUOTED.match(s)
+    if m:
+        animate = parse_clause(f"{m.group(1)} are {m.group(2)}")    # becomes(added_<type>) — the §205 type-add
+        q_eff = parse_clause(f"{m.group(1)} have {m.group(3)}")     # the granted quoted ability
+        if animate and q_eff:
+            return [animate, q_eff]
     m = _GRANT_THEN_PUMP.match(s)
     if m:
         kws = _kw_list(m.group(2))

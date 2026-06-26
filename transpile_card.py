@@ -1025,6 +1025,30 @@ def _life_floor(unit, ctx):
     return CardOut(cid, [f'life_floor("{cid}", {m.group("floor")}, "{cond}")'], "life_floor")
 
 
+_STATIC_QUOTED_SHAPE = re.compile(
+    r'(in addition to their other types and (?:have|has|gains?) ")'   # token-type anthem + quoted ability
+    r'|((?:becomes?|is|are) .+? (?:creature|artifact|enchantment|land)(?: with [\w, ]+?)? (?:with|and) ")',  # animate + quoted
+    re.I)
+
+
+def _static_quoted(unit, ctx):
+    """A BARE static whose body is a §205 type-add / §613.3 animate that ALSO grants a §613.6 quoted ability
+    ('Artifacts you control are Clues … and have "…"', 'Enchanted permanent is a Treasure artifact with "…"').
+    _static_effect skips these (its '"'/':' guard), but _parse_body now grounds them via the becomes/are-type
+    quoted-grant split. Gated to those exact shapes + no leading trigger (those are _triggered's) so the broad
+    quoted-static surface stays abstained; activated abilities are already claimed by _activated upstream."""
+    if {"Instant", "Sorcery"} & _types(ctx):
+        return None
+    if re.match(r"^(?:When|Whenever|At)\b", unit.raw, re.I) or not _STATIC_QUOTED_SHAPE.search(unit.raw):
+        return None
+    effects = _parse_body(unit.raw)
+    if not effects:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    return CardOut(ctx["id"], [f'card_ability("{ctx["id"]}", "{aid}", "static")']
+                   + _effect_facts(ctx["id"], aid, effects), "static_effect")
+
+
 def _static_effect(unit, ctx):
     """LAST-RESORT: a bare effect line on a permanent (no cost/trigger/keyword) that nonetheless parses
     fully into grounded effects — e.g. 'Skip your draw step.' This is the static analogue of _spell;
@@ -2750,7 +2774,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _roll_outcome, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
-             _life_floor, _static_effect]
+             _life_floor, _static_quoted, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a
