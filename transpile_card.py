@@ -2028,6 +2028,28 @@ def _tiered_mode(unit, ctx):
                   + _effect_facts(cid, aid, effects), "tiered_mode")
 
 
+# A paw-print mode (§702.x, Bloomburrow 'Season' cards): '{P}[{P}…] — <effect>'. A modal spell under the
+# header 'Choose up to five {P} worth of modes' where each mode's COST is its run of paw-print ({P}) pips
+# (its 'worth'). The em-dash is the structural cost<->body boundary; plain string ops peel it (NOT
+# interpretation) and the <effect> body delegates to the hybrid leaf, exactly like the spree/tiered modes.
+_PAW_MODE = re.compile(r"^(?P<cost>\{P\}(?:\s*\{P\})*)\s*[—–]\s*(?P<body>.+)$")
+
+
+def _paw_mode(unit, ctx):
+    m = _PAW_MODE.match(unit.raw)
+    if not m:
+        return None
+    cost = re.sub(r"\s+", "", m.group("cost"))                     # '{P}{P}' — the mode's paw-print worth
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    cid, aid = ctx["id"], f"paw{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "paw_mode")',
+                         f'ability_cost("{cid}", "{aid}", "{cost}")',
+                         f'mode_option("{cid}", "{aid}")']
+                  + _effect_facts(cid, aid, effects), "paw_mode")
+
+
 # grounded static restrictions: block/attack §508–509, be blocked §509, be countered §701/§601.
 _CANT = {"block": "block", "be blocked": "be_blocked", "attack": "attack",
          "attack or block": "attack_or_block", "be countered": "be_countered",
@@ -2863,7 +2885,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _cant_regenerate,
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
-             _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
+             _ability_activation_static, _modal, _tiered_mode, _paw_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _roll_outcome, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_quoted, _static_effect]
