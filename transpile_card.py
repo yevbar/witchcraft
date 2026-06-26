@@ -152,14 +152,30 @@ def _ground_kw(token: str):
     return None
 
 
+def _ground_kw_part(part: str):
+    """Ground ONE comma-part of a keyword line into (kw, param): a bare §702 keyword ('flying' -> ('flying',
+    None)) OR a 'protection from <X>' parametrized keyword ('protection from black and from red' ->
+    ('protection', 'from_black_and_from_red')). Returns the pair or None. The protection branch lets a list
+    like 'First strike, protection from black and from red' split cleanly instead of the trailing protection
+    being swallowed into the FIRST keyword's param by _kw_param."""
+    g = _ground_kw(part)
+    if g:
+        return g
+    m = re.match(r"^protection from (.+)$", part, re.I)
+    if m:
+        return ("protection", "from_" + ground.slug(m.group(1)))
+    return None
+
+
 def _kw_line(unit, ctx):
     """The whole unit is one keyword, or a comma-list of keywords, ALL grounded in §702.
-    'Flying' / 'Flying, vigilance' / 'First strike' / 'Swampwalk'. If any comma-part isn't a grounded
-    keyword (e.g. 'Protection from red, white, and blue'), abstain so _kw_param can handle it."""
+    'Flying' / 'Flying, vigilance' / 'First strike' / 'Flying, protection from red'. If any comma-part isn't a
+    grounded keyword/protection (e.g. 'Protection from red, white, and blue' — commas inside the colour list),
+    abstain so _kw_param can handle it."""
     parts = [p.strip() for p in unit.raw.rstrip(".").split(",") if p.strip()]
     if not parts:
         return None
-    grounded = [_ground_kw(p) for p in parts]
+    grounded = [_ground_kw_part(p) for p in parts]
     if not all(grounded):
         return None
     facts = []
