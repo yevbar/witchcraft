@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+from . import cards
 from .navigate import Rect
 
 _log = logging.getLogger(__name__)
@@ -125,7 +126,16 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
         return False
     idx, n = order.index(instance_id), len(order)
     points = snapshot_hand(actuator, locator)
-    _log.info("  hand: log=%d cards, snapshot found %d; want slot %d (instance %s)", n, len(points), idx, instance_id)
+    # CALIBRATION log: the zone order with names/types (the '*' is the card we want) vs the detected screen
+    # x's — compare against the on-screen left-to-right order to learn the zone->screen mapping.
+    named = []
+    for i, inst in enumerate(order):
+        o = view.objects.get(inst)
+        nm = (cards.label(o.grpId) if o else "?")
+        named.append(("*" if inst == instance_id else "") + f"{i}:{nm}")
+    _log.info("  hand zone order: %s", "  ".join(named))
+    _log.info("  hand: log=%d cards, snapshot found %d at x=%s; want zone-slot %d (instance %s)",
+              n, len(points), [p[0] for p in points], idx, instance_id)
     if not points:
         return False
     if len(points) == n:
