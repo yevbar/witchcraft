@@ -176,11 +176,11 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
         hover_card(actuator, p, dwell=dwell)
 
 
-def play_card(actuator, point: tuple, *, gap: float = 0.02, hold: float = 0.0) -> None:
+def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0) -> None:
     """Play the hand card at `point`: hover onto it (AppleScript-focus Arena + glide + IOHID so the card lifts),
     then a FAST double-click. The two taps must land in quick succession: `double_click` focuses + IOHID-moves
-    ONCE and fires both presses back-to-back, so MTGA reads a real double-click. (The earlier two-`click` version
-    re-ran the AppleScript focus between the taps — ~200ms+ — so they were too far apart to register.)"""
+    ONCE and fires both presses back-to-back (~15ms apart), so MTGA reads a real double-click. (The earlier
+    two-`click` version re-ran the AppleScript focus between the taps — ~200ms+ — so they never registered.)"""
     actuator.hover(*point)
     actuator.double_click(hold=hold, gap=gap)
 
