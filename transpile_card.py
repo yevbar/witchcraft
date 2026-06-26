@@ -1841,10 +1841,25 @@ def _mode_option(unit, ctx):
         fm = re.match(r"^[A-Z][^—–]*? [—–] (.+)$", body)
         if fm:
             effects = _parse_body(fm.group(1))
+            if not effects:
+                # the mode body may be a whole ABILITY, not a bare effect — the clan-choice Sieges (Tarkir
+                # 2025: '• Sultai — Whenever a counter is put …') give a triggered/static ability per chosen
+                # mode. Route the stripped body through the FULL unit dispatch; mark the ability a mode_option
+                # (same aid, so they link). No '•' in the stripped body -> no _mode_option recursion.
+                sub = transpile_unit(dataclasses.replace(unit, raw=fm.group(1)), ctx)
+                if sub and sub.pattern in _MODE_ABILITY_KINDS:
+                    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+                    return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + sub.facts, "mode_option")
     if not effects:
         return None
     cid, aid = ctx["id"], f"mode{ctx.get('seq', 0)}"
     return CardOut(cid, [f'mode_option("{cid}", "{aid}")'] + _effect_facts(cid, aid, effects), "mode_option")
+
+
+# mode bodies that are a whole ABILITY (trigger/static/activated), not a bare effect — the clan-choice
+# Sieges. The mode is grounded by routing the stripped body through transpile_unit and marking the result.
+_MODE_ABILITY_KINDS = frozenset({"triggered", "static", "static_pt", "static_player", "static_grant",
+                                 "activated", "multi", "static_effect"})
 
 
 def _spree_mode(unit, ctx):
