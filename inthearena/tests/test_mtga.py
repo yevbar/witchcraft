@@ -701,8 +701,9 @@ def _hand_checks():
     from inthearena.mtga.hand import _CARD_BODY_DROP
     a3c = DryRunActuator(rect=rect)
     play_card(a3c, (900, 1000))
-    check("play_card descends straight onto the card body (x kept, y dropped below the name banner)",
-          a3c.clicks and a3c.clicks[0] == (900, 1000 + _CARD_BODY_DROP))
+    check("play_card moves straight to the card body (lands at name x, name y + drop — no swerve)",
+          a3c.clicks and a3c.clicks[0] == (900, 1000 + _CARD_BODY_DROP)
+          and all(args == (0.0, None) for args in a3c.click_args))
 
     # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
     # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which

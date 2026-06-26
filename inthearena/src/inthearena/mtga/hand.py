@@ -177,25 +177,22 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
 
 
 _CARD_BODY_DROP = 28       # px below the OCR'd name banner — aim into the card BODY, a stickier hitbox than the edge
-_CARD_APPROACH = 70        # px above the body target to line up for a straight vertical descent onto the card
 
 
 def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
-              body_drop: int = _CARD_BODY_DROP, approach: int = _CARD_APPROACH) -> None:
-    """Play the hand card whose NAME banner is at `point`. The approach matters as much as the target:
+              body_drop: int = _CARD_BODY_DROP) -> None:
+    """Play the hand card whose NAME banner is at `point`:
 
-      • aim a little BELOW the name into the card BODY (`body_drop`) — the top-edge banner is a poor hitbox, and
-        the body is what stays under the cursor as the card magnifies;
-      • come straight DOWN onto it: first move to a point directly ABOVE the card (`approach`) with NO arc/wobble,
-        then descend straight in. A curved, wobbling glide circles the card and sweeps its neighbours (magnifying/
-        shifting the fan) instead of settling in the hitbox;
-      • then a FAST double-click (`double_click` focuses + IOHID-moves once, both taps ~15ms apart) so MTGA reads
-        a real double-click and plays the card.
+      • move STRAIGHT to it in ONE go (no arc/wobble) — a curved, wobbling glide circles the card and sweeps its
+        neighbours (magnifying/shifting the fan) instead of settling in the hitbox; a straight line goes right to
+        the card without the awkward swerve-then-drop;
+      • aim a little BELOW the name into the card BODY (`body_drop`) — the top-edge banner is a poor hitbox and
+        the body stays under the cursor as the card magnifies;
+      • then a FAST double-click (`double_click` IOHID-moves once, both taps ~15ms apart with clickState 1->2) so
+        MTGA reads a real double-click and plays the card.
     """
     x, y = point
-    target = (x, y + body_drop)
-    actuator.hover(x, target[1] - approach, curve=0.0, wobble=0.0)   # straight to just above the card (board level)
-    actuator.hover(*target, curve=0.0, wobble=0.0)                   # straight DOWN into the body
+    actuator.hover(x, y + body_drop, curve=0.0, wobble=0.0)   # straight, direct to the card body
     actuator.double_click(hold=hold, gap=gap)
 
 
