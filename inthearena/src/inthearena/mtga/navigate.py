@@ -423,10 +423,11 @@ class PyAutoGuiActuator:
         self.wait(self._rng.uniform(0.06, 0.14) if hold is None else hold)
         self._pg.mouseUp(x, y, button="left")
 
-    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
-        # Focus + IOHID move ONCE, then two rapid down/up presses with NOTHING between them. The old gesture
-        # re-ran click() per press, and click()'s AppleScript `activate` (~200ms+) between the two presses made
-        # the clicks too far apart for MTGA to read as a double-click — so the card never played.
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015) -> None:
+        # Focus + IOHID move ONCE so MTGA's pointer is on the card, then a REAL double-click. The presses must
+        # carry the clickState field (1 then 2) or the app sees two SINGLE clicks (the card selects but never
+        # plays — the observed "clicked once, not a double-click"). pyautogui doesn't set clickState, so use the
+        # Quartz path that does; fall back to pyautogui taps only if Quartz is unavailable.
         if self._no_click:
             return
         self._focus()
@@ -437,18 +438,20 @@ class PyAutoGuiActuator:
                 iohid_move(x, y)                           # one real motion so MTGA's pointer is on the card
             except Exception as e:
                 _log.debug("double_click: IOHID move failed (%s: %s)", type(e).__name__, e)
-            self.wait(0.05)                                # brief settle BEFORE the taps (not between them)
-        if self._click_backend is not None:
-            self._click_backend(x, y)
-            self._click_backend(x, y)
+            self.wait(0.05)                                # brief settle BEFORE the taps
+        try:
+            from .macos import double_click_quartz
+            double_click_quartz(int(x), int(y), hold=hold, gap=gap)   # clickState 1->2 = a true double-click
             return
+        except Exception as e:
+            _log.debug("double_click: Quartz path failed (%s: %s) — falling back to pyautogui taps", type(e).__name__, e)
         for i in range(2):
             self._pg.mouseDown(x, y, button="left")
             if hold:
                 self.wait(hold)
             self._pg.mouseUp(x, y, button="left")
             if i == 0 and gap:
-                self.wait(gap)                             # short, fixed inter-tap gap (no focus/move here)
+                self.wait(gap)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)

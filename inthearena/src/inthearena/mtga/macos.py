@@ -129,6 +129,42 @@ def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = Non
     _post(_ev(Quartz.kCGEventLeftMouseUp, 1))
 
 
+def double_click_quartz(x: int, y: int, *, hold: float = 0.0, gap: float = 0.015,
+                        move: bool = True, pid: Optional[int] = None) -> None:
+    """A REAL macOS double-click via Quartz CGEvents: two left down/up pairs at (x, y) with the clickState field
+    set to 1 then 2. That field is what tells the OS — and the app — that the second press is the SECOND click of
+    a double-click. pyautogui never sets it, so its two presses arrive as two SINGLE clicks (the card gets
+    selected but never played). `hold` = button-down dwell, `gap` = pause between the two clicks; `move` posts a
+    leading mouse-moved (matches the proven single-click recipe); `pid` posts straight to that process."""
+    import time
+    import Quartz
+    pt = Quartz.CGPointMake(float(x), float(y))
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+
+    def _ev(kind, click_state=0):
+        e = Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft)
+        if click_state:
+            Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, click_state)
+        return e
+
+    def _post(ev):
+        if pid:
+            Quartz.CGEventPostToPid(pid, ev)
+        else:
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+
+    if move:
+        _post(_ev(Quartz.kCGEventMouseMoved))
+        time.sleep(0.01)
+    for state in (1, 2):                                    # clickState 1 = first click, 2 = the double
+        _post(_ev(Quartz.kCGEventLeftMouseDown, state))
+        if hold:
+            time.sleep(hold)
+        _post(_ev(Quartz.kCGEventLeftMouseUp, state))
+        if state == 1 and gap:
+            time.sleep(gap)
+
+
 _NX_LMOUSEDOWN, _NX_LMOUSEUP, _NX_MOUSEMOVED, _NX_VER = 1, 2, 5, 2
 
 
