@@ -1114,6 +1114,34 @@ def _replacement(unit, ctx):
     return CardOut(cid, head + _effect_facts(cid, aid, effects), "replacement")
 
 
+# token-creation 'plus' replacement (§614, the token sibling of the Hardened Scales counter family) —
+# 'If <…tokens> would be created …, those tokens plus <SPEC> are created instead' / 'If you would create
+# <…tokens>, instead create those tokens plus <SPEC>'. Faithful (unlike a doubles_tokens-style flag): the
+# ADDITIONAL token <SPEC> is parsed as a real create effect on a 'replacement' ability, like _replacement.
+_TOKEN_PLUS_A = re.compile(r"^If (?P<cond>.+? would be created under your control), "
+                           r"those tokens plus (?P<spec>.+?) are created instead\.?$", re.I)
+_TOKEN_PLUS_B = re.compile(r"^If (?P<cond>you would create .+?), "
+                           r"instead create those tokens plus (?P<spec>.+?)\.?$", re.I)
+
+
+def _token_plus(unit, ctx):
+    if '"' in unit.raw:
+        return None
+    m = _TOKEN_PLUS_A.match(unit.raw) or _TOKEN_PLUS_B.match(unit.raw)
+    if not m or "token" not in m.group("cond").lower():
+        return None
+    # 'an additional Map token' / 'another Food token' -> 'a Map token' so the type slugs cleanly (map/food),
+    # matching the predefined token-def names rather than carrying the 'additional' adjective into the slug.
+    spec = re.sub(r"^(?:an? additional|another)\b", "a", m.group("spec").strip(), flags=re.I)
+    eff = parse_clause("create " + spec)                      # the extra token, via the create-token leaf
+    if not eff or eff.verb != "create":
+        return None
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "replacement")',
+                         f'ability_trigger("{cid}", "{aid}", "{ground.slug(m.group("cond"))}")']
+                  + _effect_facts(cid, aid, [eff]), "replacement")
+
+
 _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 
 
@@ -2648,7 +2676,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
-             _loyalty, _saga_chapter, _mana_ability, _replacement, _triggered, _activated, _spell,
+             _loyalty, _saga_chapter, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_effect]
 
