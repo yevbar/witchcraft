@@ -1122,10 +1122,17 @@ def _activated(unit, ctx):
         return CardOut(cid, cost_facts + [f'modal("{cid}", "{ground.slug(mh.group(1))}")'], "activated")
     body, mods = _split_modifiers(m.group("body"))
     effects = _parse_body(body) if body else None
-    if not effects:
-        return None
-    cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
-    return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
+    if effects:
+        cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+        return CardOut(cid, cost_facts + _effect_facts(cid, aid, effects), "activated")
+    # the activated ability may GRANT a card-level static (a one-turn cost reduction / combat restriction)
+    # that _parse_body (effects-only) can't reach — route the body through full dispatch and graft a
+    # whitelisted $-anchored static, like the triggered/loyalty/saga handlers (faithful-or-abstain otherwise).
+    g = _graft_static(unit, ctx, body)
+    if g:
+        cost_facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+        return CardOut(cid, cost_facts + g, "activated")
+    return None
 
 
 _REPL = re.compile(r"^If (?P<cond>.+? would .+?), (?P<repl>.+?) instead\.?$", re.I | re.S)
@@ -1188,15 +1195,37 @@ _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 _MODAL_HEAD = re.compile(r"^choose (one or both|one or more|up to one|up to two|up to three|one|two|three)\b", re.I)
 
 
-# card-level STATIC patterns a container body (saga chapter / triggered / loyalty) may GRANT and that are
-# safe to graft FAITHFULLY when _parse_body abstains: a one-turn cost reduction (cost_modifier) and a combat
-# restriction (combat_restriction). Both are $-anchored over the body, so the graft is byte-faithful.
-# Deliberately EXCLUDES: the keyword-detection patterns (kw_line/printed_keyword), which match a bare keyword
-# WORD inside a body fragment ('Then planeswalk' -> landwalk, 'augment, enchant, or mutate' -> enchant) — a
-# garbage parse; and static_player, whose may_cast frame ends in a greedy '.*?' that SWALLOWS a trailing
-# additional cost ('… from your graveyard BY PAYING {R}{R} in addition to its other costs') — a lossy drop
-# (the standalone permission handler abstains on those by design; routing a body to it would not).
+# card-level STATIC patterns a container body (saga chapter / triggered / loyalty / activated) may GRANT and
+# that can be grafted when _parse_body abstains: a one-turn cost reduction (cost_modifier, fully $-anchored)
+# and a combat restriction (combat_restriction). EXCLUDES the keyword-detection patterns (kw_line/
+# printed_keyword), which match a bare keyword WORD in a body fragment ('Then planeswalk' -> landwalk) — a
+# garbage parse; and static_player, whose may_cast frame drops a trailing additional cost ('… BY PAYING
+# {R}{R} …'). combat_restriction's slug runs greedily to end-of-string, so it can BURY a second sentence or
+# an effect that precedes the restriction — `_graft_static` guards against that so only a tight, faithful
+# restriction is grafted.
 _GRAFTABLE_STATIC = frozenset({"cost_modifier", "combat_restriction"})
+_GRAFT_PRE_EFFECT = re.compile(r"\b(?:gains?|gets?|draws?|creates?|puts?|sacrifices?|exiles?|deals?|"
+                               r"destroys?|returns?|mills?)\b", re.I)   # an EFFECT before the 'can't' (a buried
+# conjunct, e.g. Agility's 'each gain haste … and can't be blocked'); NOT a bare 'each opponent' subject.
+
+
+def _graft_static(unit, ctx, body):
+    """Route a container body through full dispatch and return a WHITELISTED card-level static's facts to
+    graft onto the host ability — or None (abstain). Guards: a SINGLE sentence (a trailing '. <sentence>'
+    would be swallowed into the static slug), and for combat_restriction a CLEAN pre-'can't' subject + no
+    'where X' dynamic (the restriction slug runs to end-of-string, so an effect before the 'can't' — Agility
+    Bobblehead's 'each gain haste … and can't be blocked' — or a dynamic count would be buried; prime
+    directive: no conflation). cost_modifier is fully $-anchored, so it needs only the single-sentence guard."""
+    if not body or ". " in body.rstrip("."):
+        return None
+    sub = _try_patterns(dataclasses.replace(unit, raw=body), ctx)
+    if not sub or sub.pattern not in _GRAFTABLE_STATIC:
+        return None
+    if sub.pattern == "combat_restriction":
+        pre = re.split(r"\bcan'?t?\b", body, 1, flags=re.I)[0]
+        if _GRAFT_PRE_EFFECT.search(pre) or "where x" in body.lower():
+            return None
+    return sub.facts
 
 
 def _triggered(unit, ctx):
@@ -1230,11 +1259,10 @@ def _triggered(unit, ctx):
     # a combat restriction — that _parse_body (effects-only) can't reach. Route the body through full dispatch
     # and graft, but ONLY a card-level static (its facts carry no nested card_ability — a nested ability would
     # collide on this aid); same guard as the saga/modal container handlers (faithful-or-abstain otherwise).
-    if body:
-        sub = _try_patterns(dataclasses.replace(unit, raw=body), ctx)
-        if sub and sub.pattern in _GRAFTABLE_STATIC:
-            head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
-            return CardOut(cid, head + sub.facts, "triggered")
+    g = _graft_static(unit, ctx, body)
+    if g:
+        head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+        return CardOut(cid, head + g, "triggered")
     return None
 
 
@@ -1258,10 +1286,9 @@ def _loyalty(unit, ctx):
     # a loyalty ability may grant a card-level STATIC (a combat restriction, a turn-long cost reduction) that
     # _parse_body can't reach — route through full dispatch and graft a card-level static (no nested
     # card_ability), like the saga/modal/triggered handlers.
-    if body:
-        sub = _try_patterns(dataclasses.replace(unit, raw=body), ctx)
-        if sub and sub.pattern in _GRAFTABLE_STATIC:
-            return CardOut(cid, facts + sub.facts, "loyalty")
+    g = _graft_static(unit, ctx, body)
+    if g:
+        return CardOut(cid, facts + g, "loyalty")
     return None
 
 
@@ -1316,9 +1343,9 @@ def _saga_chapter(unit, ctx):
     # full dispatch and graft its facts — but ONLY when the body is a card-level static (its facts carry no
     # nested card_ability). A triggered/activated body has its own card_ability that would collide on the
     # chapter aid and is really a delayed-ability creation, so abstain on those (faithful-or-abstain).
-    sub = _try_patterns(dataclasses.replace(unit, raw=m.group("body")), ctx)
-    if sub and sub.pattern in _GRAFTABLE_STATIC:
-        return CardOut(cid, facts + sub.facts, "saga_chapter")
+    g = _graft_static(unit, ctx, m.group("body"))
+    if g:
+        return CardOut(cid, facts + g, "saga_chapter")
     return None
 
 
