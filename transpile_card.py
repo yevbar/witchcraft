@@ -1746,7 +1746,11 @@ def _mode_option(unit, ctx):
     body = m.group("body")
     effects = _parse_body(body)
     if not effects:
-        fm = re.match(r"^[A-Z][\w' /'-]+? [—–-] (.+)$", body)   # strip a flavor mode-name (no rules meaning)
+        # strip a flavor mode-name (no rules meaning) — a capitalized label up to the ' — ' separator. The
+        # name span allows any non-dash char (so punctuated names like 'Wake Up!' / 'Combine Powers!' strip),
+        # and the result is kept ONLY if the remaining body grounds — a mis-strip yields an ungrounded tail
+        # and falls through to None, so it can't emit a lossy fact.
+        fm = re.match(r"^[A-Z][^—–]*? [—–] (.+)$", body)
         if fm:
             effects = _parse_body(fm.group(1))
     if not effects:

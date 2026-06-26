@@ -3589,15 +3589,20 @@ class _ToEffect(Transformer):
         return _MfBody(" ".join(str(t) for t in toks))
 
     def mfmanifest(self, *args):
-        # 'manifest the top card of your library' -> manifest(1, top_of_library), byte-identical to the
-        # retired `_manifest_top` leaf. The grammar anchors on the MF_MANIFEST verb; we validate the fixed
-        # shape from the raw source (structural, not an interpretive frame) and ABSTAIN on any other manifest
-        # phrasing ('manifest those cards' / 'manifest dread') so those keep their existing handling.
+        # 'manifest the top [N] card[s] of your library' -> manifest(N, top_of_library). The singular form
+        # ('the top card') stays byte-identical to the retired `_manifest_top` leaf (N=1); the plural form
+        # ('the top three cards') carries the count. The grammar anchors on the MF_MANIFEST verb; we validate
+        # the fixed shape from the raw source (structural slice, not an interpretive frame) and ABSTAIN on any
+        # other manifest phrasing ('manifest those cards' / 'manifest dread') so those keep their handling.
         src = getattr(self, "_src", None)
         if src is None:
             return None
-        if src.strip().lower() == "manifest the top card of your library":
-            return Effect("manifest", 1, "top_of_library")
+        m = re.match(r"^manifest the top (?:(\d+|one|two|three|four|five|six|seven|eight|nine|ten) "
+                     r"cards|card) of your library$", src.strip().lower())
+        if m:
+            n = _amount(m.group(1)) if m.group(1) else 1
+            if isinstance(n, int):
+                return Effect("manifest", n, "top_of_library")
         return None
 
     def bcmtgt(self, *toks):
