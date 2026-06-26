@@ -94,6 +94,14 @@ def units_of(card: dict) -> list[Unit]:
         raw = line
         if name:
             raw = raw.replace(name, "~")
+            # DFC face self-reference: a transform/modal card refers to its OWN faces by name
+            # ('transforms into Brigid, Clachan's Heart') — the full '// ' name above doesn't match a single
+            # face, so normalize each MULTI-WORD face to '~' too (single-word split-card faces like
+            # 'Fire'/'Ice' are excluded so an unrelated occurrence of a common word isn't clobbered).
+            if " // " in name:
+                for face in name.split(" // "):
+                    if " " in face:
+                        raw = raw.replace(face, "~")
         raw = _SELF.sub("~", raw)
         raw = _ENTERS.sub("enters", raw)        # 2021 templating: 'enters the battlefield' == 'enters'
         template = _INT.sub("N", _SYMBOL.sub("{S}", raw)).strip()
