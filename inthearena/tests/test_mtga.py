@@ -659,6 +659,80 @@ def _navigate_checks():
           r_stray is False and stray.clicks == [])
 
 
+def _hand_checks():
+    """Locate hand cards from a snapshot (bottom band + central x, de-duped, left-to-right) and the play gesture."""
+    from inthearena.mtga import (DryRunActuator, Rect, locate_hand_cards, play_card, rest_point,
+                                 snapshot_hand, sweep_hand)
+    rect = Rect(0, 0, 1920, 1080)
+
+    class HandLoc:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(660, 980, 120, 70), Rect(820, 980, 120, 70),
+                    Rect(515, 985, 120, 70),                 # duplicate of card 1 (within _MIN_GAP)
+                    Rect(150, 980, 120, 70),                 # avatar far-left (x-frac < 0.20) -> dropped
+                    Rect(900, 500, 120, 70)]                 # battlefield card (y-frac < 0.85) -> dropped
+
+        def locate(self, image, query):
+            return None
+
+    pts = locate_hand_cards(object(), rect, HandLoc())
+    check("hand: filtered to the central bottom band (3 cards; avatar/battlefield/dup dropped)", len(pts) == 3)
+    check("hand: cards ordered left-to-right", [p[0] for p in pts] == sorted(p[0] for p in pts))
+
+    a = DryRunActuator(rect=rect, image=object())
+    sh = snapshot_hand(a, HandLoc())
+    check("snapshot_hand moves to the rest point (above the hand) before snapping",
+          bool(a.moves) and a.moves[-1][1] == rest_point(rect) and rest_point(rect)[1] < int(rect.h * 0.85))
+    check("snapshot_hand returns the located cards", len(sh) == 3)
+
+    a2 = DryRunActuator(rect=rect)
+    sweep_hand(a2, pts, dwell=0)
+    check("sweep_hand hovers each card (moves, no clicks)", a2.clicks == [] and len(a2.moves) >= 3)
+
+    a3 = DryRunActuator(rect=rect)
+    play_card(a3, pts[0], gap=0.1)
+    check("play_card = click, wait ~0.1s, click (2 clicks + a gap wait)", len(a3.clicks) == 2 and 0.1 in a3.waits)
+
+
+def _execute_checks():
+    """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""
+    from inthearena.mtga import DryRunActuator, GameExecutor, Rect
+    from inthearena.mtga.gre import Action, Decision, GameView
+    rect = Rect(0, 0, 1920, 1080)
+    dec_actions = Decision(kind="actions", options=[], seat=1, view=GameView(), req=None)
+    dec_block = Decision(kind="blockers", options=[], seat=1, view=GameView(), req=None)
+
+    class AdvLoc:                                            # the bottom-right advance/confirm button
+        def locate(self, image, query):
+            return Rect(1700, 1000, 120, 50)
+
+        def locate_all(self, image, query):
+            return []
+
+    a = DryRunActuator(rect=rect, image=object())
+    r = GameExecutor(a, locator=AdvLoc()).execute(dec_actions, None)
+    check("execute: pass -> clicks the bottom-right advance button",
+          r.done and bool(a.clicks) and a.clicks[0][0] > 1500)
+    a2 = DryRunActuator(rect=rect, image=object())
+    r2 = GameExecutor(a2, locator=AdvLoc()).execute(dec_block, [])
+    check("execute: no-blocks -> clicks advance", r2.done and len(a2.clicks) == 1)
+
+    cast = Action(actionType="ActionType_Cast", instanceId=51)
+    a3 = DryRunActuator(rect=rect, image=object())
+    r3 = GameExecutor(a3, locator=AdvLoc()).execute(dec_actions, cast)
+    check("execute: cast with NO ObjectLocator -> not executable (caller shadows)",
+          r3.done is False and a3.clicks == [])
+
+    class ObjLoc:
+        def locate(self, instance_id, view, image):
+            return Rect(800, 950, 100, 120)
+
+    a4 = DryRunActuator(rect=rect, image=object())
+    r4 = GameExecutor(a4, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_actions, cast)
+    check("execute: cast WITH an ObjectLocator -> clicks the located card",
+          r4.done and bool(a4.clicks) and 800 <= a4.clicks[0][0] <= 900)
+
+
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
     os.write(fd, FIXTURE.encode())
@@ -700,6 +774,8 @@ def run():
     _engine_checks()
     _live_checks()
     _navigate_checks()
+    _hand_checks()
+    _execute_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
