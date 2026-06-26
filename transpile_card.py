@@ -1216,6 +1216,32 @@ def _loyalty(unit, ctx):
 _ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
 _SAGA = re.compile(r"^(?P<ch>[IVX]+(?:, [IVX]+)*) — (?P<body>.+)$")
 
+# a die-roll outcome row '1—9 | <effect>' / '15+ | <effect>' / '20 | <effect>' (§118.x dice; the 'Roll a dN'
+# tables, AFR 2021 + later dice cards). The leading numeric range is STRUCTURAL (a roll result, no rules
+# interpretation); peel it and route the <effect> body to the hybrid leaf.
+_ROLL_ROW = re.compile(r"^(?P<lo>\d+)(?:[—–-](?P<hi>\d+)|(?P<plus>\+))? \| (?P<body>.+)$")
+
+
+def _roll_outcome(unit, ctx):
+    """A die-roll outcome row '<lo>[—<hi>|+] | <effect>' — one result band of a 'Roll a dN' table. Gated on
+    the card actually rolling a die (these rows only appear under a roll instruction), so the distinctive
+    '<number> | ' shape can't be mistaken for anything else. Emits a `roll_outcome` ability + a numeric
+    `roll_range` (hi='max' for the open 'N+' band, hi=lo for a single result), with the body's grounded effects."""
+    if "roll" not in ((ctx.get("card") or {}).get("text") or "").lower():
+        return None
+    m = _ROLL_ROW.match(unit.raw)
+    if not m:
+        return None
+    effects = _parse_body(m.group("body"))
+    if not effects:
+        return None
+    lo = m.group("lo")
+    hi = m.group("hi") or ("max" if m.group("plus") else lo)
+    cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    return CardOut(cid, [f'card_ability("{cid}", "{aid}", "roll_outcome")',
+                         f'roll_range("{cid}", "{aid}", "{lo}", "{hi}")']
+                  + _effect_facts(cid, aid, effects), "roll_outcome")
+
 
 def _saga_chapter(unit, ctx):
     """A Saga chapter ability 'I — <effect>' / 'I, II — <effect>' (§714) — a triggered ability that
@@ -2692,7 +2718,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _additional_cost, _grant_quoted_to_set, _as_long_as, _static_pt, _anthem_conjunct,
              _granted_ability, _grant_kw_and_ability, _static_grant, _static_conjuncts, _enters_tapped_others,
              _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
-             _loyalty, _saga_chapter, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
+             _loyalty, _saga_chapter, _roll_outcome, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
              _life_floor, _static_effect]
 
