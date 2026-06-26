@@ -135,8 +135,9 @@ def main(argv) -> int:
         view = latest_view(args.log)
     print(f"current view: {view}" + ("  (overridden)" if args.view else "  (from the log)"))
     if view is None:
-        print("couldn't recognize the view — is MTGA running with Detailed Logs (Plugin Support) on?")
-        return 1
+        # not Home / Play menu / Recently-played / a game — some other screen (Mastery, Packs, a deck list…).
+        # That's fine: the live take-over recovers by clicking the Home tab (top-left) first, then navigates.
+        print("unrecognized screen — will click the Home tab (top-left) to recover, then navigate into a game.")
 
     # already in a game: drive the bot (or just show the board with --no-bot)
     if view is RecognizedViews.GAMEPLAY:
@@ -151,6 +152,12 @@ def main(argv) -> int:
 
     # --dry-run / --no-click can't actually progress through menus (no real clicks) — just preview ONE step.
     if args.dry_run or args.no_click:
+        if view is None:                                   # the recovery step: click the Home tab (top-left)
+            from inthearena.mtga import go_home
+            go_home(actuator, rng=rng, locator=locator)
+            target = actuator.clicks[-1] if actuator.clicks else "?"
+            print(f"{'DRY RUN' if args.dry_run else 'MOVE-ONLY'}: would click the Home tab at {target} to recover.")
+            return 0
         acted = take_over_view(actuator, view, rng=rng, locator=locator)
         if not acted:
             print(f"no take-over action defined for {view.name}.")

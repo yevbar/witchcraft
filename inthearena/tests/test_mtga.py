@@ -407,11 +407,31 @@ def _navigate_checks():
     check("PLAY_MENU is mapped toward a game (step acts)", pm_nav.step_toward_game() is True)
 
     # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
-    from inthearena.mtga import take_over as take_over_flow
+    from inthearena.mtga import go_home, take_over as take_over_flow
     check("take_over() reaches a game already in progress",
           take_over_flow(DryRunActuator(), lambda: RV.GAMEPLAY, poll=0.001, change_timeout=0.02) is True)
-    check("take_over() returns False when it can't recognize the view",
-          take_over_flow(DryRunActuator(), lambda: None, poll=0.001, change_timeout=0.02) is False)
+    check("take_over() (no recovery) returns False when it can't recognize the view",
+          take_over_flow(DryRunActuator(), lambda: None, recover_home=False,
+                         poll=0.001, change_timeout=0.02) is False)
+
+    # go_home() clicks the Home tab in the TOP-LEFT
+    gh = DryRunActuator(rect=Rect(0, 0, 1000, 800))
+    check("go_home acted", go_home(gh) is True)
+    gx, gy = gh.clicks[0]
+    check("go_home clicks the top-left Home tab", gx < 200 and gy < 120)
+
+    # RECOVERY: from an UNRECOGNIZED screen, take_over clicks Home first, then drives Home -> game
+    seq = {"view": None}
+
+    class Recover(DryRunActuator):
+        def move_and_click(self, cx, cy, **kw):
+            super().move_and_click(cx, cy, **kw)
+            seq["view"] = RV.HOME if seq["view"] is None else RV.GAMEPLAY   # 1st click=Home recover, 2nd=Play
+
+    ra = Recover(rect=Rect(0, 0, 1000, 800))
+    reached = take_over_flow(ra, lambda: seq["view"], recover_home=True, poll=0.001, change_timeout=1.0)
+    check("take_over recovers from an unrecognized view into a game", reached and seq["view"] is RV.GAMEPLAY)
+    check("recovery's FIRST click was the top-left Home tab", ra.clicks[0][0] < 200 and ra.clicks[0][1] < 120)
 
     # take_over: on HOME, click somewhere WITHIN the Play button (anchor +/- a few px), varying each call
     import random as _r

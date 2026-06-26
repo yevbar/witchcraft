@@ -23,6 +23,7 @@ from .navigate import (
     Navigator,
     PyAutoGuiActuator,
     Rect,
+    go_home,
     interact,
     resolve,
     take_over,
@@ -74,6 +75,6 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
-    "take_over", "take_over_view", "target_point", "interact", "ElementLocator", "MoondreamLocator",
+    "take_over", "take_over_view", "go_home", "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
 ]

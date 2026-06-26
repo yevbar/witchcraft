@@ -38,7 +38,7 @@ class Rect:
 
 # Where each coarse anchor sits as a fraction of the client rect.
 _ANCHOR_FRAC = {
-    ScreenAnchor.TOP_LEFT: (0.08, 0.08),
+    ScreenAnchor.TOP_LEFT: (0.05, 0.035),       # MTGA's Home tab (logo + "Home") sits in the very top-left
     ScreenAnchor.TOP_RIGHT: (0.92, 0.08),
     ScreenAnchor.BOTTOM_LEFT: (0.08, 0.92),
     ScreenAnchor.BOTTOM_RIGHT: (0.90, 0.93),    # MTGA's Play button sits low-right; 0.90y landed a touch high
@@ -327,19 +327,37 @@ _TOWARD_GAME = {
     RecognizedViews.RECENTLY_PLAYED: _element(RecognizedViews.RECENTLY_PLAYED, "Play"),
 }
 
+# The global Home tab (top-left, on every menu screen): click it to get BACK to Home from a view we don't
+# recognize (Mastery, Packs, a deck list, …), then the normal Home -> Play menu -> game sequence can run.
+_HOME = ViewElement("Home", ScreenAnchor.TOP_LEFT, radius=40)
+
+
+def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,
+            locator: "Optional[ElementLocator]" = None) -> bool:
+    """Click the Home tab (top-left) to return to the Home view. Vision-located if a `locator` is given, else
+    the coarse top-left anchor. Returns True if it acted (a window rect was available)."""
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    interact(actuator, _HOME, rect, rng or random.Random(), locator=locator)
+    return True
+
 
 class Navigator:
-    """Drive the client toward a game. Reads the current view via `view_provider`, acts via `actuator`."""
+    """Drive the client toward a game. Reads the current view via `view_provider`, acts via `actuator`. With
+    `recover_home=True`, an UNRECOGNIZED view (we're lost on some other screen) first clicks the Home tab to
+    get back to Home, rather than giving up."""
 
     def __init__(self, actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,
                  poll: float = 0.5, change_timeout: float = 15.0, rng: Optional[random.Random] = None,
-                 locator: "Optional[ElementLocator]" = None):
+                 locator: "Optional[ElementLocator]" = None, recover_home: bool = False):
         self._act = actuator
         self._view = view_provider
         self._poll = poll
         self._timeout = change_timeout
         self._rng = rng or random.Random()
         self._locator = locator
+        self._recover_home = recover_home
 
     def current(self) -> Optional[RecognizedViews]:
         return self._view()
@@ -347,13 +365,18 @@ class Navigator:
     def step_toward_game(self) -> bool:
         """Take ONE transition toward a game from the current view (travel the cursor to its advance element
         and click). Returns True if an action was taken, False if already in a game or the current view has no
-        mapped transition."""
+        mapped transition (and home-recovery is off)."""
         v = self.current()
         if v is RecognizedViews.GAMEPLAY:
             return False
-        element = _TOWARD_GAME.get(v)
         rect = self._act.window_rect()
-        if element is None or rect is None:
+        if rect is None:
+            return False
+        element = _TOWARD_GAME.get(v)
+        if element is None:
+            # an unrecognized / unmapped view — optionally recover by clicking the Home tab (top-left)
+            if self._recover_home:
+                return go_home(self._act, rng=self._rng, locator=self._locator)
             return False
         interact(self._act, element, rect, self._rng, locator=self._locator)  # vision-located if a locator is set
         return True
@@ -411,13 +434,14 @@ def take_over_view(actuator: Actuator, view: Optional[RecognizedViews], *,
 
 def take_over(actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,
               rng: Optional[random.Random] = None, locator: "Optional[ElementLocator]" = None,
-              max_steps: int = 6, change_timeout: float = 120.0, poll: float = 0.5) -> bool:
-    """TAKE OVER the client and navigate ALL THE WAY into a game: Home -> the Play menu (the recently-played
-    screen) -> queue, clicking each Play button (vision-located if a `locator` is given) and waiting for the
-    client to advance, until a match is live. `view_provider` returns the current view each time it's polled
-    (e.g. `lambda: latest_view(log)`). Returns True if a game was reached (or one was already in progress),
-    False if it stalled on a screen with no mapped transition. This is the whole take-over; for a single
-    screen's action use `take_over_view()`."""
+              max_steps: int = 6, change_timeout: float = 120.0, poll: float = 0.5,
+              recover_home: bool = True) -> bool:
+    """TAKE OVER the client and navigate ALL THE WAY into a game: if we're on a screen we don't recognize, first
+    click the Home tab (top-left) to get back to Home; then Home -> the Play menu (the recently-played screen)
+    -> queue, clicking each Play button (vision-located if a `locator` is given) and waiting for the client to
+    advance, until a match is live. `view_provider` returns the current view each time it's polled (e.g.
+    `lambda: latest_view(log)`). Returns True if a game was reached (or one was already in progress), False if
+    it stalled. This is the whole take-over; for a single screen's action use `take_over_view()`."""
     nav = Navigator(actuator, view_provider, poll=poll, change_timeout=change_timeout,
-                    rng=rng or random.Random(), locator=locator)
+                    rng=rng or random.Random(), locator=locator, recover_home=recover_home)
     return nav.navigate_to_game(max_steps=max_steps)
