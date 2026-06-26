@@ -2030,6 +2030,10 @@ def parse_clause(sentence: str) -> "Effect | None":
     # trailing 'named X' is not captured either). Gated on a capitalized name + article + a P/T spec, so it
     # can't touch a compound 'create a 1/1 token, a 2/2 token' (which starts with the lowercase article).
     s = _NAME_FIRST_TOKEN.sub(lambda m: f"{m.group('v')}{m.group('art')}{m.group('spec')}", s)
+    # OWNER-OF possessive normalization — 'the owner of <X> puts it …' -> "<X>'s owner puts it …" (the
+    # possessive form the leaf already grounds). STRUCTURAL reorder of the same subject, no interpretation;
+    # a target whose possessive still doesn't ground just stays None (no regression).
+    s = re.sub(r"^the owner of (.+?) puts it\b", r"\1's owner puts it", s, flags=re.I)
     s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
     s = re.sub(r"^(they|those [\w-]+|these [\w-]+) each\b", r"\1", s, flags=re.I)  # 'They each get +N/+N' -> 'They get'
     s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
