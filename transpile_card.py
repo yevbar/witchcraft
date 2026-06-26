@@ -1384,6 +1384,10 @@ _CARD_STATIC = [
     (r"^If an effect would create one or more tokens under your control, it creates twice that many.*instead\.?$", "doubles_tokens"),
     (r"^If one or more (?:[\w/+ ]*?)counters would be put on .*?, twice that many.*instead\.?$", "doubles_counters"),
     (r"^If you would put one or more (?:[\w/+ ]*?)counters on .*?, put twice that many.*instead\.?$", "doubles_counters"),
+    # Hardened Scales / Conclave Mentor / Winding Constrictor — the '+1' member of the same §614 family
+    # (all printed variants are 'that many plus one'); descriptive static, parallel to doubles_counters.
+    (r"^If one or more (?:[\w/+ ]*?)counters would be put on .*?, that many plus one.*instead\.?$", "counters_plus_one"),
+    (r"^If you would put one or more (?:[\w/+ ]*?)counters on .*?, put that many plus one.*instead\.?$", "counters_plus_one"),
     (r"^~ can be your commander\.?$", "can_be_commander"),
     (r"^[A-Z][a-z]+ commander$", "can_be_commander"),       # ability words: 'Spell commander', …
     (r"^Commander [a-z]+$", "can_be_commander"),             # 'Commander ninja', 'Commander enchantment'
