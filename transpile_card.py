@@ -1474,6 +1474,9 @@ _CARD_STATIC = [
     (r"^All creatures able to block ~ do so\.?$", "lure"),
     (r"^~ can't attack or block alone\.?$", "cant_attack_or_block_alone"),
     (r"^~ attacks? alone\.?$", "attacks_alone"),
+    # §514.2 'damage isn't removed during cleanup' — damage persists past end of turn on the scoped permanents
+    # (Ancient Adamantoise, Uthgardt Fury, Case of the Market Melee). Scope captured into the slug.
+    (r"^Damage isn't removed from (.+?) during cleanup steps?\.?$", "damage_not_removed_in_cleanup_"),
     (r"^~ can attack(?: this turn)? as though it didn't have defender\.?$", "can_attack_despite_defender"),
     (r"^If ~ is in your opening hand, you may begin the game with it on the battlefield\.?$", "opening_hand_to_battlefield"),
     (r"^Play with the top card of your library revealed\.?$", "play_with_top_revealed"),
