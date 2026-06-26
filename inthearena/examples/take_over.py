@@ -129,8 +129,7 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
 
     try:
         # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
-        # the game-setup frames were written before we attached. Track the last decision (the one we navigated
-        # into, e.g. the mulligan); handle it with that full view. Then tail NEW decisions with the SAME seeded
+        # the game-setup frames were written before we attached. Then tail NEW decisions with the SAME seeded
         # state, so each decision's view still has the hand (a bare from_start=False follow would miss it).
         state = LiveState()
         pending = None
@@ -138,8 +137,18 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
             for line in fh:
                 for d in state.feed_line(line):
                     pending = d
-        if pending is not None:
+        # The seeded log spans the WHOLE session — usually several games. Its last decision (`pending`) is only
+        # safe to auto-execute if it's the MULLIGAN: that's the entry decision we navigate into, and
+        # click_mulligan self-validates (it acts only if the Keep button is actually on screen, else no-ops). A
+        # non-mulligan `pending` is almost always a STALE board action from a PRIOR game — e.g. the new game's
+        # mulligan hasn't been flushed to the log yet, so the tail is the previous game's last land/pass. Auto-
+        # executing that would try to play a land while the client is still on the keep-hand screen. So we DON'T;
+        # the genuinely-current decision (the real mulligan, then the turn's actions) arrives LIVE via follow().
+        if pending is not None and pending.kind == "mulligan":
             handle(pending)
+        elif pending is not None:
+            print(f"  (seeded tail is {pending.kind} @ {pending.view.phase} — not auto-executed; "
+                  f"likely a prior game. Waiting for the live decision.)")
         for d in follow(log_path, state=state, from_start=False):   # new decisions, complete view
             handle(d)
     except KeyboardInterrupt:
