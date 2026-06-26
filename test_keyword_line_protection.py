@@ -58,6 +58,26 @@ def test_plain_keyword_list_unchanged():
     assert not any("keyword_param" in x for x in f)
 
 
+def test_numeric_arg_keyword_in_list():
+    # 'annihilator N' (a numeric-arg keyword) in a list used to be swallowed into the prior keyword's param;
+    # _ground_kw_part now grounds it, so the list splits cleanly.
+    f = _facts("Trample, haste, annihilator 1", name="Bigguy")
+    assert _kw(f) == {"trample", "haste", "annihilator"}
+    assert any('keyword_param("bigguy", "annihilator", "1")' in x for x in f)
+
+
+def test_protection_and_numeric_keyword_together():
+    # Emrakul: flying + protection + annihilator all split cleanly
+    f = _facts("Flying, protection from blue, annihilator 6", name="Bigguy")
+    assert _kw(f) == {"flying", "protection", "annihilator"}
+
+
+def test_ward_cost_in_list_unchanged():
+    # 'ward {N}' (a mana-cost arg) was already grounded by _ground_kw; still correct
+    f = _facts("Flying, ward {2}", name="Realname")
+    assert _kw(f) == {"flying", "ward"} and any('keyword_param("realname", "ward", "2")' in x for x in f)
+
+
 def test_unsplittable_multicolour_comma_still_single_protection():
     # 'Protection from red, white, and blue' — commas INSIDE the colour list, no leading keyword: stays one
     # protection keyword (can't be split on those commas).
@@ -71,5 +91,8 @@ if __name__ == "__main__":
     test_long_keyword_list_with_protection()
     test_non_colour_protection_quality()
     test_plain_keyword_list_unchanged()
+    test_numeric_arg_keyword_in_list()
+    test_protection_and_numeric_keyword_together()
+    test_ward_cost_in_list_unchanged()
     test_unsplittable_multicolour_comma_still_single_protection()
     print("ok")

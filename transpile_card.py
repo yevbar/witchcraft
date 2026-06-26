@@ -154,16 +154,25 @@ def _ground_kw(token: str):
 
 def _ground_kw_part(part: str):
     """Ground ONE comma-part of a keyword line into (kw, param): a bare §702 keyword ('flying' -> ('flying',
-    None)) OR a 'protection from <X>' parametrized keyword ('protection from black and from red' ->
-    ('protection', 'from_black_and_from_red')). Returns the pair or None. The protection branch lets a list
-    like 'First strike, protection from black and from red' split cleanly instead of the trailing protection
-    being swallowed into the FIRST keyword's param by _kw_param."""
+    None)), a 'protection from <X>' ('protection from black and from red' -> ('protection',
+    'from_black_and_from_red')), or a parametrized keyword with a cost/numeric arg ('ward {2}' -> ('ward',
+    '2'), 'annihilator 6' -> ('annihilator', '6')). Returns the pair or None. These branches let a list like
+    'Flying, ward {2}' / 'First strike, protection from black and from red' split cleanly instead of the
+    trailing keyword being swallowed into the FIRST keyword's param by _kw_param."""
     g = _ground_kw(part)
     if g:
         return g
     m = re.match(r"^protection from (.+)$", part, re.I)
     if m:
         return ("protection", "from_" + ground.slug(m.group(1)))
+    # a parametrized §702 keyword with a mana-cost or numeric arg ('ward {2}', 'ward {1}{U}', 'annihilator 6')
+    # — _ground_kw leaves the arg on, so a list 'Flying, ward {2}' otherwise abstained. The arg shape is
+    # constrained to a cost/number so a bare keyword followed by unrelated words can't be misread as an arg.
+    pm = re.match(r"^(\w+) ((?:\{[^}]+\})+|\d+)$", part)
+    if pm:
+        gk = _ground_kw(pm.group(1))
+        if gk and gk[0]:
+            return (gk[0], ground.slug(pm.group(2)))
     return None
 
 
