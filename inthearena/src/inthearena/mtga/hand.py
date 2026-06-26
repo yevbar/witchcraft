@@ -179,7 +179,7 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
 _CARD_BODY_DROP = 28       # px below the OCR'd name banner — aim into the card BODY, a stickier hitbox than the edge
 
 
-def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
+def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0, clicks: int = 1,
               body_drop: int = _CARD_BODY_DROP) -> None:
     """Play the hand card whose NAME banner is at `point`:
 
@@ -188,12 +188,14 @@ def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
         the card without the awkward swerve-then-drop;
       • aim a little BELOW the name into the card BODY (`body_drop`) — the top-edge banner is a poor hitbox and
         the body stays under the cursor as the card magnifies;
-      • then a FAST double-click (`double_click` IOHID-moves once, both taps ~15ms apart with clickState 1->2) so
-        MTGA reads a real double-click and plays the card.
+      • then a SINGLE click (`clicks=1`). A SECOND tap is harmful: the press plays/picks-up the card, the fan
+        reflows as it leaves, and a second tap lands on the card that slid in — the right-neighbour — grabbing it
+        (the observed "off to the right / grabbed another card"). The clickState press registers a real click, so
+        one is enough. (Pass `clicks=2` for a true double-click if some interaction ever needs it.)
     """
     x, y = point
     actuator.hover(x, y + body_drop, curve=0.0, wobble=0.0)   # straight, direct to the card body
-    actuator.double_click(hold=hold, gap=gap)
+    actuator.double_click(hold=hold, gap=gap, clicks=clicks)
 
 
 def hand_members(view, seat: int) -> list:

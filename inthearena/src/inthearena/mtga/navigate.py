@@ -226,9 +226,9 @@ class Actuator(Protocol):
         actuator's defaults (tuned for menu buttons)."""
         ...
 
-    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
-        """A FAST double-click at the current cursor — focus + IOHID move ONCE, then two rapid presses with no
-        focus/move BETWEEN them, so MTGA actually registers a double-click (to play a card)."""
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        """`clicks` fast presses at the current cursor (focus + IOHID move ONCE, then the presses back-to-back),
+        each carrying the clickState field. clicks=1 = a single click; clicks=2 = a real double-click."""
         ...
 
     def wait(self, seconds: float) -> None:
@@ -296,13 +296,12 @@ class DryRunActuator:
         self.clicks.append(self.pos)
         self.click_args.append((hold, settle))
 
-    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
-        self.clicks.append(self.pos)
-        self.click_args.append((hold, None))
-        if gap:
-            self.waits.append(gap)
-        self.clicks.append(self.pos)
-        self.click_args.append((hold, None))
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        for i in range(max(1, clicks)):
+            self.clicks.append(self.pos)
+            self.click_args.append((hold, None))
+            if gap and i < clicks - 1:
+                self.waits.append(gap)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
@@ -423,11 +422,11 @@ class PyAutoGuiActuator:
         self.wait(self._rng.uniform(0.06, 0.14) if hold is None else hold)
         self._pg.mouseUp(x, y, button="left")
 
-    def double_click(self, *, hold: float = 0.0, gap: float = 0.015) -> None:
-        # Focus + IOHID move ONCE so MTGA's pointer is on the card, then a REAL double-click. The presses must
-        # carry the clickState field (1 then 2) or the app sees two SINGLE clicks (the card selects but never
-        # plays — the observed "clicked once, not a double-click"). pyautogui doesn't set clickState, so use the
-        # Quartz path that does; fall back to pyautogui taps only if Quartz is unavailable.
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        # Focus + IOHID move ONCE so MTGA's pointer is on the card, then `clicks` presses carrying the clickState
+        # field (1, 2, …). clicks=1 is a single click — the right gesture to PLAY a card: the press lands it, and
+        # there's no second tap to hit the reflowed neighbour once the card leaves the fan. clicks=2 is a true
+        # double-click. pyautogui doesn't set clickState, so use the Quartz path; fall back to pyautogui taps.
         if self._no_click:
             return
         self._focus()
@@ -438,19 +437,19 @@ class PyAutoGuiActuator:
                 iohid_move(x, y)                           # one real motion so MTGA's pointer is on the card
             except Exception as e:
                 _log.debug("double_click: IOHID move failed (%s: %s)", type(e).__name__, e)
-            self.wait(0.05)                                # brief settle BEFORE the taps
+            self.wait(0.05)                                # brief settle BEFORE the press(es)
         try:
             from .macos import double_click_quartz
-            double_click_quartz(int(x), int(y), hold=hold, gap=gap)   # clickState 1->2 = a true double-click
+            double_click_quartz(int(x), int(y), hold=hold, gap=gap, clicks=clicks)   # clickState 1..clicks
             return
         except Exception as e:
             _log.debug("double_click: Quartz path failed (%s: %s) — falling back to pyautogui taps", type(e).__name__, e)
-        for i in range(2):
+        for i in range(max(1, clicks)):
             self._pg.mouseDown(x, y, button="left")
             if hold:
                 self.wait(hold)
             self._pg.mouseUp(x, y, button="left")
-            if i == 0 and gap:
+            if gap and i < clicks - 1:
                 self.wait(gap)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:

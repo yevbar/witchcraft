@@ -129,12 +129,12 @@ def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = Non
     _post(_ev(Quartz.kCGEventLeftMouseUp, 1))
 
 
-def double_click_quartz(x: int, y: int, *, hold: float = 0.0, gap: float = 0.015,
+def double_click_quartz(x: int, y: int, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2,
                         move: bool = True, pid: Optional[int] = None) -> None:
-    """A REAL macOS double-click via Quartz CGEvents: two left down/up pairs at (x, y) with the clickState field
-    set to 1 then 2. That field is what tells the OS — and the app — that the second press is the SECOND click of
-    a double-click. pyautogui never sets it, so its two presses arrive as two SINGLE clicks (the card gets
-    selected but never played). `hold` = button-down dwell, `gap` = pause between the two clicks; `move` posts a
+    """`clicks` left down/up pairs at (x, y) via Quartz CGEvents, each carrying the clickState field (1, 2, …).
+    clicks=1 is a normal single click; clicks=2 is a REAL double-click (the clickState field is what tells the OS
+    AND the app the second press is the SECOND click of a double — pyautogui never sets it, so its presses arrive
+    as independent single clicks). `hold` = button-down dwell, `gap` = pause between clicks; `move` posts a
     leading mouse-moved (matches the proven single-click recipe); `pid` posts straight to that process."""
     import time
     import Quartz
@@ -156,12 +156,12 @@ def double_click_quartz(x: int, y: int, *, hold: float = 0.0, gap: float = 0.015
     if move:
         _post(_ev(Quartz.kCGEventMouseMoved))
         time.sleep(0.01)
-    for state in (1, 2):                                    # clickState 1 = first click, 2 = the double
+    for state in range(1, max(1, clicks) + 1):             # clickState 1 = first click, 2 = the double, …
         _post(_ev(Quartz.kCGEventLeftMouseDown, state))
         if hold:
             time.sleep(hold)
         _post(_ev(Quartz.kCGEventLeftMouseUp, state))
-        if state == 1 and gap:
+        if state < clicks and gap:
             time.sleep(gap)
 
 
