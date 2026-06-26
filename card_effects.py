@@ -1724,7 +1724,7 @@ _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 # the quote and shatter it. The trailing 'until end of turn' is left for _grant_ability/the leaf to read.
 _QUOTED_GRANT = re.compile(
     r'^(?:until end of turn, )?'
-    rf'(?:{_TGT}) (?:has|have|gains?) "[^"]+"(?: until end of turn)?$|'
+    rf'(?:{_TGT}) (?:has|have|gains?) "[^"]+"(?: until [^"]+)?$|'   # any trailing 'until <duration>' (peeled below)
     rf'^(?:{_TGT}) gets? an emblem with,? "[^"]+"$', re.I)
 
 
@@ -2017,9 +2017,19 @@ def parse_clause(sentence: str) -> "Effect | None":
     # quoted ability and shatter its balanced quotes. A leading 'Until end of turn,' is peeled and folded
     # into the effect's cond (the duration the grant carries).
     if _QUOTED_GRANT.match(s):
+        # peel a TRAILING 'until <duration>' that sits AFTER the closing quote (the quoted ability may itself
+        # contain 'until') and fold it into the grant's cond — '<who> gains "<ability>" until <X>' ('… until
+        # ~ is cast from exile', '… until your next turn'). STRUCTURAL (a duration slice before the leaf); the
+        # standard 'until end of turn' keeps its existing slug.
+        dur = None
+        md = re.match(r'^(?P<g>.*") (?P<dur>until .+)$', s, re.I)
+        if md and not re.fullmatch(r"until end of turn", md.group("dur"), re.I):
+            s, dur = md.group("g"), "until_" + ground.slug(re.sub(r"^until ", "", md.group("dur"), flags=re.I))
         mu = re.match(r"^until end of turn, (.+)$", s, re.I)
         inner = parse_effect(mu.group(1) if mu else s)
         if inner:
+            if dur and inner.cond == "-":
+                inner = _dc.replace(inner, cond=dur)
             return inner if (not mu or inner.cond != "-") else _dc.replace(inner, cond="until_end_of_turn")
         return None
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'
