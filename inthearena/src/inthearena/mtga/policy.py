@@ -38,8 +38,17 @@ class AggroPolicy:
 
     # priority: land > spell > activate > pass (the whole aggro strategy, one ranking)
     def _on_actions(self, d: Decision) -> Optional[Action]:
-        for kind in (_PLAY, _CAST, _ACTIVATE):
-            move = next((a for a in d.options if a.actionType == kind), None)
+        # A land drop first (always free). Then a spell/ability — but only one MTGA can AUTO-PAY for
+        # (`auto_payable`): MTGA lists unpayable casts too (a 3-mana spell with 2 available, e.g. Angel of
+        # Vitality), and the click-only bridge can't tap mana itself, so it would jam on it instead of casting
+        # what it can (Lifecreed Duo). This is a CONSERVATIVE engine-less filter: a spell payable only via a tap
+        # SEQUENCE (no autoTapSolution) is legal+playable but gets skipped here — deciding that needs the rules
+        # engine's legal-move search (the `witchcraft` / EnginePolicy path), not an Arena UI hint.
+        land = next((a for a in d.options if a.actionType == _PLAY), None)
+        if land is not None:
+            return land
+        for kind in (_CAST, _ACTIVATE):
+            move = next((a for a in d.options if a.actionType == kind and a.auto_payable), None)
             if move is not None:
                 return move
         return next((a for a in d.options if a.actionType == _PASS), None)

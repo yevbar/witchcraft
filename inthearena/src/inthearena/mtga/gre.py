@@ -107,12 +107,25 @@ class ManaComponent(_M):
 
 
 class Action(_M):
-    """One available action from an ActionsAvailableReq (a land/spell/ability/pass the player may take)."""
+    """One available action from an ActionsAvailableReq (a land/spell/ability/pass the player may take). MTGA
+    lists a spell here even when you CAN'T currently pay for it; `autoTapSolution` carries a concrete way to tap
+    for the cost. See `auto_payable` — note it's SUFFICIENT, not necessary, for affordability."""
     actionType: Optional[str] = None
     grpId: Optional[int] = None
     instanceId: Optional[int] = None
     abilityGrpId: Optional[int] = None
     manaCost: list[ManaComponent] = []
+    autoTapSolution: Optional[dict] = None                 # MTGA's simple tap-for-the-cost plan, when it found one
+
+    @property
+    def auto_payable(self) -> bool:
+        """True if this needs no mana, or MTGA already surfaced a simple tap plan (`autoTapSolution`) for it — a
+        SUFFICIENT but NOT necessary affordability test. MTGA's auto-tapper only covers straightforward land/rock
+        taps; it does NOT surface mana produced by a SEQUENCE of taps/abilities (a creature's mana ability, a
+        ritual, a multi-step activation), which can still be a legal, playable line. Those need a tree search over
+        the rules (the witchcraft engine) to discover. So absence of a solution ≠ unplayable — it just means an
+        engine-less policy can't cheaply tell, and a conservative one should skip it (and only it)."""
+        return (not self.manaCost) or (self.autoTapSolution is not None)
 
 
 class DamageRecipient(_M):

@@ -1033,6 +1033,21 @@ def run():
         a = pol.decide(d_actions)
         check("aggro prefers PLAY (land) over cast/pass", a.actionType == "ActionType_Play")
 
+        # auto_payable: MTGA lists a cast even when you can't pay (no autoTapSolution); the engine-less aggro
+        # filters by it so the click-only bridge doesn't jam on an unaffordable spell. (It's SUFFICIENT, not
+        # necessary — a sequence-payable spell would be skipped; that's the engine's legal-move search to decide.)
+        from inthearena.mtga.gre import Action as _Act, Decision as _Dec0
+        afford = _Dec0(kind="actions", seat=1, view=GameView(), req=None, options=[
+            _Act(actionType="ActionType_Cast", instanceId=280,
+                 manaCost=[{"color": ["ManaColor_White"], "count": 1}]),                    # no autoTapSolution
+            _Act(actionType="ActionType_Cast", instanceId=301,
+                 manaCost=[{"color": ["ManaColor_White"], "count": 1}], autoTapSolution={"autoTapActions": []}),
+            _Act(actionType="ActionType_Pass")])
+        check("Action.auto_payable False when MTGA gave no autoTapSolution", afford.options[0].auto_payable is False)
+        check("Action.auto_payable True when MTGA supplied an autoTapSolution", afford.options[1].auto_payable is True)
+        check("aggro skips the un-auto-payable cast and casts the auto-payable one",
+              pol.decide(afford).instanceId == 301)
+
         atk = pol.decide(decisions[1])
         check("aggro attacks with ALL qualified attackers", sorted(x["attackerInstanceId"] for x in atk) == [51, 60])
         check("attackers aimed at the opponent player", atk[0]["target"].playerSystemSeatId == 2)
