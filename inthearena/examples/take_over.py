@@ -108,27 +108,41 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
     pol = policy or AggroPolicy()
     execu = GameExecutor(actuator, locator=locator, rng=rng) if actuator is not None else None
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
-    stalls: dict = {}
+    picked: dict = {}            # instanceId -> times we've chosen it THIS turn (anti-fixation)
+    turn_no = [None]
+    _FIXATED = 2                 # after this many picks of a card that keeps coming back, move on to another
+
+    def next_playable(d, skip):
+        """The next land/spell to play whose instanceId isn't in `skip` (cards we've given up on this turn),
+        preferring a land drop, then a spell; else the Pass action."""
+        for at in ("ActionType_Play", "ActionType_Cast"):
+            for a in d.options:
+                if a.actionType == at and getattr(a, "instanceId", None) not in skip:
+                    return a
+        return next((a for a in d.options if a.actionType == "ActionType_Pass"), None)
 
     def handle(d):
+        if getattr(d.view.turn, "turnNumber", None) != turn_no[0]:   # new turn -> forget what we gave up on
+            turn_no[0] = getattr(d.view.turn, "turnNumber", None)
+            picked.clear()
         choice = pol.decide(d)
+        inst = getattr(choice, "instanceId", None)
+        # ANTI-FIXATION: if we've already picked this card a couple of times and the GRE keeps re-offering it, it
+        # isn't going down (can't locate it / can't pay / needs a step we don't do). Skip it AND anything else
+        # we've given up on this turn, and take the next playable option — so one stuck card (e.g. Angel of
+        # Vitality) doesn't block the ones we CAN play (e.g. Lifecreed Duo).
+        if d.kind == "actions" and inst is not None and picked.get(inst, 0) >= _FIXATED:
+            alt = next_playable(d, {i for i, c in picked.items() if c >= _FIXATED})
+            if alt is not None and getattr(alt, "instanceId", None) != inst:
+                print(f"    -> stuck on inst {inst} this turn; trying instead: {describe(d, alt)}")
+                choice, inst = alt, getattr(alt, "instanceId", None)
+        if d.kind == "actions" and inst is not None:
+            picked[inst] = picked.get(inst, 0) + 1
         _show(d, choice)
         if execu is None:
             return
         res = execu.execute(d, choice)
-        if res.done:
-            print(f"    -> executed: {res.note}")
-            stalls.clear()
-            return
-        print(f"    -> shadowed ({res.note})")
-        # stall guard: if the same action can't be carried out twice running (e.g. a card we can't locate, or a
-        # targeted spell), pass priority so the game keeps moving instead of retrying forever.
-        sig = (d.kind, getattr(choice, "instanceId", None))
-        stalls[sig] = stalls.get(sig, 0) + 1
-        if d.kind == "actions" and stalls[sig] >= 2:
-            print("    -> stuck on this action — passing priority to move on")
-            execu.execute(d, None)                          # None -> the advance/Pass button
-            stalls.clear()
+        print(f"    -> {'executed' if res.done else 'shadowed'}: {res.note}")
 
     try:
         # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
