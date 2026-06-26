@@ -51,6 +51,7 @@ _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 _REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
+_PLAY_LIFT_Y = 0.79        # y-fraction to lift a grabbed card to — just NORTH of the hand's top edge (band 0.84)
 _MULL_CLEAR_TIMEOUT = 5.0  # s: how long play_land waits for the mulligan buttons to clear before shadowing
 
 
@@ -179,23 +180,26 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
 _CARD_BODY_DROP = 28       # px below the OCR'd name banner — aim into the card BODY, a stickier hitbox than the edge
 
 
-def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0, clicks: int = 1,
-              body_drop: int = _CARD_BODY_DROP) -> None:
-    """Play the hand card whose NAME banner is at `point`:
+def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
+              body_drop: int = _CARD_BODY_DROP, lift_frac: float = _PLAY_LIFT_Y) -> None:
+    """Play the hand card whose NAME banner is at `point` with a GRAB → LIFT → DROP gesture:
 
-      • move STRAIGHT to it in ONE go (no arc/wobble) — a curved, wobbling glide circles the card and sweeps its
-        neighbours (magnifying/shifting the fan) instead of settling in the hitbox; a straight line goes right to
-        the card without the awkward swerve-then-drop;
-      • aim a little BELOW the name into the card BODY (`body_drop`) — the top-edge banner is a poor hitbox and
-        the body stays under the cursor as the card magnifies;
-      • then a SINGLE click (`clicks=1`). A SECOND tap is harmful: the press plays/picks-up the card, the fan
-        reflows as it leaves, and a second tap lands on the card that slid in — the right-neighbour — grabbing it
-        (the observed "off to the right / grabbed another card"). The clickState press registers a real click, so
-        one is enough. (Pass `clicks=2` for a true double-click if some interaction ever needs it.)
+      • move STRAIGHT onto the card (no arc/wobble — a curved glide circles the card and sweeps its neighbours),
+        aiming a little BELOW the name into the card BODY (`body_drop`);
+      • click once to GRAB it — in MTGA a click on a hand card picks it up and it then follows the cursor (a
+        single click alone leaves it stuck to the cursor; a second click IN the hand drops it onto a neighbour);
+      • lift the cursor STRAIGHT UP (same x) to just NORTH of the hand's top edge (`lift_frac`) — only far enough
+        to be out of the hand, no dragging across the board — then click again to DROP it = play the land / cast
+        the creature. Being out of the hand bounds means the drop click can't grab another card.
     """
     x, y = point
-    actuator.hover(x, y + body_drop, curve=0.0, wobble=0.0)   # straight, direct to the card body
-    actuator.double_click(hold=hold, gap=gap, clicks=clicks)
+    rect = actuator.window_rect()
+    actuator.hover(x, y + body_drop, curve=0.0, wobble=0.0)   # straight, direct onto the card body
+    actuator.double_click(hold=hold, gap=gap, clicks=1)       # GRAB — the card now follows the cursor
+    actuator.wait(0.12)                                       # let the client register the pickup
+    lift_y = (rect.y + int(rect.h * lift_frac)) if rect is not None else (y - 120)
+    actuator.hover(x, lift_y, curve=0.0, wobble=0.0)          # lift straight up, just north of the hand
+    actuator.double_click(hold=hold, gap=gap, clicks=1)       # DROP -> play
 
 
 def hand_members(view, seat: int) -> list:

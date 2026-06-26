@@ -708,26 +708,16 @@ def _hand_checks():
     sweep_hand(a2, pts, dwell=0)
     check("sweep_hand hovers each card (moves, no clicks)", a2.clicks == [] and len(a2.moves) >= 3)
 
+    from inthearena.mtga.hand import _CARD_BODY_DROP, _PLAY_LIFT_Y
     a3 = DryRunActuator(rect=rect)
-    play_card(a3, pts[0])
-    check("play_card is a SINGLE click by default (no 2nd tap to grab the reflowed neighbour)",
-          len(a3.clicks) == 1)
-    a3d = DryRunActuator(rect=rect)
-    play_card(a3d, pts[0], clicks=2, gap=0.1)
-    check("play_card clicks=2 -> a real double-click (2 clicks + a gap wait)",
-          len(a3d.clicks) == 2 and 0.1 in a3d.waits)
-
-    a3b = DryRunActuator(rect=rect)
-    play_card(a3b, pts[0])
-    check("play_card uses a QUICK tap (hold ~0) so MTGA reads a tap-to-play, not a grab-to-drag",
-          all(args[0] == 0.0 for args in a3b.click_args))
-
-    from inthearena.mtga.hand import _CARD_BODY_DROP
-    a3c = DryRunActuator(rect=rect)
-    play_card(a3c, (900, 1000))
-    check("play_card moves straight to the card body (lands at name x, name y + drop — no swerve)",
-          a3c.clicks and a3c.clicks[0] == (900, 1000 + _CARD_BODY_DROP)
-          and all(args == (0.0, None) for args in a3c.click_args))
+    play_card(a3, (900, 1000))
+    # GRAB on the card body, then LIFT straight up just north of the hand and click again to DROP/play it.
+    check("play_card grabs the card then lifts + drops to play it (2 clicks)", len(a3.clicks) == 2)
+    check("play_card: 1st click GRABS the card body (x kept, y dropped below the name)",
+          a3.clicks[0] == (900, 1000 + _CARD_BODY_DROP))
+    check("play_card: 2nd click DROPS straight above (SAME x, just north of the hand) — out of the hand bounds",
+          a3.clicks[1] == (900, rect.y + int(rect.h * _PLAY_LIFT_Y)) and a3.clicks[1][1] < 1000)
+    check("play_card uses QUICK clicks (hold ~0)", all(args[0] == 0.0 for args in a3.click_args))
 
     # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
     # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which
@@ -754,7 +744,7 @@ def _hand_checks():
     ap = DryRunActuator(rect=rect, image=object())
     ok = play_hand_object(ap, Loc3(), view, 1, 101)              # instance 101 -> slot index 1 (middle card)
     check("play_hand_object plays the chosen card's slot (instance 101 -> middle)",
-          ok and len(ap.clicks) == 1 and 700 <= ap.clicks[0][0] <= 820)
+          ok and len(ap.clicks) == 2 and 700 <= ap.clicks[0][0] <= 820)
 
     class Loc2:
         def locate_all(self, image, query):
@@ -764,7 +754,7 @@ def _hand_checks():
     ok2 = play_hand_object(ap2, Loc2(), view, 1, 101)            # snapshot found 2 (x=560,960), hand has 3
     # extrapolate slot 1 from leftmost 560 + 1*spacing(400) = 960 (detection missed the right card, not the left)
     check("play_hand_object extrapolates the slot on a count mismatch (best-effort, still plays)",
-          ok2 and len(ap2.clicks) == 1 and 920 <= ap2.clicks[0][0] <= 1000)
+          ok2 and len(ap2.clicks) == 2 and 920 <= ap2.clicks[0][0] <= 1000)
 
     # name-OCR layer: read card names (Vision) and match a target despite OCR grit + duplicate lands. Stub the
     # OCR so the test is platform-independent (Vision is macOS-only). Coords are normalized (x_frac, y_frac).
@@ -819,7 +809,7 @@ def _hand_checks():
         ap3 = DryRunActuator(rect=rect, image=object())
         ok3 = play_hand_object(ap3, None, hview, 1, 30)          # Forest occluded -> predict slot 0 from anchors
         check("play_hand_object predicts an occluded slot from legible-name anchors (slot 0 ~ 770)",
-              ok3 and len(ap3.clicks) == 1 and 740 <= ap3.clicks[0][0] <= 800)
+              ok3 and len(ap3.clicks) == 2 and 740 <= ap3.clicks[0][0] <= 800)
     finally:
         cards.label = handmod.cards.label = olabel
         ocr.recognize_text = handmod.ocr.recognize_text = orec
@@ -855,7 +845,7 @@ def _hand_checks():
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [("Forest", 0.40, 0.90)]
         a = DryRunActuator(rect=rect, image=object())
         ok = play_land(a, None, _hand({70}), 1, plays(70), 70)
-        check("play_land: clicks a land that's legible at rest", ok and len(a.clicks) == 1)
+        check("play_land: clicks a land that's legible at rest", ok and len(a.clicks) == 2)
 
         # (2) nothing identifiable, no detection -> hover-reveal sweeps but clicks NOTHING (shadow, no misclick)
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: []
@@ -874,7 +864,7 @@ def _hand_checks():
         a3 = DryRunActuator(rect=rect, image=object())
         ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
         check("play_land: hover-reveals an occluded land then clicks it (slot 0 ~ 770)",
-              ok3 and len(a3.clicks) == 1 and 740 <= a3.clicks[0][0] <= 800)
+              ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
 
         # land_play_options enumerates only the lands among the Play actions
         from inthearena.mtga import land_play_options
@@ -900,14 +890,14 @@ def _hand_checks():
         a5 = DryRunActuator(rect=rect, image=object())
         ok5 = play_land(a5, None, _hand({70}), 1, plays(70), 70)
         check("play_land: waits out the mulligan keep, then plays the land once it clears",
-              ok5 and len(a5.clicks) == 1)
+              ok5 and len(a5.clicks) == 2)
 
         # (6) play_hand_card: cast a SPECIFIC spell from hand by its name (generalises play_land to any card)
         from inthearena.mtga import play_hand_card
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [("Bravo", 0.40, 0.90)]
         a6 = DryRunActuator(rect=rect, image=object())
         ok6 = play_hand_card(a6, None, _hand(set(), {51}), 1, 51)   # 51 -> "Bravo", legible at rest
-        check("play_hand_card: casts a specific spell that's legible at rest", ok6 and len(a6.clicks) == 1)
+        check("play_hand_card: casts a specific spell that's legible at rest", ok6 and len(a6.clicks) == 2)
     finally:
         cards.label = handmod.cards.label = olabel2
         ocr.recognize_text = handmod.ocr.recognize_text = orec2
