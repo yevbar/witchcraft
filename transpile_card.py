@@ -1188,6 +1188,17 @@ _TRIG = re.compile(r"^(?:When|Whenever|At) (?P<trig>.+?), (?P<body>.+)$", re.I)
 _MODAL_HEAD = re.compile(r"^choose (one or both|one or more|up to one|up to two|up to three|one|two|three)\b", re.I)
 
 
+# card-level STATIC patterns a container body (saga chapter / triggered / loyalty) may GRANT and that are
+# safe to graft FAITHFULLY when _parse_body abstains: a one-turn cost reduction (cost_modifier) and a combat
+# restriction (combat_restriction). Both are $-anchored over the body, so the graft is byte-faithful.
+# Deliberately EXCLUDES: the keyword-detection patterns (kw_line/printed_keyword), which match a bare keyword
+# WORD inside a body fragment ('Then planeswalk' -> landwalk, 'augment, enchant, or mutate' -> enchant) — a
+# garbage parse; and static_player, whose may_cast frame ends in a greedy '.*?' that SWALLOWS a trailing
+# additional cost ('… from your graveyard BY PAYING {R}{R} in addition to its other costs') — a lossy drop
+# (the standalone permission handler abstains on those by design; routing a body to it would not).
+_GRAFTABLE_STATIC = frozenset({"cost_modifier", "combat_restriction"})
+
+
 def _triggered(unit, ctx):
     """'When/Whenever/At <event>, <effect(s)>' — a triggered ability (§603). A modal body
     ('…, choose one —') records the trigger + modal marker; the modes follow as • options."""
@@ -1211,10 +1222,20 @@ def _triggered(unit, ctx):
         return CardOut(cid, head + [f'modal("{cid}", "{ground.slug(mh.group(1))}")'], "triggered")
     body, mods = _split_modifiers(m.group("body"))
     effects = _parse_body(body) if body else None
-    if not effects:
-        return None
-    head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
-    return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
+    if effects:
+        head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+        return CardOut(cid, head + _effect_facts(cid, aid, effects), "triggered")
+    # the trigger's effect may be a card-level STATIC the event GRANTS — a one-turn cost reduction ('the next
+    # spell you cast this turn costs {1} less'), a casting permission ('you may cast it from your graveyard …'),
+    # a combat restriction — that _parse_body (effects-only) can't reach. Route the body through full dispatch
+    # and graft, but ONLY a card-level static (its facts carry no nested card_ability — a nested ability would
+    # collide on this aid); same guard as the saga/modal container handlers (faithful-or-abstain otherwise).
+    if body:
+        sub = _try_patterns(dataclasses.replace(unit, raw=body), ctx)
+        if sub and sub.pattern in _GRAFTABLE_STATIC:
+            head += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
+            return CardOut(cid, head + sub.facts, "triggered")
+    return None
 
 
 _LOYALTY = re.compile(r"^\[([+\-−]?(?:\d+|X))\]:\s*(?P<body>.+)$")
@@ -1229,12 +1250,19 @@ def _loyalty(unit, ctx):
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
     cost = m.group(1).replace("−", "-")
     body, mods = _split_modifiers(m.group("body"))
-    effects = _parse_body(body) if body else None
-    if not effects:
-        return None
     facts = [f'card_ability("{cid}", "{aid}", "loyalty")', f'ability_cost("{cid}", "{aid}", "{cost}")']
     facts += [f'ability_modifier("{cid}", "{aid}", "{t}")' for t in mods]
-    return CardOut(cid, facts + _effect_facts(cid, aid, effects), "loyalty")
+    effects = _parse_body(body) if body else None
+    if effects:
+        return CardOut(cid, facts + _effect_facts(cid, aid, effects), "loyalty")
+    # a loyalty ability may grant a card-level STATIC (a combat restriction, a turn-long cost reduction) that
+    # _parse_body can't reach — route through full dispatch and graft a card-level static (no nested
+    # card_ability), like the saga/modal/triggered handlers.
+    if body:
+        sub = _try_patterns(dataclasses.replace(unit, raw=body), ctx)
+        if sub and sub.pattern in _GRAFTABLE_STATIC:
+            return CardOut(cid, facts + sub.facts, "loyalty")
+    return None
 
 
 _ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
@@ -1289,7 +1317,7 @@ def _saga_chapter(unit, ctx):
     # nested card_ability). A triggered/activated body has its own card_ability that would collide on the
     # chapter aid and is really a delayed-ability creation, so abstain on those (faithful-or-abstain).
     sub = _try_patterns(dataclasses.replace(unit, raw=m.group("body")), ctx)
-    if sub and not any("card_ability(" in f for f in sub.facts):
+    if sub and sub.pattern in _GRAFTABLE_STATIC:
         return CardOut(cid, facts + sub.facts, "saga_chapter")
     return None
 
