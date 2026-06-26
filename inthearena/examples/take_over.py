@@ -103,7 +103,7 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
     """In a game: run the bot over the GRE decision stream. With an `actuator` it EXECUTES the mulligan (Keep/
     Mulligan) and LAND drops (locate the chosen land in hand, play it); other in-game actions (cast/attack/
     target) are decided + printed only (shadow) — that UI isn't mapped yet."""
-    from inthearena.mtga import click_mulligan, iter_decisions
+    from inthearena.mtga import LiveState, click_mulligan
     from inthearena.mtga.hand import play_hand_object
     pol = AggroPolicy()
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
@@ -124,14 +124,19 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
                 print("    -> couldn't locate the hand to play the land — shadowed")
 
     try:
-        # the mulligan we just navigated into was likely logged BEFORE we started tailing, so handle the
-        # currently-pending decision first, then follow live.
+        # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
+        # the game-setup frames were written before we attached. Track the last decision (the one we navigated
+        # into, e.g. the mulligan); handle it with that full view. Then tail NEW decisions with the SAME seeded
+        # state, so each decision's view still has the hand (a bare from_start=False follow would miss it).
+        state = LiveState()
         pending = None
-        for d in iter_decisions(log_path):
-            pending = d
-        if pending is not None and pending.kind == "mulligan":
+        with open(log_path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                for d in state.feed_line(line):
+                    pending = d
+        if pending is not None:
             handle(pending)
-        for d in follow(log_path, from_start=False):        # new decisions as the game unfolds
+        for d in follow(log_path, state=state, from_start=False):   # new decisions, complete view
             handle(d)
     except KeyboardInterrupt:
         print("\nstopped.")
