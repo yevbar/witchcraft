@@ -1,20 +1,20 @@
-"""inthearena.mtga.execute — in-game ACTION execution (skeleton).
+"""inthearena.mtga.execute — in-game ACTION execution.
 
-The menu navigation (`navigate`) and the mulligan (`navigate.click_mulligan`) are done. THIS is the board-level
-layer: turn a GRE `Decision` + the bot's chosen option into MTGA client interactions — play/cast/activate a
-card, declare attackers, declare blockers, choose a target, pass priority.
+The board-level layer: turn a GRE `Decision` + the bot's chosen option into MTGA client interactions.
+`GameExecutor.execute(decision, choice)` dispatches by decision kind and drives the client:
 
-WHY A SKELETON: an in-game action references game objects by GRE `instanceId` (cast THIS spell, attack with
-THIS creature). Translating an instanceId to an on-screen click needs a hand/battlefield LAYOUT model (cards
-fan out and reflow every frame, so there's no fixed coordinate like the Play button) — and it's only worth
-driving real moves once the engine's card coverage (the mac mini's ongoing work) is complete. So that piece is
-a pluggable seam, `ObjectLocator`, deliberately left unimplemented here. The decision dispatch and the
-object-FREE actions (pass / declare-no-blocks / confirm) ARE wired, against the bottom-right advance button.
+  • mulligan         -> Keep / Mulligan button (`navigate.click_mulligan`)
+  • actions: pass    -> the bottom-right advance button
+  •          play    -> `hand.play_land`       (read the land in hand by name, click it)
+  •          cast    -> `hand.play_hand_card`  (read the spell in hand by name, click it)
+  • attackers: all   -> 'All Attack' (the advance button) — aggro attacks with EVERY qualified attacker, which
+                        is exactly what that button does, so combat needs no per-creature board clicking
+  • blockers: none   -> 'No Blocks' (the advance button)
 
-With no `ObjectLocator`, `GameExecutor.execute()` performs only the object-free actions and returns a result
-saying the rest isn't executable yet — so it's safe to wire into `drive_bot` now (it executes what it can and
-the caller shadows the rest). When the layout is calibrated, drop in an `ObjectLocator` and the object-clicking
-branches light up with no other change.
+WHAT'S NOT WIRED (returns done=False; the caller shadows): choosing a TARGET on the battlefield, a PARTIAL
+attack, and blocking — all need a battlefield LAYOUT model (the `ObjectLocator` seam). A targeted spell is still
+CAST; only its target is shadowed. Hand actions read card names via OCR (`hand`), which is why they don't go
+through the generic `ObjectLocator`.
 
 Automating the MTGA client is against its Terms of Service (see ../DISCLAIMER.md) — read-only shadow is safe;
 this drives the client and is opt-in.
@@ -26,7 +26,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from .navigate import Rect, _point_in_box, interact
+from .navigate import Rect, interact
 from .views import ScreenAnchor, ViewElement
 
 # The bottom-right context button that advances combat / priority. Its LABEL changes with the step (Pass /
@@ -54,10 +54,13 @@ class ObjectLocator(Protocol):
 
 
 class GameExecutor:
-    """Execute the bot's chosen option for a GRE `Decision` against the live client. Object-free actions (pass,
-    declare-no-blocks, confirm) use the bottom-right advance button; object actions (cast/attack/block/target)
-    need an `object_locator` and otherwise report not-executable. `locator` is the vision model used to find the
-    fixed advance button; `actuator` performs the clicks (the focus+IOHID+press recipe lives in it)."""
+    """Execute the bot's chosen option for a GRE `Decision` against the live client. Most of a turn needs only
+    two things: the HAND (play a land / cast a spell — `hand.play_land` / `hand.play_hand_card`, which read card
+    NAMES via OCR) and the bottom-right ADVANCE button, whose label tracks the step — Pass / Resolve / All Attack
+    / No Blocks / Done. Aggro attacks with EVERY qualified attacker, which is exactly what 'All Attack' does, and
+    never blocks ('No Blocks'), so combat is object-free too. The remaining unwired piece is choosing a TARGET on
+    the battlefield (the `ObjectLocator` seam); a targeted spell is cast but its target is shadowed for now.
+    `locator` is the vision model used to find the advance button; `actuator` performs the clicks."""
 
     def __init__(self, actuator, *, object_locator: Optional[ObjectLocator] = None,
                  locator=None, rng: Optional[random.Random] = None):
@@ -76,72 +79,58 @@ class GameExecutor:
         return handler(decision, choice)
 
     # ── object-free actions (wired) ──────────────────────────────────────────────────────────────────────
-    def _advance(self) -> bool:
+    def _advance(self, note: str) -> ExecResult:
         """Click the bottom-right advance/confirm button (Pass / Resolve / All Attack / No Blocks / Done)."""
         rect = self._act.window_rect()
         if rect is None:
-            return False
-        return interact(self._act, _ADVANCE, rect, self._rng, locator=self._locator)
+            return ExecResult(False, "no window rect")
+        return ExecResult(interact(self._act, _ADVANCE, rect, self._rng, locator=self._locator), note)
+
+    def _do_mulligan(self, decision, choice) -> ExecResult:
+        from .navigate import click_mulligan
+        ok = click_mulligan(self._act, choice == "keep", rng=self._rng, locator=self._locator)
+        return ExecResult(ok, f"mulligan: {choice}")
 
     def _do_actions(self, decision, choice) -> ExecResult:
-        # choice is a gre.Action (or None). PASS / no-action -> advance; otherwise needs the card on screen.
-        # TODO(reconcile): a play/cast FROM HAND is already handled end-to-end by hand.play_hand_object (it owns
-        # the rest-snapshot + OCR/anchor location + the lift-then-cast double-click — a self-managed capture that
-        # doesn't fit the generic image-in/box-out ObjectLocator). drive_bot currently calls play_hand_object
-        # directly, bypassing this branch, so the two must not drift: once integrated, route hand-zone actions
-        # here through play_hand_object and reserve _click_object/ObjectLocator for BATTLEFIELD objects
-        # (attackers/blockers/targets), which do fit locate-from-a-given-image.
+        # choice is a gre.Action (or None). Pass -> advance; play a land / cast a spell -> the HAND.
         from .gre import Action  # local import keeps execute importable without the gre cycle at module load
         if choice is None or getattr(choice, "actionType", None) == "ActionType_Pass":
-            return ExecResult(self._advance(), "pass")
+            return self._advance("pass")
         if not isinstance(choice, Action):
             return ExecResult(False, "unexpected actions choice")
-        return self._click_object(choice.instanceId, decision.view, "cast/play/activate")
+        at = choice.actionType
+        if at == "ActionType_Play":
+            from .hand import play_land
+            ok = play_land(self._act, self._locator, decision.view, decision.seat, decision.options, choice.instanceId)
+            return ExecResult(ok, f"play land (object {choice.instanceId})")
+        if at == "ActionType_Cast":
+            from .hand import play_hand_card
+            ok = play_hand_card(self._act, self._locator, decision.view, decision.seat, choice.instanceId)
+            return ExecResult(ok, f"cast (object {choice.instanceId})")
+        return ExecResult(False, f"{at} not wired (activated abilities etc.)")
 
     def _do_blockers(self, decision, choice) -> ExecResult:
         # aggro never blocks -> choice is the empty list. 'No Blocks' is the advance button (object-free).
         if not choice:
-            return ExecResult(self._advance(), "no blocks")
-        return ExecResult(False, "blocking not wired (needs ObjectLocator: blocker -> attacker)")
+            return self._advance("no blocks")
+        return ExecResult(False, "blocking not wired (needs board targeting: blocker -> attacker)")
 
     def _do_attackers(self, decision, choice) -> ExecResult:
-        # choice is a list of {attackerInstanceId, target}. Click each attacker, then confirm via advance.
+        # choice is a list of {attackerInstanceId, target}. Attacking with EVERY qualified attacker is exactly
+        # the 'All Attack' button (the advance button), no per-creature clicking. A partial attack would need
+        # board targeting, so it's not wired.
         if not choice:
-            return ExecResult(self._advance(), "no attacks")
-        if self._objs is None:
-            return ExecResult(False, "can't declare attackers yet (no ObjectLocator)")
-        for atk in choice:
-            res = self._click_object(atk.get("attackerInstanceId"), decision.view, "attacker")
-            if not res.done:
-                return res
-        # (directing attackers at a specific planeswalker/player would click `target` here too — single
-        #  default opponent needs no extra click; left as a follow-up.)
-        return ExecResult(self._advance(), "declared attackers + confirm")
+            return self._advance("no attacks")
+        chosen = {(c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None))
+                  for c in choice}
+        qualified = {getattr(a, "attackerInstanceId", None) for a in (decision.options or [])}
+        if qualified and chosen >= qualified:
+            return self._advance("all attack")             # bottom-right 'All Attack' = every qualified attacker
+        return ExecResult(False, "partial attack not wired (needs board targeting)")
 
     def _do_targets(self, decision, choice) -> ExecResult:
-        # choice is a chosen target option; its instanceId (when present) is clicked. Use explicit None checks,
-        # not `or` — a legitimate instanceId of 0 is falsy and `or` would treat it as missing.
-        inst = getattr(choice, "instanceId", None)
-        if inst is None and isinstance(choice, dict):
-            inst = choice.get("instanceId")
-        if inst is None:
-            return ExecResult(False, "target has no instanceId to click")
-        return self._click_object(inst, decision.view, "target")
-
-    # mulligan is executed by navigate.click_mulligan (the bot's keep/mulligan); not duplicated here.
-
-    # ── object actions (the pluggable seam) ──────────────────────────────────────────────────────────────
-    def _click_object(self, instance_id, view, what: str) -> ExecResult:
-        """Click the on-screen card/permanent for `instance_id`, via the ObjectLocator seam."""
-        if instance_id is None:
-            return ExecResult(False, f"{what}: no instanceId")
-        if self._objs is None:
-            return ExecResult(False, f"{what}: no ObjectLocator — can't place objects on screen yet")
-        image = self._act.screenshot()
-        box = self._objs.locate(instance_id, view, image)
-        if box is None:
-            return ExecResult(False, f"{what}: object {instance_id} not found on screen")
-        point = _point_in_box(box, self._rng)
-        self._act.hover(*point)                            # focus Arena + IOHID so the object registers…
-        self._act.click()                                  # …then press
-        return ExecResult(True, f"clicked {what} (object {instance_id})")
+        # Choosing a spell/ability's target means clicking a permanent/player on the battlefield — the unwired
+        # ObjectLocator seam. Shadow for now (the spell is already cast; the user can pick the target).
+        if not choice:
+            return self._advance("no target")
+        return ExecResult(False, "target selection not wired (needs board targeting)")

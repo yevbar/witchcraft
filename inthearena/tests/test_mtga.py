@@ -877,6 +877,13 @@ def _hand_checks():
         ok5 = play_land(a5, None, _hand({70}), 1, plays(70), 70)
         check("play_land: waits out the mulligan keep, then plays the land once it clears",
               ok5 and len(a5.clicks) == 2)
+
+        # (6) play_hand_card: cast a SPECIFIC spell from hand by its name (generalises play_land to any card)
+        from inthearena.mtga import play_hand_card
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [("Bravo", 0.40, 0.90)]
+        a6 = DryRunActuator(rect=rect, image=object())
+        ok6 = play_hand_card(a6, None, _hand(set(), {51}), 1, 51)   # 51 -> "Bravo", legible at rest
+        check("play_hand_card: casts a specific spell that's legible at rest", ok6 and len(a6.clicks) == 2)
     finally:
         cards.label = handmod.cards.label = olabel2
         ocr.recognize_text = handmod.ocr.recognize_text = orec2
@@ -892,9 +899,10 @@ def _hand_checks():
 
 
 def _execute_checks():
-    """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""
+    """GameExecutor dispatch: object-free decisions (pass / no-blocks / all-attack) click the bottom-right
+    advance button; hand actions route to the hand; partial attacks / board targets aren't wired."""
     from inthearena.mtga import DryRunActuator, GameExecutor, Rect
-    from inthearena.mtga.gre import Action, Decision, GameView
+    from inthearena.mtga.gre import Action, Attacker, Decision, GameView
     rect = Rect(0, 0, 1920, 1080)
     dec_actions = Decision(kind="actions", options=[], seat=1, view=GameView(), req=None)
     dec_block = Decision(kind="blockers", options=[], seat=1, view=GameView(), req=None)
@@ -914,27 +922,36 @@ def _execute_checks():
     r2 = GameExecutor(a2, locator=AdvLoc()).execute(dec_block, [])
     check("execute: no-blocks -> clicks advance", r2.done and len(a2.clicks) == 1)
 
-    cast = Action(actionType="ActionType_Cast", instanceId=51)
+    # attack with EVERY qualified attacker == the 'All Attack' button (advance), no per-creature clicking
+    qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12)]
+    dec_atk = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
+    chosen_all = [{"attackerInstanceId": 11}, {"attackerInstanceId": 12}]
     a3 = DryRunActuator(rect=rect, image=object())
-    r3 = GameExecutor(a3, locator=AdvLoc()).execute(dec_actions, cast)
-    check("execute: cast with NO ObjectLocator -> not executable (caller shadows)",
-          r3.done is False and a3.clicks == [])
+    r3 = GameExecutor(a3, locator=AdvLoc()).execute(dec_atk, chosen_all)
+    check("execute: attack with all qualified -> clicks All Attack (advance)",
+          r3.done and len(a3.clicks) == 1 and a3.clicks[0][0] > 1500)
+    a3b = DryRunActuator(rect=rect, image=object())
+    r3b = GameExecutor(a3b, locator=AdvLoc()).execute(dec_atk, [{"attackerInstanceId": 11}])  # a SUBSET
+    check("execute: partial attack -> not wired (caller shadows)", r3b.done is False and a3b.clicks == [])
 
-    class ObjLoc:
-        def locate(self, instance_id, view, image):
-            return Rect(800, 950, 100, 120)
-
+    # cast routes to the HAND (play_hand_card); with an empty view there's no card to identify -> shadow, no click
+    cast = Action(actionType="ActionType_Cast", instanceId=51)
     a4 = DryRunActuator(rect=rect, image=object())
-    r4 = GameExecutor(a4, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_actions, cast)
-    check("execute: cast WITH an ObjectLocator -> clicks the located card",
-          r4.done and bool(a4.clicks) and 800 <= a4.clicks[0][0] <= 900)
+    r4 = GameExecutor(a4, locator=AdvLoc()).execute(dec_actions, cast)
+    check("execute: cast routes to the hand; unidentifiable -> shadow (no click)",
+          r4.done is False and a4.clicks == [])
 
-    # target with instanceId 0 (falsy) must be treated as PRESENT, not missing — clicks the located object
-    dec_target = Decision(kind="targets", options=[], seat=1, view=GameView(), req=None)
+    # targets: a board target isn't wired (shadow); but an empty/auto target advances
+    dec_tgt = Decision(kind="targets", options=[{"instanceId": 7}], seat=1, view=GameView(), req=None)
     a5 = DryRunActuator(rect=rect, image=object())
-    r5 = GameExecutor(a5, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_target, {"instanceId": 0})
-    check("execute: target instanceId 0 is not treated as missing (clicks, doesn't bail)",
-          r5.done and bool(a5.clicks))
+    r5 = GameExecutor(a5, locator=AdvLoc()).execute(dec_tgt, {"instanceId": 7})
+    check("execute: board target not wired (caller shadows)", r5.done is False and a5.clicks == [])
+
+    # mulligan routes through the executor (keep -> the Keep button via click_mulligan)
+    dec_mull = Decision(kind="mulligan", options=[], seat=1, view=GameView(), req=None)
+    a6 = DryRunActuator(rect=rect, image=object())
+    r6 = GameExecutor(a6, locator=AdvLoc()).execute(dec_mull, "keep")
+    check("execute: mulligan keep -> clicks (via click_mulligan)", r6.done and bool(a6.clicks))
 
 
 def run():
@@ -965,6 +982,26 @@ def run():
         check("attackers aimed at the opponent player", atk[0]["target"].playerSystemSeatId == 2)
 
         check("aggro keeps (accepts) the opening hand", pol.decide(decisions[2]) == "keep")
+
+        # aggro_arena adds a keepable-hand mulligan: keep a workable land count, ship the unkeepable extremes
+        from inthearena.mtga import ArenaAggroPolicy
+        from inthearena.mtga.gre import Decision as _Dec
+        arena = ArenaAggroPolicy()
+
+        def _mull(n_lands, n_other):
+            lands = [{"instanceId": i, "grpId": i, "zoneId": 9, "ownerSeatId": 1, "controllerSeatId": 1,
+                      "cardTypes": ["CardType_Land"]} for i in range(100, 100 + n_lands)]
+            rest = [{"instanceId": i, "grpId": i, "zoneId": 9, "ownerSeatId": 1, "controllerSeatId": 1,
+                     "cardTypes": ["CardType_Creature"]} for i in range(200, 200 + n_other)]
+            v = _apply({"type": "GameStateType_Full",
+                        "zones": [{"zoneId": 9, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                                   "objectInstanceIds": [o["instanceId"] for o in lands + rest]}],
+                        "gameObjects": lands + rest})
+            return _Dec(kind="mulligan", options=[], seat=1, view=v, req=None)
+
+        check("aggro_arena keeps a 3-land opener", arena.decide(_mull(3, 4)) == "keep")
+        check("aggro_arena mulligans a no-land opener", arena.decide(_mull(0, 7)) == "mulligan")
+        check("aggro_arena mulligans a flooded (6-land) opener", arena.decide(_mull(6, 1)) == "mulligan")
 
         # card mapper: label always degrades to grp<id>; resolves real names when the MTGA DB is present
         check("cards.label falls back to grp<id> for unknown ids", cards.label(999999999) == "grp999999999")

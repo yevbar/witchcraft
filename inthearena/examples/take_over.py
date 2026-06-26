@@ -99,33 +99,36 @@ def _show(d, choice):
     print(f"  {d.view.phase:22s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {line}")
 
 
-def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
-    """In a game: run the bot over the GRE decision stream. With an `actuator` it EXECUTES the mulligan (Keep/
-    Mulligan) and LAND drops (`play_land` — clicks only a positively-identified legal land, hover-revealing
-    occluded cards, and shadows rather than misclick); other in-game actions (cast/attack/target) are decided +
-    printed only (shadow) — that UI isn't mapped yet."""
-    from inthearena.mtga import LiveState, click_mulligan
-    from inthearena.mtga.hand import play_land
-    pol = AggroPolicy()
+def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None) -> int:
+    """In a game: run the bot over the GRE decision stream, executing each decision via a `GameExecutor` — the
+    mulligan (Keep/Mulligan), land drops and spell CASTS (read the card by name in hand, never misclick), and
+    object-free combat (All Attack / No Blocks / pass via the bottom-right button). Spell TARGETS on the
+    battlefield aren't wired yet, so a targeted spell is cast but its target is shadowed (the user picks it)."""
+    from inthearena.mtga import GameExecutor, LiveState
+    pol = policy or AggroPolicy()
+    execu = GameExecutor(actuator, locator=locator, rng=rng) if actuator is not None else None
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
+    stalls: dict = {}
 
     def handle(d):
         choice = pol.decide(d)
         _show(d, choice)
-        if actuator is None:
+        if execu is None:
             return
-        if d.kind == "mulligan":                            # keep / mulligan the opening hand
-            if click_mulligan(actuator, choice == "keep", rng=rng, locator=locator):
-                print(f"    -> executed: {choice}")
-        elif d.kind == "actions" and choice is not None and choice.actionType == "ActionType_Play":
-            # a LAND drop. play_land NEVER guesses a pixel: it clicks only a card whose on-screen name it
-            # positively read AND that is a legal land drop (hover-revealing occluded cards first); if it can't
-            # identify one it shadows. So the worst case is a missed drop, never the wrong card. (cast/attack/
-            # target stay shadow — that UI isn't mapped yet.)
-            if play_land(actuator, locator, d.view, d.seat, d.options, choice.instanceId):
-                print(f"    -> played a land: {describe(d, choice)}")
-            else:
-                print("    -> couldn't positively identify the land — shadowed (no misclick)")
+        res = execu.execute(d, choice)
+        if res.done:
+            print(f"    -> executed: {res.note}")
+            stalls.clear()
+            return
+        print(f"    -> shadowed ({res.note})")
+        # stall guard: if the same action can't be carried out twice running (e.g. a card we can't locate, or a
+        # targeted spell), pass priority so the game keeps moving instead of retrying forever.
+        sig = (d.kind, getattr(choice, "instanceId", None))
+        stalls[sig] = stalls.get(sig, 0) + 1
+        if d.kind == "actions" and stalls[sig] >= 2:
+            print("    -> stuck on this action — passing priority to move on")
+            execu.execute(d, None)                          # None -> the advance/Pass button
+            stalls.clear()
 
     try:
         # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
@@ -165,6 +168,8 @@ def main(argv) -> int:
     ap.add_argument("--no-click", action="store_true",
                     help="move the cursor to the target but DON'T click — safe to verify aim + permissions.")
     ap.add_argument("--no-bot", action="store_true", help="navigate into a game but don't run the bot.")
+    ap.add_argument("--bot", default="aggro_arena", choices=("aggro", "aggro_arena"),
+                    help="which policy to drive with (default: aggro_arena — aggro tuned to beat Arena's bot).")
     ap.add_argument("--scale", type=float, default=1.0, help="image->click scale; use ~0.5 on a Retina display.")
     ap.add_argument("--max-steps", type=int, default=6, help="max navigation transitions before giving up.")
     ap.add_argument("--queue-timeout", type=float, default=120.0,
@@ -177,6 +182,9 @@ def main(argv) -> int:
     # each, so this is the difference between "working" and "looks hung". Keep other libraries quiet.
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logging.getLogger("inthearena").setLevel(logging.INFO)
+
+    from inthearena.mtga import AggroPolicy, ArenaAggroPolicy
+    policy = ArenaAggroPolicy() if args.bot == "aggro_arena" else AggroPolicy()
 
     # which view are we on?
     if args.view:
@@ -200,9 +208,9 @@ def main(argv) -> int:
             print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
             return 0
         if args.dry_run or args.no_click:                  # shadow only — decide + print, no clicks
-            return drive_bot(args.log)
+            return drive_bot(args.log, policy=policy)
         actuator, locator = build_live(args)               # live: so the bot can execute the mulligan
-        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random())
+        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random(), policy=policy)
 
     actuator, locator = build_live(args)
     rng = random.Random()
@@ -237,7 +245,7 @@ def main(argv) -> int:
     print("reached a game.")
     if args.no_bot:
         return 0
-    return drive_bot(args.log, actuator=actuator, locator=locator, rng=rng)
+    return drive_bot(args.log, actuator=actuator, locator=locator, rng=rng, policy=policy)
 
 
 if __name__ == "__main__":

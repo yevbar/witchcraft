@@ -67,6 +67,24 @@ class AggroPolicy:
         return d.options[0] if d.options else None
 
 
+class ArenaAggroPolicy(AggroPolicy):
+    """`aggro_arena` — aggro tuned to beat Arena's built-in practice bot. Same relentless develop-and-attack core
+    (the out-of-the-box bot folds to a clean curve), with the one own-goal removed: a basic keepable-hand
+    mulligan instead of blind keep. Further tuning levers (as we play games): cast ORDER (curve out / highest-
+    impact first, vs the current first-legal pick), and SELECTIVE blocking to not die while racing."""
+
+    name = "aggro_arena"
+
+    def _on_mulligan(self, d: Decision) -> str:
+        # Keep a workable opener; only ship the unkeepable extremes (no lands, or flooded). London mulligan
+        # always shows 7, so count lands in hand. If the view doesn't have the hand yet, keep (don't churn).
+        hand = d.view.hand(d.seat) if d.seat is not None else []
+        lands = sum(1 for o in hand if "CardType_Land" in (o.cardTypes or []))
+        if not hand:
+            return "keep"
+        return "keep" if 1 <= lands <= 5 else "mulligan"
+
+
 def describe(d: Decision, choice) -> str:
     """A short human-readable line for a (decision, choice), resolving grpIds to card names via `cards`."""
     def by_instance(inst):

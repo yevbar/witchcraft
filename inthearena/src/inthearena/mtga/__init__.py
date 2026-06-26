@@ -29,6 +29,7 @@ from .hand import (
     on_mulligan_screen,
     order_inversions,
     play_card,
+    play_hand_card,
     play_hand_object,
     play_land,
     rest_point,
@@ -71,7 +72,7 @@ from .gre import (
     latest_game_view,
     messages,
 )
-from .policy import AggroPolicy, Policy, describe
+from .policy import AggroPolicy, ArenaAggroPolicy, Policy, describe
 from .snapshot import Card, GameSnapshot, Permanent, SeatSnapshot, snapshot, to_engine_facts
 from .screen import (
     CallableRecognizer,
@@ -90,7 +91,7 @@ __all__ = [
     "DEFAULT_LOG", "cards",
     "GreMessage", "GameStateMessage", "GameInfo", "GameObject", "TurnInfo", "PlayerState", "Action", "Attacker", "Zone",
     "GameView", "Decision", "iter_decisions", "latest_game_view", "messages",
-    "AggroPolicy", "Policy", "describe",
+    "AggroPolicy", "ArenaAggroPolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
     "to_game", "build_state", "suggest",
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
@@ -104,6 +105,6 @@ __all__ = [
     "GameExecutor", "ObjectLocator", "ExecResult",
     "snapshot_hand", "capture_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
     "hand_order", "hand_screen_order", "hand_members", "play_hand_object",
-    "play_land", "land_play_options", "on_mulligan_screen",
+    "play_land", "play_hand_card", "land_play_options", "on_mulligan_screen",
     "locate_named_cards", "match_named_card", "order_inversions",
 ]

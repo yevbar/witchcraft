@@ -445,50 +445,46 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     return [(int(lo + k * (hi - lo) / max(slots - 1, 1)), y) for k in range(slots)]
 
 
-def play_land(actuator, locator, view, seat: int, options, preferred=None, *, settle: float = 0.3) -> bool:
-    """Play a land WITHOUT ever misclicking. Only a card whose on-screen NAME is positively read — and that is a
-    legal land drop — is ever clicked. Order of attempts:
-
-      1. Snapshot at rest; if any legal land's name is legible, click it (the bot's pick `preferred` first, else
-         any other legal land — every offered land is a fine drop).
-      2. Otherwise HOVER-REVEAL: the occluded cards are the overlapped ones; hover each remaining slot so it
-         MAGNIFIES, re-read, and click the slot once a legal land becomes legible under the cursor.
-      3. If a land still can't be positively identified, return False (the caller shadows). Never guess a pixel —
-         a missed land drop is harmless; clicking the wrong card is not.
-
-    Also guards against the mulligan keep still being on screen (waits it out, then plays). Returns True only
-    when a positively-identified land was clicked."""
-    legal = land_play_options(view, options)
-    if preferred is not None and _is_land(view, preferred) and preferred not in legal:
-        legal.append(preferred)
-    if not legal:
-        _log.info("  land: no legal land to play")
-        return False
-    pref_first = ([preferred] if preferred in legal else []) + [i for i in legal if i != preferred]
-    want = {}                                          # normalized name -> instanceId, preferred first
-    for inst in pref_first:
+def _want_names(view, insts: list) -> dict:
+    """{normalized card name -> instanceId} for `insts`, in order (first wins on a name clash). The set of names
+    we'll accept a click on."""
+    want = {}
+    for inst in insts:
         o = view.objects.get(inst)
         nm = _norm_name((cards.label(o.grpId) or "") if o else "")
         if nm:
             want.setdefault(nm, inst)
-    _log.info("  land: legal land drops = %s (want names %s)", legal, list(want))
+    return want
 
+
+def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: float, label: str) -> bool:
+    """Play a hand card WITHOUT ever misclicking — the shared core of play_land / play_hand_card. Clicks only a
+    card whose on-screen NAME positively matches one of `want` (a normalized-name -> instanceId dict, in
+    preference order). Order of attempts:
+
+      1. Snapshot at rest; if a wanted card's name is legible, click it (preference order, leftmost copy).
+      2. Otherwise HOVER-REVEAL: sweep left-to-right, magnifying each occluded card to read it, and click the
+         first that matches a wanted name.
+      3. Else return False (the caller shadows). Never guess a pixel.
+
+    Also waits out the mulligan keep if it's still on screen. Returns True only on a positively-identified click."""
+    if not want:
+        _log.info("  %s: nothing to identify", label)
+        return False
     screen = hand_screen_order(view, seat)
     image, rect = capture_hand(actuator, settle=settle)
     if rect is None:
         return False
 
     # SAFETY: never click a hand card while the mulligan Keep/Mulligan buttons are still on screen — the keep can
-    # still be animating out when the first-turn actions request arrives. Wait it out (re-capturing); only if it
-    # never clears do we shadow. This keeps us from clicking a card on the keep-hand screen without losing the
-    # land drop to a race.
+    # still be animating out when the first-turn actions request arrives. Wait it out; only if it never clears do
+    # we shadow. (Keeps us off the keep-hand screen without losing the play to a race.)
     waited = 0.0
     while on_mulligan_screen(image):
         if waited >= _MULL_CLEAR_TIMEOUT:
-            _log.info("  land: mulligan buttons still on screen after %.1fs — shadowing (won't click during keep)",
-                      waited)
+            _log.info("  %s: mulligan buttons still on screen after %.1fs — shadowing", label, waited)
             return False
-        _log.info("  land: mulligan Keep/Mulligan still showing — waiting for the keep to clear…")
+        _log.info("  %s: mulligan Keep/Mulligan still showing — waiting for the keep to clear…", label)
         actuator.wait(0.5)
         waited += 0.5
         image, rect = capture_hand(actuator, settle=0.0)
@@ -497,31 +493,55 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
 
     named = locate_named_cards(image, rect)
 
-    # 1) a legal land legible at rest?
+    # 1) a wanted card legible at rest?
     hit = _land_hit(named, want)
     if hit is not None:
-        _log.info("  land: a legal land is legible at rest — playing at %s", hit)
+        _log.info("  %s: a wanted card is legible at rest — playing at %s", label, hit)
         play_card(actuator, hit)
         return True
 
     # 2) hover-reveal. The leftmost cards in a wide fan overlap, hiding their banners. Sweep LEFT-TO-RIGHT across
-    # physical positions (from the legible cards' geometry, NOT the instanceId order model — which mis-aimed at
-    # the wrong side), magnifying each occluded card to read it, and click the FIRST one that's a legal land — the
-    # leftmost. We click the hovered position (a stable bottom-band point); the OCR only CONFIRMS a legal land is
-    # there. (near_x ties the match to the card under the cursor, not a far-off same-named card.)
+    # physical positions (from the legible cards' geometry, NOT the instanceId order model), magnifying each
+    # occluded card to read it, and click the FIRST one that matches. We click the hovered position; the OCR only
+    # CONFIRMS a wanted card is there (near_x ties the match to the card under the cursor).
     anchors = _name_anchors(view, seat, screen, named)
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
     max_dist = int(0.06 * rect.w)
-    _log.info("  land: no land legible at rest — hover-revealing %d position(s) left-to-right", len(positions))
+    _log.info("  %s: not legible at rest — hover-revealing %d position(s) left-to-right", label, len(positions))
     for x, y in positions:
         actuator.hover(x, y)
         actuator.wait(settle)
         named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
         if _land_hit(named2, want, near_x=x, max_dist=max_dist) is not None:
-            _log.info("  land: revealed a legal land near x=%d — playing", x)
+            _log.info("  %s: revealed a wanted card near x=%d — playing", label, x)
             play_card(actuator, (x, y))
             return True
 
-    _log.info("  land: couldn't positively identify a land — shadowing (no pixel guess)")
+    _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
     return False
+
+
+def play_land(actuator, locator, view, seat: int, options, preferred=None, *, settle: float = 0.3) -> bool:
+    """Play a land. Any legal land drop is acceptable (every offered land is fine), preferring the bot's pick;
+    so an occluded preferred land defers to a legible sibling. Clicks only a positively-identified legal land."""
+    legal = land_play_options(view, options)
+    if preferred is not None and _is_land(view, preferred) and preferred not in legal:
+        legal.append(preferred)
+    if not legal:
+        _log.info("  land: no legal land to play")
+        return False
+    pref_first = ([preferred] if preferred in legal else []) + [i for i in legal if i != preferred]
+    want = _want_names(view, pref_first)
+    _log.info("  land: legal land drops = %s (want names %s)", legal, list(want))
+    return _play_from_hand(actuator, locator, view, seat, want, settle=settle, label="land")
+
+
+def play_hand_card(actuator, locator, view, seat: int, instance_id: int, *, settle: float = 0.3) -> bool:
+    """Cast/play the SPECIFIC hand card `instance_id` (a spell) by its on-screen name — generalises play_land to
+    any card. (Clicking the card is the cast; if the spell needs a TARGET, MTGA then asks via a targets decision,
+    handled separately.) Returns True only on a positively-identified click."""
+    want = _want_names(view, [instance_id])
+    o = view.objects.get(instance_id)
+    _log.info("  cast: %s (instance %s)", (cards.label(o.grpId) if o else "?"), instance_id)
+    return _play_from_hand(actuator, locator, view, seat, want, settle=settle, label="cast")
