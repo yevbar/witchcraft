@@ -53,7 +53,7 @@ def main(argv) -> int:
                     help="post an IOHIDPostEvent move FIRST (positions MTGA's pointer / lights up Play), THEN "
                          "click via --method. The chain that's most likely to land a real click.")
     ap.add_argument("--activate", action="store_true",
-                    help="bring MTGA frontmost before clicking (some clients ignore clicks while backgrounded).")
+                    help="focus MTGA via AppleScript FIRST (some clients ignore clicks while backgrounded).")
     ap.add_argument("--hover", action="store_true",
                     help="just move onto Play and wait 4s — no click. Watch whether the button HIGHLIGHTS.")
     ap.add_argument("--no-vision", action="store_true", help="use the coarse anchor instead of the vision model.")
@@ -81,9 +81,15 @@ def main(argv) -> int:
     print(f"target (global points): ({x}, {y})")
 
     from inthearena.mtga.macos import (
-        activate_app, click_applescript, click_iohid, click_quartz, iohid_move, mtga_pid)
+        activate_app_applescript, click_applescript, click_iohid, click_quartz, iohid_move, mtga_pid)
 
-    # move the cursor there first (movement works), then click via the chosen method
+    # focus Arena FIRST so the click isn't sent to a backgrounded window
+    if args.activate:
+        ok = activate_app_applescript()
+        print(f"focused MTGA via AppleScript: {ok}")
+        time.sleep(0.4)
+
+    # move the cursor there (movement works), then click via the chosen method
     import pyautogui
     pyautogui.FAILSAFE = False
     pyautogui.moveTo(x, y, duration=0.4)
@@ -93,14 +99,6 @@ def main(argv) -> int:
         print("HOVER ONLY: cursor is on Play, no click. Does the button highlight/glow? (waiting 4s)")
         time.sleep(4)
         return 0
-
-    if args.activate:
-        pid = mtga_pid()
-        ok = activate_app(pid)
-        print(f"activated MTGA (pid {pid}): {ok}")
-        time.sleep(0.4)
-        pyautogui.moveTo(x, y, duration=0.1)               # re-assert cursor position after the app switch
-        time.sleep(0.1)
 
     if args.premove_iohid:
         codes = iohid_move(x, y)                            # real motion event -> MTGA pointer tracks to Play

@@ -213,3 +213,9 @@ def activate_app(pid: int) -> bool:
     if app is None:
         return False
     return bool(app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
+
+
+def activate_app_applescript(name: str = "MTGA") -> bool:
+    """Bring the app `name` to the front via AppleScript (System Events). Returns True if osascript succeeded."""
+    script = f'tell application "System Events" to set frontmost of (first process whose name is "{name}") to true'
+    return subprocess.run(["osascript", "-e", script], capture_output=True).returncode == 0
