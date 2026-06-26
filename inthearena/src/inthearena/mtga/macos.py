@@ -129,14 +129,14 @@ def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = Non
     _post(_ev(Quartz.kCGEventLeftMouseUp, 1))
 
 
-def click_iohid(x: int, y: int, *, hold: float = 0.10) -> dict:
-    """Click via the legacy IOKit path: open IOHIDSystem and IOHIDPostEvent NX mouse down/up. Lower than CGEvent,
-    but still NOT a real HID device report — apps reading raw HID via IOHIDManager won't see it. Returns a dict
-    of IOKit status codes ({'open': 0, 'down': 0, 'up': 0} means each call returned kIOReturnSuccess); a non-zero
-    'open' (e.g. 0xE00002C7 not-permitted) means the API is gated and we'd need a virtual HID device instead."""
+_NX_LMOUSEDOWN, _NX_LMOUSEUP, _NX_MOUSEMOVED, _NX_VER = 1, 2, 5, 2
+
+
+def _iohid_open():
+    """Open an IOHIDSystem param connection for IOHIDPostEvent. Returns (iokit, connect, IOGPoint, NXMouseData,
+    open_rc); connect is None if the open failed."""
     import ctypes
     import ctypes.util
-    import time
 
     iokit = ctypes.cdll.LoadLibrary(ctypes.util.find_library("IOKit"))
 
@@ -163,21 +163,42 @@ def click_iohid(x: int, y: int, *, hold: float = 0.10) -> dict:
     task = ctypes.c_uint32.in_dll(ctypes.CDLL(None), "mach_task_self_").value
     service = iokit.IOServiceGetMatchingService(0, iokit.IOServiceMatching(b"IOHIDSystem"))
     connect = ctypes.c_uint32(0)
-    rc_open = iokit.IOServiceOpen(service, task, 1, ctypes.byref(connect))   # kIOHIDParamConnectType = 1
-    out = {"open": rc_open & 0xFFFFFFFF}
-    if rc_open != 0:
-        return out
+    rc = iokit.IOServiceOpen(service, task, 1, ctypes.byref(connect))        # kIOHIDParamConnectType = 1
+    return iokit, (connect.value if rc == 0 else None), IOGPoint, NXMouseData, rc & 0xFFFFFFFF
 
+
+def iohid_move(x: int, y: int) -> dict:
+    """Post a real NX_MOUSEMOVED via IOHIDPostEvent so the CLIENT's internal pointer tracks to (x, y) (MTGA's
+    hover lights up). pyautogui's warp doesn't do this, which is why chained clicks used to miss."""
+    import ctypes
+    iokit, connect, IOGPoint, NXMouseData, rc = _iohid_open()
+    if connect is None:
+        return {"open": rc}
+    md = NXMouseData()
+    code = iokit.IOHIDPostEvent(connect, _NX_MOUSEMOVED, IOGPoint(int(x), int(y)), ctypes.byref(md),
+                                _NX_VER, 0, 0)
+    return {"open": rc, "move": code & 0xFFFFFFFF}
+
+
+def click_iohid(x: int, y: int, *, hold: float = 0.10) -> dict:
+    """Click via the legacy IOKit path: IOHIDPostEvent NX move + down/up. Returns IOKit status codes ({'open': 0,
+    'down': 0, 'up': 0} = each call accepted). The move reaches MTGA (hover), but the button events may not —
+    if so, chain a different click backend after iohid_move()."""
+    import ctypes
+    import time
+    iokit, connect, IOGPoint, NXMouseData, rc = _iohid_open()
+    out = {"open": rc}
+    if connect is None:
+        return out
     loc = IOGPoint(int(x), int(y))
-    NX_LMOUSEDOWN, NX_LMOUSEUP, NX_MOUSEMOVED, VER = 1, 2, 5, 2
     md = NXMouseData(); md.click = 1; md.pressure = 0
-    iokit.IOHIDPostEvent(connect, NX_MOUSEMOVED, loc, ctypes.byref(md), VER, 0, 0)
+    iokit.IOHIDPostEvent(connect, _NX_MOUSEMOVED, loc, ctypes.byref(md), _NX_VER, 0, 0)
     time.sleep(0.02)
     md.pressure = 255
-    out["down"] = iokit.IOHIDPostEvent(connect, NX_LMOUSEDOWN, loc, ctypes.byref(md), VER, 0, 0) & 0xFFFFFFFF
+    out["down"] = iokit.IOHIDPostEvent(connect, _NX_LMOUSEDOWN, loc, ctypes.byref(md), _NX_VER, 0, 0) & 0xFFFFFFFF
     time.sleep(hold)
     md.pressure = 0
-    out["up"] = iokit.IOHIDPostEvent(connect, NX_LMOUSEUP, loc, ctypes.byref(md), VER, 0, 0) & 0xFFFFFFFF
+    out["up"] = iokit.IOHIDPostEvent(connect, _NX_LMOUSEUP, loc, ctypes.byref(md), _NX_VER, 0, 0) & 0xFFFFFFFF
     return out
 
 
