@@ -553,7 +553,7 @@ kvisubj: (WORD | QUANT | NUM)+                                               // 
 // optional repeat multiplier on an intransitive keyword action — 'investigate twice', 'connive three times'
 // -> the count lands in the amount slot (parallels 'scry N'/'amass N'). The negative lookahead keeps it off
 // 'twice that many' (an anaphoric AMOUNT, owned by _that_amt), so this can't steal that token.
-KVIMULT.5: /\b(?:once|twice|thrice|(?:three|four|five|six|seven|eight|nine|ten|[0-9]+) times)\b(?! that)/
+KVIMULT.5: /\b(?:once|twice|thrice|that many times|(?:three|four|five|six|seven|eight|nine|ten|[0-9]+) times)\b(?! that)/
 
 // EXCHANGE (§701.10) — 'exchange <object>' (the generic object-verb leaf; exchange IS in `_OBJ_VERBS`, so
 // like `dbl`/double it grounds via the slug leaf). The EXACT mirror of `dbl`: slice the object from src
@@ -4303,11 +4303,13 @@ class _ToEffect(Transformer):
         amt = "-"
         if mult is not None:
             m = mult.strip().lower()
-            if m in ("once", "twice", "thrice"):
+            if m == "that many times":
+                amt = "that_amount"                 # anaphoric count ('investigate that many times'), like draw
+            elif m in ("once", "twice", "thrice"):
                 amt = {"once": 1, "twice": 2, "thrice": 3}[m]
             elif m.endswith(" times"):
                 amt = _amount(m[:-len(" times")].strip())
-            if not isinstance(amt, int):
+            if not (isinstance(amt, int) or amt == "that_amount"):
                 return None
         return Effect(v, amt, _target(str(subj).strip()) if subj is not None else "you")
 
