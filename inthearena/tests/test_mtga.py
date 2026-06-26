@@ -693,14 +693,23 @@ def _hand_checks():
     play_card(a3, pts[0], gap=0.1)
     check("play_card = click, wait ~0.1s, click (2 clicks + a gap wait)", len(a3.clicks) == 2 and 0.1 in a3.waits)
 
-    # play_hand_object: map a chosen instanceId -> its hand slot (zone order) and play it
-    from inthearena.mtga import hand_order, play_hand_object
+    # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
+    # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which
+    # lists the hand newest-first. So a descending zone list must come back ascending.
+    from inthearena.mtga import hand_order, hand_screen_order, play_hand_object
     view = _apply({"type": "GameStateType_Full",
                    "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
                               "objectInstanceIds": [100, 101, 102]}],
                    "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 10, "ownerSeatId": 1,
                                     "controllerSeatId": 1, "cardTypes": ["CardType_Land"]} for i in (100, 101, 102)]})
-    check("hand_order reads the hand-zone instanceIds left-to-right", hand_order(view, 1) == [100, 101, 102])
+    check("hand_order returns the on-screen (ascending-instanceId) order", hand_order(view, 1) == [100, 101, 102])
+    desc = _apply({"type": "GameStateType_Full",
+                   "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                              "objectInstanceIds": [479, 462, 344, 343]}],   # GRE order: newest-first
+                   "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 10, "ownerSeatId": 1,
+                                    "controllerSeatId": 1} for i in (479, 462, 344, 343)]})
+    check("hand_screen_order reverses the newest-first zone order to oldest-left screen order",
+          hand_screen_order(desc, 1) == [343, 344, 462, 479])
 
     class Loc3:
         def locate_all(self, image, query):
@@ -744,6 +753,31 @@ def _hand_checks():
               match_named_card("Command Tower", named) is None)
     finally:
         ocr.recognize_text = orig
+
+    # ANCHORED prediction: the target is OCCLUDED (its name isn't legible) but its neighbours are. Pin the
+    # legible names to their (log-derived) slots and predict the target slot's x. Hand = 5 cards, ascending
+    # instanceId 30..34 -> screen slots 0..4. Target inst 30 (slot 0, leftmost = most occluded). Stub cards.label
+    # and OCR so slots 1..3 are legible at a uniform 130px pitch from x=900; predict slot 0 -> ~770.
+    from inthearena.mtga import cards, hand as handmod
+    names = {30: "Forest", 31: "Bravo", 32: "Charlie", 33: "Delta", 34: "Echo"}
+    hview = _apply({"type": "GameStateType_Full",
+                    "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                               "objectInstanceIds": [34, 33, 32, 31, 30]}],   # newest-first
+                    "gameObjects": [{"instanceId": i, "grpId": i, "zoneId": 10, "ownerSeatId": 1,
+                                     "controllerSeatId": 1} for i in (30, 31, 32, 33, 34)]})
+    olabel, orec = cards.label, ocr.recognize_text
+    cards.label = handmod.cards.label = lambda g: names.get(g, "?")
+    # legible: slots 1,2,3 (Bravo/Charlie/Delta) at x 900,1030,1160 (y-frac 0.90); slot 0 (Forest) & 4 occluded
+    ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+        ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90), ("Delta", 1160 / 1920, 0.90)]
+    try:
+        ap3 = DryRunActuator(rect=rect, image=object())
+        ok3 = play_hand_object(ap3, None, hview, 1, 30)          # Forest occluded -> predict slot 0 from anchors
+        check("play_hand_object predicts an occluded slot from legible-name anchors (slot 0 ~ 770)",
+              ok3 and len(ap3.clicks) == 2 and 740 <= ap3.clicks[0][0] <= 800)
+    finally:
+        cards.label = handmod.cards.label = olabel
+        ocr.recognize_text = handmod.ocr.recognize_text = orec
 
 
 def _execute_checks():

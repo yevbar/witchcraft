@@ -6,14 +6,20 @@ cursor at a REST point AWAY from the hand (every card un-hovered), detect the ca
 
 Playing a card is a lift-then-cast gesture: move onto it, click, wait ~100ms, then click again.
 
-To play a SPECIFIC card we read the card NAMES off the snapshot with macOS Vision OCR (`ocr.py`) and click the
-one whose name matches — see `play_hand_object`. This is robust to MTGA's hand sort order: the GRE hand-zone
-`objectInstanceIds` order does NOT match the on-screen left-to-right order, so an index-into-the-fan approach
-mis-clicks. Name matching also makes duplicate lands a non-issue (any visible Forest is a fine Forest).
+To play a SPECIFIC card, `play_hand_object` tries three things in order:
 
-A vision locator (Moondream) can still detect anonymous card rectangles from the snapshot (bottom band, de-duped,
-left-to-right) — kept as the FALLBACK when a name is occluded or OCR is unavailable. This is the on-screen half
-of the in-game executor's object seam (see `execute.ObjectLocator`).
+  1. PRIMARY — read the card NAMES off the snapshot (macOS Vision OCR, `ocr.py`) and click the one matching the
+     target. Robust to sort order and to duplicate lands (any visible Forest is a fine Forest). Works whenever
+     the target's name is legible — and a freshly drawn card sits at the far-right slot, fully exposed.
+
+  2. ANCHORED — when the target is OCCLUDED (the leftmost fan cards overlap, so their banners can't be read), pin
+     the names that ARE legible to their slots and predict the target slot's pixel position. The left-to-right
+     slot order is known from the LOG, not vision: MTGA fans the hand oldest-left / newest-right, i.e. ASCENDING
+     instanceId — the REVERSE of the GRE hand-zone order (which lists newest-first). See `hand_screen_order`.
+
+  3. FALLBACK — no names legible at all: anonymous card detection (Moondream) + the screen-order index.
+
+This is the on-screen half of the in-game executor's object seam (see `execute.ObjectLocator`).
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ _MIN_GAP = 40              # px: collapse near-coincident detections (Moondream 
 _NAME_Y = 0.84
 _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
+_FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 
 
 def rest_point(rect: Rect) -> tuple:
@@ -161,15 +168,77 @@ def play_card(actuator, point: tuple, *, gap: float = 0.1) -> None:
     actuator.click()
 
 
-def hand_order(view, seat: int) -> list:
-    """The instanceIds of `seat`'s hand in LEFT-TO-RIGHT order — the authoritative hand-zone `objectInstanceIds`
-    (which is how MTGA renders the fan); falls back to the GameView hand object order if the zone isn't known."""
+def hand_members(view, seat: int) -> list:
+    """The instanceIds in `seat`'s hand (membership, GRE zone order). Falls back to the GameView hand objects."""
     for z in view.zones.values():
         if getattr(z, "type", None) == "ZoneType_Hand" and getattr(z, "ownerSeatId", None) == seat:
             ids = list(z.objectInstanceIds or [])
             if ids:
                 return ids
     return [o.instanceId for o in view.hand(seat)]
+
+
+def hand_screen_order(view, seat: int) -> list:
+    """The instanceIds of `seat`'s hand in ON-SCREEN LEFT-TO-RIGHT order. MTGA fans the hand oldest-left /
+    newest-right — a freshly drawn card slots in at the far right — i.e. ASCENDING instanceId. That's the
+    REVERSE of the GRE hand-zone order, which lists the hand newest-first (descending instanceId). So: take the
+    hand membership and sort by instanceId. (A bounced card re-enters with a new, higher id — still rightmost,
+    which matches.)"""
+    return sorted(hand_members(view, seat))
+
+
+# back-compat alias: callers asking for "hand order" want the on-screen order
+hand_order = hand_screen_order
+
+
+def _name_anchors(view, seat: int, screen: list, named: list) -> list:
+    """Pin OCR'd names to screen slots: for each legible name, if it maps to a UNIQUELY-named hand card, record
+    (slot_index, x, y). These anchors calibrate the pixel position of each slot, so an OCCLUDED target slot can
+    be predicted from the legible ones. Duplicate-named cards (two Forests) are skipped as anchors (ambiguous
+    slot) — but the duplicate itself is still playable via the direct name-match, any copy will do."""
+    by_name = {}
+    for inst in screen:
+        o = view.objects.get(inst)
+        by_name.setdefault(_norm_name(cards.label(o.grpId) if o else ""), []).append(inst)
+    anchors = {}
+    for text, x, y in named:
+        on = _norm_name(text)
+        cand = None
+        for nm, ids in by_name.items():
+            if len(ids) != 1 or not nm:
+                continue
+            if on in nm or nm in on or difflib.SequenceMatcher(None, on, nm).ratio() >= _NAME_MATCH:
+                if cand is not None:        # this OCR text matched two different hand names — too ambiguous
+                    cand = None
+                    break
+                cand = ids[0]
+        if cand is not None:
+            anchors[screen.index(cand)] = (screen.index(cand), x, y)
+    return sorted(anchors.values())
+
+
+def _predict_slot(anchors: list, target_idx: int):
+    """Predict (x, y) of slot `target_idx` from calibration `anchors` (sorted (idx, x, y)). Piecewise-LOCAL
+    linear interp/extrapolation — the fan is an arc, so a global fit skews on the (jutting) end cards; use the
+    two anchors nearest the target instead. One anchor -> assume the nominal fan spacing."""
+    if not anchors:
+        return None
+    if len(anchors) == 1:
+        i0, x0, y0 = anchors[0]
+        return int(x0 + (target_idx - i0) * _FAN_SPACING), y0
+    if target_idx <= anchors[0][0]:
+        a, b = anchors[0], anchors[1]
+    elif target_idx >= anchors[-1][0]:
+        a, b = anchors[-2], anchors[-1]
+    else:
+        a, b = anchors[0], anchors[-1]
+        for k in range(len(anchors) - 1):
+            if anchors[k][0] <= target_idx <= anchors[k + 1][0]:
+                a, b = anchors[k], anchors[k + 1]
+                break
+    (i0, x0, y0), (i1, x1, y1) = a, b
+    di = (i1 - i0) or 1
+    return int(x0 + (target_idx - i0) * (x1 - x0) / di), int(y0 + (target_idx - i0) * (y1 - y0) / di)
 
 
 def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bool:
@@ -182,34 +251,45 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
       FALLBACK — if OCR isn't available or the name is occluded, fall back to anonymous card detection
       (Moondream) + the zone-order index (extrapolated across the detected fan).
 
-    Returns False only if the card isn't in the hand or neither path could place it."""
-    order = hand_order(view, seat)
-    if instance_id not in order:
-        _log.info("  hand: object %s not in the hand-zone order %s", instance_id, order)
+    Returns False only if the card isn't in the hand or no path could place it."""
+    screen = hand_screen_order(view, seat)              # left-to-right = ascending instanceId
+    if instance_id not in screen:
+        _log.info("  hand: object %s not in the hand %s", instance_id, screen)
         return False
-    idx, n = order.index(instance_id), len(order)
+    idx, n = screen.index(instance_id), len(screen)
     target = view.objects.get(instance_id)
     target_name = cards.label(target.grpId) if target else None
 
     image, rect = capture_hand(actuator)
     if rect is None:
         return False
+    named = locate_named_cards(image, rect)
+    _log.info("  hand: want %r (slot %d/%d); OCR read %s",
+              target_name, idx, n, [t[0] for t in named])
 
-    # PRIMARY: locate the card by its on-screen name.
+    # PRIMARY: the target's own name is legible -> click it (any copy of a duplicate land is fine).
     if target_name:
-        named = locate_named_cards(image, rect)
-        _log.info("  hand: want %r; OCR read %s", target_name, [t[0] for t in named])
         hit = match_named_card(target_name, named)
         if hit is not None:
             _log.info("  hand: matched %r on screen at %s — playing", target_name, hit)
             play_card(actuator, hit)
             return True
-        _log.info("  hand: %r not legible on screen — falling back to detection+index", target_name)
 
-    # FALLBACK: anonymous detection + zone index.
+    # ANCHORED: the target is occluded, but other names ARE legible. Pin those names to their slots (we know the
+    # left-to-right order from the log) and predict the target slot's pixel position from them.
+    anchors = _name_anchors(view, seat, screen, named)
+    if anchors:
+        pt = _predict_slot(anchors, idx)
+        if pt is not None:
+            _log.info("  hand: %r occluded; predicted slot %d at %s from anchors %s",
+                      target_name, idx, pt, [(a[0], a[1]) for a in anchors])
+            play_card(actuator, pt)
+            return True
+
+    # FALLBACK: no legible names at all — anonymous detection + the (screen-order) index.
     points = locate_hand_cards(image, rect, locator)
-    _log.info("  hand: log=%d cards, detection found %d at x=%s; want zone-slot %d (instance %s)",
-              n, len(points), [p[0] for p in points], idx, instance_id)
+    _log.info("  hand: no legible names; detection found %d at x=%s; want slot %d (instance %s)",
+              len(points), [p[0] for p in points], idx, instance_id)
     if not points:
         return False
     if len(points) == n:
@@ -218,7 +298,7 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
         # The fan is EVENLY spaced but detection tends to miss the RIGHT cards, so the detected span is
         # truncated. Don't interpolate across it (that compresses the rightmost slots into the middle);
         # instead read the per-card spacing off the detected (left) cards and EXTRAPOLATE slot idx from the
-        # leftmost (slot 0). Assumes the leftmost card is detected and the zone order is the screen order.
+        # leftmost (slot 0). Assumes the leftmost card is detected; `idx` is the screen-order slot.
         xs = sorted(p[0] for p in points)
         y = sum(p[1] for p in points) // len(points)
         spacing = (xs[-1] - xs[0]) / (len(xs) - 1) if len(xs) >= 2 else 130
