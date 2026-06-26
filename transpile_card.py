@@ -2265,15 +2265,25 @@ def _alt_cost(unit, ctx):
 
 
 def _enters_with_counters(unit, ctx):
-    """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
-    # dynamic-count form: '… enters with a number of <kind> counters on it equal to <X>' (§122/§614).
-    md = re.match(r"^(?:~|it|That \w+) enters with a number of ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it "
-                  r"equal to (.+?)\.?$", unit.raw)
+    """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614).
+
+    The SELF object/subject pronoun is widened structurally beyond 'it': recent character cards use the
+    gendered self-pronouns 'on him'/'on her' (and 'on them'), and self-reference by the legendary SHORT
+    name ('Hulk enters …' on 'Hulk, Strongest There Is') which the corpus leaves un-masked. The short name
+    is taken from THIS card's own name (ctx), so accepting it is scoped and faithful — no corpus-wide name
+    masking (which would risk clobbering common-word names elsewhere). 'twice X'/'half X' counts are kept."""
+    short = (ctx.get("card") or {}).get("name", "").split(",")[0].strip()
+    selfsubj = "~|it" + (("|" + re.escape(short)) if short else "")   # the card's own short name is a self-ref
+    selfobj = r"it|him|her|them"
+    # dynamic-count form: '… enters with a number of <kind> counters on <self> equal to <X>' (§122/§614).
+    md = re.match(rf"^(?:{selfsubj}|That \w+) enters with a number of ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? "
+                  rf"on (?:{selfobj}) equal to (.+?)\.?$", unit.raw)
     if md:
         cid = ctx["id"]
         return CardOut(cid, [f'enters_with_counters("{cid}", "{ground.slug(md.group(1))}", "equal_to_{ground.slug(md.group(2))}")'],
                        "enters_with_counters")
-    m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
+    m = re.match(rf"^(?:If .+?, )?(?:{selfsubj}) enters with ((?:twice |half )?\w+) "
+                 rf"([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on (?:{selfobj})"
                  r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
     if not m:
         return None
