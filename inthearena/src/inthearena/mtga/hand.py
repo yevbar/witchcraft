@@ -50,6 +50,7 @@ _NAME_Y = 0.84
 _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
+_REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
 
 
 def rest_point(rect: Rect) -> tuple:
@@ -116,15 +117,17 @@ def _norm_name(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
 
 
-def locate_named_cards(image, rect: Rect) -> list:
+def locate_named_cards(image, rect: Rect, *, y_floor: float = _NAME_Y) -> list:
     """Read the hand's card NAMES from `image` via macOS Vision OCR. Returns [(name, x, y)] in SCREEN coords for
     every text line in the hand band (bottom edge, central x), left-to-right. This identifies WHICH card is
-    where — robust to MTGA's hand sort order (the GRE zone order isn't the on-screen order). [] off-macOS."""
+    where — robust to MTGA's hand sort order (the GRE zone order isn't the on-screen order). [] off-macOS.
+    `y_floor` is the top of the band: lower it (e.g. when a hovered card has MAGNIFIED and lifted above the
+    resting hand) to still catch the raised name."""
     if image is None or rect is None:
         return []
     out = []
     for text, xf, yf in ocr.recognize_text(image):
-        if yf >= _NAME_Y and _NAME_X[0] <= xf <= _NAME_X[1] and len(_norm_name(text)) >= 3:
+        if yf >= y_floor and _NAME_X[0] <= xf <= _NAME_X[1] and len(_norm_name(text)) >= 3:
             out.append((text, rect.x + int(xf * rect.w), rect.y + int(yf * rect.h)))
     out.sort(key=lambda t: t[1])
     return out
@@ -351,3 +354,120 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
                   idx, pt, xs[0], idx, spacing)
     play_card(actuator, pt)
     return True
+
+
+def _is_land(view, instance_id) -> bool:
+    o = view.objects.get(instance_id)
+    return bool(o and "CardType_Land" in (o.cardTypes or []))
+
+
+def land_play_options(view, options) -> list:
+    """instanceIds of every LAND the GRE currently offers to PLAY (ActionType_Play). Any of these is a legal land
+    drop this turn — so playing whichever one we can positively SEE is correct, not just the bot's exact pick."""
+    out = []
+    for a in options or []:
+        if getattr(a, "actionType", None) == "ActionType_Play":
+            inst = getattr(a, "instanceId", None)
+            if inst is not None and _is_land(view, inst):
+                out.append(inst)
+    return out
+
+
+def _land_hit(named: list, want: dict, *, near_x=None, max_dist=None):
+    """First (x, y) in `named` whose text matches a wanted land name (`want`: normalized-name -> instanceId, in
+    PREFERENCE order). With `near_x`/`max_dist`, restrict to names within that x-distance (the magnified card
+    under the cursor) and return the CLOSEST. Returns None if nothing qualifies."""
+    if near_x is None:
+        for nm in want:                                # preference order: the bot's pick first
+            for text, x, y in named:
+                if _name_score(nm, _norm_name(text)) >= _NAME_MATCH:
+                    return x, y
+        return None
+    best, best_d = None, None
+    for text, x, y in named:
+        if any(_name_score(nm, _norm_name(text)) >= _NAME_MATCH for nm in want):
+            d = abs(x - near_x)
+            if max_dist is not None and d > max_dist:
+                continue
+            if best is None or d < best_d:
+                best, best_d = (x, y), d
+    return best
+
+
+def play_land(actuator, locator, view, seat: int, options, preferred=None, *, settle: float = 0.3) -> bool:
+    """Play a land WITHOUT ever misclicking. Only a card whose on-screen NAME is positively read — and that is a
+    legal land drop — is ever clicked. Order of attempts:
+
+      1. Snapshot at rest; if any legal land's name is legible, click it (the bot's pick `preferred` first, else
+         any other legal land — every offered land is a fine drop).
+      2. Otherwise HOVER-REVEAL: the occluded cards are the overlapped ones; hover each remaining slot so it
+         MAGNIFIES, re-read, and click the slot once a legal land becomes legible under the cursor.
+      3. If a land still can't be positively identified, return False (the caller shadows). Never guess a pixel —
+         a missed land drop is harmless; clicking the wrong card is not.
+
+    Returns True only when a positively-identified land was clicked."""
+    legal = land_play_options(view, options)
+    if preferred is not None and _is_land(view, preferred) and preferred not in legal:
+        legal.append(preferred)
+    if not legal:
+        _log.info("  land: no legal land to play")
+        return False
+    pref_first = ([preferred] if preferred in legal else []) + [i for i in legal if i != preferred]
+    want = {}                                          # normalized name -> instanceId, preferred first
+    for inst in pref_first:
+        o = view.objects.get(inst)
+        nm = _norm_name((cards.label(o.grpId) or "") if o else "")
+        if nm:
+            want.setdefault(nm, inst)
+    _log.info("  land: legal land drops = %s (want names %s)", legal, list(want))
+
+    screen = hand_screen_order(view, seat)
+    image, rect = capture_hand(actuator, settle=settle)
+    if rect is None:
+        return False
+    named = locate_named_cards(image, rect)
+
+    # 1) a legal land legible at rest?
+    hit = _land_hit(named, want)
+    if hit is not None:
+        _log.info("  land: a legal land is legible at rest — playing at %s", hit)
+        play_card(actuator, hit)
+        return True
+
+    # 2) hover-reveal. Pick slot positions to magnify: anchored geometry (preferred slot first) if any name is
+    # legible, else detected card x's, else a uniform fan. We click the HOVERED slot (a stable bottom-band point),
+    # not the lifted preview — the OCR only CONFIRMS the magnified card is a legal land.
+    anchors = _name_anchors(view, seat, screen, named)
+    positions = []                                     # (slot_or_None, x, y) to hover, in try-order
+    if anchors:
+        legible = {a[0] for a in anchors}
+        pref_slot = screen.index(preferred) if preferred in screen else None
+        order = ([pref_slot] if pref_slot is not None and pref_slot not in legible else []) + \
+                [i for i in range(len(screen)) if i not in legible and i != pref_slot]
+        for i in order:
+            p = _predict_slot(anchors, i)
+            if p is not None:
+                positions.append((i, p[0], p[1]))
+    else:
+        det = locate_hand_cards(image, rect, locator)
+        if det:
+            positions = [(None, x, y) for x, y in det]
+        else:
+            y = rect.y + int(0.90 * rect.h)
+            x0, x1 = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
+            slots = max(len(screen), 1)
+            positions = [(None, int(x0 + k * (x1 - x0) / max(slots - 1, 1)), y) for k in range(slots)]
+
+    max_dist = int(0.06 * rect.w)
+    _log.info("  land: no land legible at rest — hover-revealing %d slot(s)", len(positions))
+    for slot, x, y in positions:
+        actuator.hover(x, y)
+        actuator.wait(settle)
+        named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+        if _land_hit(named2, want, near_x=x, max_dist=max_dist) is not None:
+            _log.info("  land: slot %s revealed a legal land — playing at (%d,%d)", slot, x, y)
+            play_card(actuator, (x, y))                # click the hovered hand slot (stable), not the preview
+            return True
+
+    _log.info("  land: couldn't positively identify a land — shadowing (no pixel guess)")
+    return False

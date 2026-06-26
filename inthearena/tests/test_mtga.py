@@ -796,6 +796,59 @@ def _hand_checks():
     check("order_inversions: an out-of-order x flags the index/screen mismatch",
           order_inversions([(0, 700, 990), (1, 960, 990), (2, 830, 990)]) == 1)
 
+    # play_land: NEVER clicks a card it didn't positively read as a legal land. Build a hand + Play options and
+    # stub cards.label / OCR. (Action carries actionType + instanceId.)
+    from inthearena.mtga import play_land
+    from inthearena.mtga.gre import Action
+
+    def _hand(land_ids, other_ids=()):                      # a hand zone of lands + non-lands, screen order asc
+        ids = sorted(land_ids) + sorted(other_ids)
+        return _apply({"type": "GameStateType_Full",
+                       "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                                  "objectInstanceIds": sorted(ids, reverse=True)}],
+                       "gameObjects": [{"instanceId": i, "grpId": i, "zoneId": 10, "ownerSeatId": 1,
+                                        "controllerSeatId": 1,
+                                        "cardTypes": ["CardType_Land"] if i in land_ids else ["CardType_Creature"]}
+                                       for i in ids]})
+    plays = lambda *ids: [Action(actionType="ActionType_Play", instanceId=i) for i in ids]
+    lname = {70: "Forest", 60: "Forest", 50: "Forest", 51: "Bravo", 52: "Charlie"}
+    olabel2, orec2 = cards.label, ocr.recognize_text
+    cards.label = handmod.cards.label = lambda g: lname.get(g, "?")
+    try:
+        # (1) a legal land legible at rest -> click it
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [("Forest", 0.40, 0.90)]
+        a = DryRunActuator(rect=rect, image=object())
+        ok = play_land(a, None, _hand({70}), 1, plays(70), 70)
+        check("play_land: clicks a land that's legible at rest", ok and len(a.clicks) == 2)
+
+        # (2) nothing identifiable, no detection -> hover-reveal sweeps but clicks NOTHING (shadow, no misclick)
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: []
+        a2 = DryRunActuator(rect=rect, image=object())
+        ok2 = play_land(a2, None, _hand({60}), 1, plays(60), 60)
+        check("play_land: shadows (no click) when it can't identify a land — never misclicks",
+              ok2 is False and a2.clicks == [] and len(a2.moves) > 0)
+
+        # (3) land occluded at rest but a hover REVEALS it -> clicks the hovered slot
+        seen = {"n": 0}
+        def reveal(image):
+            seen["n"] += 1
+            base = [("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]   # slots 1,2 legible; Forest(0) hidden
+            return base if seen["n"] == 1 else base + [("Forest", 770 / 1920, 0.90)]
+        ocr.recognize_text = handmod.ocr.recognize_text = reveal
+        a3 = DryRunActuator(rect=rect, image=object())
+        ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
+        check("play_land: hover-reveals an occluded land then clicks it (slot 0 ~ 770)",
+              ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
+
+        # land_play_options enumerates only the lands among the Play actions
+        from inthearena.mtga import land_play_options
+        v = _hand({50}, {51})
+        check("land_play_options keeps only land Plays",
+              land_play_options(v, plays(50, 51)) == [50])
+    finally:
+        cards.label = handmod.cards.label = olabel2
+        ocr.recognize_text = handmod.ocr.recognize_text = orec2
+
 
 def _execute_checks():
     """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""

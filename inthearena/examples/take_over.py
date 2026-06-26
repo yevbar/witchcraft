@@ -101,10 +101,11 @@ def _show(d, choice):
 
 def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
     """In a game: run the bot over the GRE decision stream. With an `actuator` it EXECUTES the mulligan (Keep/
-    Mulligan) and LAND drops (locate the chosen land in hand, play it); other in-game actions (cast/attack/
-    target) are decided + printed only (shadow) — that UI isn't mapped yet."""
+    Mulligan) and LAND drops (`play_land` — clicks only a positively-identified legal land, hover-revealing
+    occluded cards, and shadows rather than misclick); other in-game actions (cast/attack/target) are decided +
+    printed only (shadow) — that UI isn't mapped yet."""
     from inthearena.mtga import LiveState, click_mulligan
-    from inthearena.mtga.hand import play_hand_object
+    from inthearena.mtga.hand import play_land
     pol = AggroPolicy()
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
 
@@ -117,11 +118,14 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
             if click_mulligan(actuator, choice == "keep", rng=rng, locator=locator):
                 print(f"    -> executed: {choice}")
         elif d.kind == "actions" and choice is not None and choice.actionType == "ActionType_Play":
-            # a LAND drop — locate it in hand by its instanceId and play it (other actions stay shadow)
-            if play_hand_object(actuator, locator, d.view, d.seat, choice.instanceId):
+            # a LAND drop. play_land NEVER guesses a pixel: it clicks only a card whose on-screen name it
+            # positively read AND that is a legal land drop (hover-revealing occluded cards first); if it can't
+            # identify one it shadows. So the worst case is a missed drop, never the wrong card. (cast/attack/
+            # target stay shadow — that UI isn't mapped yet.)
+            if play_land(actuator, locator, d.view, d.seat, d.options, choice.instanceId):
                 print(f"    -> played a land: {describe(d, choice)}")
             else:
-                print("    -> couldn't locate the hand to play the land — shadowed")
+                print("    -> couldn't positively identify the land — shadowed (no misclick)")
 
     try:
         # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
