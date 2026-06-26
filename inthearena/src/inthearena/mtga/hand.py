@@ -14,7 +14,11 @@ specific GRE `instanceId` to one of these slots (by hand order) is the next step
 
 from __future__ import annotations
 
+import logging
+
 from .navigate import Rect
+
+_log = logging.getLogger(__name__)
 
 _HAND_BAND = 0.85          # a detection counts as a hand card only if its center is below this y-fraction…
 _HAND_X = (0.20, 0.78)     # …and within this central x-band (excludes the far-left avatar / far-right buttons)
@@ -96,15 +100,27 @@ def hand_order(view, seat: int) -> list:
 
 
 def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bool:
-    """Play the hand card with GRE `instance_id`: snapshot the hand (cursor at rest), map the card's zone-order
-    index to its on-screen slot, and play it. Only acts when the snapshot found EXACTLY as many cards as the
-    hand has (so the index→slot mapping is trustworthy); returns False otherwise (caller should shadow), so a
-    miscount never plays the wrong card."""
+    """Play the hand card with GRE `instance_id`: snapshot the hand (cursor at rest), find its slot, and play
+    it. The hand SIZE comes from the log (authoritative); vision gives the on-screen positions. When vision
+    found exactly that many cards, the zone-order index maps 1:1 to a detected slot. When it found a different
+    number (a wide 7-card fan overlaps, so detection misses/merges some), interpolate the slot across the
+    detected fan span instead — best-effort rather than abstaining. Returns False only if the card isn't in the
+    hand or nothing was detected."""
     order = hand_order(view, seat)
     if instance_id not in order:
+        _log.info("  hand: object %s not in the hand-zone order %s", instance_id, order)
         return False
+    idx, n = order.index(instance_id), len(order)
     points = snapshot_hand(actuator, locator)
-    if len(points) != len(order):          # snapshot didn't see exactly the hand -> don't risk a wrong card
+    _log.info("  hand: log=%d cards, snapshot found %d; want slot %d (instance %s)", n, len(points), idx, instance_id)
+    if not points:
         return False
-    play_card(actuator, points[order.index(instance_id)])
+    if len(points) == n:
+        pt = points[idx]                   # exact: detected count matches the hand -> direct slot
+    else:                                  # overlapping fan -> interpolate the slot across the detected span
+        xs = sorted(p[0] for p in points)
+        y = sum(p[1] for p in points) // len(points)
+        pt = (int(xs[0] + (idx + 0.5) * (xs[-1] - xs[0]) / max(n, 1)), y)
+        _log.info("  hand: count mismatch -> interpolated slot %d to %s (approximate)", idx, pt)
+    play_card(actuator, pt)
     return True

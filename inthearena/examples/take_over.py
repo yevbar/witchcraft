@@ -121,7 +121,7 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
             if play_hand_object(actuator, locator, d.view, d.seat, choice.instanceId):
                 print(f"    -> played a land: {describe(d, choice)}")
             else:
-                print("    -> couldn't place the land in hand (snapshot/hand-size mismatch) — shadowed")
+                print("    -> couldn't locate the hand to play the land — shadowed")
 
     try:
         # the mulligan we just navigated into was likely logged BEFORE we started tailing, so handle the

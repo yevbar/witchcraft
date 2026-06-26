@@ -35,10 +35,10 @@ def main(argv) -> int:
 
     print(f"view: {latest_view()}")
     gv = latest_game_view()
-    if gv is not None:
-        seats = gv.seats()
-        me = seats[0] if seats else None
-        print(f"hand size from the log: {len(gv.hand(me)) if me is not None else '?'}")
+    if gv is not None and gv.seats():
+        # the LOCAL player's hand is the visible one — the opponent's hand objects are hidden (so it reads as 0)
+        me = max(gv.seats(), key=lambda s: len(gv.hand(s)))
+        print(f"local seat (visible hand): {me}; hand size from the log: {len(gv.hand(me))}")
 
     # build the live actuator + window-scoped vision locator (reuse take_over's builder)
     sys.path.insert(0, "examples")
