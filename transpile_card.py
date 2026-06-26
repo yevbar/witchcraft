@@ -1704,8 +1704,12 @@ def _mana_rider(unit, ctx):
 # descriptor is recorded as a faithful slug (like _cant/_restriction subjects) — it names WHICH
 # permanents, not a new mechanic; the grounded part is the verb (modify_pt / grant_keyword).
 _SUBJ = (
+    # a subject NP never STARTS with a leading-condition word; without this guard the comma-list branch
+    # bridges a 'If <cond>, <subject>' clause into the subject ('If you're on the Mirran team, creatures
+    # you control' — the comma after 'team' joins the condition to the subject NP).
+    r"(?!(?:if|when|whenever|while|unless|during|otherwise)\b)"
     r"(?:~|enchanted \w+|equipped \w+|"
-    r"(?:other |another |all |each )?[\w'-]+(?: [\w'-]+){0,4}? "
+    r"(?:other |another |all |each )?[\w'-]+(?:,? [\w'-]+){0,6}? "   # a comma-separated TYPE LIST is allowed
         r"(?:you control|you own|your opponents control|an opponent controls|they control|your team controls|a player controls|each player controls)"
         r"(?: (?:with|of|that are|that have|named|without|other than) [\w'+/{}., -]+?)?|"
     r"(?:other |all )?[\w'-]+ (?:creatures?|permanents?|tokens?)|"
