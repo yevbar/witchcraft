@@ -104,9 +104,12 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
     mulligan (Keep/Mulligan), land drops and spell CASTS (read the card by name in hand, never misclick), and
     object-free combat (All Attack / No Blocks / pass via the bottom-right button). Spell TARGETS on the
     battlefield aren't wired yet, so a targeted spell is cast but its target is shadowed (the user picks it)."""
-    from inthearena.mtga import GameExecutor, LiveState
+    from inthearena.mtga import BoardLocator, GameExecutor, LiveState
     pol = policy or AggroPolicy()
-    execu = GameExecutor(actuator, locator=locator, rng=rng) if actuator is not None else None
+    # the board ObjectLocator (find a permanent by its name via OCR) lets the executor enact moves that touch
+    # battlefield objects — declare a SUBSET of attackers, click a target — not just the object-free buttons.
+    execu = (GameExecutor(actuator, object_locator=BoardLocator(actuator), locator=locator, rng=rng)
+             if actuator is not None else None)
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
     picked: dict = {}            # instanceId -> times we've chosen it THIS turn (anti-fixation)
     turn_no = [None]

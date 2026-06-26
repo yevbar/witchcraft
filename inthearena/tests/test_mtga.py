@@ -1009,6 +1009,51 @@ def _execute_checks():
     r6 = GameExecutor(a6, locator=AdvLoc()).execute(dec_mull, "keep")
     check("execute: mulligan keep -> clicks (via click_mulligan)", r6.done and bool(a6.clicks))
 
+    # WITH a board ObjectLocator: board-object moves are enacted (no longer shadowed)
+    class BoardStub:                                        # returns a point per instanceId
+        def locate(self, instance_id, view, image=None):
+            return (300 + instance_id, 500)
+
+    qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
+    dec_atk2 = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
+    a7 = DryRunActuator(rect=rect, image=object())
+    r7 = GameExecutor(a7, object_locator=BoardStub(), locator=AdvLoc()).execute(
+        dec_atk2, [{"attackerInstanceId": 11}, {"attackerInstanceId": 12}])     # a SUBSET (not all 3)
+    check("execute: subset attack clicks each chosen attacker + confirms (board locator)",
+          r7.done and len(a7.clicks) == 3)                 # 2 attackers + 1 confirm
+    a8 = DryRunActuator(rect=rect, image=object())
+    r8 = GameExecutor(a8, object_locator=BoardStub(), locator=AdvLoc()).execute(dec_tgt, {"instanceId": 7})
+    check("execute: target clicks the located board object", r8.done and len(a8.clicks) == 1)
+
+
+def _board_checks():
+    """BoardLocator finds a battlefield permanent's screen point by OCR-matching its card name (the board
+    analogue of the hand locator) — the ObjectLocator the executor uses for attackers/targets/taps."""
+    from inthearena.mtga import DryRunActuator, Rect, BoardLocator, locate_named_permanents
+    from inthearena.mtga import board as boardmod
+    rect = Rect(0, 0, 1920, 1080)
+    o_ocr, o_label = boardmod.ocr.recognize_text, boardmod.cards.label
+    boardmod.ocr.recognize_text = lambda image: [
+        ("Lifecreed Duo", 0.43, 0.49), ("Oasis Gardener", 0.76, 0.49),   # our battlefield
+        ("Opposing Bear", 0.50, 0.30),                                   # opponent's band
+        ("A Hand Card", 0.40, 0.90)]                                     # hand band -> excluded
+    boardmod.cards.label = lambda g: {77: "Lifecreed Duo"}.get(g, "?")
+    try:
+        mine = locate_named_permanents(object(), rect, y_band=(0.42, 0.66))
+        check("locate_named_permanents keeps only the band, left-to-right",
+              [n for n, _, _ in mine] == ["Lifecreed Duo", "Oasis Gardener"])
+        check("locate_named_permanents returns screen coords", mine[0][1] == int(0.43 * 1920))
+        view = _apply({"type": "GameStateType_Full",
+                       "zones": [{"zoneId": 20, "type": "ZoneType_Battlefield"}],
+                       "gameObjects": [{"instanceId": 77, "grpId": 77, "zoneId": 20, "controllerSeatId": 1,
+                                        "cardTypes": ["CardType_Creature"]}]})
+        a = DryRunActuator(rect=rect, image=object())
+        pt = BoardLocator(a, me=1).locate(77, view)         # our permanent -> lower band
+        check("BoardLocator locates a permanent by name", pt == (int(0.43 * 1920), int(0.49 * 1080)))
+        check("BoardLocator parks the cursor at rest before snapping (no hover-distortion)", bool(a.moves))
+    finally:
+        boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
+
 
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
@@ -1100,6 +1145,7 @@ def run():
     _hand_checks()
     _engine_policy_checks()
     _execute_checks()
+    _board_checks()
 
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:

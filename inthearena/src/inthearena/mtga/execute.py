@@ -50,11 +50,11 @@ class ExecResult:
 
 
 class ObjectLocator(Protocol):
-    """Find where a GRE game object (a card in hand, a permanent on the battlefield) is drawn on screen. THE
-    seam: an implementation maps the object's place in its zone (hand slot index, battlefield row/col) to a
-    pixel box, from a screenshot + the typed `GameView`. Returns None if it can't place the object."""
+    """Find where a GRE game object (a permanent on the battlefield) is drawn on screen. THE seam for board
+    moves: an implementation maps an `instanceId` to a click POINT (x, y) — `board.BoardLocator` does it by
+    OCR-matching the card's name. Returns None if it can't place the object."""
 
-    def locate(self, instance_id: int, view, image) -> Optional[Rect]:
+    def locate(self, instance_id: int, view, image=None):
         ...
 
 
@@ -124,7 +124,8 @@ class GameExecutor:
 
     def _do_attackers(self, decision, choice) -> ExecResult:
         # choice is a list of {attackerInstanceId, target}. Attacking with EVERY qualified attacker is exactly
-        # the 'All Attack' button, no per-creature clicking. A partial attack would need board targeting.
+        # the 'All Attack' button (no per-creature clicking). A SUBSET — what a heuristic bot declares — clicks
+        # each chosen creature on the board (via the ObjectLocator), then confirms.
         if not choice:
             return self._advance("no attacks", _NO_ATTACKS)
         chosen = {(c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None))
@@ -132,11 +133,35 @@ class GameExecutor:
         qualified = {getattr(a, "attackerInstanceId", None) for a in (decision.options or [])}
         if qualified and chosen >= qualified:
             return self._advance("all attack", _ALL_ATTACK)   # 'All Attack' = every qualified attacker
-        return ExecResult(False, "partial attack not wired (needs board targeting)")
+        if self._objs is None:
+            return ExecResult(False, "partial attack needs a board ObjectLocator")
+        for inst in chosen:
+            res = self._click_object(inst, decision.view, "attacker")   # click the creature -> declares it
+            if not res.done:
+                return res
+        return self._advance("declared attackers", _ADVANCE)            # confirm the partial attack
 
     def _do_targets(self, decision, choice) -> ExecResult:
-        # Choosing a spell/ability's target means clicking a permanent/player on the battlefield — the unwired
-        # ObjectLocator seam. Shadow for now (the spell is already cast; the user can pick the target).
+        # Choosing a spell/ability's target = clicking a permanent/player on the battlefield (ObjectLocator).
         if not choice:
             return self._advance("no target")
-        return ExecResult(False, "target selection not wired (needs board targeting)")
+        inst = getattr(choice, "instanceId", None)
+        if inst is None and isinstance(choice, dict):
+            inst = choice.get("instanceId")
+        if inst is None:
+            return ExecResult(False, "target has no instanceId")
+        return self._click_object(inst, decision.view, "target")
+
+    # ── board objects (the ObjectLocator seam) ─────────────────────────────────────────────────────────────
+    def _click_object(self, instance_id, view, what: str) -> ExecResult:
+        """Click the on-screen battlefield permanent for `instance_id`, located by the ObjectLocator (by name)."""
+        if instance_id is None:
+            return ExecResult(False, f"{what}: no instanceId")
+        if self._objs is None:
+            return ExecResult(False, f"{what}: no board ObjectLocator")
+        pt = self._objs.locate(instance_id, view)
+        if pt is None:
+            return ExecResult(False, f"{what}: object {instance_id} not located on the board")
+        self._act.hover(*pt)                               # focus + IOHID so the client registers the cursor…
+        self._act.click()                                  # …then click the permanent
+        return ExecResult(True, f"clicked {what} (object {instance_id})")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from . import cards
 from .engine import build_state, suggest, to_game
+from .board import BoardLocator, locate_named_permanents
 from .execute import ExecResult, GameExecutor, ObjectLocator
 from .hand import (
     capture_hand,
@@ -103,7 +104,7 @@ __all__ = [
     "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu", "click_mulligan",
     "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
-    "GameExecutor", "ObjectLocator", "ExecResult",
+    "GameExecutor", "ObjectLocator", "ExecResult", "BoardLocator", "locate_named_permanents",
     "snapshot_hand", "capture_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
     "hand_order", "hand_screen_order", "hand_members", "play_hand_object",
     "play_land", "play_hand_card", "land_play_options", "on_mulligan_screen",
