@@ -232,6 +232,15 @@ def _name_anchors(view, seat: int, screen: list, named: list) -> list:
     return sorted(anchors.values())
 
 
+def order_inversions(anchors: list) -> int:
+    """Validation oracle for the screen-order rule. `anchors` are (slot, x, y) for legible cards, slot-ascending
+    (slot = rank in the log's ascending-instanceId order). Returns the number of pairs whose on-screen x
+    CONTRADICTS that slot order. 0 ⇒ ascending-instanceId == on-screen left-to-right (the rule holds, so mulligan
+    OCR isn't needed); >0 ⇒ the index rule is wrong on this frame and the order must come from elsewhere."""
+    xs = [a[1] for a in anchors]
+    return sum(xs[j] < xs[i] for i in range(len(xs)) for j in range(i + 1, len(xs)))
+
+
 def _predict_slot(anchors: list, target_idx: int):
     """Predict (x, y) of slot `target_idx` from calibration `anchors` (sorted (idx, x, y)). Piecewise-LOCAL
     linear interp/extrapolation — the fan is an arc, so a global fit skews on the (jutting) end cards; use the
@@ -282,6 +291,18 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
     _log.info("  hand: want %r (slot %d/%d); OCR read %s",
               target_name, idx, n, [t[0] for t in named])
 
+    # VALIDATE (passive, no behaviour change): the legible names give the GROUND-TRUTH screen order (their x's);
+    # `screen` gives the LOG's predicted order (ascending instanceId). If the rule holds, the anchors' x's rise
+    # monotonically with their slot index. Any inversion means ascending-instanceId ≠ on-screen order — i.e. the
+    # index rule is wrong and we'd need another order source (e.g. mulligan-screen OCR). Grep 'VALIDATE order'.
+    anchors = _name_anchors(view, seat, screen, named)
+    if len(anchors) >= 2:
+        inv = order_inversions(anchors)
+        _log.info("  hand VALIDATE order: %d legible anchors slots=%s x=%s -> %s (%d inversion%s)",
+                  len(anchors), [a[0] for a in anchors], [a[1] for a in anchors],
+                  "OK (instanceId order == screen x order)" if inv == 0 else "MISMATCH — index rule broke here",
+                  inv, "" if inv == 1 else "s")
+
     # PRIMARY: the target's own name is legible -> click it (any copy of a duplicate land is fine).
     if target_name:
         hit = match_named_card(target_name, named)
@@ -292,7 +313,6 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
 
     # ANCHORED: the target is occluded, but other names ARE legible. Pin those names to their slots (we know the
     # left-to-right order from the log) and predict the target slot's pixel position from them.
-    anchors = _name_anchors(view, seat, screen, named)
     if anchors:
         pt = _predict_slot(anchors, idx)
         if pt is not None:

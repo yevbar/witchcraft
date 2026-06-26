@@ -788,6 +788,14 @@ def _hand_checks():
         cards.label = handmod.cards.label = olabel
         ocr.recognize_text = handmod.ocr.recognize_text = orec
 
+    # order-validation oracle: anchors slot-ascending with rising x -> rule holds (0 inversions); an x that
+    # contradicts the slot order -> inversion flagged (this is what a live MISMATCH would catch).
+    from inthearena.mtga import order_inversions
+    check("order_inversions: x rising with slot -> rule holds (0)",
+          order_inversions([(0, 700, 990), (1, 830, 990), (2, 960, 990)]) == 0)
+    check("order_inversions: an out-of-order x flags the index/screen mismatch",
+          order_inversions([(0, 700, 990), (1, 960, 990), (2, 830, 990)]) == 1)
+
 
 def _execute_checks():
     """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""

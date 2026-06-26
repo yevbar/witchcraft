@@ -25,6 +25,7 @@ from .hand import (
     locate_hand_cards,
     locate_named_cards,
     match_named_card,
+    order_inversions,
     play_card,
     play_hand_object,
     rest_point,
@@ -100,5 +101,5 @@ __all__ = [
     "GameExecutor", "ObjectLocator", "ExecResult",
     "snapshot_hand", "capture_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
     "hand_order", "hand_screen_order", "hand_members", "play_hand_object",
-    "locate_named_cards", "match_named_card",
+    "locate_named_cards", "match_named_card", "order_inversions",
 ]
