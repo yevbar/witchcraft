@@ -127,17 +127,20 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
             picked.clear()
         choice = pol.decide(d)
         inst = getattr(choice, "instanceId", None)
-        # ANTI-FIXATION: if we've already picked this card a couple of times and the GRE keeps re-offering it, it
-        # isn't going down (can't locate it / can't pay / needs a step we don't do). Skip it AND anything else
-        # we've given up on this turn, and take the next playable option — so one stuck card (e.g. Angel of
-        # Vitality) doesn't block the ones we CAN play (e.g. Lifecreed Duo).
-        if d.kind == "actions" and inst is not None and picked.get(inst, 0) >= _FIXATED:
+        at = getattr(choice, "actionType", None)
+        # ANTI-FIXATION — for SPELLS/abilities only, NEVER a land. A land drop must always be retried until it
+        # lands (it's always playable; a slow grab can just get the priority re-asked). But an UNAFFORDABLE cast
+        # the GRE keeps offering (Angel of Vitality at 3 mana with 2 available) will never go down — so once it's
+        # been tried a couple times, give up on it this turn and take the next playable option (Lifecreed Duo),
+        # so one stuck card doesn't block the ones we CAN play.
+        spellish = at in ("ActionType_Cast", "ActionType_Activate")
+        if d.kind == "actions" and spellish and inst is not None and picked.get(inst, 0) >= _FIXATED:
             alt = next_playable(d, {i for i, c in picked.items() if c >= _FIXATED})
             if alt is not None and getattr(alt, "instanceId", None) != inst:
                 print(f"    -> stuck on inst {inst} this turn; trying instead: {describe(d, alt)}")
-                choice, inst = alt, getattr(alt, "instanceId", None)
-        if d.kind == "actions" and inst is not None:
-            picked[inst] = picked.get(inst, 0) + 1
+                choice, inst, at = alt, getattr(alt, "instanceId", None), getattr(alt, "actionType", None)
+        if d.kind == "actions" and at in ("ActionType_Cast", "ActionType_Activate") and inst is not None:
+            picked[inst] = picked.get(inst, 0) + 1          # only spells/abilities count toward fixation
         _show(d, choice)
         if execu is None:
             return
