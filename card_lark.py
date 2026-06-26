@@ -547,8 +547,12 @@ endurenum: WORD | NUM | QUANT                                                // 
 // shared `_bare_action` bare-form + `_subject_action` subject-form leaves, for these distinctive verbs).
 // KVINTRANS terminal + optional leading subject SPAN -> <verb>(-, _target(subject|you)); the 3rd-person
 // 's' is stripped to the keyword-action base exactly as `_subject_action` does. FLIP-ONLY (catch-alls stay).
-kviclause.-2: kvisubj? KVINTRANS              -> kvintrans
+kviclause.-2: kvisubj? KVINTRANS KVIMULT?     -> kvintrans
 kvisubj: (WORD | QUANT | NUM)+                                               // optional actor (validated _TGT)
+// optional repeat multiplier on an intransitive keyword action — 'investigate twice', 'connive three times'
+// -> the count lands in the amount slot (parallels 'scry N'/'amass N'). The negative lookahead keeps it off
+// 'twice that many' (an anaphoric AMOUNT, owned by _that_amt), so this can't steal that token.
+KVIMULT.5: /\b(?:once|twice|thrice|(?:three|four|five|six|seven|eight|nine|ten|[0-9]+) times)\b(?! that)/
 
 // EXCHANGE (§701.10) — 'exchange <object>' (the generic object-verb leaf; exchange IS in `_OBJ_VERBS`, so
 // like `dbl`/double it grounds via the slug leaf). The EXACT mirror of `dbl`: slice the object from src
@@ -4284,6 +4288,7 @@ class _ToEffect(Transformer):
         # as `_subject_action` does (slug as-is if a keyword action, else strip trailing 's'). Subject _TGT or abstain.
         tok = next((str(a) for a in args if getattr(a, "type", None) == "KVINTRANS"), None)
         subj = next((a for a in args if isinstance(a, _KviSubj)), None)
+        mult = next((str(a) for a in args if getattr(a, "type", None) == "KVIMULT"), None)
         if tok is None:
             return None
         v = ground.slug(tok)
@@ -4293,7 +4298,17 @@ class _ToEffect(Transformer):
                 return None
         if subj is not None and not _AT_TGT.match(str(subj).strip()):
             return None
-        return Effect(v, "-", _target(str(subj).strip()) if subj is not None else "you")
+        # repeat multiplier ('investigate twice' -> amount 2) — count in the amount slot, like scry/amass N.
+        amt = "-"
+        if mult is not None:
+            m = mult.strip().lower()
+            if m in ("once", "twice", "thrice"):
+                amt = {"once": 1, "twice": 2, "thrice": 3}[m]
+            elif m.endswith(" times"):
+                amt = _amount(m[:-len(" times")].strip())
+            if not isinstance(amt, int):
+                return None
+        return Effect(v, amt, _target(str(subj).strip()) if subj is not None else "you")
 
     # --- EXCHANGE (§701.10) ---------------------------------------------------
     def excbody(self, *toks):
