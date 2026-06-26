@@ -1812,17 +1812,30 @@ def _enters_tapped_others(unit, ctx):
     """'<types> [your opponents control] enter [the battlefield] tapped.' — a §614 static that taps a
     class of OTHER permanents as they enter (Kismet / Frozen Aether / Imposing Sovereign family). The
     affected class + scope is a faithful descriptive slug; emitted card-level since it's not on ~ itself."""
-    m = re.match(r"^((?:[A-Za-z]+, )*(?:[A-Za-z]+,? and )?[A-Za-z]+)"
-                 r"( your opponents control| an opponent controls| you control)? "
+    # the affected class may be a multi-WORD type phrase ('Nonbasic lands', 'Snow lands') and/or a
+    # comma/and list of such phrases ('Creatures and nonbasic lands'); each terminal type token allows one
+    # optional leading qualifier word. Scope adds the 'played by your opponents' / 'enchanted player controls'
+    # forms alongside the existing control phrasings.
+    m = re.match(r"^((?:[A-Za-z]+(?: [A-Za-z]+)?, )*(?:[A-Za-z]+(?: [A-Za-z]+)?,? and )?[A-Za-z]+(?: [A-Za-z]+)?)"
+                 r"( your opponents control| an opponent controls| you control"
+                 r"| played by your opponents| enchanted player controls)? "
                  r"enters?(?: the battlefield)? (tapped|untapped)\.?$",
                  unit.raw, re.I)
     if not m:
+        return None
+    # reject a Title-Case proper NAME ('Bretagard Stronghold' — an un-masked self-land whose short name the
+    # corpus left in place), distinguished from a type phrase ('Nonbasic lands') by an UPPERCASE non-initial
+    # word: a type phrase always has a lowercase head noun ('lands'/'creatures'), a name is Title Case. Without
+    # this, the multi-word subject would mis-ground a self-ETB as a static about a 'type'.
+    words = m.group(1).split()
+    if len(words) > 1 and any(w[:1].isupper() for w in words[1:] if w.lower() != "and"):
         return None
     types = ground.slug(m.group(1))
     if types in ("it", "they", "this", "that"):            # ~/it ETB is _etb_tapped's job, not this
         return None
     scope = {" your opponents control": "opponents_", " an opponent controls": "opponents_",
-             " you control": "you_", None: ""}[m.group(2)]
+             " you control": "you_", " played by your opponents": "opponents_",
+             " enchanted player controls": "enchanted_player_", None: ""}[m.group(2)]
     cid = ctx["id"]
     return CardOut(cid, [f'static("{cid}", "{scope}{types}_enter_{m.group(3).lower()}")'], "static")
 
