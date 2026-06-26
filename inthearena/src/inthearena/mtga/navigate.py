@@ -213,8 +213,11 @@ class Actuator(Protocol):
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         ...
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing."""
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
+        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing. `curve`/`wobble`
+        override the glide's arc/tremor — pass 0 for a STRAIGHT, steady approach (e.g. dropping onto a card so
+        the path doesn't circle it or sweep its neighbours)."""
         ...
 
     def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
@@ -279,11 +282,13 @@ class DryRunActuator:
     def wait(self, seconds: float) -> None:
         self.waits.append(seconds)
 
-    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+    def move(self, x: int, y: int, *, duration: Optional[float] = None,
+             curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         total = self.duration if duration is None else duration
         for pt, dur in jittered_segments(self.pos, (x, y), steps=self.steps, total_duration=total,
-                                         jitter=self.jitter, rng=self._rng, wobble=self.wobble,
-                                         curve=self.curve):
+                                         jitter=self.jitter, rng=self._rng,
+                                         wobble=self.wobble if wobble is None else wobble,
+                                         curve=self.curve if curve is None else curve):
             self.moves.append((self.pos, pt, round(dur, 4)))   # one wobbled, speed-jittered sub-segment
             self.pos = pt
 
@@ -303,8 +308,9 @@ class DryRunActuator:
         self.move(x, y, duration=duration)
         self.click()
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        self.move(x, y, duration=duration)   # (live actuator also focuses + IOHID-moves so the client registers it)
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration, curve=curve, wobble=wobble)   # (live actuator also focuses + IOHID-moves)
 
 
 class PyAutoGuiActuator:
@@ -351,25 +357,29 @@ class PyAutoGuiActuator:
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)
 
-    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+    def move(self, x: int, y: int, *, duration: Optional[float] = None,
+             curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         total = self._duration if duration is None else duration
         cur = self._pg.position()
         # travel a->b as wobbled, speed-jittered sub-segments so the real cursor neither runs dead straight
-        # nor moves at a constant speed
+        # nor moves at a constant speed (curve/wobble can be overridden to 0 for a straight, precise approach)
         for (px, py), dur in jittered_segments((cur[0], cur[1]), (x, y), steps=self._steps,
                                                total_duration=total, jitter=self._jitter, rng=self._rng,
-                                               wobble=self._wobble, curve=self._curve):
+                                               wobble=self._wobble if wobble is None else wobble,
+                                               curve=self._curve if curve is None else curve):
             if self._tween is not None:
                 self._pg.moveTo(px, py, duration=dur, tween=self._tween)
             else:
                 self._pg.moveTo(px, py, duration=dur)
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         """Move the cursor to (x, y) so the CLIENT registers it (e.g. a hand card magnifies): focus the app
         (AppleScript) + human glide + a real IOHIDPostEvent motion — the same recipe as click() minus the press
-        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers)."""
+        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers).
+        `curve`/`wobble`=0 give a straight, steady approach (don't circle/sweep a card you're dropping onto)."""
         self._focus()                                      # AppleScript: bring Arena frontmost
-        self.move(x, y, duration=duration)                 # human-like glide (the visible OS cursor)
+        self.move(x, y, duration=duration, curve=curve, wobble=wobble)   # human-like glide (the visible OS cursor)
         if self._hid_move:
             try:
                 from .macos import iohid_move

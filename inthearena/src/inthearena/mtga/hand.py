@@ -176,12 +176,26 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
         hover_card(actuator, p, dwell=dwell)
 
 
-def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0) -> None:
-    """Play the hand card at `point`: hover onto it (AppleScript-focus Arena + glide + IOHID so the card lifts),
-    then a FAST double-click. The two taps must land in quick succession: `double_click` focuses + IOHID-moves
-    ONCE and fires both presses back-to-back (~15ms apart), so MTGA reads a real double-click. (The earlier
-    two-`click` version re-ran the AppleScript focus between the taps — ~200ms+ — so they never registered.)"""
-    actuator.hover(*point)
+_CARD_BODY_DROP = 28       # px below the OCR'd name banner — aim into the card BODY, a stickier hitbox than the edge
+_CARD_APPROACH = 70        # px above the body target to line up for a straight vertical descent onto the card
+
+
+def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
+              body_drop: int = _CARD_BODY_DROP, approach: int = _CARD_APPROACH) -> None:
+    """Play the hand card whose NAME banner is at `point`. The approach matters as much as the target:
+
+      • aim a little BELOW the name into the card BODY (`body_drop`) — the top-edge banner is a poor hitbox, and
+        the body is what stays under the cursor as the card magnifies;
+      • come straight DOWN onto it: first move to a point directly ABOVE the card (`approach`) with NO arc/wobble,
+        then descend straight in. A curved, wobbling glide circles the card and sweeps its neighbours (magnifying/
+        shifting the fan) instead of settling in the hitbox;
+      • then a FAST double-click (`double_click` focuses + IOHID-moves once, both taps ~15ms apart) so MTGA reads
+        a real double-click and plays the card.
+    """
+    x, y = point
+    target = (x, y + body_drop)
+    actuator.hover(x, target[1] - approach, curve=0.0, wobble=0.0)   # straight to just above the card (board level)
+    actuator.hover(*target, curve=0.0, wobble=0.0)                   # straight DOWN into the body
     actuator.double_click(hold=hold, gap=gap)
 
 

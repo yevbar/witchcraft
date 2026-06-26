@@ -698,6 +698,12 @@ def _hand_checks():
     check("play_card uses QUICK taps (hold ~0) so MTGA reads a tap-to-play, not a grab-to-drag",
           all(args[0] == 0.0 for args in a3b.click_args) and a3b.waits and max(a3b.waits) <= 0.05)
 
+    from inthearena.mtga.hand import _CARD_BODY_DROP
+    a3c = DryRunActuator(rect=rect)
+    play_card(a3c, (900, 1000))
+    check("play_card descends straight onto the card body (x kept, y dropped below the name banner)",
+          a3c.clicks and a3c.clicks[0] == (900, 1000 + _CARD_BODY_DROP))
+
     # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
     # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which
     # lists the hand newest-first. So a descending zone list must come back ascending.
