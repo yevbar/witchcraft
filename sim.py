@@ -87,6 +87,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("cant", set()).add((a[1], a[2]))  # (who, action) — e.g. (self, be_countered)
         elif rel == "enters_with_counters":                  # §122 ETB replacement: the permanent enters with N
             db.setdefault(a[0], {})["enters_with_counters"] = (a[1], a[2])  # counters of a kind — (kind, amount)
+        elif rel == "card_enters_tapped":                    # §614 ETB replacement: this permanent enters tapped
+            db.setdefault(a[0], {})["enters_tapped"] = a[1]  # cond ('-' = always; else 'unless_X' / 'if_X')
     _DB_CACHE.clear()                                    # keep only the latest signature's parse
     _DB_CACHE[key] = db
     return db

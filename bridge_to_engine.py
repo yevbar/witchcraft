@@ -2074,6 +2074,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("repl_enters_with_counter", (tid, tid, _ek, _n))  # replacement input (engine derives counter + P/T)
         else:                                                 # a dynamic count ('X' / 'equal to …') or a kind the engine
             dropped.append(("enters_with_counters", (_kind, _amt)))  # can't apply to P/T -> faithful abstain
+    etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
+    if etap is not None:
+        if etap == "-":                                       # unconditional -> the engine's repl_enters_tapped input
+            add("repl_enters_tapped", (tid, tid))             # (-> enters_tapped, which the driver applies)
+        else:                                                 # 'unless <cond>' / 'if <cond>' — the engine can't gate the
+            dropped.append(("enters_tapped", etap))           # replacement on a slug condition -> faithful abstain
     for (who, action) in f.get("cant", ()):                   # §509 static restrictions 'X can't <action>' — card-level
         add("cant", (facts, who, action))                     # (set-deduped). The engine consumes the SELF combat forms
         #                                                       (block / be_blocked) via illegal_block (translate.dl).
