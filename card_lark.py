@@ -72,7 +72,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | alltclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause | endureclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause | endureclause | exdmgclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -448,6 +448,11 @@ rdclause.-2: rdpre DMG rda RDIS rdb          -> redirect
 rdpre: (WORD | QUANT | NUM)+                                                 // 'the next <N>' | 'all [combat]'
 rda: (WORD | QUANT | NUM | TOPREP | FROM | MDUR)+                            // 'that would be dealt to <A> [this turn] [by <src>]'
 rdb: (WORD | QUANT | NUM)+                                                   // '<B> [instead]'
+// EXCESS damage redirect (§120.4 'excess damage' / trample-to-controller) — 'Excess damage is dealt to <B>
+// [instead]', the overflow beyond a creature's lethal damage spilling to <B>. NO source-side <A> (it's the
+// prior sentence's damaged target), so this is a DISJOINT production from rdclause; the EXCESS terminal +
+// the shared RDIS split carve it. -> redirect_damage(excess, _target(B)).
+exdmgclause.-2: EXCESS RDIS rdb              -> excess_redirect    // EXCESS = 'excess damage' bigram
 
 // SKIP (§500.7+) — '[<player>] skip[s] (your|its|their|his or her) [next] <phase/step|turn>' (the `_skip`
 // template). The distinctive SKIP terminal splits an optional leading subject SPAN (a player, validated
@@ -877,6 +882,7 @@ TF_TRANSFORM.3: /\btransform\b/       // 'transform' — the §701.28 transform 
 MF_MANIFEST.3: /\bmanifest\b/         // 'manifest' — the §701.34 manifest keyword action (manifest family; namespaced)
 PHASE.4: /\bphases? (?:out|in)\b/     // '<X> phase[s] out/in' — §702.26 phasing (phase_out/phase_in; the 'out'/'in' is bound to 'phase' so a lone in/out is never stolen)
 RDIS.5: /\bis dealt to\b/             // '… is dealt to <B>' — the §614.9 redirect split (distinct from the source-side 'would be dealt to')
+EXCESS.6: /\bexcess damage\b/         // §120.4 'excess damage' redirect anchor (whole bigram so it can't steal a bare 'excess')
 SKIP.4: /\bskips?\b/                  // '[<player>] skip[s] …' — §500.7 skip-a-step/phase/turn (skip family; namespaced)
 AMASS.4: /\bamass\b/                  // 'amass <type> <N>' — §701.43 amass keyword action (amass family; namespaced; rare word, low collision)
 CP_COPY.3: /\bcopy\b/                 // 'copy <object>' — §707 copy verb (copy family; namespaced; leading imperative, mirrors DB_DOUBLE)
@@ -3996,6 +4002,17 @@ class _ToEffect(Transformer):
 
     def rdb(self, *toks):
         return _RdB(" ".join(str(t) for t in toks))
+
+    def excess_redirect(self, *args):
+        # 'Excess damage is dealt to <B> [instead]' (§120.4) — the overflow past a creature's lethal damage
+        # spills to <B>; no source-side <A> (it's the prior sentence's target). redirect_damage(excess, B).
+        rdb = next((str(a) for a in args if isinstance(a, _RdB)), None)
+        if rdb is None:
+            return None
+        bm = _RD_B.match(rdb.strip())
+        if not bm:
+            return None
+        return Effect("redirect_damage", "excess", _target(bm.group(1)))
 
     def redirect(self, *args):
         # '<amount> damage that would be dealt to <A> … is dealt to <B> [instead]' — the EXACT `_redirect`
