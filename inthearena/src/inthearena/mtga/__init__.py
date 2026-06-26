@@ -17,9 +17,11 @@ from . import cards
 from .engine import build_state, suggest, to_game
 from .execute import ExecResult, GameExecutor, ObjectLocator
 from .hand import (
+    hand_order,
     hover_card,
     locate_hand_cards,
     play_card,
+    play_hand_object,
     rest_point,
     snapshot_hand,
     sweep_hand,
@@ -92,4 +94,5 @@ __all__ = [
     "find_mtga_window", "display_scale", "capture_rect",
     "GameExecutor", "ObjectLocator", "ExecResult",
     "snapshot_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
+    "hand_order", "play_hand_object",
 ]

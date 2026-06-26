@@ -82,3 +82,29 @@ def play_card(actuator, point: tuple, *, gap: float = 0.1) -> None:
     actuator.click()
     actuator.wait(gap)
     actuator.click()
+
+
+def hand_order(view, seat: int) -> list:
+    """The instanceIds of `seat`'s hand in LEFT-TO-RIGHT order — the authoritative hand-zone `objectInstanceIds`
+    (which is how MTGA renders the fan); falls back to the GameView hand object order if the zone isn't known."""
+    for z in view.zones.values():
+        if getattr(z, "type", None) == "ZoneType_Hand" and getattr(z, "ownerSeatId", None) == seat:
+            ids = list(z.objectInstanceIds or [])
+            if ids:
+                return ids
+    return [o.instanceId for o in view.hand(seat)]
+
+
+def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bool:
+    """Play the hand card with GRE `instance_id`: snapshot the hand (cursor at rest), map the card's zone-order
+    index to its on-screen slot, and play it. Only acts when the snapshot found EXACTLY as many cards as the
+    hand has (so the index→slot mapping is trustworthy); returns False otherwise (caller should shadow), so a
+    miscount never plays the wrong card."""
+    order = hand_order(view, seat)
+    if instance_id not in order:
+        return False
+    points = snapshot_hand(actuator, locator)
+    if len(points) != len(order):          # snapshot didn't see exactly the hand -> don't risk a wrong card
+        return False
+    play_card(actuator, points[order.index(instance_id)])
+    return True

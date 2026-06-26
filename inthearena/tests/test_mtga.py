@@ -693,6 +693,32 @@ def _hand_checks():
     play_card(a3, pts[0], gap=0.1)
     check("play_card = click, wait ~0.1s, click (2 clicks + a gap wait)", len(a3.clicks) == 2 and 0.1 in a3.waits)
 
+    # play_hand_object: map a chosen instanceId -> its hand slot (zone order) and play it
+    from inthearena.mtga import hand_order, play_hand_object
+    view = _apply({"type": "GameStateType_Full",
+                   "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                              "objectInstanceIds": [100, 101, 102]}],
+                   "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 10, "ownerSeatId": 1,
+                                    "controllerSeatId": 1, "cardTypes": ["CardType_Land"]} for i in (100, 101, 102)]})
+    check("hand_order reads the hand-zone instanceIds left-to-right", hand_order(view, 1) == [100, 101, 102])
+
+    class Loc3:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(700, 980, 120, 70), Rect(900, 980, 120, 70)]
+
+    ap = DryRunActuator(rect=rect, image=object())
+    ok = play_hand_object(ap, Loc3(), view, 1, 101)              # instance 101 -> slot index 1 (middle card)
+    check("play_hand_object plays the chosen card's slot (instance 101 -> middle)",
+          ok and len(ap.clicks) == 2 and 700 <= ap.clicks[0][0] <= 820)
+
+    class Loc2:
+        def locate_all(self, image, query):
+            return [Rect(500, 980, 120, 70), Rect(900, 980, 120, 70)]
+
+    ap2 = DryRunActuator(rect=rect, image=object())
+    ok2 = play_hand_object(ap2, Loc2(), view, 1, 101)            # snapshot found 2, hand has 3 -> abstain
+    check("play_hand_object abstains on a hand-size mismatch (no wrong-card click)", ok2 is False and ap2.clicks == [])
+
 
 def _execute_checks():
     """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""

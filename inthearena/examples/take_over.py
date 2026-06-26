@@ -100,18 +100,28 @@ def _show(d, choice):
 
 
 def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
-    """In a game: run the bot over the GRE decision stream. EXECUTES the mulligan (clicks Keep/Mulligan) when an
-    `actuator` is given; other in-game actions are decided + printed only (shadow) — that UI isn't mapped yet."""
+    """In a game: run the bot over the GRE decision stream. With an `actuator` it EXECUTES the mulligan (Keep/
+    Mulligan) and LAND drops (locate the chosen land in hand, play it); other in-game actions (cast/attack/
+    target) are decided + printed only (shadow) — that UI isn't mapped yet."""
     from inthearena.mtga import click_mulligan, iter_decisions
+    from inthearena.mtga.hand import play_hand_object
     pol = AggroPolicy()
     print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
 
     def handle(d):
         choice = pol.decide(d)
         _show(d, choice)
-        if d.kind == "mulligan" and actuator is not None:   # the one in-game action we execute
+        if actuator is None:
+            return
+        if d.kind == "mulligan":                            # keep / mulligan the opening hand
             if click_mulligan(actuator, choice == "keep", rng=rng, locator=locator):
                 print(f"    -> executed: {choice}")
+        elif d.kind == "actions" and choice is not None and choice.actionType == "ActionType_Play":
+            # a LAND drop — locate it in hand by its instanceId and play it (other actions stay shadow)
+            if play_hand_object(actuator, locator, d.view, d.seat, choice.instanceId):
+                print(f"    -> played a land: {describe(d, choice)}")
+            else:
+                print("    -> couldn't place the land in hand (snapshot/hand-size mismatch) — shadowed")
 
     try:
         # the mulligan we just navigated into was likely logged BEFORE we started tailing, so handle the
