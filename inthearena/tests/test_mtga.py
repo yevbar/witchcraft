@@ -845,6 +845,26 @@ def _hand_checks():
         v = _hand({50}, {51})
         check("land_play_options keeps only land Plays",
               land_play_options(v, plays(50, 51)) == [50])
+
+        # (4) mulligan buttons still on screen -> NEVER click; shadow after waiting it out
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Mulligan", 0.45, 0.81), ("Keep", 0.55, 0.81), ("Forest", 0.40, 0.90)]
+        a4 = DryRunActuator(rect=rect, image=object())
+        ok4 = play_land(a4, None, _hand({70}), 1, plays(70), 70)
+        check("play_land: shadows (no click) while the mulligan Keep/Mulligan buttons are on screen",
+              ok4 is False and a4.clicks == [])
+
+        # (5) mulligan clears after a couple of checks -> then plays the land
+        cleared = {"n": 0}
+        def clearing(image):
+            cleared["n"] += 1
+            return ([("Mulligan", 0.45, 0.81), ("Keep", 0.55, 0.81)] if cleared["n"] <= 2
+                    else [("Forest", 0.40, 0.90)])
+        ocr.recognize_text = handmod.ocr.recognize_text = clearing
+        a5 = DryRunActuator(rect=rect, image=object())
+        ok5 = play_land(a5, None, _hand({70}), 1, plays(70), 70)
+        check("play_land: waits out the mulligan keep, then plays the land once it clears",
+              ok5 and len(a5.clicks) == 2)
     finally:
         cards.label = handmod.cards.label = olabel2
         ocr.recognize_text = handmod.ocr.recognize_text = orec2

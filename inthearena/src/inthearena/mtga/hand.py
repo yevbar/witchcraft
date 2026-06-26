@@ -51,6 +51,7 @@ _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 _REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
+_MULL_CLEAR_TIMEOUT = 5.0  # s: how long play_land waits for the mulligan buttons to clear before shadowing
 
 
 def rest_point(rect: Rect) -> tuple:
@@ -361,6 +362,17 @@ def _is_land(view, instance_id) -> bool:
     return bool(o and "CardType_Land" in (o.cardTypes or []))
 
 
+def on_mulligan_screen(image) -> bool:
+    """True if `image` still shows the mulligan Keep / Mulligan buttons (their text labels in the lower band).
+    The opening-hand keep can lag the GRE: the first-turn actions request is logged while the client is still
+    animating the keep, so a board action could fire on the keep-hand screen. This is the fast (Vision OCR, no
+    Moondream) guard for that — the 'Mulligan' button label is distinctive and only on that screen."""
+    for text, _xf, yf in ocr.recognize_text(image):
+        if yf >= 0.75 and "mulligan" in _norm_name(text):
+            return True
+    return False
+
+
 def land_play_options(view, options) -> list:
     """instanceIds of every LAND the GRE currently offers to PLAY (ActionType_Play). Any of these is a legal land
     drop this turn — so playing whichever one we can positively SEE is correct, not just the bot's exact pick."""
@@ -405,7 +417,8 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
       3. If a land still can't be positively identified, return False (the caller shadows). Never guess a pixel —
          a missed land drop is harmless; clicking the wrong card is not.
 
-    Returns True only when a positively-identified land was clicked."""
+    Also guards against the mulligan keep still being on screen (waits it out, then plays). Returns True only
+    when a positively-identified land was clicked."""
     legal = land_play_options(view, options)
     if preferred is not None and _is_land(view, preferred) and preferred not in legal:
         legal.append(preferred)
@@ -425,6 +438,24 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
     image, rect = capture_hand(actuator, settle=settle)
     if rect is None:
         return False
+
+    # SAFETY: never click a hand card while the mulligan Keep/Mulligan buttons are still on screen — the keep can
+    # still be animating out when the first-turn actions request arrives. Wait it out (re-capturing); only if it
+    # never clears do we shadow. This keeps us from clicking a card on the keep-hand screen without losing the
+    # land drop to a race.
+    waited = 0.0
+    while on_mulligan_screen(image):
+        if waited >= _MULL_CLEAR_TIMEOUT:
+            _log.info("  land: mulligan buttons still on screen after %.1fs — shadowing (won't click during keep)",
+                      waited)
+            return False
+        _log.info("  land: mulligan Keep/Mulligan still showing — waiting for the keep to clear…")
+        actuator.wait(0.5)
+        waited += 0.5
+        image, rect = capture_hand(actuator, settle=0.0)
+        if rect is None:
+            return False
+
     named = locate_named_cards(image, rect)
 
     # 1) a legal land legible at rest?
