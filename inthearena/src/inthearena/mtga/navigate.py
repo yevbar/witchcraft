@@ -213,6 +213,10 @@ class Actuator(Protocol):
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         ...
 
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing."""
+        ...
+
     def click(self) -> None:
         ...
 
@@ -281,6 +285,9 @@ class DryRunActuator:
         self.move(x, y, duration=duration)
         self.click()
 
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration)   # (live actuator also focuses + IOHID-moves so the client registers it)
+
 
 class PyAutoGuiActuator:
     """Drives the LIVE client with pyautogui — THIS is the Terms-of-Service-crossing backend (opt-in only;
@@ -338,6 +345,19 @@ class PyAutoGuiActuator:
                 self._pg.moveTo(px, py, duration=dur, tween=self._tween)
             else:
                 self._pg.moveTo(px, py, duration=dur)
+
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+        """Move the cursor to (x, y) so the CLIENT registers it (e.g. a hand card magnifies): focus the app
+        (AppleScript) + human glide + a real IOHIDPostEvent motion — the same recipe as click() minus the press
+        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers)."""
+        self._focus()                                      # AppleScript: bring Arena frontmost
+        self.move(x, y, duration=duration)                 # human-like glide (the visible OS cursor)
+        if self._hid_move:
+            try:
+                from .macos import iohid_move
+                iohid_move(x, y)                           # real motion -> the client's pointer tracks here
+            except Exception:
+                pass
 
     def _focus(self) -> None:
         """Bring the target app frontmost (AppleScript). MTGA ignores clicks sent to a backgrounded window."""

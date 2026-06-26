@@ -132,5 +132,7 @@ class GameExecutor:
         box = self._objs.locate(instance_id, view, image)
         if box is None:
             return ExecResult(False, f"{what}: object {instance_id} not found on screen")
-        self._act.move_and_click(*_point_in_box(box, self._rng))
+        point = _point_in_box(box, self._rng)
+        self._act.hover(*point)                            # focus Arena + IOHID so the object registers…
+        self._act.click()                                  # …then press
         return ExecResult(True, f"clicked {what} (object {instance_id})")

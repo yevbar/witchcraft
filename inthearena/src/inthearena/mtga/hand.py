@@ -54,14 +54,15 @@ def snapshot_hand(actuator, locator, *, settle: float = 0.25) -> list:
     rect = actuator.window_rect()
     if rect is None:
         return []
-    actuator.move(*rest_point(rect))
+    actuator.hover(*rest_point(rect))    # IOHID-move the client's pointer away, so the hand isn't magnified
     actuator.wait(settle)
     return locate_hand_cards(actuator.screenshot(), rect, locator)
 
 
 def hover_card(actuator, point: tuple, *, dwell: float = 0.0) -> None:
-    """Move the cursor onto a hand card (it magnifies) — no click. Optional `dwell` to let the magnify settle."""
-    actuator.move(*point)
+    """Move the cursor onto a hand card so the client registers it (magnify) — no click. Uses the actuator's
+    `hover` (AppleScript-focus Arena + glide + IOHID motion); a bare cursor warp wouldn't register."""
+    actuator.hover(*point)
     if dwell:
         actuator.wait(dwell)
 
@@ -74,8 +75,10 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
 
 
 def play_card(actuator, point: tuple, *, gap: float = 0.1) -> None:
-    """Play the hand card at `point`: glide onto it and click, wait `gap` (~100ms), then click again — MTGA's
-    lift-then-cast. (Each click carries the actuator's focus+IOHID+press recipe.)"""
-    actuator.move_and_click(*point)
+    """Play the hand card at `point`: hover onto it (AppleScript-focus Arena + glide + IOHID so the card lifts),
+    click, wait `gap` (~100ms), then click again — MTGA's lift-then-cast. (Each click also re-focuses + IOHID-
+    moves before the press.)"""
+    actuator.hover(*point)
+    actuator.click()
     actuator.wait(gap)
     actuator.click()
