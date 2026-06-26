@@ -39,6 +39,7 @@ def locate_hand_cards(image, rect: Rect, locator) -> list:
     if locator is None or image is None:
         _log.info("  hand: no locator/image to detect cards")
         return []
+    _log.info("  hand: running vision to find the cards (~10s — leave the cursor alone)…")
     boxes = locator.locate_all(image, _HAND_QUERY)
     pts, dropped = [], []
     for b in boxes:
@@ -140,10 +141,16 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
         return False
     if len(points) == n:
         pt = points[idx]                   # exact: detected count matches the hand -> direct slot
-    else:                                  # overlapping fan -> interpolate the slot across the detected span
+    else:
+        # The fan is EVENLY spaced but detection tends to miss the RIGHT cards, so the detected span is
+        # truncated. Don't interpolate across it (that compresses the rightmost slots into the middle);
+        # instead read the per-card spacing off the detected (left) cards and EXTRAPOLATE slot idx from the
+        # leftmost (slot 0). Assumes the leftmost card is detected and the zone order is the screen order.
         xs = sorted(p[0] for p in points)
         y = sum(p[1] for p in points) // len(points)
-        pt = (int(xs[0] + (idx + 0.5) * (xs[-1] - xs[0]) / max(n, 1)), y)
-        _log.info("  hand: count mismatch -> interpolated slot %d to %s (approximate)", idx, pt)
+        spacing = (xs[-1] - xs[0]) / (len(xs) - 1) if len(xs) >= 2 else 130
+        pt = (int(xs[0] + idx * spacing), y)
+        _log.info("  hand: count mismatch -> extrapolated slot %d to %s (leftmost %d + %d*%.0f)",
+                  idx, pt, xs[0], idx, spacing)
     play_card(actuator, pt)
     return True

@@ -716,9 +716,10 @@ def _hand_checks():
             return [Rect(500, 980, 120, 70), Rect(900, 980, 120, 70)]
 
     ap2 = DryRunActuator(rect=rect, image=object())
-    ok2 = play_hand_object(ap2, Loc2(), view, 1, 101)            # snapshot found 2, hand has 3 -> interpolate
-    check("play_hand_object interpolates on a count mismatch (best-effort, still plays the slot)",
-          ok2 and len(ap2.clicks) == 2 and 700 <= ap2.clicks[0][0] <= 820)
+    ok2 = play_hand_object(ap2, Loc2(), view, 1, 101)            # snapshot found 2 (x=560,960), hand has 3
+    # extrapolate slot 1 from leftmost 560 + 1*spacing(400) = 960 (detection missed the right card, not the left)
+    check("play_hand_object extrapolates the slot on a count mismatch (best-effort, still plays)",
+          ok2 and len(ap2.clicks) == 2 and 920 <= ap2.clicks[0][0] <= 1000)
 
 
 def _execute_checks():
