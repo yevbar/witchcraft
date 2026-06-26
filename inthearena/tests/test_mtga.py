@@ -382,7 +382,8 @@ def _navigate_checks():
     check("per-segment durations vary -> jittery (non-constant) speed", len(set(durs)) > 1)
     check("clicks at the destination B", dry.clicks == [(900, 720)])
 
-    # navigate_to_game: HOME --move+click Play--> (simulated client response) GAMEPLAY
+    # navigate_to_game from HOME: the play menu is an overlay on Home, so (no vision) it clicks Home's Play,
+    # then drives the play-menu sequence; the simulated client reaches GAMEPLAY once it's been driven.
     state = {"view": RV.HOME}
 
     class Fake(DryRunActuator):
@@ -393,10 +394,9 @@ def _navigate_checks():
 
     fa = Fake(rect=Rect(0, 0, 1000, 800))
     nav = Navigator(fa, lambda: state["view"], poll=0.001, change_timeout=1.0)
-    check("Navigator drives a non-game view (HOME) into GAMEPLAY",
-          nav.navigate_to_game() and state["view"] is RV.GAMEPLAY)
-    check("Navigator traveled to Play (bottom-right) and clicked once",
-          len(fa.clicks) == 1 and fa.clicks[0][0] > 500 and fa.moves[-1][1][0] > 500)
+    check("Navigator drives HOME into a game", nav.navigate_to_game() and state["view"] is RV.GAMEPLAY)
+    check("Navigator travels to the bottom-right Play first",
+          len(fa.clicks) >= 1 and fa.clicks[0][0] > 500 and fa.clicks[0][1] > 400)
 
     in_game = Navigator(DryRunActuator(), lambda: RV.GAMEPLAY)
     check("already in a game -> no action, navigate returns True",
@@ -447,6 +447,27 @@ def _navigate_checks():
     r_rp = advance_play_menu(rp, big_rect, _r.Random(0), locator=OnRecentlyPlayed(), switch_timeout=0.0)
     check("play menu already on Recently-played -> just queues Play (1 click)",
           r_rp is True and len(rp.clicks) == 1 and rp.clicks[0][1] > 800)
+
+    # advance_home: the play menu is an OVERLAY on Home (log still says Home). Closed -> click Home's Play to
+    # open it, then queue. (Detected by the Recently-played tab being absent until the overlay opens.)
+    from inthearena.mtga import advance_home
+
+    class HomeClosedThenOpens:                              # RP tab appears only after Home's Play is clicked
+        def __init__(self):
+            self.plays = 0
+
+        def locate(self, image, query):
+            if "Recently" in query:
+                return Rect(1810, 100, 100, 70) if self.plays >= 1 else None
+            if "Play" in query:
+                self.plays += 1
+                return Rect(1700, 1000, 140, 60)           # Home Play, then the queue Play (both bottom-right)
+            return None
+
+    hm = DryRunActuator(rect=big_rect, image=object())
+    r_hm = advance_home(hm, big_rect, _r.Random(0), locator=HomeClosedThenOpens(), open_timeout=0.0)
+    check("home overlay closed -> opens the play menu then queues (>=2 clicks, first bottom-right)",
+          r_hm is True and len(hm.clicks) >= 2 and hm.clicks[0][0] > 1500 and hm.clicks[0][1] > 800)
 
     # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
     from inthearena.mtga import go_home, take_over as take_over_flow

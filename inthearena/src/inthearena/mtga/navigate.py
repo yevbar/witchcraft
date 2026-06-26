@@ -415,6 +415,27 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
     return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
 
 
+def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
+                 locator: "Optional[ElementLocator]" = None, open_timeout: float = 20.0) -> bool:
+    """From Home, get into a queued game. The play menu is an OVERLAY drawn on the Home scene — the log keeps
+    saying 'Home' the whole time — so this is vision-driven: if the overlay isn't open (its Recently-played tab
+    isn't on screen), click Home's Play to open it and wait for it to appear; then queue via the play-menu
+    sub-tab sequence (which switches to Recently-played if Events/Find-match is showing)."""
+    if locator is None:                                    # no vision to see the overlay — best-effort sequence
+        interact(actuator, _QUEUE_PLAY, rect, rng)         # open the play menu
+        actuator.wait(1.0)
+        return advance_play_menu(actuator, rect, rng)
+    overlay_open = _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
+                                timeout=1.0, poll=0.5, rng=rng) is not None
+    if not overlay_open:
+        if not interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator):   # click Home's Play to open it
+            return False
+        if _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
+                        timeout=open_timeout, poll=1.0, rng=rng) is None:
+            return False                                   # overlay never opened
+    return advance_play_menu(actuator, rect, rng, locator=locator)
+
+
 class Navigator:
     """Drive the client toward a game. Reads the current view via `view_provider`, acts via `actuator`. With
     `recover_home=True`, an UNRECOGNIZED view (we're lost on some other screen) first clicks the Home tab to
@@ -444,8 +465,11 @@ class Navigator:
         rect = self._act.window_rect()
         if rect is None:
             return False
+        if v is RecognizedViews.HOME:
+            # the play menu is an overlay on Home (log still says 'Home'): open it if needed, then queue
+            return advance_home(self._act, rect, self._rng, locator=self._locator)
         if v is RecognizedViews.PLAY_MENU:
-            # the play menu has sub-tabs sharing one scene: make sure Recently-played is up, then queue
+            # (only if a vision recognizer ever names this) sub-tabs share one scene: ensure Recently-played
             return advance_play_menu(self._act, rect, self._rng, locator=self._locator)
         element = _TOWARD_GAME.get(v)
         if element is None:
