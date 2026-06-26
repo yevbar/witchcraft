@@ -918,7 +918,7 @@ PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for th
 COUNTER.4: /\bcounters?\b/
 DISTRIBUTE.4: /\bdistribute\b/   // §122 'distribute <N> <kind> counters among …' anchor (_distribute_counters)
 MOVE.3: /\bmoves?\b/   // §122 'move <N> <kind> counters from <X> onto <Y>' anchor (_move_counter_from)
-ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple)
+ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: after this (?:main |combat )?phase)?(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple); the 'after this phase' qualifier appears both LEADING (older templating) and TRAILING (the dominant corpus shape: '… additional combat phase after this phase')
 LURELEAD.5: /all creatures? able to block/   // §509 lure lead anchor (_lure)
 DOSO.5: /do so/   // §509 lure trailing anchor
 YOUCTRL.5: /you control/   // §720 clause-initial 'you control <X>' static-control anchor (_control bare branch)

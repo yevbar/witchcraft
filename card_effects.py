@@ -562,7 +562,7 @@ def _discard_hand(m):
     return Effect("discard", "all", "you")
 
 
-@_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?$")
+@_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: after this (?:main |combat )?phase)?(?: followed by an additional main phase)?$")
 def _extra_combat(m):
     # MIGRATED to card_lark (ecclause / the whole-phrase ECOMBAT terminal + extra_combat_v) for the corpus forms,
     # but KEPT FLIP-ONLY: the rare '… followed by an additional main phase' tail variant is shadowed in lark by
