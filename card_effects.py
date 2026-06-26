@@ -562,7 +562,7 @@ def _discard_hand(m):
     return Effect("discard", "all", "you")
 
 
-@_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?$")
+@_t(r"^(?:after this (?:phase|main phase), )?there is an additional combat phase(?: after this (?:main |combat )?phase)?(?: followed by an additional main phase)?$")
 def _extra_combat(m):
     # MIGRATED to card_lark (ecclause / the whole-phrase ECOMBAT terminal + extra_combat_v) for the corpus forms,
     # but KEPT FLIP-ONLY: the rare '… followed by an additional main phase' tail variant is shadowed in lark by
@@ -1724,7 +1724,7 @@ _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
 # the quote and shatter it. The trailing 'until end of turn' is left for _grant_ability/the leaf to read.
 _QUOTED_GRANT = re.compile(
     r'^(?:until end of turn, )?'
-    rf'(?:{_TGT}) (?:has|have|gains?) "[^"]+"(?: until end of turn)?$|'
+    rf'(?:{_TGT}) (?:has|have|gains?) "[^"]+"(?: until [^"]+)?$|'   # any trailing 'until <duration>' (peeled below)
     rf'^(?:{_TGT}) gets? an emblem with,? "[^"]+"$', re.I)
 
 
@@ -1774,6 +1774,27 @@ _GRANT_THEN_PUMP = re.compile(
 _GRANT_THEN_CLAUSE = re.compile(
     rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)( until end of turn)? and ((?:can't|must|isn't|is|are|aren't|"
     r"becomes?|doesn't|don't|attacks?|blocks?) .+)$", re.I)
+# '<X> gains <kw-list> and "<quoted ability>" [until end of turn]' — a §702 keyword grant conjoined with a
+# §613.6 quoted-ability grant (Subterfuge, Dropkick Bomber, Flame-Wreathed Phoenix). The keyword list excludes
+# quotes so _GRANT_THEN_CLAUSE/_EOT_GRANTS miss it; split the two grants (the quote stays whole), shared subject
+# + duration. The trailing 'until end of turn' (if any) applies to both grants.
+_GRANT_THEN_QUOTED = re.compile(
+    rf'^({_TGT}) (gains?|has|have) ([\w, ]+?) and ("[^"]+")( until end of turn)?$', re.I)
+# '<X> becomes a <P/T> <type> creature with [<kw-list> and] "<quoted ability>" [until end of turn]' — a §613.3
+# animate that grants a §613.6 quoted ability (the AFR creature-lands Den of the Bugbear/Hive of the Eye Tyrant,
+# Vraska Betrayal's Sting, Frodo). The becomes leaf accepts 'with <kw-list>' (dropped) but not a quoted suffix;
+# split the animate (which keeps its 'with <kw>' tail) from the quoted-ability grant. Shared subject + duration.
+_BECOMES_QUOTED = re.compile(
+    rf'^({_TGT}) (?:becomes?|is|are) (a |an )?'
+    rf'(.+? (?:creature|artifact|enchantment|land)(?: with [\w, ]+?)?) (?:with|and) ("[^"]+")'
+    r'( until end of turn)?'
+    r"(?P<tail>\.? it'?s still a land| and loses? all(?: other)?(?: card types and)? abilities)?\.?$", re.I)
+# '<set> are <type> in addition to their other types and have "<quoted ability>"' — the token-type ANTHEM
+# (Food/Clue/Equipment/Gold; Senator Peacock, Ragost, Gemcutter Buccaneer): the controlled permanents gain a
+# token subtype AND a quoted activated ability. Split the §205 type-add (becomes added_<type>) from the
+# §613.6 quoted-ability grant to the set; both share the subject.
+_ARE_TYPE_HAVE_QUOTED = re.compile(
+    rf'^({_TGT}) (?:are|is) (.+? in addition to their other types) and (?:have|has|gains?) ("[^"]+")$', re.I)
 # a type/color change followed by a SECOND predicate on the same subject: '<t> becomes <X> [until eot]
 # and <pred>' — where <pred> is a P/T pump ('gets +1/+0', Viridescent Wisps / Mizzium Tank), a keyword
 # grant ('gains flying, first strike, …', Enter the Avatar State), or a combat requirement ('attacks
@@ -1910,6 +1931,34 @@ def _eot_compound(s: str):
             who = _target(m.group(1))
             dur = "until_end_of_turn" if m.group(3) else "-"
             return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [tail]
+    m = _GRANT_THEN_QUOTED.match(s)
+    if m:
+        kws = _kw_list(m.group(3))                    # the keyword conjunct(s) — all must be §702 keywords
+        eot = m.group(5) or ""
+        q_eff = parse_clause(f"{m.group(1)} {m.group(2)} {m.group(4)}{eot}") if kws else None  # the quoted grant
+        if kws and q_eff:
+            who, dur = _target(m.group(1)), ("until_end_of_turn" if eot else "-")
+            return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [q_eff]
+    m = _BECOMES_QUOTED.match(s)
+    if m:
+        eot = m.group(5) or ""
+        art = m.group(2) or ""
+        animate = parse_clause(f"{m.group(1)} becomes {art}{m.group(3)}{eot}")   # the becomes (keeps 'with <kw>')
+        q_eff = parse_clause(f"{m.group(1)} gains {m.group(4)}{eot}")            # the granted quoted ability
+        if animate and q_eff:
+            effs = [animate, q_eff]
+            tail = (m.group("tail") or "").strip().lower().rstrip(".")
+            if "still a land" in tail:                  # manland: animated, still a land (added type)
+                effs.append(Effect("becomes", "-", _target(m.group(1)), "added_land"))
+            elif "abilities" in tail:                   # 'and loses all [other] [card types and] abilities'
+                effs.append(Effect("lose_abilities", "-", _target(m.group(1))))
+            return effs
+    m = _ARE_TYPE_HAVE_QUOTED.match(s)
+    if m:
+        animate = parse_clause(f"{m.group(1)} are {m.group(2)}")    # becomes(added_<type>) — the §205 type-add
+        q_eff = parse_clause(f"{m.group(1)} have {m.group(3)}")     # the granted quoted ability
+        if animate and q_eff:
+            return [animate, q_eff]
     m = _GRANT_THEN_PUMP.match(s)
     if m:
         kws = _kw_list(m.group(2))
@@ -2017,9 +2066,19 @@ def parse_clause(sentence: str) -> "Effect | None":
     # quoted ability and shatter its balanced quotes. A leading 'Until end of turn,' is peeled and folded
     # into the effect's cond (the duration the grant carries).
     if _QUOTED_GRANT.match(s):
+        # peel a TRAILING 'until <duration>' that sits AFTER the closing quote (the quoted ability may itself
+        # contain 'until') and fold it into the grant's cond — '<who> gains "<ability>" until <X>' ('… until
+        # ~ is cast from exile', '… until your next turn'). STRUCTURAL (a duration slice before the leaf); the
+        # standard 'until end of turn' keeps its existing slug.
+        dur = None
+        md = re.match(r'^(?P<g>.*") (?P<dur>until .+)$', s, re.I)
+        if md and not re.fullmatch(r"until end of turn", md.group("dur"), re.I):
+            s, dur = md.group("g"), "until_" + ground.slug(re.sub(r"^until ", "", md.group("dur"), flags=re.I))
         mu = re.match(r"^until end of turn, (.+)$", s, re.I)
         inner = parse_effect(mu.group(1) if mu else s)
         if inner:
+            if dur and inner.cond == "-":
+                inner = _dc.replace(inner, cond=dur)
             return inner if (not mu or inner.cond != "-") else _dc.replace(inner, cond="until_end_of_turn")
         return None
     s = re.sub(r"^(?:then|otherwise),?\s+", "", s, flags=re.I)   # discourse lead — 'Then/Otherwise shuffle'

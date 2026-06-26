@@ -1025,6 +1025,30 @@ def _life_floor(unit, ctx):
     return CardOut(cid, [f'life_floor("{cid}", {m.group("floor")}, "{cond}")'], "life_floor")
 
 
+_STATIC_QUOTED_SHAPE = re.compile(
+    r'(in addition to their other types and (?:have|has|gains?) ")'   # token-type anthem + quoted ability
+    r'|((?:becomes?|is|are) .+? (?:creature|artifact|enchantment|land)(?: with [\w, ]+?)? (?:with|and) ")',  # animate + quoted
+    re.I)
+
+
+def _static_quoted(unit, ctx):
+    """A BARE static whose body is a §205 type-add / §613.3 animate that ALSO grants a §613.6 quoted ability
+    ('Artifacts you control are Clues … and have "…"', 'Enchanted permanent is a Treasure artifact with "…"').
+    _static_effect skips these (its '"'/':' guard), but _parse_body now grounds them via the becomes/are-type
+    quoted-grant split. Gated to those exact shapes + no leading trigger (those are _triggered's) so the broad
+    quoted-static surface stays abstained; activated abilities are already claimed by _activated upstream."""
+    if {"Instant", "Sorcery"} & _types(ctx):
+        return None
+    if re.match(r"^(?:When|Whenever|At)\b", unit.raw, re.I) or not _STATIC_QUOTED_SHAPE.search(unit.raw):
+        return None
+    effects = _parse_body(unit.raw)
+    if not effects:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    return CardOut(ctx["id"], [f'card_ability("{ctx["id"]}", "{aid}", "static")']
+                   + _effect_facts(ctx["id"], aid, effects), "static_effect")
+
+
 def _static_effect(unit, ctx):
     """LAST-RESORT: a bare effect line on a permanent (no cost/trigger/keyword) that nonetheless parses
     fully into grounded effects — e.g. 'Skip your draw step.' This is the static analogue of _spell;
@@ -1788,17 +1812,30 @@ def _enters_tapped_others(unit, ctx):
     """'<types> [your opponents control] enter [the battlefield] tapped.' — a §614 static that taps a
     class of OTHER permanents as they enter (Kismet / Frozen Aether / Imposing Sovereign family). The
     affected class + scope is a faithful descriptive slug; emitted card-level since it's not on ~ itself."""
-    m = re.match(r"^((?:[A-Za-z]+, )*(?:[A-Za-z]+,? and )?[A-Za-z]+)"
-                 r"( your opponents control| an opponent controls| you control)? "
+    # the affected class may be a multi-WORD type phrase ('Nonbasic lands', 'Snow lands') and/or a
+    # comma/and list of such phrases ('Creatures and nonbasic lands'); each terminal type token allows one
+    # optional leading qualifier word. Scope adds the 'played by your opponents' / 'enchanted player controls'
+    # forms alongside the existing control phrasings.
+    m = re.match(r"^((?:[A-Za-z]+(?: [A-Za-z]+)?, )*(?:[A-Za-z]+(?: [A-Za-z]+)?,? and )?[A-Za-z]+(?: [A-Za-z]+)?)"
+                 r"( your opponents control| an opponent controls| you control"
+                 r"| played by your opponents| enchanted player controls)? "
                  r"enters?(?: the battlefield)? (tapped|untapped)\.?$",
                  unit.raw, re.I)
     if not m:
+        return None
+    # reject a Title-Case proper NAME ('Bretagard Stronghold' — an un-masked self-land whose short name the
+    # corpus left in place), distinguished from a type phrase ('Nonbasic lands') by an UPPERCASE non-initial
+    # word: a type phrase always has a lowercase head noun ('lands'/'creatures'), a name is Title Case. Without
+    # this, the multi-word subject would mis-ground a self-ETB as a static about a 'type'.
+    words = m.group(1).split()
+    if len(words) > 1 and any(w[:1].isupper() for w in words[1:] if w.lower() != "and"):
         return None
     types = ground.slug(m.group(1))
     if types in ("it", "they", "this", "that"):            # ~/it ETB is _etb_tapped's job, not this
         return None
     scope = {" your opponents control": "opponents_", " an opponent controls": "opponents_",
-             " you control": "you_", None: ""}[m.group(2)]
+             " you control": "you_", " played by your opponents": "opponents_",
+             " enchanted player controls": "enchanted_player_", None: ""}[m.group(2)]
     cid = ctx["id"]
     return CardOut(cid, [f'static("{cid}", "{scope}{types}_enter_{m.group(3).lower()}")'], "static")
 
@@ -1859,7 +1896,7 @@ def _mode_option(unit, ctx):
 # mode bodies that are a whole ABILITY (trigger/static/activated), not a bare effect — the clan-choice
 # Sieges. The mode is grounded by routing the stripped body through transpile_unit and marking the result.
 _MODE_ABILITY_KINDS = frozenset({"triggered", "static", "static_pt", "static_player", "static_grant",
-                                 "activated", "multi", "static_effect"})
+                                 "activated", "multi", "static_effect", "cost_modifier"})
 
 
 def _spree_mode(unit, ctx):
@@ -2241,15 +2278,25 @@ def _alt_cost(unit, ctx):
 
 
 def _enters_with_counters(unit, ctx):
-    """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614)."""
-    # dynamic-count form: '… enters with a number of <kind> counters on it equal to <X>' (§122/§614).
-    md = re.match(r"^(?:~|it|That \w+) enters with a number of ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it "
-                  r"equal to (.+?)\.?$", unit.raw)
+    """'~ enters with N +N/+N counters on it.' — an ETB counter replacement (§122/§614).
+
+    The SELF object/subject pronoun is widened structurally beyond 'it': recent character cards use the
+    gendered self-pronouns 'on him'/'on her' (and 'on them'), and self-reference by the legendary SHORT
+    name ('Hulk enters …' on 'Hulk, Strongest There Is') which the corpus leaves un-masked. The short name
+    is taken from THIS card's own name (ctx), so accepting it is scoped and faithful — no corpus-wide name
+    masking (which would risk clobbering common-word names elsewhere). 'twice X'/'half X' counts are kept."""
+    short = (ctx.get("card") or {}).get("name", "").split(",")[0].strip()
+    selfsubj = "~|it" + (("|" + re.escape(short)) if short else "")   # the card's own short name is a self-ref
+    selfobj = r"it|him|her|them"
+    # dynamic-count form: '… enters with a number of <kind> counters on <self> equal to <X>' (§122/§614).
+    md = re.match(rf"^(?:{selfsubj}|That \w+) enters with a number of ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? "
+                  rf"on (?:{selfobj}) equal to (.+?)\.?$", unit.raw)
     if md:
         cid = ctx["id"]
         return CardOut(cid, [f'enters_with_counters("{cid}", "{ground.slug(md.group(1))}", "equal_to_{ground.slug(md.group(2))}")'],
                        "enters_with_counters")
-    m = re.match(r"^(?:If .+?, )?(?:~|it) enters with (\w+) ([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on it"
+    m = re.match(rf"^(?:If .+?, )?(?:{selfsubj}) enters with ((?:twice |half )?\w+) "
+                 rf"([+\-]\d+/[+\-]\d+|\w[\w ]*?) counters? on (?:{selfobj})"
                  r"(?: (?:if|for each) (?P<cond>.+?))?\.?$", unit.raw)
     if not m:
         return None
@@ -2305,9 +2352,10 @@ _COST_MOD_ANCHORS = [
     (re.compile(r"^(?:If (?P<lead>.+?), )?~ costs (?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) "
                 r"to (?P<kind>cast)(?:,? (?P<cond>.+?))?\.?$", re.I),
      "self", None, "cond", "lead"),
-    # SET form: '[During <timing>, ]<spell-class> spells you cast cost {N} <dir> to cast' — scope is the
-    # matched NP; an optional leading 'During <timing>,' (your turn / turns other than yours) is the cond.
-    (re.compile(r"^(?:(?P<cond>During [^,]+?), )?(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? "
+    # SET form: '[<timing>, ]<spell-class> spells you cast cost {N} <dir> to cast' — scope is the matched
+    # NP; an optional leading timing condition is the cond: 'During <timing>,' (your turn / turns other than
+    # yours) or a duration 'Until <…>,' (the temporary tax form, e.g. 'Until your next turn,').
+    (re.compile(r"^(?:(?P<cond>(?:During|Until) [^,]+?), )?(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? "
                 r"(?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) to (?P<kind>cast)\.?$", re.I),
      None, "scope", "cond", None),
     # ABILITY form: "~'s abilities / this ability / abilities you activate cost {N} <dir> to activate
@@ -2750,7 +2798,7 @@ _PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize
              _ability_activation_static, _modal, _tiered_mode, _mode_option, _spree_mode, _cant, _combat_restriction,
              _loyalty, _saga_chapter, _roll_outcome, _mana_ability, _token_plus, _replacement, _triggered, _activated, _spell,
              _static_control, _prevent_static, _land_type_set, _damage_redirect, _damage_multiplier,
-             _life_floor, _static_effect]
+             _life_floor, _static_quoted, _static_effect]
 
 # an ability-word prefix is flavor (§207.2c, no rules meaning) — strip 'Heroic —', 'Landfall —',
 # 'Bio-plasmic Barrage —' so the triggered ability that follows reaches its pattern. Restricted to a

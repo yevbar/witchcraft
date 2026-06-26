@@ -54,7 +54,10 @@ _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap
            # scheme') ARE clean object verbs (the earlier 'cloak the top N cards' worry was wrong — every cloak
            # clause is the generic 'verb <obj>'); meld ('meld them into <result>') / behold (no effect clause) /
            # triple ('triple strike' = a keyword, not an object) are EXCLUDED — special/non-object shapes.
-           "suspect": "suspect", "convert": "convert", "cloak": "cloak", "abandon": "abandon"}
+           "suspect": "suspect", "convert": "convert", "cloak": "cloak", "abandon": "abandon",
+           # heist (§701, 2024+): the real corpus form is the clean object verb 'heist target opponent's
+           # library [twice]' (the library is the object) — heist(-, _target(obj)), like goad/suspect.
+           "heist": "heist"}
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
@@ -892,7 +895,7 @@ XLEAVES.5: /\bleaves the battlefield\b/  // 'leaves the battlefield' — the dis
 MRABLE.5: /\bif able\b/               // '… if able' — the §508/§509 attack/block requirement anchor (distinctive; the ONLY must_attack/must_block terminal)
 MONSTROSITY.4: /\bmonstrosity\b/      // 'Monstrosity <N>' — §701.x keyword action (namespaced; rare word)
 GOADED.5: /\bis goaded\b/             // '<creature> is goaded' — the §701.38 passive goad bigram (distinctive)
-BECOMESDESIG.6: /\bbecomes? (?:foretold|plotted|blocked|snow|saddled)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP); + §509 'becomes blocked' (forced-block state change) + §205 'becomes snow' (supertype set) + §702 'becomes saddled' (the saddle keyword's status, OTJ 2024 — saddle is a grounded keyword ability) — all the same becomes(-, subj, <state>) shape
+BECOMESDESIG.6: /\bbecomes? (?:the monarch|foretold|plotted|blocked|snow|saddled|prepared|monarch)\b/   // '<subj> becomes foretold/plotted' — §701 status designation bigram (outranks BCM_COP); + §509 'becomes blocked' (forced-block state change) + §205 'becomes snow' (supertype set) + §702 'becomes saddled' (the saddle keyword's status, OTJ 2024 — saddle is a grounded keyword ability) + §700 'becomes prepared' (Bloomburrow/FF designation) + §720 'becomes the monarch' (a targeted monarch designation, distinct from the 'you become the monarch' litclause) — all the same becomes(-, subj, <state>) shape
 NOLONGERSUSP.6: /\b(?:is|are|becomes?) no longer suspected\b/   // '<subj> is/are/become no longer suspected' — §701.60 suspect removal (outranks BCM_COP)
 FLIPCOIN.5: /\bflip a coin(?: until you lose a flip)?\b/   // 'Flip a coin [until you lose a flip]' — §701.x (whole phrase, distinctive)
 FIGHTEACH.5: /\bfight each other\b/   // '<creatures> fight each other' — §701.12 reciprocal fight (distinct from FG_FIGHTS 'fights')
@@ -918,7 +921,7 @@ PZ_CONJURE.3: /\bconjures?\b/   // §711 'conjure' — the leading anchor for th
 COUNTER.4: /\bcounters?\b/
 DISTRIBUTE.4: /\bdistribute\b/   // §122 'distribute <N> <kind> counters among …' anchor (_distribute_counters)
 MOVE.3: /\bmoves?\b/   // §122 'move <N> <kind> counters from <X> onto <Y>' anchor (_move_counter_from)
-ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple)
+ECOMBAT.5: /(?:after this (?:phase|main phase), )?there is an additional combat phase(?: after this (?:main |combat )?phase)?(?: followed by an additional main phase)?/   // §505 extra_combat whole-phrase (constant tuple); the 'after this phase' qualifier appears both LEADING (older templating) and TRAILING (the dominant corpus shape: '… additional combat phase after this phase')
 LURELEAD.5: /all creatures? able to block/   // §509 lure lead anchor (_lure)
 DOSO.5: /do so/   // §509 lure trailing anchor
 YOUCTRL.5: /you control/   // §720 clause-initial 'you control <X>' static-control anchor (_control bare branch)
@@ -1528,6 +1531,16 @@ _PZ_PUTS = re.compile(r"\bputs?\b", re.I)   # `_put_zone`'s declarative guard ('
 # fires BEFORE `_put_zone` (-> put_in_hand). So a clean `_TGT` 'put <X> into your hand' is return_to_hand,
 # not put_in_hand. Reproduce that ordering (the put-to-zone agent's frame missed it).
 _PZ_TO_HAND = re.compile(r"^put (" + _TGT + r") into your hand$", re.I)
+# §711 CONJURE onto the battlefield — the sibling of the `_put_zone` conjure→hand form (which the frame
+# above grounds to put_in_hand with the whole conjure-object phrase preserved in the slug). Here the
+# destination is the battlefield, so it grounds to return_to_battlefield (the put-onto-battlefield verb)
+# with the SAME object-slug convention (the full 'conjure …' spec, incl. 'a card named X' / 'a duplicate
+# of X' / 'a card of your choice from …' / 'a random …'). A trailing entry-state rider (tapped / and
+# attacking) is folded onto the slug so the board-entry state is preserved. Anchored on the leading
+# conjure verb (this only runs inside the conjure-led pzhand transformer), so it can't reach a non-conjure
+# 'put <X> onto the battlefield' (that's the return_to_battlefield family's job).
+_CONJURE_BF = re.compile(
+    r"^(?P<obj>conjures?\b.+?) onto the battlefield(?P<rider>(?: tapped| attacking| and attacking)*)$", re.I)
 
 
 def _pz_frame(full: str):
@@ -4162,6 +4175,7 @@ class _ToEffect(Transformer):
         if subj is None or desig is None or not _AT_TGT.match(str(subj).strip()):
             return None
         d = re.sub(r"^becomes? ", "", desig.strip(), flags=re.I).strip()
+        d = re.sub(r"^the ", "", d, flags=re.I).strip()   # 'the monarch' -> 'monarch' (designation slug)
         return Effect("becomes", "-", _target(str(subj).strip()), ground.slug(d))
 
     def bcnosusp(self, *args):
@@ -4671,7 +4685,18 @@ class _ToEffect(Transformer):
         verb = next((str(a).lower() for a in args if not isinstance(a, _PzBody)), "conjure")
         if body is None:
             return None
-        return _pz_frame(verb + " " + body.strip())
+        full = verb + " " + body.strip()
+        e = _pz_frame(full)                     # the hand/library/top-bottom destinations (put_in_hand etc.)
+        if e is not None:
+            return e
+        m = _CONJURE_BF.match(full)             # the battlefield destination (§711 conjure → return_to_battlefield)
+        if m:
+            extra = ground.slug(m.group("obj"))
+            rider = m.group("rider").strip()
+            if rider:
+                extra += "_" + ground.slug(rider)
+            return Effect("return_to_battlefield", "-", "you", extra)
+        return None
 
     # --- LOOK -----------------------------------------------------------------
     def lksubj(self, *toks):
