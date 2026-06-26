@@ -223,6 +223,11 @@ class Actuator(Protocol):
         actuator's defaults (tuned for menu buttons)."""
         ...
 
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
+        """A FAST double-click at the current cursor — focus + IOHID move ONCE, then two rapid presses with no
+        focus/move BETWEEN them, so MTGA actually registers a double-click (to play a card)."""
+        ...
+
     def wait(self, seconds: float) -> None:
         ...
 
@@ -285,6 +290,14 @@ class DryRunActuator:
     def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
         self.clicks.append(self.pos)
         self.click_args.append((hold, settle))
+
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
+        self.clicks.append(self.pos)
+        self.click_args.append((hold, None))
+        if gap:
+            self.waits.append(gap)
+        self.clicks.append(self.pos)
+        self.click_args.append((hold, None))
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
@@ -399,6 +412,33 @@ class PyAutoGuiActuator:
         self._pg.mouseDown(x, y, button="left")
         self.wait(self._rng.uniform(0.06, 0.14) if hold is None else hold)
         self._pg.mouseUp(x, y, button="left")
+
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.02) -> None:
+        # Focus + IOHID move ONCE, then two rapid down/up presses with NOTHING between them. The old gesture
+        # re-ran click() per press, and click()'s AppleScript `activate` (~200ms+) between the two presses made
+        # the clicks too far apart for MTGA to read as a double-click — so the card never played.
+        if self._no_click:
+            return
+        self._focus()
+        x, y = self._pg.position()
+        if self._hid_move:
+            try:
+                from .macos import iohid_move
+                iohid_move(x, y)                           # one real motion so MTGA's pointer is on the card
+            except Exception as e:
+                _log.debug("double_click: IOHID move failed (%s: %s)", type(e).__name__, e)
+            self.wait(0.05)                                # brief settle BEFORE the taps (not between them)
+        if self._click_backend is not None:
+            self._click_backend(x, y)
+            self._click_backend(x, y)
+            return
+        for i in range(2):
+            self._pg.mouseDown(x, y, button="left")
+            if hold:
+                self.wait(hold)
+            self._pg.mouseUp(x, y, button="left")
+            if i == 0 and gap:
+                self.wait(gap)                             # short, fixed inter-tap gap (no focus/move here)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
