@@ -28,15 +28,19 @@ _GAME_DONE = "MatchGameRoomStateType_MatchCompleted"
 
 
 def tail_lines(path: str = DEFAULT_LOG, *, from_start: bool = True, poll: float = 0.5,
-               stop: Optional[Callable[[], bool]] = None) -> Iterator[str]:
+               stop: Optional[Callable[[], bool]] = None, start_offset: Optional[int] = None) -> Iterator[str]:
     """Follow `path`, yielding each complete line as it appears. Reads existing content first (unless
-    `from_start=False`, which starts at EOF), then polls for appends every `poll`s. Partial (un-newlined)
-    writes are buffered until complete; if the file shrinks (truncated or rotated on a client restart) it
-    reopens from the top. `stop()` (optional) ends the otherwise-infinite follow; closing the generator also
-    cleans up."""
+    `from_start=False`, which starts at EOF), then polls for appends every `poll`s. `start_offset` (a byte
+    offset) overrides both: resume reading from EXACTLY there — so a caller that already drained the existing
+    content can continue with NO gap (from_start=False seeks to the live EOF, which would drop anything written
+    in between). Partial (un-newlined) writes are buffered until complete; if the file shrinks (truncated or
+    rotated on a client restart) it reopens from the top. `stop()` (optional) ends the otherwise-infinite
+    follow; closing the generator also cleans up."""
     fh = open(path, encoding="utf-8", errors="replace")
     try:
-        if not from_start:
+        if start_offset is not None:
+            fh.seek(start_offset)
+        elif not from_start:
             fh.seek(0, os.SEEK_END)
         buf = ""
         while stop is None or not stop():
@@ -103,10 +107,12 @@ class LiveState:
 
 
 def follow(path: str = DEFAULT_LOG, *, state: Optional[LiveState] = None, from_start: bool = True,
-           poll: float = 0.5, stop: Optional[Callable[[], bool]] = None) -> Iterator[Decision]:
+           poll: float = 0.5, stop: Optional[Callable[[], bool]] = None,
+           start_offset: Optional[int] = None) -> Iterator[Decision]:
     """Tail the live log and yield a `Decision` each time the GRE asks the local player to act. Pass a
-    `LiveState` to read `state.view` / `state.current_view` between decisions; one is created if omitted."""
+    `LiveState` to read `state.view` / `state.current_view` between decisions; one is created if omitted.
+    `start_offset` resumes from a byte offset (where a prior drain stopped) so no decision is skipped."""
     st = state if state is not None else LiveState()
-    for line in tail_lines(path, from_start=from_start, poll=poll, stop=stop):
+    for line in tail_lines(path, from_start=from_start, poll=poll, stop=stop, start_offset=start_offset):
         for d in st.feed_line(line):
             yield d

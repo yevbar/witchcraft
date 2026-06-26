@@ -324,6 +324,25 @@ def _live_checks():
     finally:
         os.unlink(p)
 
+    # 3b) start_offset resumes from a byte offset, NOT the live EOF — so lines written between a drain and the
+    # follow (e.g. the post-mulligan actions request, written while we click Keep) aren't skipped.
+    fd, p = tempfile.mkstemp(suffix=".log")
+    os.write(fd, b"x1\nx2\n")
+    os.close(fd)
+    try:
+        with open(p, encoding="utf-8") as fh:              # drain existing content, remember the offset
+            for _ in fh:
+                pass
+            off = fh.tell()
+        with open(p, "a") as fa:                            # ...then more is appended (the "during keep" window)
+            fa.write("x3\nx4\n")
+        gen = tail_lines(p, poll=0.01, start_offset=off)
+        resumed = [next(gen), next(gen)]
+        gen.close()
+        check("tail_lines start_offset resumes from the drain point (no skipped lines)", resumed == ["x3", "x4"])
+    finally:
+        os.unlink(p)
+
     # 4) LiveState updates current_view (scene/match) + view (GRE) and surfaces decisions
     st = LiveState()
     st.feed_line('q SceneChange {"toSceneName":"Home"}')

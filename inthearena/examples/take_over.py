@@ -140,6 +140,7 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
             for line in fh:
                 for d in state.feed_line(line):
                     pending = d
+            resume = fh.tell()                              # byte offset where the EXISTING content ends
         # The seeded log spans the WHOLE session — usually several games. Its last decision (`pending`) is only
         # safe to auto-execute if it's the MULLIGAN: that's the entry decision we navigate into, and
         # click_mulligan self-validates (it acts only if the Keep button is actually on screen, else no-ops). A
@@ -152,7 +153,10 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         elif pending is not None:
             print(f"  (seeded tail is {pending.kind} @ {pending.view.phase} — not auto-executed; "
                   f"likely a prior game. Waiting for the live decision.)")
-        for d in follow(log_path, state=state, from_start=False):   # new decisions, complete view
+        # Resume from where the drain stopped — NOT the live EOF. Executing the keep above takes a couple
+        # seconds, during which the GRE writes the post-mulligan turn-1 actions request; from_start=False would
+        # seek past it and the bot would freeze waiting for a decision that already went by.
+        for d in follow(log_path, state=state, from_start=False, start_offset=resume):
             handle(d)
     except KeyboardInterrupt:
         print("\nstopped.")
