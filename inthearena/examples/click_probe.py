@@ -105,7 +105,7 @@ def main(argv) -> int:
     if args.premove_iohid:
         codes = iohid_move(x, y)                            # real motion event -> MTGA pointer tracks to Play
         print(f"IOHID pre-move codes: {codes}")
-        time.sleep(0.12)
+        time.sleep(0.10)                                    # let MTGA process the move before clicking (no race)
 
     print(f"clicking via: {args.method}")
     if args.method == "iohid":
