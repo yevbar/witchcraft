@@ -530,6 +530,20 @@ _COLOR_NAME = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green"
 _ANTHEM_TYPES = {"artifact", "enchantment", "land", "planeswalker", "creature"}
 
 
+def _protection_colors(param: str) -> list:
+    """The COLOURS named by a §702.16 protection quality slug — 'from_white' -> ['white'], 'from_black_and_
+    from_red' -> ['black','red'] — or [] if it isn't pure-colour ('from_artifacts' / 'from_everything' /
+    'from_multicolored' / 'from_goblins'). The engine models only colour protection (illegal_target gates a
+    spell of the protected colour), so a non-colour quality abstains rather than mistranslate."""
+    cols = []
+    for q in param.split("_and_"):
+        c = q[5:] if q.startswith("from_") else q
+        if c not in _COLOR_NAME.values():
+            return []                                        # any non-colour part -> not a colour protection
+        cols.append(c)
+    return cols
+
+
 def _subtype_universe(corpus: dict) -> frozenset:
     """The set of all creature subtypes in the corpus (lowercased), cached per corpus object — so the lord
     parser only treats a real subtype (Goblin, Sliver) as a filter, not a stray descriptor ('attacking')."""
@@ -2160,6 +2174,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_keyword", (facts, kw))
     for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
         add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
+        if kw == "protection":                               # §702.16 protection FROM a colour -> the engine's
+            cols = _protection_colors(param)                 # protection_from input (illegal_target gates Col spells).
+            if cols:                                         # The engine models the TARGETING half of protection; the
+                for col in cols:                             # block/damage/attach halves aren't modelled — faithful-partial.
+                    add("protection_from", (tid, col))
+            else:                                            # protection from a TYPE / everything / mono-or-multicolored —
+                dropped.append(("protection", param))        # not a single colour the engine can gate -> faithful abstain
     if "flashback" in {str(k).lower() for k in f.get("keywords", set())}:
         add("flashback_card", (tid,))                        # §702.34 a card that natively HAS flashback (driver-side
         #                                                      filter for 'search for cards with flashback' — Quiet Speculation)
