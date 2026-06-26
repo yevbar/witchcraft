@@ -217,7 +217,10 @@ class Actuator(Protocol):
         """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing."""
         ...
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
+        """Press at the current cursor. `hold` = button-down duration (a QUICK tap vs a deliberate press; a long
+        hold reads to MTGA as a grab-to-drag), `settle` = pause after the IOHID move before pressing. None = the
+        actuator's defaults (tuned for menu buttons)."""
         ...
 
     def wait(self, seconds: float) -> None:
@@ -251,6 +254,7 @@ class DryRunActuator:
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
+    click_args: list = field(default_factory=list)         # (hold, settle) requested per click (None = default)
     waits: list = field(default_factory=list)              # pauses taken (seconds)
 
     def __post_init__(self):
@@ -278,8 +282,9 @@ class DryRunActuator:
             self.moves.append((self.pos, pt, round(dur, 4)))   # one wobbled, speed-jittered sub-segment
             self.pos = pt
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
         self.clicks.append(self.pos)
+        self.click_args.append((hold, settle))
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
@@ -371,7 +376,7 @@ class PyAutoGuiActuator:
         except Exception:
             pass
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
         if self._no_click:                                 # move-only mode: skip the press
             return
         self._focus()                                      # 1) focus Arena — clicks to a background window are dropped
@@ -384,13 +389,15 @@ class PyAutoGuiActuator:
                 iohid_move(x, y)
             except Exception as e:
                 _log.debug("click: IOHID move failed (%s: %s) — pressing at the warped (stale) pointer", type(e).__name__, e)
-            self.wait(0.10)
+            self.wait(0.10 if settle is None else settle)
         if self._click_backend is not None:                # optional alternate backend (e.g. Quartz-to-pid)
             self._click_backend(x, y)
             return
-        # 3) pyautogui press with a human-ish hold (an instantaneous down+up is often dropped by Unity clients)
+        # 3) pyautogui press. Default hold is a human-ish dwell (an instantaneous down+up is often dropped by
+        #    Unity menu buttons); callers playing a CARD pass a short `hold` so MTGA reads a quick TAP-to-play and
+        #    not a deliberate grab-to-drag (which picks the card up and drops it back instead of placing it).
         self._pg.mouseDown(x, y, button="left")
-        self.wait(self._rng.uniform(0.06, 0.14))
+        self.wait(self._rng.uniform(0.06, 0.14) if hold is None else hold)
         self._pg.mouseUp(x, y, button="left")
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:

@@ -693,6 +693,11 @@ def _hand_checks():
     play_card(a3, pts[0], gap=0.1)
     check("play_card = click, wait ~0.1s, click (2 clicks + a gap wait)", len(a3.clicks) == 2 and 0.1 in a3.waits)
 
+    a3b = DryRunActuator(rect=rect)
+    play_card(a3b, pts[0])
+    check("play_card uses QUICK taps (hold ~0) so MTGA reads a tap-to-play, not a grab-to-drag",
+          all(args[0] == 0.0 for args in a3b.click_args) and a3b.waits and max(a3b.waits) <= 0.05)
+
     # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
     # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which
     # lists the hand newest-first. So a descending zone list must come back ascending.

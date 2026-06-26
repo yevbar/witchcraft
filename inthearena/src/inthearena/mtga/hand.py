@@ -176,14 +176,15 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
         hover_card(actuator, p, dwell=dwell)
 
 
-def play_card(actuator, point: tuple, *, gap: float = 0.1) -> None:
+def play_card(actuator, point: tuple, *, gap: float = 0.03, hold: float = 0.0) -> None:
     """Play the hand card at `point`: hover onto it (AppleScript-focus Arena + glide + IOHID so the card lifts),
-    click, wait `gap` (~100ms), then click again — MTGA's lift-then-cast. (Each click also re-focuses + IOHID-
-    moves before the press.)"""
+    then TWO quick taps — MTGA's lift-then-cast. The taps must be FAST: a slow button-hold reads as a deliberate
+    grab-to-drag, which picks the card up and drops it back instead of placing it. So each tap uses `hold` (~0,
+    a near-instant down+up) with no extra settle, and `gap` between them is short (~30ms)."""
     actuator.hover(*point)
-    actuator.click()
+    actuator.click(hold=hold, settle=0.0)
     actuator.wait(gap)
-    actuator.click()
+    actuator.click(hold=hold, settle=0.0)
 
 
 def hand_members(view, seat: int) -> list:
