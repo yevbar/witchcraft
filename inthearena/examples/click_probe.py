@@ -47,8 +47,8 @@ def locate_play(win, scale, *, use_vision: bool):
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description="Probe which click method MTGA accepts.")
-    ap.add_argument("--method", choices=["applescript", "quartz", "quartz-pid", "pyautogui"],
-                    default="quartz-pid")
+    ap.add_argument("--method", choices=["iohid", "applescript", "quartz", "quartz-pid", "pyautogui"],
+                    default="iohid")
     ap.add_argument("--activate", action="store_true",
                     help="bring MTGA frontmost before clicking (some clients ignore clicks while backgrounded).")
     ap.add_argument("--hover", action="store_true",
@@ -77,7 +77,7 @@ def main(argv) -> int:
         x, y = locate_play(win, scale, use_vision=not args.no_vision)
     print(f"target (global points): ({x}, {y})")
 
-    from inthearena.mtga.macos import activate_app, click_applescript, click_quartz, mtga_pid
+    from inthearena.mtga.macos import activate_app, click_applescript, click_iohid, click_quartz, mtga_pid
 
     # move the cursor there first (movement works), then click via the chosen method
     import pyautogui
@@ -99,7 +99,10 @@ def main(argv) -> int:
         time.sleep(0.1)
 
     print(f"clicking via: {args.method}")
-    if args.method == "applescript":
+    if args.method == "iohid":
+        codes = click_iohid(x, y)
+        print(f"  IOKit status codes: {codes}  (all 0 = accepted; nonzero 'open' = API gated)")
+    elif args.method == "applescript":
         click_applescript(x, y)
     elif args.method == "quartz":
         click_quartz(x, y)

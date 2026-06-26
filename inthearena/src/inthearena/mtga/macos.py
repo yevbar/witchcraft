@@ -129,6 +129,58 @@ def click_quartz(x: int, y: int, *, hold: float = 0.10, pid: Optional[int] = Non
     _post(_ev(Quartz.kCGEventLeftMouseUp, 1))
 
 
+def click_iohid(x: int, y: int, *, hold: float = 0.10) -> dict:
+    """Click via the legacy IOKit path: open IOHIDSystem and IOHIDPostEvent NX mouse down/up. Lower than CGEvent,
+    but still NOT a real HID device report — apps reading raw HID via IOHIDManager won't see it. Returns a dict
+    of IOKit status codes ({'open': 0, 'down': 0, 'up': 0} means each call returned kIOReturnSuccess); a non-zero
+    'open' (e.g. 0xE00002C7 not-permitted) means the API is gated and we'd need a virtual HID device instead."""
+    import ctypes
+    import ctypes.util
+    import time
+
+    iokit = ctypes.cdll.LoadLibrary(ctypes.util.find_library("IOKit"))
+
+    class IOGPoint(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_int16), ("y", ctypes.c_int16)]
+
+    class NXMouseData(ctypes.Structure):                    # the mouse arm of the NXEventData union (+ padding)
+        _fields_ = [("subx", ctypes.c_int16), ("suby", ctypes.c_int16), ("eventNum", ctypes.c_int16),
+                    ("click", ctypes.c_int32), ("pressure", ctypes.c_uint8), ("buttonNumber", ctypes.c_uint8),
+                    ("subType", ctypes.c_uint8), ("reserved2", ctypes.c_uint8), ("reserved3", ctypes.c_int32),
+                    ("pad", ctypes.c_uint8 * 100)]          # over-allocate to cover the full union (tablet, etc.)
+
+    iokit.IOServiceMatching.restype = ctypes.c_void_p
+    iokit.IOServiceMatching.argtypes = [ctypes.c_char_p]
+    iokit.IOServiceGetMatchingService.restype = ctypes.c_uint32
+    iokit.IOServiceGetMatchingService.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    iokit.IOServiceOpen.restype = ctypes.c_int
+    iokit.IOServiceOpen.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                                    ctypes.POINTER(ctypes.c_uint32)]
+    iokit.IOHIDPostEvent.restype = ctypes.c_int
+    iokit.IOHIDPostEvent.argtypes = [ctypes.c_uint32, ctypes.c_uint32, IOGPoint, ctypes.c_void_p,
+                                     ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32]
+
+    task = ctypes.c_uint32.in_dll(ctypes.CDLL(None), "mach_task_self_").value
+    service = iokit.IOServiceGetMatchingService(0, iokit.IOServiceMatching(b"IOHIDSystem"))
+    connect = ctypes.c_uint32(0)
+    rc_open = iokit.IOServiceOpen(service, task, 1, ctypes.byref(connect))   # kIOHIDParamConnectType = 1
+    out = {"open": rc_open & 0xFFFFFFFF}
+    if rc_open != 0:
+        return out
+
+    loc = IOGPoint(int(x), int(y))
+    NX_LMOUSEDOWN, NX_LMOUSEUP, NX_MOUSEMOVED, VER = 1, 2, 5, 2
+    md = NXMouseData(); md.click = 1; md.pressure = 0
+    iokit.IOHIDPostEvent(connect, NX_MOUSEMOVED, loc, ctypes.byref(md), VER, 0, 0)
+    time.sleep(0.02)
+    md.pressure = 255
+    out["down"] = iokit.IOHIDPostEvent(connect, NX_LMOUSEDOWN, loc, ctypes.byref(md), VER, 0, 0) & 0xFFFFFFFF
+    time.sleep(hold)
+    md.pressure = 0
+    out["up"] = iokit.IOHIDPostEvent(connect, NX_LMOUSEUP, loc, ctypes.byref(md), VER, 0, 0) & 0xFFFFFFFF
+    return out
+
+
 def activate_app(pid: int) -> bool:
     """Bring the app with `pid` to the front (frontmost/active). Some clients ignore clicks while backgrounded.
     Returns True on success."""
