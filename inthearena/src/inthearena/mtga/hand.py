@@ -51,7 +51,9 @@ _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 _REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
-_PLAY_LIFT_Y = 0.79        # y-fraction to lift a grabbed card to — just NORTH of the hand's top edge (band 0.84)
+_PLAY_LIFT_Y = 0.58        # y-fraction to lift a grabbed card to — ABOVE the player avatar's head (its flaming
+#                            head tops out ~0.60-0.65 of the window; a card only becomes playable once the cursor
+#                            clears it), while staying on the player's battlefield. Tune if the avatar differs.
 _MULL_CLEAR_TIMEOUT = 5.0  # s: how long play_land waits for the mulligan buttons to clear before shadowing
 
 
