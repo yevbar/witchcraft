@@ -1541,6 +1541,13 @@ _PZ_TO_HAND = re.compile(r"^put (" + _TGT + r") into your hand$", re.I)
 # 'put <X> onto the battlefield' (that's the return_to_battlefield family's job).
 _CONJURE_BF = re.compile(
     r"^(?P<obj>conjures?\b.+?) onto the battlefield(?P<rider>(?: tapped| attacking| and attacking)*)$", re.I)
+# §711 CONJURE into the LIBRARY / EXILE — the other destinations the put-zone frame / _CONJURE_BF don't
+# cover. Same convention as conjure→battlefield (fire #2): the destination fixes the verb (put_in_library /
+# exile) and the whole 'conjure …' spec is preserved in the object slug, with an optional library position
+# ('… seventh from the top') folded onto it. Anchored on the leading conjure verb (runs only inside pzhand).
+_CONJURE_DEST = re.compile(
+    r"^(?P<obj>conjures?\b.+?) into (?:your |target opponent's |its owner's |their )?"
+    r"(?P<dest>library|exile)(?P<pos>[\w' ]*? from the top)?$", re.I)
 
 
 def _pz_frame(full: str):
@@ -4696,6 +4703,13 @@ class _ToEffect(Transformer):
             if rider:
                 extra += "_" + ground.slug(rider)
             return Effect("return_to_battlefield", "-", "you", extra)
+        m = _CONJURE_DEST.match(full)           # the library / exile destinations (§711 conjure)
+        if m:
+            extra = ground.slug(m.group("obj"))
+            if m.group("pos"):
+                extra += "_" + ground.slug(m.group("pos").strip())
+            return Effect("put_in_library" if m.group("dest").lower() == "library" else "exile",
+                          "-", "you", extra)
         return None
 
     # --- LOOK -----------------------------------------------------------------
