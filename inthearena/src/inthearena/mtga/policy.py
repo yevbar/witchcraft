@@ -85,6 +85,24 @@ class ArenaAggroPolicy(AggroPolicy):
         return "keep" if 1 <= lands <= 5 else "mulligan"
 
 
+class BlindRagePolicy(AggroPolicy):
+    """`blind_rage` — pure blind aggro that never engages a decision needing board targeting. Keep, develop,
+    swing with EVERYTHING; declare NO blocks (just pass when blocks come around) and decline any target. So it
+    never stalls on an unwired interaction — every decision resolves to a hand click, 'All Attack', or the
+    advance button. For decks where racing without ever blocking actually works (no targeted spells needed)."""
+
+    name = "blind_rage"
+
+    # _on_mulligan -> 'keep', _on_actions (land>cast>activate>pass), _on_attackers (all), _on_blockers ([])
+    # are inherited from AggroPolicy — already exactly blind aggro. Only the targeting paths change:
+
+    def _on_targets(self, d: Decision):
+        return None                                          # never target — pass (deck has no targeted spells)
+
+    def _on_default(self, d: Decision):
+        return None                                          # anything unmapped: decline/pass, don't risk it
+
+
 def describe(d: Decision, choice) -> str:
     """A short human-readable line for a (decision, choice), resolving grpIds to card names via `cards`."""
     def by_instance(inst):

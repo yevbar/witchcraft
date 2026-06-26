@@ -1003,6 +1003,17 @@ def run():
         check("aggro_arena mulligans a no-land opener", arena.decide(_mull(0, 7)) == "mulligan")
         check("aggro_arena mulligans a flooded (6-land) opener", arena.decide(_mull(6, 1)) == "mulligan")
 
+        # blind_rage: never engages a targeting decision — keep, swing all, no blocks, decline targets
+        from inthearena.mtga import BlindRagePolicy
+        rage = BlindRagePolicy()
+        rage_atk = rage.decide(decisions[1])
+        check("blind_rage attacks with ALL qualified", sorted(x["attackerInstanceId"] for x in rage_atk) == [51, 60])
+        check("blind_rage always keeps (blind — no mulligan)", rage.decide(decisions[2]) == "keep")
+        check("blind_rage never blocks (passes when blocks come around)",
+              rage.decide(_Dec(kind="blockers", options=[{"x": 1}], seat=1, view=GameView(), req=None)) == [])
+        check("blind_rage declines targets (no board targeting)",
+              rage.decide(_Dec(kind="targets", options=[{"instanceId": 9}], seat=1, view=GameView(), req=None)) is None)
+
         # card mapper: label always degrades to grp<id>; resolves real names when the MTGA DB is present
         check("cards.label falls back to grp<id> for unknown ids", cards.label(999999999) == "grp999999999")
         if cards.available():

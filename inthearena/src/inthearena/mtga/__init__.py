@@ -72,7 +72,7 @@ from .gre import (
     latest_game_view,
     messages,
 )
-from .policy import AggroPolicy, ArenaAggroPolicy, Policy, describe
+from .policy import AggroPolicy, ArenaAggroPolicy, BlindRagePolicy, Policy, describe
 from .snapshot import Card, GameSnapshot, Permanent, SeatSnapshot, snapshot, to_engine_facts
 from .screen import (
     CallableRecognizer,
@@ -91,7 +91,7 @@ __all__ = [
     "DEFAULT_LOG", "cards",
     "GreMessage", "GameStateMessage", "GameInfo", "GameObject", "TurnInfo", "PlayerState", "Action", "Attacker", "Zone",
     "GameView", "Decision", "iter_decisions", "latest_game_view", "messages",
-    "AggroPolicy", "ArenaAggroPolicy", "Policy", "describe",
+    "AggroPolicy", "ArenaAggroPolicy", "BlindRagePolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
     "to_game", "build_state", "suggest",
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",

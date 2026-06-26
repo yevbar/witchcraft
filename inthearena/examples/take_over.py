@@ -168,8 +168,9 @@ def main(argv) -> int:
     ap.add_argument("--no-click", action="store_true",
                     help="move the cursor to the target but DON'T click — safe to verify aim + permissions.")
     ap.add_argument("--no-bot", action="store_true", help="navigate into a game but don't run the bot.")
-    ap.add_argument("--bot", default="aggro_arena", choices=("aggro", "aggro_arena"),
-                    help="which policy to drive with (default: aggro_arena — aggro tuned to beat Arena's bot).")
+    ap.add_argument("--bot", default="blind_rage", choices=("blind_rage", "aggro", "aggro_arena"),
+                    help="which policy to drive with. blind_rage (default): pure aggro, never blocks/targets — "
+                         "never stalls on an unwired interaction. aggro_arena: + a keepable-hand mulligan.")
     ap.add_argument("--scale", type=float, default=1.0, help="image->click scale; use ~0.5 on a Retina display.")
     ap.add_argument("--max-steps", type=int, default=6, help="max navigation transitions before giving up.")
     ap.add_argument("--queue-timeout", type=float, default=120.0,
@@ -183,8 +184,9 @@ def main(argv) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logging.getLogger("inthearena").setLevel(logging.INFO)
 
-    from inthearena.mtga import AggroPolicy, ArenaAggroPolicy
-    policy = ArenaAggroPolicy() if args.bot == "aggro_arena" else AggroPolicy()
+    from inthearena.mtga import AggroPolicy, ArenaAggroPolicy, BlindRagePolicy
+    policy = {"blind_rage": BlindRagePolicy, "aggro_arena": ArenaAggroPolicy,
+              "aggro": AggroPolicy}[args.bot]()
 
     # which view are we on?
     if args.view:
