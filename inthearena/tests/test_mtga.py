@@ -881,6 +881,15 @@ def _hand_checks():
         cards.label = handmod.cards.label = olabel2
         ocr.recognize_text = handmod.ocr.recognize_text = orec2
 
+    # hover-reveal sweep is geometric + LEFT-TO-RIGHT (not the instanceId model): given legible cards on the
+    # right, it extends LEFT of them (where occluded left-hand copies sit) and skips the anchors themselves —
+    # so the first legal land it reveals is the LEFTMOST (e.g. three Forests on the left).
+    from inthearena.mtga.hand import _reveal_positions
+    rpos = _reveal_positions(rect, 6, [(4, 900, 972), (5, 1030, 972)], None)
+    rxs = [p[0] for p in rpos]
+    check("_reveal_positions sweeps left-to-right, extends LEFT of the legible cards, skips them",
+          rxs == sorted(rxs) and min(rxs) < 900 and all(abs(x - 900) > 50 and abs(x - 1030) > 50 for x in rxs))
+
 
 def _execute_checks():
     """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""

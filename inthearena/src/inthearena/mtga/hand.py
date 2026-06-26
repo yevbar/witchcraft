@@ -416,6 +416,35 @@ def _land_hit(named: list, want: dict, *, near_x=None, max_dist=None):
     return best
 
 
+def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
+    """LEFT-TO-RIGHT (x, y) points to hover for revealing OCCLUDED cards — derived from PHYSICAL positions, NOT
+    the instanceId order model (which may not match this hand's layout). Legible `anchors` set the spacing/span;
+    step by that spacing across the whole band, skipping the anchors themselves (already-read non-lands). Falls
+    back to detected card x's, then a uniform fan. Sweeping left-to-right means the FIRST legal land found is the
+    leftmost — which is what we want when several copies (e.g. three Forests) sit on the left."""
+    lo, hi = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
+    if anchors:
+        axs = sorted(a[1] for a in anchors)
+        y = sum(a[2] for a in anchors) // len(anchors)
+        gaps = [axs[i + 1] - axs[i] for i in range(len(axs) - 1)]
+        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
+        x = float(axs[0])
+        while x - spacing >= lo:                        # walk left to the band edge…
+            x -= spacing
+        xs = []
+        while x <= hi + 1 and len(xs) < 2 * max(n, 1):  # …then march right across the whole band
+            xs.append(int(round(x)))
+            x += spacing
+        # skip points sitting on an anchor (those cards are legible non-lands already; only sweep the gaps/edges)
+        return [(sx, y) for sx in xs if all(abs(sx - ax) > spacing * 0.45 for ax in axs)]
+    if det:
+        y = sum(p[1] for p in det) // len(det)
+        return [(p[0], y) for p in sorted(det)]
+    y = rect.y + int(0.90 * rect.h)
+    slots = max(n, 1)
+    return [(int(lo + k * (hi - lo) / max(slots - 1, 1)), y) for k in range(slots)]
+
+
 def play_land(actuator, locator, view, seat: int, options, preferred=None, *, settle: float = 0.3) -> bool:
     """Play a land WITHOUT ever misclicking. Only a card whose on-screen NAME is positively read — and that is a
     legal land drop — is ever clicked. Order of attempts:
@@ -475,39 +504,23 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
         play_card(actuator, hit)
         return True
 
-    # 2) hover-reveal. Pick slot positions to magnify: anchored geometry (preferred slot first) if any name is
-    # legible, else detected card x's, else a uniform fan. We click the HOVERED slot (a stable bottom-band point),
-    # not the lifted preview — the OCR only CONFIRMS the magnified card is a legal land.
+    # 2) hover-reveal. The leftmost cards in a wide fan overlap, hiding their banners. Sweep LEFT-TO-RIGHT across
+    # physical positions (from the legible cards' geometry, NOT the instanceId order model — which mis-aimed at
+    # the wrong side), magnifying each occluded card to read it, and click the FIRST one that's a legal land — the
+    # leftmost. We click the hovered position (a stable bottom-band point); the OCR only CONFIRMS a legal land is
+    # there. (near_x ties the match to the card under the cursor, not a far-off same-named card.)
     anchors = _name_anchors(view, seat, screen, named)
-    positions = []                                     # (slot_or_None, x, y) to hover, in try-order
-    if anchors:
-        legible = {a[0] for a in anchors}
-        pref_slot = screen.index(preferred) if preferred in screen else None
-        order = ([pref_slot] if pref_slot is not None and pref_slot not in legible else []) + \
-                [i for i in range(len(screen)) if i not in legible and i != pref_slot]
-        for i in order:
-            p = _predict_slot(anchors, i)
-            if p is not None:
-                positions.append((i, p[0], p[1]))
-    else:
-        det = locate_hand_cards(image, rect, locator)
-        if det:
-            positions = [(None, x, y) for x, y in det]
-        else:
-            y = rect.y + int(0.90 * rect.h)
-            x0, x1 = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
-            slots = max(len(screen), 1)
-            positions = [(None, int(x0 + k * (x1 - x0) / max(slots - 1, 1)), y) for k in range(slots)]
-
+    det = locate_hand_cards(image, rect, locator) if not anchors else None
+    positions = _reveal_positions(rect, len(screen), anchors, det)
     max_dist = int(0.06 * rect.w)
-    _log.info("  land: no land legible at rest — hover-revealing %d slot(s)", len(positions))
-    for slot, x, y in positions:
+    _log.info("  land: no land legible at rest — hover-revealing %d position(s) left-to-right", len(positions))
+    for x, y in positions:
         actuator.hover(x, y)
         actuator.wait(settle)
         named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
         if _land_hit(named2, want, near_x=x, max_dist=max_dist) is not None:
-            _log.info("  land: slot %s revealed a legal land — playing at (%d,%d)", slot, x, y)
-            play_card(actuator, (x, y))                # click the hovered hand slot (stable), not the preview
+            _log.info("  land: revealed a legal land near x=%d — playing", x)
+            play_card(actuator, (x, y))
             return True
 
     _log.info("  land: couldn't positively identify a land — shadowing (no pixel guess)")
