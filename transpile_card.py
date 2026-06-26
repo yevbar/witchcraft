@@ -2287,10 +2287,11 @@ _COST_MOD_ANCHORS = [
     (re.compile(r"^(?:If (?P<lead>.+?), )?~ costs (?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) "
                 r"to (?P<kind>cast)(?:,? (?P<cond>.+?))?\.?$", re.I),
      "self", None, "cond", "lead"),
-    # SET form: '<spell-class> spells you cast cost {N} <dir> to cast' — scope is the matched NP.
-    (re.compile(r"^(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? (?P<amt>(?:\{[^}]+\})+|\d+) "
-                r"(?P<dir>less|more) to (?P<kind>cast)\.?$", re.I),
-     None, "scope", None, None),
+    # SET form: '[During <timing>, ]<spell-class> spells you cast cost {N} <dir> to cast' — scope is the
+    # matched NP; an optional leading 'During <timing>,' (your turn / turns other than yours) is the cond.
+    (re.compile(r"^(?:(?P<cond>During [^,]+?), )?(?P<scope>[\w'~ ]*?spells?[\w'~ ]*?) costs? "
+                r"(?P<amt>(?:\{[^}]+\})+|\d+) (?P<dir>less|more) to (?P<kind>cast)\.?$", re.I),
+     None, "scope", "cond", None),
     # ABILITY form: "~'s abilities / this ability / abilities you activate cost {N} <dir> to activate
     # [<for each …>]" — scope defaults to activated_ability.
     # the leading NP ('~'s abilities' / 'this ability' / …) is matched only to anchor the phrase; the
