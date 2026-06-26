@@ -35,7 +35,8 @@ prior art already exists, and this is shared for research — treat it sensitive
 - `mtga/cards.py` — resolve `grpId` → English card name from the client's local SQLite card database.
 - `mtga/engine.py` — position an `mtg.Game` at the current board by determinization (visible info fed, hidden
   zones random-filled); format-aware (Brawl vs Standard → engine variant + commander).
-- `mtga/views.py` — `RecognizedViews` (Home, Recently played) + where each view's clickable elements sit.
+- `mtga/views.py` — `RecognizedViews` (Home, Play menu, Recently played, GamePlay) + where each view's
+  clickable elements sit; `navigate.py`'s `Navigator` walks Home -> Play menu -> queue all the way into a game.
 - `mtga/screen.py` — recognize the current view from the latest log scene and/or a pluggable image model.
 - `mtga/navigate.py` — drive a non-game view INTO a game via a pluggable `Actuator` (no-op by default; the
   real pyautogui backend is opt-in, `pip install inthearena[act]`, and ToS-relevant — see DISCLAIMER.md). The

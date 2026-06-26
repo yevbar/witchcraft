@@ -64,6 +64,9 @@ class RecognizedViews(enum.Enum):
 # Known clickable elements per view (the user-noted anchors; extend as the navigation layer grows).
 _ELEMENTS = {
     RecognizedViews.HOME: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
+    # the play menu (logs as 'EventLanding') shows recently-played decks with a bottom-right Play that QUEUES a
+    # game — this is the "click Play again" screen you reach from Home.
+    RecognizedViews.PLAY_MENU: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
     # the recently-played decks section also has a Play button (bottom-right) that queues a game
     RecognizedViews.RECENTLY_PLAYED: (ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36),),
 }

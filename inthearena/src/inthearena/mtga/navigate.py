@@ -323,6 +323,7 @@ class PyAutoGuiActuator:
 # so its bounds/spread are shared). Extend as each view's UI is mapped (PLAY_MENU still needs deck-select/queue).
 _TOWARD_GAME = {
     RecognizedViews.HOME: _element(RecognizedViews.HOME, "Play"),
+    RecognizedViews.PLAY_MENU: _element(RecognizedViews.PLAY_MENU, "Play"),         # Home -> here -> queue a game
     RecognizedViews.RECENTLY_PLAYED: _element(RecognizedViews.RECENTLY_PLAYED, "Play"),
 }
 
@@ -383,6 +384,7 @@ class Navigator:
 # more views are handled (PLAY_MENU deck-select/queue, in-game play, …).
 _TAKEOVER = {
     RecognizedViews.HOME: "Play",
+    RecognizedViews.PLAY_MENU: "Play",
     RecognizedViews.RECENTLY_PLAYED: "Play",
 }
 

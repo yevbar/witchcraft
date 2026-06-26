@@ -397,10 +397,14 @@ def _navigate_checks():
     check("already in a game -> no action, navigate returns True",
           in_game.step_toward_game() is False and in_game.navigate_to_game() is True)
 
-    # an unmapped view (PLAY_MENU's deck-select/queue not mapped yet) -> stop honestly, no flailing
-    stuck = Navigator(DryRunActuator(), lambda: RV.PLAY_MENU, poll=0.001, change_timeout=0.02)
-    check("unmapped view -> no action, navigate returns False",
+    # an unrecognized view (view_provider can't name the screen) -> stop honestly, no flailing
+    stuck = Navigator(DryRunActuator(), lambda: None, poll=0.001, change_timeout=0.02)
+    check("unrecognized view -> no action, navigate returns False",
           stuck.step_toward_game() is False and stuck.navigate_to_game() is False)
+
+    # PLAY_MENU is now a mapped transition (Home -> Play menu -> queue a game)
+    pm_nav = Navigator(DryRunActuator(), lambda: RV.PLAY_MENU, poll=0.001, change_timeout=0.02)
+    check("PLAY_MENU is mapped toward a game (step acts)", pm_nav.step_toward_game() is True)
 
     # take_over: on HOME, click somewhere WITHIN the Play button (anchor +/- a few px), varying each call
     import random as _r
