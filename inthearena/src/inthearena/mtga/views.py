@@ -39,6 +39,7 @@ class ViewElement:
     spread: int = 6
     radius: Optional[int] = None
     query: Optional[str] = None           # vision prompt to locate it; defaults to "<name> button"
+    frac: Optional[tuple] = None          # explicit (x, y) fraction of the window, overriding `anchor`'s coarse spot
 
 
 class RecognizedViews(enum.Enum):

@@ -501,6 +501,26 @@ def _navigate_checks():
     check("home on Recently-played overlay -> queues directly (1 bottom-right click)",
           r_hr is True and len(hr.clicks) == 1 and hr.clicks[0][1] > 800)
 
+    # click_mulligan: clicks the bottom-center Keep / Mulligan button the bot chose
+    from inthearena.mtga import click_mulligan
+
+    class MullButtons:
+        def locate(self, image, query):
+            if "Keep" in query:
+                return Rect(1100, 850, 90, 48)            # bottom-center-right
+            if "Mulligan" in query:
+                return Rect(740, 850, 90, 48)             # bottom-center-left
+            return None
+
+    ak = DryRunActuator(rect=big_rect, image=object())
+    click_mulligan(ak, True, locator=MullButtons())
+    check("click_mulligan(keep) clicks the Keep button (bottom-center-right)",
+          len(ak.clicks) == 1 and 1090 <= ak.clicks[0][0] <= 1200 and ak.clicks[0][1] > 800)
+    am = DryRunActuator(rect=big_rect, image=object())
+    click_mulligan(am, False, locator=MullButtons())
+    check("click_mulligan(mulligan) clicks the Mulligan button (bottom-center-left)",
+          len(am.clicks) == 1 and 730 <= am.clicks[0][0] <= 840 and am.clicks[0][1] > 800)
+
     # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
     from inthearena.mtga import go_home, take_over as take_over_flow
     check("take_over() reaches a game already in progress",

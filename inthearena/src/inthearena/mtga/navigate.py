@@ -47,8 +47,8 @@ _ANCHOR_FRAC = {
 
 
 def resolve(element: ViewElement, rect: Rect) -> tuple:
-    """The nominal pixel (x, y) for a view element within `rect`, from its coarse anchor."""
-    fx, fy = _ANCHOR_FRAC[element.anchor]
+    """The nominal pixel (x, y) for a view element within `rect`, from its explicit `frac` or coarse anchor."""
+    fx, fy = element.frac or _ANCHOR_FRAC[element.anchor]
     return int(rect.x + rect.w * fx), int(rect.y + rect.h * fy)
 
 
@@ -97,7 +97,7 @@ def _locate(actuator, element: ViewElement, locator) -> Optional[Rect]:
 def _in_anchor_region(box: Rect, element: ViewElement, rect: Rect) -> bool:
     """Is `box` roughly where `element`'s anchor says it should be (e.g. a Play match really in the bottom-right,
     not a stray detection elsewhere on a half-loaded screen)? Center-ish anchors don't constrain that axis."""
-    fx, fy = _ANCHOR_FRAC.get(element.anchor, (0.5, 0.5))
+    fx, fy = element.frac or _ANCHOR_FRAC.get(element.anchor, (0.5, 0.5))
     cx, cy = box.x + box.w / 2.0, box.y + box.h / 2.0
     rx = (cx - rect.x) / (rect.w or 1)
     ry = (cy - rect.y) / (rect.h or 1)
@@ -384,6 +384,23 @@ _HOME = ViewElement("Home", ScreenAnchor.TOP_LEFT, radius=40)
 _RECENTLY_PLAYED_TAB = ViewElement("Recently Played", ScreenAnchor.TOP_RIGHT, radius=40)
 _QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36, query="orange Play button")
 _HOME_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
+
+# The in-game mulligan screen: Keep / Mulligan buttons sit side by side at bottom-center (not a corner), so
+# they carry explicit window fractions for the coarse fallback (vision locates them precisely).
+_MULLIGAN_KEEP = ViewElement("Keep", ScreenAnchor.CENTER, radius=40, query="Keep button", frac=(0.59, 0.81))
+_MULLIGAN_MULLIGAN = ViewElement("Mulligan", ScreenAnchor.CENTER, radius=40, query="Mulligan button",
+                                 frac=(0.41, 0.81))
+
+
+def click_mulligan(actuator: Actuator, keep: bool, *, rng: Optional[random.Random] = None,
+                   locator: "Optional[ElementLocator]" = None) -> bool:
+    """On the mulligan screen, click Keep (`keep=True`) or Mulligan (`keep=False`). Vision-located if a
+    `locator` is given. Returns True if it clicked."""
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    element = _MULLIGAN_KEEP if keep else _MULLIGAN_MULLIGAN
+    return interact(actuator, element, rect, rng or random.Random(), locator=locator)
 
 
 def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,

@@ -25,6 +25,7 @@ from .navigate import (
     Rect,
     advance_home,
     advance_play_menu,
+    click_mulligan,
     go_home,
     interact,
     resolve,
@@ -77,7 +78,7 @@ __all__ = [
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
-    "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu",
+    "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu", "click_mulligan",
     "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
 ]

@@ -90,18 +90,38 @@ def build_live(args):
     return actuator, locator
 
 
-def drive_bot(log_path: str) -> int:
-    """In a game: run the bot over the LIVE GRE decision stream, printing what it decides at each point."""
-    pol = AggroPolicy()
-    print(f"\nin a game — driving with '{pol.name}' over live decisions (Ctrl-C to stop):")
+def _show(d, choice):
     try:
-        for d in follow(log_path, from_start=False):       # only NEW decisions, as the game unfolds
-            choice = pol.decide(d)
-            try:
-                line = describe(d, choice)
-            except Exception:
-                line = f"{choice}"
-            print(f"  {d.view.phase:22s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {line}")
+        line = describe(d, choice)
+    except Exception:
+        line = f"{choice}"
+    print(f"  {d.view.phase:22s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {line}")
+
+
+def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None) -> int:
+    """In a game: run the bot over the GRE decision stream. EXECUTES the mulligan (clicks Keep/Mulligan) when an
+    `actuator` is given; other in-game actions are decided + printed only (shadow) — that UI isn't mapped yet."""
+    from inthearena.mtga import click_mulligan, iter_decisions
+    pol = AggroPolicy()
+    print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
+
+    def handle(d):
+        choice = pol.decide(d)
+        _show(d, choice)
+        if d.kind == "mulligan" and actuator is not None:   # the one in-game action we execute
+            if click_mulligan(actuator, choice == "keep", rng=rng, locator=locator):
+                print(f"    -> executed: {choice}")
+
+    try:
+        # the mulligan we just navigated into was likely logged BEFORE we started tailing, so handle the
+        # currently-pending decision first, then follow live.
+        pending = None
+        for d in iter_decisions(log_path):
+            pending = d
+        if pending is not None and pending.kind == "mulligan":
+            handle(pending)
+        for d in follow(log_path, from_start=False):        # new decisions as the game unfolds
+            handle(d)
     except KeyboardInterrupt:
         print("\nstopped.")
     return 0
@@ -145,7 +165,10 @@ def main(argv) -> int:
             gv = latest_game_view(args.log)
             print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
             return 0
-        return drive_bot(args.log)
+        if args.dry_run or args.no_click:                  # shadow only — decide + print, no clicks
+            return drive_bot(args.log)
+        actuator, locator = build_live(args)               # live: so the bot can execute the mulligan
+        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random())
 
     actuator, locator = build_live(args)
     rng = random.Random()
@@ -180,7 +203,7 @@ def main(argv) -> int:
     print("reached a game.")
     if args.no_bot:
         return 0
-    return drive_bot(args.log)
+    return drive_bot(args.log, actuator=actuator, locator=locator, rng=rng)
 
 
 if __name__ == "__main__":
