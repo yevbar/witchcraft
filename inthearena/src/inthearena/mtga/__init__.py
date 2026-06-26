@@ -17,9 +17,12 @@ from . import cards
 from .engine import build_state, suggest, to_game
 from .execute import ExecResult, GameExecutor, ObjectLocator
 from .hand import (
+    capture_hand,
     hand_order,
     hover_card,
     locate_hand_cards,
+    locate_named_cards,
+    match_named_card,
     play_card,
     play_hand_object,
     rest_point,
@@ -93,6 +96,6 @@ __all__ = [
     "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
     "GameExecutor", "ObjectLocator", "ExecResult",
-    "snapshot_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
-    "hand_order", "play_hand_object",
+    "snapshot_hand", "capture_hand", "locate_hand_cards", "sweep_hand", "play_card", "hover_card", "rest_point",
+    "hand_order", "play_hand_object", "locate_named_cards", "match_named_card",
 ]

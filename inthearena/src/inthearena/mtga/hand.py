@@ -6,17 +6,23 @@ cursor at a REST point AWAY from the hand (every card un-hovered), detect the ca
 
 Playing a card is a lift-then-cast gesture: move onto it, click, wait ~100ms, then click again.
 
-A vision locator (Moondream) detects the cards from the snapshot; we keep only the bottom band (the hand, not
-the battlefield), de-dupe, and order them left-to-right — the count should match the `GameView` hand size.
-This is the on-screen half of the in-game executor's object seam (see `execute.ObjectLocator`); mapping a
-specific GRE `instanceId` to one of these slots (by hand order) is the next step.
+To play a SPECIFIC card we read the card NAMES off the snapshot with macOS Vision OCR (`ocr.py`) and click the
+one whose name matches — see `play_hand_object`. This is robust to MTGA's hand sort order: the GRE hand-zone
+`objectInstanceIds` order does NOT match the on-screen left-to-right order, so an index-into-the-fan approach
+mis-clicks. Name matching also makes duplicate lands a non-issue (any visible Forest is a fine Forest).
+
+A vision locator (Moondream) can still detect anonymous card rectangles from the snapshot (bottom band, de-duped,
+left-to-right) — kept as the FALLBACK when a name is occluded or OCR is unavailable. This is the on-screen half
+of the in-game executor's object seam (see `execute.ObjectLocator`).
 """
 
 from __future__ import annotations
 
+import difflib
 import logging
+import re
 
-from . import cards
+from . import cards, ocr
 from .navigate import Rect
 
 _log = logging.getLogger(__name__)
@@ -25,6 +31,13 @@ _HAND_BAND = 0.85          # a detection counts as a hand card only if its cente
 _HAND_X = (0.20, 0.78)     # …and within this central x-band (excludes the far-left avatar / far-right buttons)
 _HAND_QUERY = "a Magic card in the player's hand at the bottom of the screen"
 _MIN_GAP = 40              # px: collapse near-coincident detections (Moondream double-hits) into one card
+
+# Name-OCR band (the hand's name banners): below this y-fraction, within this x-band. Wider on the right than
+# _HAND_X because a fully-exposed rightmost card's name sits out near x~0.80; the far-left avatar panel (x<0.20)
+# and the bottom-right action button (x>0.90) are excluded.
+_NAME_Y = 0.84
+_NAME_X = (0.20, 0.90)
+_NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 
 
 def rest_point(rect: Rect) -> tuple:
@@ -60,12 +73,12 @@ def locate_hand_cards(image, rect: Rect, locator) -> list:
     return out
 
 
-def snapshot_hand(actuator, locator, *, settle: float = 0.25) -> list:
-    """Move the cursor to the rest point, snapshot, and return the hand cards' points (left-to-right). Doing the
-    rest-move here guarantees the snapshot isn't taken with a card magnified under the cursor."""
+def capture_hand(actuator, *, settle: float = 0.25):
+    """Move the cursor to the rest point and snapshot. Returns (image, rect) — the rest-move guarantees the
+    snapshot isn't taken with a card magnified under the cursor. Saves the image for offline diagnosis."""
     rect = actuator.window_rect()
     if rect is None:
-        return []
+        return None, None
     actuator.hover(*rest_point(rect))    # IOHID-move the client's pointer away, so the hand isn't magnified
     actuator.wait(settle)
     image = actuator.screenshot()
@@ -75,7 +88,52 @@ def snapshot_hand(actuator, locator, *, settle: float = 0.25) -> list:
             _log.info("  hand: snapshot %sx%s saved to /tmp/inthearena_handsnap.png", *image.size)
     except Exception:
         pass
+    return image, rect
+
+
+def snapshot_hand(actuator, locator, *, settle: float = 0.25) -> list:
+    """Move the cursor to the rest point, snapshot, and return the hand cards' points (left-to-right). Doing the
+    rest-move here guarantees the snapshot isn't taken with a card magnified under the cursor."""
+    image, rect = capture_hand(actuator, settle=settle)
     return locate_hand_cards(image, rect, locator)
+
+
+def _norm_name(s: str) -> str:
+    """Lowercased, alphanumerics-and-spaces only — to compare an OCR'd banner against a card label despite OCR
+    grit ('(Collector's Vault' -> 'collectors vault', 'Shimmerwilds Growd' ~ 'shimmerwilds growth')."""
+    return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
+
+
+def locate_named_cards(image, rect: Rect) -> list:
+    """Read the hand's card NAMES from `image` via macOS Vision OCR. Returns [(name, x, y)] in SCREEN coords for
+    every text line in the hand band (bottom edge, central x), left-to-right. This identifies WHICH card is
+    where — robust to MTGA's hand sort order (the GRE zone order isn't the on-screen order). [] off-macOS."""
+    if image is None or rect is None:
+        return []
+    out = []
+    for text, xf, yf in ocr.recognize_text(image):
+        if yf >= _NAME_Y and _NAME_X[0] <= xf <= _NAME_X[1] and len(_norm_name(text)) >= 3:
+            out.append((text, rect.x + int(xf * rect.w), rect.y + int(yf * rect.h)))
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+def match_named_card(target_name: str, named: list):
+    """Best (x, y) among `named` whose OCR text matches `target_name` (substring or fuzzy ratio ≥ _NAME_MATCH),
+    or None. Duplicate names (two Forests) resolve to whichever copy is legible — equivalent to play."""
+    tn = _norm_name(target_name)
+    if not tn:
+        return None
+    best, best_score = None, _NAME_MATCH
+    for text, x, y in named:
+        on = _norm_name(text)
+        if tn in on or on in tn:
+            score = 1.0
+        else:
+            score = difflib.SequenceMatcher(None, tn, on).ratio()
+        if score >= best_score:
+            best, best_score = (x, y), score
+    return best
 
 
 def hover_card(actuator, point: tuple, *, dwell: float = 0.0) -> None:
@@ -115,27 +173,42 @@ def hand_order(view, seat: int) -> list:
 
 
 def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bool:
-    """Play the hand card with GRE `instance_id`: snapshot the hand (cursor at rest), find its slot, and play
-    it. The hand SIZE comes from the log (authoritative); vision gives the on-screen positions. When vision
-    found exactly that many cards, the zone-order index maps 1:1 to a detected slot. When it found a different
-    number (a wide 7-card fan overlaps, so detection misses/merges some), interpolate the slot across the
-    detected fan span instead — best-effort rather than abstaining. Returns False only if the card isn't in the
-    hand or nothing was detected."""
+    """Play the hand card with GRE `instance_id`. Snapshot the hand once (cursor at rest), then:
+
+      PRIMARY — read the card NAMES on screen (macOS Vision OCR) and click the one matching this card's name.
+      This sidesteps the hand-order problem entirely (the GRE zone order ≠ the on-screen left-to-right order)
+      and handles duplicate lands (any visible Forest is a fine Forest).
+
+      FALLBACK — if OCR isn't available or the name is occluded, fall back to anonymous card detection
+      (Moondream) + the zone-order index (extrapolated across the detected fan).
+
+    Returns False only if the card isn't in the hand or neither path could place it."""
     order = hand_order(view, seat)
     if instance_id not in order:
         _log.info("  hand: object %s not in the hand-zone order %s", instance_id, order)
         return False
     idx, n = order.index(instance_id), len(order)
-    points = snapshot_hand(actuator, locator)
-    # CALIBRATION log: the zone order with names/types (the '*' is the card we want) vs the detected screen
-    # x's — compare against the on-screen left-to-right order to learn the zone->screen mapping.
-    named = []
-    for i, inst in enumerate(order):
-        o = view.objects.get(inst)
-        nm = (cards.label(o.grpId) if o else "?")
-        named.append(("*" if inst == instance_id else "") + f"{i}:{nm}")
-    _log.info("  hand zone order: %s", "  ".join(named))
-    _log.info("  hand: log=%d cards, snapshot found %d at x=%s; want zone-slot %d (instance %s)",
+    target = view.objects.get(instance_id)
+    target_name = cards.label(target.grpId) if target else None
+
+    image, rect = capture_hand(actuator)
+    if rect is None:
+        return False
+
+    # PRIMARY: locate the card by its on-screen name.
+    if target_name:
+        named = locate_named_cards(image, rect)
+        _log.info("  hand: want %r; OCR read %s", target_name, [t[0] for t in named])
+        hit = match_named_card(target_name, named)
+        if hit is not None:
+            _log.info("  hand: matched %r on screen at %s — playing", target_name, hit)
+            play_card(actuator, hit)
+            return True
+        _log.info("  hand: %r not legible on screen — falling back to detection+index", target_name)
+
+    # FALLBACK: anonymous detection + zone index.
+    points = locate_hand_cards(image, rect, locator)
+    _log.info("  hand: log=%d cards, detection found %d at x=%s; want zone-slot %d (instance %s)",
               n, len(points), [p[0] for p in points], idx, instance_id)
     if not points:
         return False

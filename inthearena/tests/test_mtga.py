@@ -721,6 +721,30 @@ def _hand_checks():
     check("play_hand_object extrapolates the slot on a count mismatch (best-effort, still plays)",
           ok2 and len(ap2.clicks) == 2 and 920 <= ap2.clicks[0][0] <= 1000)
 
+    # name-OCR layer: read card names (Vision) and match a target despite OCR grit + duplicate lands. Stub the
+    # OCR so the test is platform-independent (Vision is macOS-only). Coords are normalized (x_frac, y_frac).
+    from inthearena.mtga import locate_named_cards, match_named_card, ocr
+    fake = [("Heroic Intervention", 0.38, 0.90), ("Shimmerwilds Growd", 0.45, 0.89),  # OCR'd 'Growth' as 'Growd'
+            ("(Collector's Vault", 0.58, 0.89),                                        # leading-paren grit
+            ("Spider-Man, Brooklyn Visionary", 0.17, 0.95),     # AVATAR panel (x-frac < 0.20) -> dropped
+            ("Next", 0.93, 0.88), ("You will need to discard", 0.78, 0.80)]            # UI -> dropped (x / y)
+    orig = ocr.recognize_text
+    ocr.recognize_text = lambda image: fake
+    try:
+        named = locate_named_cards(object(), rect)
+        check("locate_named_cards keeps only hand-band names (avatar/Next/UI dropped)",
+              [n for n, _, _ in named] == ["Heroic Intervention", "Shimmerwilds Growd", "(Collector's Vault"])
+        check("locate_named_cards returns screen coords left-to-right",
+              [x for _, x, _ in named] == sorted(x for _, x, _ in named) and named[0][1] == int(0.38 * 1920))
+        check("match_named_card tolerates OCR grit ('Shimmerwilds Growth' ~ 'Growd')",
+              match_named_card("Shimmerwilds Growth", named) == named[1][1:])
+        check("match_named_card matches across a stray prefix char (Collector's Vault)",
+              match_named_card("Collector's Vault", named) == named[2][1:])
+        check("match_named_card returns None for an occluded/absent name (Command Tower)",
+              match_named_card("Command Tower", named) is None)
+    finally:
+        ocr.recognize_text = orig
+
 
 def _execute_checks():
     """GameExecutor dispatch: object-free actions click the advance button; object actions need an ObjectLocator."""
