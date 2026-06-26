@@ -1528,6 +1528,16 @@ _PZ_PUTS = re.compile(r"\bputs?\b", re.I)   # `_put_zone`'s declarative guard ('
 # fires BEFORE `_put_zone` (-> put_in_hand). So a clean `_TGT` 'put <X> into your hand' is return_to_hand,
 # not put_in_hand. Reproduce that ordering (the put-to-zone agent's frame missed it).
 _PZ_TO_HAND = re.compile(r"^put (" + _TGT + r") into your hand$", re.I)
+# §711 CONJURE onto the battlefield — the sibling of the `_put_zone` conjure→hand form (which the frame
+# above grounds to put_in_hand with the whole conjure-object phrase preserved in the slug). Here the
+# destination is the battlefield, so it grounds to return_to_battlefield (the put-onto-battlefield verb)
+# with the SAME object-slug convention (the full 'conjure …' spec, incl. 'a card named X' / 'a duplicate
+# of X' / 'a card of your choice from …' / 'a random …'). A trailing entry-state rider (tapped / and
+# attacking) is folded onto the slug so the board-entry state is preserved. Anchored on the leading
+# conjure verb (this only runs inside the conjure-led pzhand transformer), so it can't reach a non-conjure
+# 'put <X> onto the battlefield' (that's the return_to_battlefield family's job).
+_CONJURE_BF = re.compile(
+    r"^(?P<obj>conjures?\b.+?) onto the battlefield(?P<rider>(?: tapped| attacking| and attacking)*)$", re.I)
 
 
 def _pz_frame(full: str):
@@ -4672,7 +4682,18 @@ class _ToEffect(Transformer):
         verb = next((str(a).lower() for a in args if not isinstance(a, _PzBody)), "conjure")
         if body is None:
             return None
-        return _pz_frame(verb + " " + body.strip())
+        full = verb + " " + body.strip()
+        e = _pz_frame(full)                     # the hand/library/top-bottom destinations (put_in_hand etc.)
+        if e is not None:
+            return e
+        m = _CONJURE_BF.match(full)             # the battlefield destination (§711 conjure → return_to_battlefield)
+        if m:
+            extra = ground.slug(m.group("obj"))
+            rider = m.group("rider").strip()
+            if rider:
+                extra += "_" + ground.slug(rider)
+            return Effect("return_to_battlefield", "-", "you", extra)
+        return None
 
     # --- LOOK -----------------------------------------------------------------
     def lksubj(self, *toks):
