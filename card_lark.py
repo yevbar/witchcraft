@@ -1115,6 +1115,10 @@ _TAPUNTAP_RE = re.compile(rf"^(?:{_TGT} )?(tap|untap)s? ({_TGT})$", re.I)
 # imperative leaf splits verb='tap', rest='or untap …' and the _COORD guard defers it; reproduce the template
 # here from src so lark owns it (the _GENOBJ generic path is scoped to destroy/regenerate, excluding this).
 _TAP_OR_UNTAP_RE = re.compile(rf"^tap or untap ({_TGT})$", re.I)
+# '<subject> <keyword-action>' intransitive — 'it regenerates', 'that creature investigates' (`_subject_action`,
+# a §701 keyword action performed BY the object -> <action>(-, subj)). Routes through osclause/tapuntap_subj
+# (the verb is an OVERB) but that transformer only re-matches the tap/untap object form, so it abstains here.
+_SUBJ_ACTION_RE = re.compile(rf"^({_TGT}) (\w+)$", re.I)
 # '<subj> enters with N [additional] <kind> counter(s) on it' — an ETB counter placement (§614/§122,
 # put_counter / cond on_enter). 'counter(s)' mis-lexes as the OVERB, so the clause routes to
 # osclause/tapuntap_subj where the tap/untap re-match abstains; a src re-match here reproduces
@@ -2522,6 +2526,15 @@ class _ToEffect(Transformer):
         m = _TAPUNTAP_RE.match(src.strip())
         if m:
             return Effect(m.group(1).lower(), "-", _target(m.group(2)))
+        sa = _SUBJ_ACTION_RE.match(src.strip())          # '<subj> <keyword-action>' intransitive (_subject_action)
+        if sa:
+            slug = ground.slug(sa.group(2))
+            base = slug.rstrip("s") or slug
+            if slug in ground.keyword_actions():
+                base = slug
+            elif base not in ground.keyword_actions():
+                return None
+            return Effect(base, "-", _target(sa.group(1)))
         return None
 
     def imperative(self, verb, *rest):
