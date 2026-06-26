@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# run_combo.sh — VALIDATE a witchcraft-piloted, LOOKAHEAD-DRIVEN turn-1 combo with FORGE as source of truth.
+# run_combo.sh — VALIDATE a mtg-piloted, LOOKAHEAD-DRIVEN turn-1 combo with FORGE as source of truth.
 #
-# The witchcraft seat opens a STACKED hand (the combo — see ForgeComboKill.java's COMBO[] + startGameHook),
+# The mtg seat opens a STACKED hand (the combo — see ForgeComboKill.java's COMBO[] + startGameHook),
 # and OUR datalog engine (forge_bridge.EnginePolicy) drives every play decision over a socket by running
 # its OWN win_search lookahead on the reconstructed Forge state each turn and playing the winning line's
 # next move — NOTHING combo-specific. FORGE owns the rules and reports the outcome.
@@ -28,12 +28,12 @@ echo "== compiling the Forge combo-kill harness =="
 mkdir -p "$OUT"
 "$JDK/bin/javac" -cp "$FATJAR" -d "$OUT" "$HERE/ForgeComboKill.java"
 
-echo "== starting the witchcraft engine bot on :$PORT =="
+echo "== starting the mtg engine bot on :$PORT =="
 python3 "$HERE/run_bot.py" "$PORT" &
 BOT=$!
 sleep 1
 
-echo "== running Forge (witchcraft pilots the stacked storm combo; Forge referees), headless =="
+echo "== running Forge (mtg pilots the stacked storm combo; Forge referees), headless =="
 DUMP_ARG=""; [ "${RECORD:-0}" = "1" ] && DUMP_ARG="-Ddump=/tmp/forge_combo_game.jsonl"
 FORGE_ASSETS="$FORGE/forge-gui/" "$JDK/bin/java" -Djava.awt.headless=true \
     -DbotHost=127.0.0.1 -DbotPort="$PORT" $DUMP_ARG -cp "$FATJAR:$OUT" ForgeComboKill \

@@ -1,4 +1,4 @@
-// ForgeVsBot.java — a REAL game: our Python engine (witchcraft) plays a seat vs Forge's AI, Forge owning
+// ForgeVsBot.java — a REAL game: our Python engine (mtg) plays a seat vs Forge's AI, Forge owning
 // the state. PURE ENGINE: every STRATEGIC decision Forge asks our seat to make — which spell/land to play
 // (chooseSpellAbilityToPlay), which creatures attack (declareAttackers), which block (declareBlockers),
 // keep/mulligan (mulliganKeepHand) — is forwarded to the Python bot (forge_bridge.serve + EnginePolicy)
@@ -90,7 +90,7 @@ public class ForgeCommanderFFA {
     // ---------- the engine-consulting controller ----------
     static class RemoteController extends PlayerControllerAi {
         private final String seat;
-        private final int port;                                 // each witchcraft seat dials its OWN bot port
+        private final int port;                                 // each mtg seat dials its OWN bot port
         private Socket sock;
         private BufferedReader in;
         private PrintWriter out;
@@ -382,7 +382,7 @@ public class ForgeCommanderFFA {
         }
 
         // -- The remaining mechanical choices Forge asks for: each takes a DETERMINISTIC, NON-STRATEGIC legal
-        // default — NEVER super (PlayerControllerAi). The witchcraft seat thus consults Forge's AI for NOTHING;
+        // default — NEVER super (PlayerControllerAi). The mtg seat thus consults Forge's AI for NOTHING;
         // a choice our engine doesn't drive becomes the minimal legal default (first/min/decline), i.e. a "pass".
         @Override public CardCollection orderBlockers(Card a, CardCollection b) {
             tally("orderBlockers (as-is, no-AI)"); return b; }                  // declared order, no reordering
@@ -583,7 +583,7 @@ public class ForgeCommanderFFA {
         // -Dseats=N (default 4, backward-compatible). Props (one per seat 0..N-1):
         //   -Ddeck<i>=<file>     the deck file per seat
         //   -Dname<i>=<name>     the seat's display name
-        //   -Dtype<i>=witch|ai   witchcraft (socket-driven) or Forge AI
+        //   -Dtype<i>=witch|ai   mtg (socket-driven) or Forge AI
         //   -Dport<i>=<port>     the bot port for a witch seat (ignored for ai)
         int nseats = Integer.parseInt(System.getProperty("seats", "4"));
         List<RegisteredPlayer> players = Lists.newArrayList();
@@ -604,16 +604,16 @@ public class ForgeCommanderFFA {
         Match match = new Match(rules, players, "witchcraft-commander");
         Game game = new Game(players, rules, match);
         game.subscribeToEvents(new MoveLog());
-        System.out.println("Starting " + nseats + "-player Commander (Forge referees; witchcraft drives its seat(s)) ...");
+        System.out.println("Starting " + nseats + "-player Commander (Forge referees; mtg drives its seat(s)) ...");
         long t0 = System.currentTimeMillis();
         match.startGame(game);
         String w = (game.getOutcome() != null && game.getOutcome().getWinningLobbyPlayer() != null)
                 ? game.getOutcome().getWinningLobbyPlayer().getName() : "draw/none";
         System.out.println("RESULT winner=" + w + " turns=" + game.getPhaseHandler().getTurn()
                 + " wall=" + (System.currentTimeMillis() - t0) + "ms");
-        // The witchcraft seats consult Forge's AI for NOTHING. This tallies the mechanical choices that took a
+        // The mtg seats consult Forge's AI for NOTHING. This tallies the mechanical choices that took a
         // DETERMINISTIC non-AI legal default (first/min/decline) instead of an engine decision — Forge-AI free.
-        System.out.println("Non-AI mechanical defaults taken by witchcraft seats (NO Forge-AI ever): "
+        System.out.println("Non-AI mechanical defaults taken by mtg seats (NO Forge-AI ever): "
                 + (RemoteController.FORGE_AI.isEmpty() ? "NONE" : RemoteController.FORGE_AI));
     }
 }
