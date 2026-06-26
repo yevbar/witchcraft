@@ -473,28 +473,34 @@ def _navigate_checks():
     # doesn't detect when it's the selected tab), so advance_home must not depend on it.
     from inthearena.mtga import advance_home
 
-    class HomeClosed:                                       # plain Home: only Home's Play; overlay opens on click
+    # plain Home: no overlay close-button (the orange Play that exists on BOTH Home and the overlay must NOT be
+    # mistaken for "already on Recently-played"). The overlay (X close, top-right) appears only after Home's Play.
+    class HomeClosed:
         def __init__(self, act):
             self.act = act
 
         def locate(self, image, query):
             opened = len(self.act.clicks) >= 1             # the first click (Home's Play) opens the overlay
-            if "orange" in query:
-                return Rect(1700, 1000, 140, 60) if opened else None
-            if "Recently" in query:
-                return Rect(1810, 100, 100, 70) if opened else None
-            if "Play" in query:                            # Home's plain Play, only before the overlay opens
-                return None if opened else Rect(1700, 1000, 140, 60)
+            if "close" in query:                           # overlay's X close button (top-right) -> overlay open
+                return Rect(1490, 120, 40, 40) if opened else None
+            if "orange" in query:                          # orange Play exists in BOTH states (incl. plain Home)
+                return Rect(1700, 1000, 140, 60)
+            if "Play" in query:
+                return Rect(1700, 1000, 140, 60)
             return None
 
     hm = DryRunActuator(rect=big_rect, image=object())
     r_hm = advance_home(hm, big_rect, _r.Random(0), locator=HomeClosed(hm))
-    check("home overlay closed -> opens the play menu then queues (>=2 clicks, first bottom-right)",
+    check("plain Home (orange Play but no overlay) -> opens the menu then queues (>=2 clicks, bottom-right)",
           r_hm is True and len(hm.clicks) >= 2 and hm.clicks[0][0] > 1500 and hm.clicks[0][1] > 800)
 
-    class OnRecentlyPlayedHome:                            # already on the Recently-played overlay (orange Play)
+    class OnRecentlyPlayedHome:                            # overlay already open on Recently-played
         def locate(self, image, query):
-            return Rect(1700, 1000, 140, 60) if "orange" in query else None
+            if "close" in query:
+                return Rect(1490, 120, 40, 40)             # overlay open (X close top-right)
+            if "orange" in query:
+                return Rect(1700, 1000, 140, 60)
+            return None
 
     hr = DryRunActuator(rect=big_rect, image=object())
     r_hr = advance_home(hr, big_rect, _r.Random(0), locator=OnRecentlyPlayedHome())

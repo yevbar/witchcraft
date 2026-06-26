@@ -399,6 +399,11 @@ _HOME_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
 
 # The in-game mulligan screen: Keep / Mulligan buttons sit side by side at bottom-center (not a corner), so
 # they carry explicit window fractions for the coarse fallback (vision locates them precisely).
+# The play-menu overlay's X close button (top-right). It's present on EVERY sub-tab when the overlay is open and
+# absent on plain Home — the reliable "is the overlay open?" signal (the orange Play exists in BOTH plain Home
+# and the recently-played overlay, so it can't tell them apart).
+_PLAY_CLOSE = ViewElement("close", ScreenAnchor.TOP_RIGHT, query="close button", frac=(0.78, 0.12))
+
 _MULLIGAN_KEEP = ViewElement("Keep", ScreenAnchor.CENTER, radius=40, query="Keep button", frac=(0.59, 0.81))
 _MULLIGAN_MULLIGAN = ViewElement("Mulligan", ScreenAnchor.CENTER, radius=40, query="Mulligan button",
                                  frac=(0.41, 0.81))
@@ -466,21 +471,16 @@ def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
         interact(actuator, _HOME_PLAY, rect, rng)          # open the play menu
         actuator.wait(1.0)
         return advance_play_menu(actuator, rect, rng)
-    # Decide by the RELIABLE signals (the Recently-played tab itself doesn't detect when it's the selected tab):
-    #   - orange queue Play visible bottom-right  => already on the recently-played overlay -> just queue
-    #   - plain Home's Play visible bottom-right   => overlay closed -> click it to open, then drive the menu
-    #   - neither                                  => overlay open on Events/Find-match -> switch tab, then queue
-    _log.info("home: is the play-menu overlay already on Recently-played?")
-    if _wait_locate(actuator, _QUEUE_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
-        _log.info("home: already on Recently-played — queueing")
-        return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
-    _log.info("home: overlay not on Recently-played — is the play menu closed (plain Home)?")
-    if _wait_locate(actuator, _HOME_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
-        _log.info("home: opening the play menu (clicking Home's Play)")
+    # The orange Play exists on BOTH plain Home and the recently-played overlay, so it can't tell them apart.
+    # Use the overlay's X close button (top-right) as the reliable "is the overlay open?" signal instead.
+    _log.info("home: is the play-menu overlay open (looking for its X close button)?")
+    overlay_open = _wait_locate(actuator, _PLAY_CLOSE, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None
+    if not overlay_open:
+        _log.info("home: play menu is closed — clicking Home's Play to open it")
         if not interact(actuator, _HOME_PLAY, rect, rng, locator=locator):    # click Home's Play to open it
             return False
         actuator.wait(1.0)                                 # let the overlay render
-    _log.info("home: now driving the play menu to queue a game…")
+    _log.info("home: driving the play menu to queue a game…")
     return advance_play_menu(actuator, rect, rng, locator=locator)
 
 
