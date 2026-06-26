@@ -160,3 +160,28 @@ def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, se
     log advances to re-derive the Game from the updated view."""
     from mtg.game import Game
     return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed))
+
+
+def suggest(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0):
+    """Translate `view` into the `mtg` engine and report what it would do for the LOCAL player (mapped to
+    'alice'): the engine's suggested move (its AggroPlayer's pick), the legal-move menu, and a small state
+    summary. Returns a dict, or None if the `mtg` engine isn't importable (inthearena stays usable without it)
+    or the state can't be translated. NOTE: the engine only models a fraction of real cards today, so for an
+    unmodeled board the suggestion will often be just 'pass' — this is the seam to build coverage against."""
+    try:
+        from mtg.aggro import AggroPlayer
+    except Exception:
+        return None
+    try:
+        game = to_game(view, me, opponent_deck=opponent_deck, seed=seed)
+    except Exception:
+        return None
+    legal = [game.describe_move(m) for m in game.legal_moves]
+    suggested = None
+    try:
+        move = AggroPlayer().bind(game, "alice").choose_move(game)
+        suggested = game.describe_move(move)
+    except Exception:
+        suggested = None
+    return {"turn": game.turn_number, "step": game.step, "active": game.active_player,
+            "legal": legal, "suggested": suggested}

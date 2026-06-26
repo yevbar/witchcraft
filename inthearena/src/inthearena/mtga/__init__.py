@@ -14,7 +14,7 @@ live menu); `cards` resolves grpId -> card name; `shadow` runs a policy read-onl
 from __future__ import annotations
 
 from . import cards
-from .engine import build_state, to_game
+from .engine import build_state, suggest, to_game
 from .live import LiveState, follow, tail_lines, tail_messages
 from .navigate import (
     Actuator,
@@ -72,7 +72,7 @@ __all__ = [
     "GameView", "Decision", "iter_decisions", "latest_game_view", "messages",
     "AggroPolicy", "Policy", "describe",
     "snapshot", "to_engine_facts", "GameSnapshot", "SeatSnapshot", "Card", "Permanent",
-    "to_game", "build_state",
+    "to_game", "build_state", "suggest",
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
     "current_view", "latest_view", "latest_scene_name", "iter_scene_changes", "iter_view_events", "in_game",
     "ViewRecognizer", "CallableRecognizer",

@@ -250,6 +250,14 @@ def _engine_checks():
     if cards.available():
         check("engine: my visible hand card is fed directly (DB present)", cnt("in_hand", "alice") == 1)
 
+    # suggest(): translate -> engine -> AggroPlayer's move + legal menu + state summary
+    from inthearena.mtga.engine import suggest
+    s = suggest(view, me=1, seed=7)
+    check("engine: suggest() returns a move summary",
+          isinstance(s, dict) and "suggested" in s and isinstance(s["legal"], list) and len(s["legal"]) >= 1)
+    check("engine: suggest reads it as alice's precombat main",
+          s["active"] == "alice" and s["step"] == "precombat_main")
+
     # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
     brawl = _apply({"type": "GameStateType_Full",
                     "gameInfo": {"variant": "GameVariant_Brawl", "superFormat": "SuperFormat_Constructed"},
