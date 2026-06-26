@@ -29,10 +29,15 @@ from typing import Optional, Protocol
 from .navigate import Rect, interact
 from .views import ScreenAnchor, ViewElement
 
-# The bottom-right context button that advances combat / priority. Its LABEL changes with the step (Pass /
-# Resolve / All Attack / No Blocks / Done / Next), but its position is stable, so one element covers them all.
-# Calibrate the fraction/query against a real game like the menu buttons were (placeholder anchor for now).
+# Bottom-right context buttons. The generic advance button's LABEL changes with the step (Pass / Resolve / Done /
+# Next); one element covers those. BUT the declare-attackers step shows TWO buttons stacked there — 'All Attack'
+# (lower) and 'No Attacks' (above it) — both inside the bottom-right anchor region, so a generic query could grab
+# either. Verified on a live frame: Moondream cleanly distinguishes them by their exact LABEL, so combat queries
+# the specific button it wants. ('All Attack' located at ~(0.92, 0.88) of a 1920x1080 window; 'No Attacks' above.)
 _ADVANCE = ViewElement("advance", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="the bottom-right action button")
+_ALL_ATTACK = ViewElement("All Attack", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="All Attack button")
+_NO_ATTACKS = ViewElement("No Attacks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Attacks button")
+_NO_BLOCKS = ViewElement("No Blocks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Blocks button")
 
 
 @dataclass
@@ -79,12 +84,14 @@ class GameExecutor:
         return handler(decision, choice)
 
     # ── object-free actions (wired) ──────────────────────────────────────────────────────────────────────
-    def _advance(self, note: str) -> ExecResult:
-        """Click the bottom-right advance/confirm button (Pass / Resolve / All Attack / No Blocks / Done)."""
+    def _advance(self, note: str, element: ViewElement = _ADVANCE) -> ExecResult:
+        """Click a bottom-right context button (default: the generic advance/confirm — Pass / Resolve / Done).
+        Combat passes a SPECIFIC `element` ('All Attack' / 'No Attacks' / 'No Blocks') so the right one of the two
+        stacked buttons is chosen."""
         rect = self._act.window_rect()
         if rect is None:
             return ExecResult(False, "no window rect")
-        return ExecResult(interact(self._act, _ADVANCE, rect, self._rng, locator=self._locator), note)
+        return ExecResult(interact(self._act, element, rect, self._rng, locator=self._locator), note)
 
     def _do_mulligan(self, decision, choice) -> ExecResult:
         from .navigate import click_mulligan
@@ -110,22 +117,21 @@ class GameExecutor:
         return ExecResult(False, f"{at} not wired (activated abilities etc.)")
 
     def _do_blockers(self, decision, choice) -> ExecResult:
-        # aggro never blocks -> choice is the empty list. 'No Blocks' is the advance button (object-free).
+        # aggro never blocks -> choice is the empty list. 'No Blocks' is its own bottom-right button.
         if not choice:
-            return self._advance("no blocks")
+            return self._advance("no blocks", _NO_BLOCKS)
         return ExecResult(False, "blocking not wired (needs board targeting: blocker -> attacker)")
 
     def _do_attackers(self, decision, choice) -> ExecResult:
         # choice is a list of {attackerInstanceId, target}. Attacking with EVERY qualified attacker is exactly
-        # the 'All Attack' button (the advance button), no per-creature clicking. A partial attack would need
-        # board targeting, so it's not wired.
+        # the 'All Attack' button, no per-creature clicking. A partial attack would need board targeting.
         if not choice:
-            return self._advance("no attacks")
+            return self._advance("no attacks", _NO_ATTACKS)
         chosen = {(c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None))
                   for c in choice}
         qualified = {getattr(a, "attackerInstanceId", None) for a in (decision.options or [])}
         if qualified and chosen >= qualified:
-            return self._advance("all attack")             # bottom-right 'All Attack' = every qualified attacker
+            return self._advance("all attack", _ALL_ATTACK)   # 'All Attack' = every qualified attacker
         return ExecResult(False, "partial attack not wired (needs board targeting)")
 
     def _do_targets(self, decision, choice) -> ExecResult:
