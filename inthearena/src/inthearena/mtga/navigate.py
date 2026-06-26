@@ -89,7 +89,7 @@ def _locate(actuator, element: ViewElement, locator) -> Optional[Rect]:
     if image is None:
         return None
     try:
-        return locator.locate(image, f"{element.name} button")
+        return locator.locate(image, element.query or f"{element.name} button")
     except Exception:
         return None
 
@@ -376,11 +376,14 @@ _TOWARD_GAME = {
 # recognize (Mastery, Packs, a deck list, …), then the normal Home -> Play menu -> game sequence can run.
 _HOME = ViewElement("Home", ScreenAnchor.TOP_LEFT, radius=40)
 
-# Within the play menu (EventLanding): the Recently-played sub-tab (top-right, next to Events / Find Match) and
-# the bottom-right Play that QUEUES the recently-played deck. These sub-tabs all share one log scene, so we tell
-# them apart by sight, not by the log.
+# Within the play menu (the overlay on Home): the Recently-played sub-tab (top-right, next to Events / Find
+# Match) and the big ORANGE Play that QUEUES the highlighted recently-played deck (bottom-right). The
+# recently-played view also has small grey per-deck Play buttons, so we query specifically for the orange one to
+# avoid grabbing a wrong (e.g. bottom-left) deck button. The plain Home Play button (to OPEN the overlay) is its
+# own element.
 _RECENTLY_PLAYED_TAB = ViewElement("Recently Played", ScreenAnchor.TOP_RIGHT, radius=40)
-_QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
+_QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36, query="orange Play button")
+_HOME_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
 
 
 def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,
@@ -422,13 +425,13 @@ def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
     isn't on screen), click Home's Play to open it and wait for it to appear; then queue via the play-menu
     sub-tab sequence (which switches to Recently-played if Events/Find-match is showing)."""
     if locator is None:                                    # no vision to see the overlay — best-effort sequence
-        interact(actuator, _QUEUE_PLAY, rect, rng)         # open the play menu
+        interact(actuator, _HOME_PLAY, rect, rng)          # open the play menu
         actuator.wait(1.0)
         return advance_play_menu(actuator, rect, rng)
     overlay_open = _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
                                 timeout=1.0, poll=0.5, rng=rng) is not None
     if not overlay_open:
-        if not interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator):   # click Home's Play to open it
+        if not interact(actuator, _HOME_PLAY, rect, rng, locator=locator):    # click Home's Play to open it
             return False
         if _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
                         timeout=open_timeout, poll=1.0, rng=rng) is None:

@@ -38,6 +38,7 @@ class ViewElement:
     anchor: ScreenAnchor
     spread: int = 6
     radius: Optional[int] = None
+    query: Optional[str] = None           # vision prompt to locate it; defaults to "<name> button"
 
 
 class RecognizedViews(enum.Enum):
