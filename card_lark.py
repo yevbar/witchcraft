@@ -1358,6 +1358,12 @@ _MR_ATTACK_OR_BLOCK = re.compile(r"^(" + _TGT + r") attacks? or blocks?(?: each 
 # stripped) — the §509 lure-like requirement. -> must_be_blocked(-, X). A non-`_TGT` subject (a run-on 'gains …
 # and must be blocked') matches none of these -> abstain to the regex.
 _MR_MUST_BE_BLOCKED = re.compile(r"^(" + _TGT + r") must be blocked(?: this turn| this combat)?$", re.I)
+# '<X> must attack/block [dur]' — the 'must <verb>' phrasing of the §508/§509 requirement (`_must_attack_block`,
+# the 'if able' MRABLE already stripped by the grammar). -> must_attack/must_block(-, X). Disjoint from the bare
+# 'attacks'/'blocks' forms above (those have no 'must'); a non-`_TGT` subject abstains to the regex. NOTE: only
+# the 'if able' variants reach here (mrclause is anchored on MRABLE); a bare 'X must attack' with NO 'if able'
+# still falls to `_must_attack_block` — so this REDUCES the template's abstains but doesn't yet retire it.
+_MR_MUST_ATTACK_BLOCK = re.compile(r"^(" + _TGT + r") must (attack|block)(?: each combat| this turn| this combat)?$", re.I)
 
 # GRANT_COMBAT (can attack/block …) — the clean §509/§508 combat-PERMISSION subfamily of grant_ability,
 # the EXACT mirror of two card_effects templates re-applied to the captured clause (the GCC_CAN 'can
@@ -4493,6 +4499,9 @@ class _ToEffect(Transformer):
         m = _MR_MUST_BE_BLOCKED.match(body)          # PASSIVE '<X> must be blocked [dur]' (_must_be_blocked)
         if m:
             return Effect("must_be_blocked", "-", _target(m.group(1)))
+        m = _MR_MUST_ATTACK_BLOCK.match(body)        # 'must <verb>' phrasing '<X> must attack/block [dur]'
+        if m:
+            return Effect("must_" + m.group(2), "-", _target(m.group(1)))
         return None
 
     # --- GRANT_COMBAT (can attack/block …; §509/§508) -------------------------
