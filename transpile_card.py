@@ -1458,6 +1458,10 @@ _CARD_STATIC = [
     # (all printed variants are 'that many plus one'); descriptive static, parallel to doubles_counters.
     (r"^If one or more (?:[\w/+ ]*?)counters would be put on .*?, that many plus one.*instead\.?$", "counters_plus_one"),
     (r"^If you would put one or more (?:[\w/+ ]*?)counters on .*?, put that many plus one.*instead\.?$", "counters_plus_one"),
+    # §122/§614 dice-roll 'advantage'/'disadvantage' (AFR 2021) — roll an extra die, drop the lowest (advantage)
+    # or highest (disadvantage). Descriptive static; the dropped-die end is captured into the slug.
+    (r"^If (?:you|a player) would roll one or more dice, instead (?:they )?roll that many dice plus one "
+     r"and ignore the (lowest|highest) roll\.?$", "roll_extra_die_ignore_"),
     (r"^~ can be your commander\.?$", "can_be_commander"),
     (r"^[A-Z][a-z]+ commander$", "can_be_commander"),       # ability words: 'Spell commander', …
     (r"^Commander [a-z]+$", "can_be_commander"),             # 'Commander ninja', 'Commander enchantment'
