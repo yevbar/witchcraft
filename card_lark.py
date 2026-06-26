@@ -1395,6 +1395,9 @@ _DC_RE = re.compile(r"^distribute (\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? amon
 # `_move_counter_from` ('move <N> <kind> counters from <src> onto|to <tgt>') exact patterns, re-applied to src.
 _MC_RE = re.compile(rf"^put (its|all|all of its) counters on ({_TGT})$", re.I)
 _MCF_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+?) counters? from ({_TGT}) (?:onto|to) ({_TGT})$", re.I)
+# 'move all [of its/their] counters from <src> onto|to <tgt>' (§122) — every counter regardless of kind/count
+# (Fate Transfer, Nexus Mentality); no count/kind span, so _MCF_RE's count+kind shape misses it.
+_MCF_ALL_RE = re.compile(rf"^move all (?:of (?:its|their) )?counters? from ({_TGT}) (?:onto|to) ({_TGT})$", re.I)
 # §509 combat-requirement — `_lure` ('all creatures able to block <X> [dur] do so' -> lure(-, X)) exact pattern,
 # re-applied to src by lure_v. (extra_combat is a constant-tuple whole-phrase terminal, so it needs no re-apply
 # regex; '<X> must be blocked … if able' is handled in the mustreq transformer via the body-level _MR_MUST_BE_BLOCKED.)
@@ -2275,6 +2278,10 @@ class _ToEffect(Transformer):
         src = getattr(self, "_src", None)
         if src is None:
             return None
+        ma = _MCF_ALL_RE.match(src.strip())          # 'move all counters from <src> onto <tgt>' (every kind)
+        if ma:
+            return Effect("put_counter", "all", _target(ma.group(2)), "all",
+                          "moved_from_" + _target(ma.group(1)))
         m = _MCF_RE.match(src.strip())
         if not m:
             return None
