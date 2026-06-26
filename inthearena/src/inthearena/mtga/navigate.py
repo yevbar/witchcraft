@@ -94,14 +94,46 @@ def _locate(actuator, element: ViewElement, locator) -> Optional[Rect]:
         return None
 
 
+def _in_anchor_region(box: Rect, element: ViewElement, rect: Rect) -> bool:
+    """Is `box` roughly where `element`'s anchor says it should be (e.g. a Play match really in the bottom-right,
+    not a stray detection elsewhere on a half-loaded screen)? Center-ish anchors don't constrain that axis."""
+    fx, fy = _ANCHOR_FRAC.get(element.anchor, (0.5, 0.5))
+    cx, cy = box.x + box.w / 2.0, box.y + box.h / 2.0
+    rx = (cx - rect.x) / (rect.w or 1)
+    ry = (cy - rect.y) / (rect.h or 1)
+    okx = abs(fx - 0.5) < 0.15 or (rx >= 0.5) == (fx >= 0.5)
+    oky = abs(fy - 0.5) < 0.15 or (ry >= 0.5) == (fy >= 0.5)
+    return okx and oky
+
+
+def _wait_locate(actuator, element: ViewElement, rect: Rect, locator, *, timeout: float, poll: float,
+                 rng: random.Random) -> Optional[Rect]:
+    """Poll the screen until the vision `locator` clearly sees `element` in its expected region (e.g. the Play
+    button rendered in the bottom-right), or `timeout` elapses. Returns the located box, or None if it never
+    appeared. This is what lets a click WAIT OUT a loading screen instead of pressing where the button will be."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        box = _locate(actuator, element, locator)
+        if box is not None and _in_anchor_region(box, element, rect):
+            return box
+        if time.monotonic() >= deadline:
+            return None
+        actuator.wait(poll)
+
+
 def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random.Random, *,
-             locator: "Optional[ElementLocator]" = None) -> None:
-    """Click `element`. If a vision `locator` is given, the target + bounds come from where the button ACTUALLY
-    is on screen; otherwise they fall back to the coarse anchor (`resolve`) + `spread`/`radius` estimate. Either
-    way: if the cursor is already within the element, wait a beat and click in place (no move); else glide
-    (wobbled, speed-jittered) to a jittered point within it, then click."""
-    box = _locate(actuator, element, locator)
-    if box is not None:                                    # VISION: real on-screen button bounds
+             locator: "Optional[ElementLocator]" = None, confirm_timeout: float = 25.0,
+             poll: float = 0.5) -> bool:
+    """Click `element`. With a vision `locator`, FIRST wait (up to `confirm_timeout`) until the button is
+    actually visible on screen in its expected spot — so we don't click an empty area while the view is still
+    loading — then click where it is. Without a locator, fall back to the coarse anchor (`resolve`) + spread.
+    Either way: if the cursor is already within the element, wait a beat and click in place (no move); else glide
+    (wobbled, speed-jittered) to a jittered point within it, then click. Returns True if it clicked, False if a
+    located element never became visible within the timeout (so the caller can retry rather than misclick)."""
+    if locator is not None:                                # VISION: only act once the button is clearly there
+        box = _wait_locate(actuator, element, rect, locator, timeout=confirm_timeout, poll=poll, rng=rng)
+        if box is None:
+            return False                                   # never rendered (still loading?) — don't blind-click
         target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
     else:                                                  # FALLBACK: coarse anchor estimate
         anchor = resolve(element, rect)
@@ -112,6 +144,7 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
         actuator.click()
     else:
         actuator.move_and_click(*target)
+    return True
 
 
 def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
@@ -339,8 +372,7 @@ def go_home(actuator: Actuator, *, rng: Optional[random.Random] = None,
     rect = actuator.window_rect()
     if rect is None:
         return False
-    interact(actuator, _HOME, rect, rng or random.Random(), locator=locator)
-    return True
+    return interact(actuator, _HOME, rect, rng or random.Random(), locator=locator)
 
 
 class Navigator:
@@ -378,8 +410,8 @@ class Navigator:
             if self._recover_home:
                 return go_home(self._act, rng=self._rng, locator=self._locator)
             return False
-        interact(self._act, element, rect, self._rng, locator=self._locator)  # vision-located if a locator is set
-        return True
+        # vision-located if a locator is set; waits for the button to actually render before clicking
+        return interact(self._act, element, rect, self._rng, locator=self._locator)
 
     def _wait_for_change(self, previous: Optional[RecognizedViews]) -> Optional[RecognizedViews]:
         deadline = time.monotonic() + self._timeout
@@ -428,8 +460,7 @@ def take_over_view(actuator: Actuator, view: Optional[RecognizedViews], *,
     element = _element(view, name)
     if rect is None or element is None:
         return False
-    interact(actuator, element, rect, rng, locator=locator)
-    return True
+    return interact(actuator, element, rect, rng, locator=locator)
 
 
 def take_over(actuator: Actuator, view_provider: Callable[[], Optional[RecognizedViews]], *,

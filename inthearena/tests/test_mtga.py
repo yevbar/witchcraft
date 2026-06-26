@@ -505,6 +505,30 @@ def _navigate_checks():
     interact(a_fb, play, a_fb.rect, _r.Random(0))          # no locator -> coarse fallback
     check("no locator -> coarse-anchor fallback still works", a_fb.clicks[0][0] > 500)
 
+    # VISIBILITY GATE: with a locator, interact waits for the button to actually render (no blind-clicking a
+    # loading screen), only acts once it's clearly in the right region.
+    class Loading:                                          # returns None until the Nth look, then the box
+        def __init__(self, ready_after, box):
+            self.n, self.ready_after, self.box = 0, ready_after, box
+
+        def locate(self, image, query):
+            self.n += 1
+            return self.box if self.n > self.ready_after else None
+
+    br = Rect(850, 720, 80, 40)                             # a bottom-right Play box
+    never = DryRunActuator(rect=nrect, image=object())
+    r_never = interact(never, play, nrect, _r.Random(0), locator=Loading(10**9, br),
+                       confirm_timeout=0.02, poll=0.0)
+    check("loading: button never visible -> no click, returns False", r_never is False and never.clicks == [])
+    late = DryRunActuator(rect=nrect, image=object())
+    r_late = interact(late, play, nrect, _r.Random(0), locator=Loading(2, br), confirm_timeout=1.0, poll=0.0)
+    check("loading: clicks once the button renders", r_late is True and len(late.clicks) == 1)
+    stray = DryRunActuator(rect=nrect, image=object())     # a detection in the WRONG (top-left) region
+    r_stray = interact(stray, play, nrect, _r.Random(0), locator=Loading(0, Rect(10, 10, 40, 20)),
+                       confirm_timeout=0.02, poll=0.0)
+    check("stray detection outside the bottom-right anchor -> not clicked",
+          r_stray is False and stray.clicks == [])
+
 
 def run():
     fd, path = tempfile.mkstemp(suffix=".log")
