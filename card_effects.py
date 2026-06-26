@@ -1780,6 +1780,15 @@ _GRANT_THEN_CLAUSE = re.compile(
 # + duration. The trailing 'until end of turn' (if any) applies to both grants.
 _GRANT_THEN_QUOTED = re.compile(
     rf'^({_TGT}) (gains?|has|have) ([\w, ]+?) and ("[^"]+")( until end of turn)?$', re.I)
+# '<X> becomes a <P/T> <type> creature with [<kw-list> and] "<quoted ability>" [until end of turn]' — a §613.3
+# animate that grants a §613.6 quoted ability (the AFR creature-lands Den of the Bugbear/Hive of the Eye Tyrant,
+# Vraska Betrayal's Sting, Frodo). The becomes leaf accepts 'with <kw-list>' (dropped) but not a quoted suffix;
+# split the animate (which keeps its 'with <kw>' tail) from the quoted-ability grant. Shared subject + duration.
+_BECOMES_QUOTED = re.compile(
+    rf'^({_TGT}) (?:becomes?|is|are) (a |an )?'
+    rf'(.+? (?:creature|artifact|enchantment|land)(?: with [\w, ]+?)?) (?:with|and) ("[^"]+")'
+    r'( until end of turn)?'
+    r"(?P<tail>\.? it'?s still a land| and loses? all(?: other)?(?: card types and)? abilities)?\.?$", re.I)
 # a type/color change followed by a SECOND predicate on the same subject: '<t> becomes <X> [until eot]
 # and <pred>' — where <pred> is a P/T pump ('gets +1/+0', Viridescent Wisps / Mizzium Tank), a keyword
 # grant ('gains flying, first strike, …', Enter the Avatar State), or a combat requirement ('attacks
@@ -1924,6 +1933,20 @@ def _eot_compound(s: str):
         if kws and q_eff:
             who, dur = _target(m.group(1)), ("until_end_of_turn" if eot else "-")
             return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [q_eff]
+    m = _BECOMES_QUOTED.match(s)
+    if m:
+        eot = m.group(5) or ""
+        art = m.group(2) or ""
+        animate = parse_clause(f"{m.group(1)} becomes {art}{m.group(3)}{eot}")   # the becomes (keeps 'with <kw>')
+        q_eff = parse_clause(f"{m.group(1)} gains {m.group(4)}{eot}")            # the granted quoted ability
+        if animate and q_eff:
+            effs = [animate, q_eff]
+            tail = (m.group("tail") or "").strip().lower().rstrip(".")
+            if "still a land" in tail:                  # manland: animated, still a land (added type)
+                effs.append(Effect("becomes", "-", _target(m.group(1)), "added_land"))
+            elif "abilities" in tail:                   # 'and loses all [other] [card types and] abilities'
+                effs.append(Effect("lose_abilities", "-", _target(m.group(1))))
+            return effs
     m = _GRANT_THEN_PUMP.match(s)
     if m:
         kws = _kw_list(m.group(2))
