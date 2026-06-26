@@ -85,6 +85,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("no_untap", set()).add(a[1])
         elif rel == "cant":                                  # §701.5f/§509 static restriction 'X can't <action>'
             db.setdefault(a[0], {}).setdefault("cant", set()).add((a[1], a[2]))  # (who, action) — e.g. (self, be_countered)
+        elif rel == "enters_with_counters":                  # §122 ETB replacement: the permanent enters with N
+            db.setdefault(a[0], {})["enters_with_counters"] = (a[1], a[2])  # counters of a kind — (kind, amount)
     _DB_CACHE.clear()                                    # keep only the latest signature's parse
     _DB_CACHE[key] = db
     return db

@@ -2064,6 +2064,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("static_player", (facts, sp))                     # not a souffle relation; driver reads it (e.g. _static_extra_lands)
     for nu in f.get("no_untap", ()):                          # §502 continuous "doesn't untap" lock (Mana Vault, Auras) —
         add("static_no_untap", (facts, nu))                   # driver-only; driver._locked_no_untap maps it to instances
+    ewc = f.get("enters_with_counters")                       # §122 ETB replacement: enters with N +1/+1 counters
+    if ewc:
+        from card_effects import _amount as _amt_of          # word/number -> int ('a'->1, 'seven'->7), else dynamic
+        _kind, _amt = ewc
+        _ek = {"1_1": "p1p1"}.get(_kind)                      # only the P/T-affecting +1/+1 kind is engine-resolvable
+        _n = _amt_of(_amt)
+        if _ek and isinstance(_n, int):                       # static numeric count of +1/+1 -> the engine's §614
+            add("repl_enters_with_counter", (tid, tid, _ek, _n))  # replacement input (engine derives counter + P/T)
+        else:                                                 # a dynamic count ('X' / 'equal to …') or a kind the engine
+            dropped.append(("enters_with_counters", (_kind, _amt)))  # can't apply to P/T -> faithful abstain
     for (who, action) in f.get("cant", ()):                   # §509 static restrictions 'X can't <action>' — card-level
         add("cant", (facts, who, action))                     # (set-deduped). The engine consumes the SELF combat forms
         #                                                       (block / be_blocked) via illegal_block (translate.dl).
