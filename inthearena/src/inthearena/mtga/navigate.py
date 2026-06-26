@@ -148,12 +148,14 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
 
 
 def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, jitter: float,
-                      rng: random.Random, wobble: float = 6.0) -> list:
-    """A human-ish glide from a to b in `steps` sub-segments. Each waypoint:
-      • is DEVIATED off the straight a->b line by a random perpendicular offset up to ±`wobble` px (tapered to
-        0 at both ends, so the path bows/wobbles rather than running dead straight) — and the final waypoint is
+                      rng: random.Random, wobble: float = 6.0, curve: float = 0.18) -> list:
+    """A human-ish CURVED glide from a to b in `steps` sub-segments. The path follows a cubic Bézier that arcs
+    gently to one random side rather than running in a straight line:
+      • two control points (near 1/3 and 2/3 of the way) are offset PERPENDICULAR to a->b by ~`curve` of the
+        distance, with the SAME sign — so the path bows once (an arc), not an S; longer moves arc more;
+      • a little per-point tremor (±`wobble`, tapered to 0 at the ends) rides on top, and the final waypoint is
         forced to exactly b so the click still lands on target;
-      • gets a duration that varies by ±`jitter` (normalized to `total_duration`), so the SPEED also fluctuates.
+      • each segment's duration varies by ±`jitter` (normalized to `total_duration`), so the SPEED fluctuates.
     Returns [(waypoint, segment_duration), …]."""
     ax, ay = a
     bx, by = b
@@ -161,12 +163,19 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
     dx, dy = bx - ax, by - ay
     length = math.hypot(dx, dy) or 1.0
     nx, ny = -dy / length, dx / length                     # unit perpendicular to the line
+    # one gentle arc to a random side: control points offset perpendicular, same sign -> a single bow
+    side = rng.uniform(-1.0, 1.0) * curve * length
+    o1, o2 = side * rng.uniform(0.6, 1.0), side * rng.uniform(0.6, 1.0)
+    c1 = (ax + dx / 3.0 + nx * o1, ay + dy / 3.0 + ny * o1)
+    c2 = (ax + 2.0 * dx / 3.0 + nx * o2, ay + 2.0 * dy / 3.0 + ny * o2)
     pts = []
     for i in range(1, steps + 1):
-        f = i / steps
-        cx, cy = ax + dx * f, ay + dy * f
-        if i < steps and wobble:                            # deviate intermediate jumps; keep the endpoint exact
-            off = rng.uniform(-wobble, wobble) * math.sin(math.pi * f)   # taper: 0 at a and b, peak mid-path
+        t = i / steps
+        u = 1.0 - t
+        cx = u * u * u * ax + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * bx   # cubic Bézier
+        cy = u * u * u * ay + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * by
+        if i < steps and wobble:                            # small tremor on top of the curve (tapered to ends)
+            off = rng.uniform(-wobble, wobble) * math.sin(math.pi * t)
             cx, cy = cx + nx * off, cy + ny * off
         pts.append((round(cx), round(cy)))
     pts[-1] = (bx, by)                                      # land exactly on the target
@@ -219,7 +228,8 @@ class DryRunActuator:
     pos: Optional[tuple] = None
     steps: int = 6                                         # sub-segments per move (the granularity of the glide)
     jitter: float = 0.4                                    # ± fraction of speed variation across segments
-    wobble: float = 6.0                                    # ± px the path deviates off the straight line
+    wobble: float = 6.0                                    # ± px of per-point tremor on top of the curve
+    curve: float = 0.18                                    # arc bow as a fraction of the move distance
     duration: float = 0.4                                  # default total travel time
     seed: Optional[int] = None
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
@@ -247,7 +257,8 @@ class DryRunActuator:
     def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         total = self.duration if duration is None else duration
         for pt, dur in jittered_segments(self.pos, (x, y), steps=self.steps, total_duration=total,
-                                         jitter=self.jitter, rng=self._rng, wobble=self.wobble):
+                                         jitter=self.jitter, rng=self._rng, wobble=self.wobble,
+                                         curve=self.curve):
             self.moves.append((self.pos, pt, round(dur, 4)))   # one wobbled, speed-jittered sub-segment
             self.pos = pt
 
@@ -266,8 +277,8 @@ class PyAutoGuiActuator:
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
     def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
-                 jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None,
-                 no_click: bool = False, capture=None, click_backend=None,
+                 jitter: float = 0.4, wobble: float = 6.0, curve: float = 0.18, tween=None,
+                 seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
@@ -279,6 +290,7 @@ class PyAutoGuiActuator:
         self._steps = steps
         self._jitter = jitter
         self._wobble = wobble
+        self._curve = curve
         self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
         self._rng = random.Random(seed)
         self._no_click = no_click                          # move the cursor but never press (safe verification)
@@ -309,7 +321,7 @@ class PyAutoGuiActuator:
         # nor moves at a constant speed
         for (px, py), dur in jittered_segments((cur[0], cur[1]), (x, y), steps=self._steps,
                                                total_duration=total, jitter=self._jitter, rng=self._rng,
-                                               wobble=self._wobble):
+                                               wobble=self._wobble, curve=self._curve):
             if self._tween is not None:
                 self._pg.moveTo(px, py, duration=dur, tween=self._tween)
             else:
