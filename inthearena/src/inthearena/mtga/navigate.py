@@ -246,7 +246,7 @@ class DryRunActuator:
     jitter: float = 0.4                                    # ± fraction of speed variation across segments
     wobble: float = 6.0                                    # ± px of per-point tremor on top of the curve
     curve: float = 0.18                                    # arc bow as a fraction of the move distance
-    duration: float = 0.4                                  # default total travel time
+    duration: float = 0.2                                  # default total travel time (faster cursor)
     seed: Optional[int] = None
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
@@ -295,7 +295,7 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.2, steps: int = 6,
                  jitter: float = 0.4, wobble: float = 6.0, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
