@@ -416,7 +416,9 @@ def _navigate_checks():
     from inthearena.mtga import advance_play_menu
     big_rect = Rect(0, 0, 1920, 1080)
 
-    class OnEvents:                                         # queue Play not visible until the RP tab is clicked
+    # the queue button is queried as "orange Play button"; the Recently-played view also has small per-deck
+    # "Play button"s, so the fakes key off "orange" (queue) vs plain "Play" (Home's open button) vs "Recently".
+    class OnEvents:                                         # orange queue Play appears only after the RP tab click
         def __init__(self):
             self.switched = False
 
@@ -424,7 +426,7 @@ def _navigate_checks():
             if "Recently" in query:
                 self.switched = True
                 return Rect(1810, 100, 100, 70)            # the Recently-played tab (top-right)
-            if "Play" in query:
+            if "orange" in query:
                 return Rect(1700, 1000, 140, 60) if self.switched else None   # queue button (bottom-right)
             return None
 
@@ -435,9 +437,9 @@ def _navigate_checks():
     check("first click is the top-right Recently-played tab", ev.clicks[0][0] > 1500 and ev.clicks[0][1] < 300)
     check("second click is the bottom-right queue Play", ev.clicks[1][0] > 1500 and ev.clicks[1][1] > 800)
 
-    class OnRecentlyPlayed:                                 # queue Play already visible -> no tab switch
+    class OnRecentlyPlayed:                                 # orange queue Play already visible -> no tab switch
         def locate(self, image, query):
-            if "Play" in query:
+            if "orange" in query:
                 return Rect(1700, 1000, 140, 60)
             if "Recently" in query:
                 return Rect(1810, 100, 100, 70)
@@ -448,26 +450,39 @@ def _navigate_checks():
     check("play menu already on Recently-played -> just queues Play (1 click)",
           r_rp is True and len(rp.clicks) == 1 and rp.clicks[0][1] > 800)
 
-    # advance_home: the play menu is an OVERLAY on Home (log still says Home). Closed -> click Home's Play to
-    # open it, then queue. (Detected by the Recently-played tab being absent until the overlay opens.)
+    # advance_home: the play menu is an OVERLAY on Home (log still says Home). Reliable signals: orange queue
+    # Play (already on Recently-played), else Home's plain Play (overlay closed -> click to open), else the
+    # overlay is on Events/Find-match (switch tab). The Recently-played tab is NOT a reliable open-signal (it
+    # doesn't detect when it's the selected tab), so advance_home must not depend on it.
     from inthearena.mtga import advance_home
 
-    class HomeClosedThenOpens:                              # RP tab appears only after Home's Play is clicked
-        def __init__(self):
-            self.plays = 0
+    class HomeClosed:                                       # plain Home: only Home's Play; overlay opens on click
+        def __init__(self, act):
+            self.act = act
 
         def locate(self, image, query):
+            opened = len(self.act.clicks) >= 1             # the first click (Home's Play) opens the overlay
+            if "orange" in query:
+                return Rect(1700, 1000, 140, 60) if opened else None
             if "Recently" in query:
-                return Rect(1810, 100, 100, 70) if self.plays >= 1 else None
-            if "Play" in query:
-                self.plays += 1
-                return Rect(1700, 1000, 140, 60)           # Home Play, then the queue Play (both bottom-right)
+                return Rect(1810, 100, 100, 70) if opened else None
+            if "Play" in query:                            # Home's plain Play, only before the overlay opens
+                return None if opened else Rect(1700, 1000, 140, 60)
             return None
 
     hm = DryRunActuator(rect=big_rect, image=object())
-    r_hm = advance_home(hm, big_rect, _r.Random(0), locator=HomeClosedThenOpens(), open_timeout=0.0)
+    r_hm = advance_home(hm, big_rect, _r.Random(0), locator=HomeClosed(hm))
     check("home overlay closed -> opens the play menu then queues (>=2 clicks, first bottom-right)",
           r_hm is True and len(hm.clicks) >= 2 and hm.clicks[0][0] > 1500 and hm.clicks[0][1] > 800)
+
+    class OnRecentlyPlayedHome:                            # already on the Recently-played overlay (orange Play)
+        def locate(self, image, query):
+            return Rect(1700, 1000, 140, 60) if "orange" in query else None
+
+    hr = DryRunActuator(rect=big_rect, image=object())
+    r_hr = advance_home(hr, big_rect, _r.Random(0), locator=OnRecentlyPlayedHome())
+    check("home on Recently-played overlay -> queues directly (1 bottom-right click)",
+          r_hr is True and len(hr.clicks) == 1 and hr.clicks[0][1] > 800)
 
     # take_over() is the WHOLE flow: it navigates a view-provider all the way into a game
     from inthearena.mtga import go_home, take_over as take_over_flow

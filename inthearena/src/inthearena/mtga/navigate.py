@@ -419,7 +419,7 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
 
 
 def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
-                 locator: "Optional[ElementLocator]" = None, open_timeout: float = 20.0) -> bool:
+                 locator: "Optional[ElementLocator]" = None) -> bool:
     """From Home, get into a queued game. The play menu is an OVERLAY drawn on the Home scene — the log keeps
     saying 'Home' the whole time — so this is vision-driven: if the overlay isn't open (its Recently-played tab
     isn't on screen), click Home's Play to open it and wait for it to appear; then queue via the play-menu
@@ -428,14 +428,16 @@ def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
         interact(actuator, _HOME_PLAY, rect, rng)          # open the play menu
         actuator.wait(1.0)
         return advance_play_menu(actuator, rect, rng)
-    overlay_open = _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
-                                timeout=1.0, poll=0.5, rng=rng) is not None
-    if not overlay_open:
+    # Decide by the RELIABLE signals (the Recently-played tab itself doesn't detect when it's the selected tab):
+    #   - orange queue Play visible bottom-right  => already on the recently-played overlay -> just queue
+    #   - plain Home's Play visible bottom-right   => overlay closed -> click it to open, then drive the menu
+    #   - neither                                  => overlay open on Events/Find-match -> switch tab, then queue
+    if _wait_locate(actuator, _QUEUE_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
+        return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    if _wait_locate(actuator, _HOME_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
         if not interact(actuator, _HOME_PLAY, rect, rng, locator=locator):    # click Home's Play to open it
             return False
-        if _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
-                        timeout=open_timeout, poll=1.0, rng=rng) is None:
-            return False                                   # overlay never opened
+        actuator.wait(1.0)                                 # let the overlay render
     return advance_play_menu(actuator, rect, rng, locator=locator)
 
 
