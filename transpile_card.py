@@ -1445,9 +1445,14 @@ def _static_player(unit, ctx):
     # when the remainder is a SINGLE sentence — a trailing second sentence (Kess/Edgar's 'If a spell cast
     # this way …') carries its own effect, so we abstain there rather than silently swallow it.
     freq, body = "", r
-    mp = re.match(r"^(Once during each of your turns?|During each of your turns?|During your turn),\s+(.+)$", r, re.I)
+    mp = re.match(r"^(Once during each of your turns?|During each of your turns?|During your turn"
+                  r"|Until end of turn|Until the end of your next turn|Until your next (?:end step|turn)),"
+                  r"\s+(.+)$", r, re.I)
     if mp and ". " not in mp.group(2).rstrip("."):
-        freq = {"once": "_once_per_turn"}.get(mp.group(1).split()[0].lower(), "_during_your_turn")
+        lead = mp.group(1).lower()
+        freq = ("_once_per_turn" if lead.startswith("once")
+                else "_during_your_turn" if lead.startswith("during")
+                else "_" + ground.slug(lead))           # the impulse-cast duration: '_until_end_of_turn' etc.
         body = mp.group(2)
         # the zone phrase must END the sentence — a trailing 'by paying/sacrificing … in addition to
         # their costs' (Festival/Maestros) or 'and mana of any type can be spent …' (Tinybones) carries a
