@@ -928,6 +928,14 @@ _DMG_MULT_A = re.compile(
     r"(?:it|that source|that creature|that spell) deals (?P<factor>double|triple|twice) "
     r"that (?:damage|much damage)(?: to [^,.]+?)? (?P<instead>instead)\.?$", re.I)
 _DMG_MULT_B = re.compile(r"^(?P<factor>Double|Triple) all damage (?P<src>.+?) would deal\.?$", re.I)
+# §614 damage-AMOUNT ADDITIVE replacement — 'it deals that much damage plus N instead' (Torbran, Mechanized
+# Warfare, Rem Karolus). The additive sibling of `damage_multiplier`: the §614 `instead` anchor + a FIXED
+# integer bonus license a `damage_plus(cid, source, N, target)` relation. Dynamic bonuses ('plus X', 'plus
+# an amount equal to …') abstain — the bonus must be a grounded constant.
+_DMG_PLUS_A = re.compile(
+    r"^If (?P<src>.+?) would deal (?:combat |noncombat )?damage(?P<tgt> to [^,]+?)?, "
+    r"(?:it|that source|that creature|that spell) deals that much damage plus "
+    r"(?P<n>\d+|one|two|three|four|five|six|seven|eight|nine|ten) (?:to [^,.]+? )?(?P<instead>instead)\.?$", re.I)
 
 
 def _damage_multiplier(unit, ctx):
@@ -970,6 +978,14 @@ def _damage_multiplier(unit, ctx):
         if src:
             return CardOut(cid, [f'damage_multiplier("{cid}", "{src}", {_FACTOR[factor]}, "-")'],
                            "damage_multiplier")
+    m = _DMG_PLUS_A.match(r)                        # the additive 'plus N' sibling -> damage_plus
+    if m and m.group("instead").lower() == _INSTEAD:
+        nw = m.group("n").lower()
+        n = int(nw) if nw.isdigit() else _NUM_WORD.get(nw)
+        src = ground.slug(m.group("src"))
+        tgt = ground.slug(m.group("tgt")[4:]) if m.group("tgt") else "-"
+        if isinstance(n, int) and src and tgt:
+            return CardOut(cid, [f'damage_plus("{cid}", "{src}", {n}, "{tgt}")'], "damage_plus")
     return None
 
 
