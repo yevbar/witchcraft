@@ -54,7 +54,10 @@ _SIMPLE = {"destroy": "destroy", "exile": "exile", "tap": "tap", "untap": "untap
            # scheme') ARE clean object verbs (the earlier 'cloak the top N cards' worry was wrong — every cloak
            # clause is the generic 'verb <obj>'); meld ('meld them into <result>') / behold (no effect clause) /
            # triple ('triple strike' = a keyword, not an object) are EXCLUDED — special/non-object shapes.
-           "suspect": "suspect", "convert": "convert", "cloak": "cloak", "abandon": "abandon"}
+           "suspect": "suspect", "convert": "convert", "cloak": "cloak", "abandon": "abandon",
+           # heist (§701, 2024+): the real corpus form is the clean object verb 'heist target opponent's
+           # library [twice]' (the library is the object) — heist(-, _target(obj)), like goad/suspect.
+           "heist": "heist"}
 _ZONE = {"hand": "return_to_hand", "battlefield": "return_to_battlefield",
          "library": "put_on_top", "graveyard": "put_in_graveyard"}
 
