@@ -1478,6 +1478,13 @@ _CARD_STATIC = [
     # saddle/crew power bonus (§702.176/§702.122 — power counts as N greater for the keyword cost)
     (r"^~ saddles Mounts and crews Vehicles as though its power were (\d+) greater\.?$",
      "saddles_crews_as_though_power_greater_by_"),
+    (r"^~ crews Vehicles as though its power were (\d+) greater\.?$",       # crew-only (pre-saddle Vehicles)
+     "crews_as_though_power_greater_by_"),
+    # Doran family (§510.1c) — a continuous effect: the scoped creatures assign combat damage by TOUGHNESS,
+    # not power. Scope is captured into the slug (Doran 'Each creature' vs 'Each creature you control' vs an
+    # inline 'with toughness greater than its power' restriction differ and must stay distinguishable).
+    (r"^(.+?) assigns combat damage equal to its toughness rather than its power\.?$",
+     "assigns_combat_damage_by_toughness_"),
     # §202.3a 'spend only … mana on X' — a colored-mana spend restriction on the X cost
     (r"^Spend only (.+? mana on X)\.?$", "restriction_spend_only_"),
     # §605/§302.6 pseudo-haste for activated abilities (Thousand-Year Elixir, Tyvar)
