@@ -2,7 +2,9 @@
 """take_over_home.py — take over the MTG Arena client on the Home view and click Play.
 
 By DEFAULT this drives the real client: it reads your Player.log, recognizes the current view, and on
-Home/Recently-played moves the cursor to the Play button (located by a small vision model) and clicks.
+Home/Recently-played moves the cursor to the Play button (located by a small vision model) and clicks. The
+click that actually registers in MTGA is: focus Arena (AppleScript) -> a real IOHIDPostEvent motion so MTGA's
+pointer tracks the button (pyautogui only warps the cursor) -> the pyautogui press. All automatic, no flags.
 
 If you're NOT on a navigatable menu — namely you're already IN A GAME — there's nothing to click, so it
 instead picks the latest gameplay state up straight from the log and prints it (the diff-accurate board).
@@ -113,7 +115,10 @@ def main(argv) -> int:
     else:
         try:
             from inthearena.mtga import PyAutoGuiActuator
-            actuator = PyAutoGuiActuator(rect=win, no_click=args.no_click, capture=capture)
+            # the recipe that actually lands a click in MTGA: focus Arena (AppleScript) + a real IOHIDPostEvent
+            # move so MTGA's pointer tracks the target, then the pyautogui press.
+            actuator = PyAutoGuiActuator(rect=win, no_click=args.no_click, capture=capture,
+                                         focus_app="MTGA", hid_move=True)
         except Exception as e:
             print(f"can't start the live actuator ({type(e).__name__}: {e}). "
                   f"Install input deps: pip install -e '.[act,vision]'  — or use --dry-run.")

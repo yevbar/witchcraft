@@ -234,7 +234,8 @@ class PyAutoGuiActuator:
 
     def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.4, steps: int = 6,
                  jitter: float = 0.4, wobble: float = 6.0, tween=None, seed: Optional[int] = None,
-                 no_click: bool = False, capture=None, click_backend=None):
+                 no_click: bool = False, capture=None, click_backend=None,
+                 focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
         if rect is None:
@@ -250,6 +251,8 @@ class PyAutoGuiActuator:
         self._no_click = no_click                          # move the cursor but never press (safe verification)
         self._capture = capture                            # optional region grabber (e.g. just the MTGA window)
         self._click_backend = click_backend                # optional click(x, y) — e.g. Quartz-to-pid for Unity
+        self._focus_app = focus_app                        # bring this app frontmost before pressing (AppleScript)
+        self._hid_move = hid_move                           # IOHIDPostEvent move before the press so MTGA tracks it
 
     def window_rect(self) -> Optional[Rect]:
         return self._rect
@@ -279,17 +282,34 @@ class PyAutoGuiActuator:
             else:
                 self._pg.moveTo(px, py, duration=dur)
 
+    def _focus(self) -> None:
+        """Bring the target app frontmost (AppleScript). MTGA ignores clicks sent to a backgrounded window."""
+        if not self._focus_app:
+            return
+        try:
+            from .macos import activate_app_applescript
+            activate_app_applescript(self._focus_app)
+        except Exception:
+            pass
+
     def click(self) -> None:
         if self._no_click:                                 # move-only mode: skip the press
             return
+        self._focus()                                      # 1) focus Arena — clicks to a background window are dropped
         x, y = self._pg.position()                         # press wherever the cursor now rests
-        if self._click_backend is not None:                # a stronger backend (e.g. Quartz-to-pid) for Unity
+        if self._hid_move:
+            # 2) a REAL motion event (IOHIDPostEvent) so MTGA's pointer tracks to the target — pyautogui only
+            #    warps the cursor, which is why clicks used to land on a stale pointer. Then let it settle.
+            try:
+                from .macos import iohid_move
+                iohid_move(x, y)
+            except Exception:
+                pass
+            self.wait(0.10)
+        if self._click_backend is not None:                # optional alternate backend (e.g. Quartz-to-pid)
             self._click_backend(x, y)
             return
-        self._pg.moveTo(x, y)                              # nudge so the client registers hover before the press
-        self.wait(self._rng.uniform(0.04, 0.10))
-        # an instantaneous down+up (plain .click()) is often dropped by game clients (MTGA is Unity) — hold the
-        # button down for a human-ish beat between press and release so the click actually registers.
+        # 3) pyautogui press with a human-ish hold (an instantaneous down+up is often dropped by Unity clients)
         self._pg.mouseDown(x, y, button="left")
         self.wait(self._rng.uniform(0.06, 0.14))
         self._pg.mouseUp(x, y, button="left")
