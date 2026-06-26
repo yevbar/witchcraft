@@ -408,13 +408,18 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
         interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng)
         actuator.wait(0.8)
         return interact(actuator, _QUEUE_PLAY, rect, rng)
-    # vision: is the queue button already on screen (we're on Recently-played)?
+    # vision: if the orange queue button isn't already on screen, try to switch to the Recently-played tab —
+    # but ONLY if we can actually see that tab. When Recently-played is the SELECTED tab the model returns None
+    # for it; that's fine (we're already there), and we must NOT bail on it. Either way, always end by trying to
+    # click the orange Play — its own visibility gate waits for it to render.
     on_recently_played = _wait_locate(actuator, _QUEUE_PLAY, rect, locator,
                                       timeout=switch_timeout, poll=0.5, rng=rng) is not None
-    if not on_recently_played:                              # on Events / Find Match -> switch tabs first
-        if not interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator):
-            return False
-        actuator.wait(0.8)                                 # let the recently-played sub-view swap in
+    if not on_recently_played:
+        tab = _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
+                           timeout=switch_timeout, poll=0.5, rng=rng)
+        if tab is not None:                                # on Events / Find Match -> switch, then let it swap in
+            interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator, confirm_timeout=switch_timeout)
+            actuator.wait(0.8)
     return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
 
 

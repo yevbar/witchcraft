@@ -450,6 +450,23 @@ def _navigate_checks():
     check("play menu already on Recently-played -> just queues Play (1 click)",
           r_rp is True and len(rp.clicks) == 1 and rp.clicks[0][1] > 800)
 
+    class RPSelectedTab:                                    # on Recently-played: selected tab undetectable, and
+        def __init__(self):                                # the orange Play check misses ONCE then succeeds
+            self.orange = 0
+
+        def locate(self, image, query):
+            if "Recently" in query:
+                return None                                # the SELECTED tab -> model can't see it
+            if "orange" in query:
+                self.orange += 1
+                return None if self.orange == 1 else Rect(1700, 1000, 140, 60)
+            return None
+
+    flaky = DryRunActuator(rect=big_rect, image=object())
+    r_flaky = advance_play_menu(flaky, big_rect, _r.Random(0), locator=RPSelectedTab(), switch_timeout=0.0)
+    check("on Recently-played with an undetectable selected tab -> still queues (no bail)",
+          r_flaky is True and len(flaky.clicks) == 1 and flaky.clicks[0][1] > 800)
+
     # advance_home: the play menu is an OVERLAY on Home (log still says Home). Reliable signals: orange queue
     # Play (already on Recently-played), else Home's plain Play (overlay closed -> click to open), else the
     # overlay is on Events/Find-match (switch tab). The Recently-played tab is NOT a reliable open-signal (it
