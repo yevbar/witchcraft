@@ -36,14 +36,20 @@ def locate_hand_cards(image, rect: Rect, locator) -> list:
     bottom band, de-duped, sorted by x. Returns [] with no locator/detections. Snapshot with the cursor at
     `rest_point` first so the cards aren't hover-distorted."""
     if locator is None or image is None:
+        _log.info("  hand: no locator/image to detect cards")
         return []
-    pts = []
-    for b in locator.locate_all(image, _HAND_QUERY):
+    boxes = locator.locate_all(image, _HAND_QUERY)
+    pts, dropped = [], []
+    for b in boxes:
         cx, cy = b.x + b.w // 2, b.y + b.h // 2
         yf = (cy - rect.y) / (rect.h or 1)
         xf = (cx - rect.x) / (rect.w or 1)
         if yf >= _HAND_BAND and _HAND_X[0] <= xf <= _HAND_X[1]:   # bottom band, central x (hand, not avatar/UI)
             pts.append((cx, cy))
+        else:
+            dropped.append((round(xf, 2), round(yf, 2)))
+    _log.info("  hand: vision detected %d boxes; %d in the hand band, %d dropped (x,y-frac: %s)",
+              len(boxes), len(pts), len(dropped), dropped[:6])
     pts.sort()
     out = []
     for p in pts:
@@ -60,7 +66,14 @@ def snapshot_hand(actuator, locator, *, settle: float = 0.25) -> list:
         return []
     actuator.hover(*rest_point(rect))    # IOHID-move the client's pointer away, so the hand isn't magnified
     actuator.wait(settle)
-    return locate_hand_cards(actuator.screenshot(), rect, locator)
+    image = actuator.screenshot()
+    try:                                 # save what we captured, so a 0-card snapshot is diagnosable
+        if image is not None and hasattr(image, "save"):
+            image.save("/tmp/inthearena_handsnap.png")
+            _log.info("  hand: snapshot %sx%s saved to /tmp/inthearena_handsnap.png", *image.size)
+    except Exception:
+        pass
+    return locate_hand_cards(image, rect, locator)
 
 
 def hover_card(actuator, point: tuple, *, dwell: float = 0.0) -> None:
