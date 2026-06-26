@@ -1774,6 +1774,12 @@ _GRANT_THEN_PUMP = re.compile(
 _GRANT_THEN_CLAUSE = re.compile(
     rf"^({_TGT}) (?:gains?|has|have) ([\w, ]+?)( until end of turn)? and ((?:can't|must|isn't|is|are|aren't|"
     r"becomes?|doesn't|don't|attacks?|blocks?) .+)$", re.I)
+# '<X> gains <kw-list> and "<quoted ability>" [until end of turn]' — a §702 keyword grant conjoined with a
+# §613.6 quoted-ability grant (Subterfuge, Dropkick Bomber, Flame-Wreathed Phoenix). The keyword list excludes
+# quotes so _GRANT_THEN_CLAUSE/_EOT_GRANTS miss it; split the two grants (the quote stays whole), shared subject
+# + duration. The trailing 'until end of turn' (if any) applies to both grants.
+_GRANT_THEN_QUOTED = re.compile(
+    rf'^({_TGT}) (gains?|has|have) ([\w, ]+?) and ("[^"]+")( until end of turn)?$', re.I)
 # a type/color change followed by a SECOND predicate on the same subject: '<t> becomes <X> [until eot]
 # and <pred>' — where <pred> is a P/T pump ('gets +1/+0', Viridescent Wisps / Mizzium Tank), a keyword
 # grant ('gains flying, first strike, …', Enter the Avatar State), or a combat requirement ('attacks
@@ -1910,6 +1916,14 @@ def _eot_compound(s: str):
             who = _target(m.group(1))
             dur = "until_end_of_turn" if m.group(3) else "-"
             return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [tail]
+    m = _GRANT_THEN_QUOTED.match(s)
+    if m:
+        kws = _kw_list(m.group(3))                    # the keyword conjunct(s) — all must be §702 keywords
+        eot = m.group(5) or ""
+        q_eff = parse_clause(f"{m.group(1)} {m.group(2)} {m.group(4)}{eot}") if kws else None  # the quoted grant
+        if kws and q_eff:
+            who, dur = _target(m.group(1)), ("until_end_of_turn" if eot else "-")
+            return [Effect("grant_keyword", dur, who, kw) for kw in kws] + [q_eff]
     m = _GRANT_THEN_PUMP.match(s)
     if m:
         kws = _kw_list(m.group(2))
