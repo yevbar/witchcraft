@@ -85,6 +85,12 @@ class GameExecutor:
 
     def _do_actions(self, decision, choice) -> ExecResult:
         # choice is a gre.Action (or None). PASS / no-action -> advance; otherwise needs the card on screen.
+        # TODO(reconcile): a play/cast FROM HAND is already handled end-to-end by hand.play_hand_object (it owns
+        # the rest-snapshot + OCR/anchor location + the lift-then-cast double-click — a self-managed capture that
+        # doesn't fit the generic image-in/box-out ObjectLocator). drive_bot currently calls play_hand_object
+        # directly, bypassing this branch, so the two must not drift: once integrated, route hand-zone actions
+        # here through play_hand_object and reserve _click_object/ObjectLocator for BATTLEFIELD objects
+        # (attackers/blockers/targets), which do fit locate-from-a-given-image.
         from .gre import Action  # local import keeps execute importable without the gre cycle at module load
         if choice is None or getattr(choice, "actionType", None) == "ActionType_Pass":
             return ExecResult(self._advance(), "pass")
@@ -113,8 +119,11 @@ class GameExecutor:
         return ExecResult(self._advance(), "declared attackers + confirm")
 
     def _do_targets(self, decision, choice) -> ExecResult:
-        # choice is a chosen target option; its instanceId (when present) is clicked.
-        inst = getattr(choice, "instanceId", None) or (choice.get("instanceId") if isinstance(choice, dict) else None)
+        # choice is a chosen target option; its instanceId (when present) is clicked. Use explicit None checks,
+        # not `or` — a legitimate instanceId of 0 is falsy and `or` would treat it as missing.
+        inst = getattr(choice, "instanceId", None)
+        if inst is None and isinstance(choice, dict):
+            inst = choice.get("instanceId")
         if inst is None:
             return ExecResult(False, "target has no instanceId to click")
         return self._click_object(inst, decision.view, "target")

@@ -19,7 +19,12 @@ To play a SPECIFIC card, `play_hand_object` tries three things in order:
 
   3. FALLBACK — no names legible at all: anonymous card detection (Moondream) + the screen-order index.
 
-This is the on-screen half of the in-game executor's object seam (see `execute.ObjectLocator`).
+This is the HAND half of the in-game executor's object seam. It's the de-facto hand-zone executor: `take_over`'s
+`drive_bot` calls `play_hand_object` directly for land/cast-from-hand. It deliberately does NOT go through
+`execute.ObjectLocator` (image-in / box-out) because a hand play needs to manage its OWN capture — move the
+cursor to a rest point so the fan isn't magnified, snapshot, then do the lift-then-cast double-click. Reserve
+`execute.ObjectLocator` for BATTLEFIELD objects (attackers/blockers/targets), which fit locate-from-a-given-image.
+See the reconcile TODO in `execute._do_actions`.
 """
 
 from __future__ import annotations
@@ -125,19 +130,28 @@ def locate_named_cards(image, rect: Rect) -> list:
     return out
 
 
+def _name_score(a: str, b: str) -> float:
+    """Similarity of two normalized names in [0,1]. Containment counts only as much of the LONGER name as the
+    shorter covers — so a short target isn't a perfect match for a longer card that merely contains it ('Bog'
+    vs 'Bog Wraith' -> 0.3, not 1.0; 'Island' vs 'Island Sanctuary' -> 0.4). OCR clipping a real name still
+    scores high ('Heroic Interventio' vs 'Heroic Intervention' -> 0.95). Otherwise a plain fuzzy ratio."""
+    if not a or not b:
+        return 0.0
+    score = difflib.SequenceMatcher(None, a, b).ratio()
+    if a in b or b in a:
+        score = max(score, min(len(a), len(b)) / max(len(a), len(b)))
+    return score
+
+
 def match_named_card(target_name: str, named: list):
-    """Best (x, y) among `named` whose OCR text matches `target_name` (substring or fuzzy ratio ≥ _NAME_MATCH),
-    or None. Duplicate names (two Forests) resolve to whichever copy is legible — equivalent to play."""
+    """Best (x, y) among `named` whose OCR text matches `target_name` (score ≥ _NAME_MATCH), or None. Duplicate
+    names (two Forests) resolve to whichever copy is legible — equivalent to play."""
     tn = _norm_name(target_name)
     if not tn:
         return None
     best, best_score = None, _NAME_MATCH
     for text, x, y in named:
-        on = _norm_name(text)
-        if tn in on or on in tn:
-            score = 1.0
-        else:
-            score = difflib.SequenceMatcher(None, tn, on).ratio()
+        score = _name_score(tn, _norm_name(text))
         if score >= best_score:
             best, best_score = (x, y), score
     return best
@@ -207,13 +221,14 @@ def _name_anchors(view, seat: int, screen: list, named: list) -> list:
         for nm, ids in by_name.items():
             if len(ids) != 1 or not nm:
                 continue
-            if on in nm or nm in on or difflib.SequenceMatcher(None, on, nm).ratio() >= _NAME_MATCH:
+            if _name_score(on, nm) >= _NAME_MATCH:
                 if cand is not None:        # this OCR text matched two different hand names — too ambiguous
                     cand = None
                     break
                 cand = ids[0]
         if cand is not None:
-            anchors[screen.index(cand)] = (screen.index(cand), x, y)
+            slot = screen.index(cand)
+            anchors[slot] = (slot, x, y)
     return sorted(anchors.values())
 
 
@@ -302,6 +317,15 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
         xs = sorted(p[0] for p in points)
         y = sum(p[1] for p in points) // len(points)
         spacing = (xs[-1] - xs[0]) / (len(xs) - 1) if len(xs) >= 2 else 130
+        # GUARD: this anchors on "leftmost detected == slot 0". If detection missed LEFT cards too (not just the
+        # documented right ones), xs[0] is really some slot k>0 and every prediction is shifted left by k. Detect
+        # that: slot 0 should sit near the hand's left edge — if the leftmost detection is more than ~one slot to
+        # the right of it, we can't trust the anchor, so abstain rather than confidently mis-click.
+        left_edge = rect.x + _HAND_X[0] * rect.w
+        if xs[0] - left_edge > 1.5 * spacing:
+            _log.info("  hand: leftmost detection x=%d is far right of the hand edge (%d) — likely missed left "
+                      "cards; abstaining rather than mis-extrapolating", xs[0], int(left_edge))
+            return False
         pt = (int(xs[0] + idx * spacing), y)
         _log.info("  hand: count mismatch -> extrapolated slot %d to %s (leftmost %d + %d*%.0f)",
                   idx, pt, xs[0], idx, spacing)

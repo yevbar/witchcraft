@@ -751,6 +751,15 @@ def _hand_checks():
               match_named_card("Collector's Vault", named) == named[2][1:])
         check("match_named_card returns None for an occluded/absent name (Command Tower)",
               match_named_card("Command Tower", named) is None)
+        # substring guard: a short target must NOT perfect-match a longer card that merely contains it
+        guard = [("Bog Wraith", 0.40, 0.90), ("Island Sanctuary", 0.55, 0.90)]
+        check("match_named_card: short target 'Bog' does NOT match 'Bog Wraith'",
+              match_named_card("Bog", guard) is None)
+        check("match_named_card: 'Island' does NOT match 'Island Sanctuary'",
+              match_named_card("Island", guard) is None)
+        # but OCR clipping a real name still matches (covers most of the longer string)
+        check("match_named_card: OCR-clipped 'Heroic Interventio' still matches the target",
+              match_named_card("Heroic Intervention", [("Heroic Interventio", 768, 1728)]) == (768, 1728))
     finally:
         ocr.recognize_text = orig
 
@@ -817,6 +826,13 @@ def _execute_checks():
     r4 = GameExecutor(a4, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_actions, cast)
     check("execute: cast WITH an ObjectLocator -> clicks the located card",
           r4.done and bool(a4.clicks) and 800 <= a4.clicks[0][0] <= 900)
+
+    # target with instanceId 0 (falsy) must be treated as PRESENT, not missing — clicks the located object
+    dec_target = Decision(kind="targets", options=[], seat=1, view=GameView(), req=None)
+    a5 = DryRunActuator(rect=rect, image=object())
+    r5 = GameExecutor(a5, object_locator=ObjLoc(), locator=AdvLoc()).execute(dec_target, {"instanceId": 0})
+    check("execute: target instanceId 0 is not treated as missing (clicks, doesn't bail)",
+          r5.done and bool(a5.clicks))
 
 
 def run():

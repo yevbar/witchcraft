@@ -356,8 +356,10 @@ class PyAutoGuiActuator:
             try:
                 from .macos import iohid_move
                 iohid_move(x, y)                           # real motion -> the client's pointer tracks here
-            except Exception:
-                pass
+            except Exception as e:
+                # WITHOUT the IOHID motion this degrades to a bare warp, which MTGA ignores — the card won't
+                # magnify and the later click misses. Surface it: this is the hard-to-diagnose "nothing happened".
+                _log.debug("hover: IOHID move failed (%s: %s) — cursor only warped, client may not register", type(e).__name__, e)
 
     def _focus(self) -> None:
         """Bring the target app frontmost (AppleScript). MTGA ignores clicks sent to a backgrounded window."""
@@ -380,8 +382,8 @@ class PyAutoGuiActuator:
             try:
                 from .macos import iohid_move
                 iohid_move(x, y)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.debug("click: IOHID move failed (%s: %s) — pressing at the warped (stale) pointer", type(e).__name__, e)
             self.wait(0.10)
         if self._click_backend is not None:                # optional alternate backend (e.g. Quartz-to-pid)
             self._click_backend(x, y)
