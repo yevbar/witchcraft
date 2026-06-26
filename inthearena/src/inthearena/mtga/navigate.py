@@ -18,6 +18,7 @@ refine exact button positions later. Assumes the client occupies the given rect 
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -25,6 +26,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
 
 from .views import RecognizedViews, ScreenAnchor, ViewElement
+
+_log = logging.getLogger(__name__)      # progress messages; an app can surface these (take_over.py does)
 
 
 @dataclass(frozen=True)
@@ -111,12 +114,19 @@ def _wait_locate(actuator, element: ViewElement, rect: Rect, locator, *, timeout
     """Poll the screen until the vision `locator` clearly sees `element` in its expected region (e.g. the Play
     button rendered in the bottom-right), or `timeout` elapses. Returns the located box, or None if it never
     appeared. This is what lets a click WAIT OUT a loading screen instead of pressing where the button will be."""
+    query = element.query or f"{element.name} button"
     deadline = time.monotonic() + max(0.0, timeout)
+    attempt = 0
     while True:
+        attempt += 1
+        _log.info("  looking for %r on screen (vision%s)…", query,
+                  "" if attempt == 1 else f", attempt {attempt}")
         box = _locate(actuator, element, locator)
         if box is not None and _in_anchor_region(box, element, rect):
+            _log.info("  found %s at %s", element.name, (box.x + box.w // 2, box.y + box.h // 2))
             return box
         if time.monotonic() >= deadline:
+            _log.info("  %s not visible yet", element.name)
             return None
         actuator.wait(poll)
 
@@ -140,9 +150,11 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
         target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
     pos = actuator.position()
     if pos is not None and in_region(pos):
+        _log.info("  clicking %s (cursor already on it)", element.name)
         actuator.wait(rng.uniform(0.08, 0.25))             # already on it: a human beat, then click in place
         actuator.click()
     else:
+        _log.info("  moving to %s and clicking at %s", element.name, target)
         actuator.move_and_click(*target)
     return True
 
@@ -429,14 +441,18 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
     # but ONLY if we can actually see that tab. When Recently-played is the SELECTED tab the model returns None
     # for it; that's fine (we're already there), and we must NOT bail on it. Either way, always end by trying to
     # click the orange Play — its own visibility gate waits for it to render.
+    _log.info("play menu: is the Recently-played queue button already up?")
     on_recently_played = _wait_locate(actuator, _QUEUE_PLAY, rect, locator,
                                       timeout=switch_timeout, poll=0.5, rng=rng) is not None
     if not on_recently_played:
+        _log.info("play menu: not on Recently-played — looking for the Recently-played tab to switch")
         tab = _wait_locate(actuator, _RECENTLY_PLAYED_TAB, rect, locator,
                            timeout=switch_timeout, poll=0.5, rng=rng)
         if tab is not None:                                # on Events / Find Match -> switch, then let it swap in
+            _log.info("play menu: switching to the Recently-played tab")
             interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator, confirm_timeout=switch_timeout)
             actuator.wait(0.8)
+    _log.info("play menu: queueing a game (clicking Play)")
     return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
 
 
@@ -454,12 +470,17 @@ def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
     #   - orange queue Play visible bottom-right  => already on the recently-played overlay -> just queue
     #   - plain Home's Play visible bottom-right   => overlay closed -> click it to open, then drive the menu
     #   - neither                                  => overlay open on Events/Find-match -> switch tab, then queue
+    _log.info("home: is the play-menu overlay already on Recently-played?")
     if _wait_locate(actuator, _QUEUE_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
+        _log.info("home: already on Recently-played — queueing")
         return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    _log.info("home: overlay not on Recently-played — is the play menu closed (plain Home)?")
     if _wait_locate(actuator, _HOME_PLAY, rect, locator, timeout=1.0, poll=0.5, rng=rng) is not None:
+        _log.info("home: opening the play menu (clicking Home's Play)")
         if not interact(actuator, _HOME_PLAY, rect, rng, locator=locator):    # click Home's Play to open it
             return False
         actuator.wait(1.0)                                 # let the overlay render
+    _log.info("home: now driving the play menu to queue a game…")
     return advance_play_menu(actuator, rect, rng, locator=locator)
 
 

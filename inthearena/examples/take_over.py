@@ -35,6 +35,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import logging
 import random
 import sys
 
@@ -143,6 +144,11 @@ def main(argv) -> int:
     ap.add_argument("--log", default=DEFAULT_LOG, help="MTGA Player.log path.")
     ap.add_argument("--view", help="override the detected view (e.g. 'home') — handy with --dry-run.")
     args = ap.parse_args(argv)
+
+    # surface inthearena's progress messages (what it's locating/clicking) — vision checks take a few seconds
+    # each, so this is the difference between "working" and "looks hung". Keep other libraries quiet.
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("inthearena").setLevel(logging.INFO)
 
     # which view are we on?
     if args.view:
