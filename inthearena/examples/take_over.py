@@ -258,14 +258,16 @@ def main(argv) -> int:
     if view is None and match_completed(args.log):
         print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
         if args.dry_run or args.no_click:
-            click_through_postgame(actuator, locator=locator, rng=rng, max_clicks=1)
+            click_through_postgame(actuator, done=lambda: False, rng=rng, max_clicks=1)
             target = actuator.clicks[-1] if actuator.clicks else "?"
             print(f"{'DRY RUN' if args.dry_run else 'MOVE-ONLY'}: would click the bottom-right at {target} to advance.")
             return 0
-        if click_through_postgame(actuator, locator=locator, rng=rng):
-            print("post-game cleared — Play button visible; queuing the next game.")
+        # the LOG is authoritative for "left the post-game": match_completed clears only when the menu loads. (A
+        # vision Play-check false-positives on the Victory screen's orange glow and stops before clicking.)
+        if click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng):
+            print("post-game cleared — back at the menu; queuing the next game.")
         else:
-            print("post-game: clicked through; Play not confirmed (will let the queue flow try).")
+            print("post-game: clicked through max times; menu not confirmed (will let the queue flow try).")
 
     # --dry-run / --no-click can't actually progress through menus (no real clicks) — just preview ONE step.
     if args.dry_run or args.no_click:

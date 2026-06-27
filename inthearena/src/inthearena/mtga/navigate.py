@@ -751,26 +751,33 @@ def play_button_visible(actuator: Actuator, locator: "Optional[ElementLocator]")
     return box is not None and _in_anchor_region(box, _QUEUE_PLAY, rect)
 
 
-def click_through_postgame(actuator: Actuator, *, locator: "Optional[ElementLocator]" = None,
-                           rng: Optional[random.Random] = None, max_clicks: int = 15,
-                           settle: float = 1.6) -> bool:
+def click_through_postgame(actuator: Actuator, *, done: "Optional[Callable[[], bool]]" = None,
+                           locator: "Optional[ElementLocator]" = None, rng: Optional[random.Random] = None,
+                           max_clicks: int = 20, settle: float = 1.8) -> bool:
     """Clear the post-game screens after a match. MTGA shows Victory/Defeat then possibly reward / progression
     screens before the Play menu returns; each advances on a bottom-right click ('Click to Continue' / 'Next').
-    Click the bottom-right repeatedly — re-checking for the orange Play button each time — until Play is visible
-    (so the normal queue flow can start the next game) or `max_clicks` is spent. The intermittent reward screens
-    are exactly why this RETRIES rather than clicking once. Returns True if the Play button became visible.
+    Click the bottom-right repeatedly — the intermittent reward screens are exactly why this RETRIES rather than
+    clicking once — until `done()` says we've left the post-game (or `max_clicks` is spent). Returns `done()`.
 
-    With no vision `locator` we can't detect Play, so it best-effort clicks `max_clicks` times and returns False."""
+    `done` is the stop predicate. Prefer a LOG-based one (e.g. `lambda: not match_completed(log)`): it's
+    authoritative — the post-game state clears only when the menu actually loads. The default falls back to
+    VISION (the orange Play button visible in the bottom-right), which is flakier: the Victory screen's orange
+    glow can read as a Play button and stop the loop before it ever clicks. With neither a `done` nor a `locator`
+    it can't tell when to stop, so it best-effort clicks `max_clicks` times.
+
+    IMPORTANT: it checks `done()` only AFTER each click, never before — when called we're known to be on a
+    post-game screen, so it always clicks at least once (this is what fixes 'detected Play, did nothing')."""
     rng = rng or random.Random()
     rect = actuator.window_rect()
     if rect is None:
         return False
+    is_done = done or (lambda: play_button_visible(actuator, locator))
     for i in range(max(1, max_clicks)):
-        if play_button_visible(actuator, locator):
-            _log.info("  post-game: Play button is visible — done clicking through (%d click(s))", i)
-            return True
         x, y = target_point(_POSTGAME_ADVANCE, rect, rng)
         _log.info("  post-game: clicking the bottom-right to advance (%d/%d) at (%s, %s)", i + 1, max_clicks, x, y)
         actuator.move_and_click(x, y)
         actuator.wait(settle)
-    return play_button_visible(actuator, locator)
+        if is_done():
+            _log.info("  post-game: back at the menu — done clicking through (%d click(s))", i + 1)
+            return True
+    return is_done()

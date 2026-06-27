@@ -713,16 +713,22 @@ def _navigate_checks():
         def locate(self, image, query):
             self.calls += 1
             return None if self.calls <= self.n else Rect(int(nrect.w * 0.90), int(nrect.h * 0.93), 60, 30)
-    pa = DryRunActuator(rect=nrect, image=object())
+    pa = DryRunActuator(rect=nrect, image=object())          # Play shows on the 3rd look -> click, click, click+done
     got = click_through_postgame(pa, locator=PlayAfter(2), rng=_r.Random(0), settle=0.0, max_clicks=15)
-    check("click_through_postgame returns True once Play appears", got is True)
-    check("click_through_postgame clicked the bottom-right until Play showed (2 advance clicks)", len(pa.clicks) == 2)
+    check("click_through_postgame returns True once it leaves the post-game", got is True)
+    check("click_through_postgame clicked the bottom-right until done (3 advance clicks)", len(pa.clicks) == 3)
     check("click_through_postgame aimed the bottom-right corner",
           all(cx > nrect.w * 0.7 and cy > nrect.h * 0.8 for cx, cy in pa.clicks))
-    # never-appears: bounded by max_clicks, returns False (caller lets the normal queue flow try)
+    # never-leaves: bounded by max_clicks, returns False (caller lets the normal queue flow try)
     pn = DryRunActuator(rect=nrect, image=object())
     got2 = click_through_postgame(pn, locator=PlayAfter(10**9), rng=_r.Random(0), settle=0.0, max_clicks=4)
-    check("click_through_postgame stops after max_clicks when Play never appears", got2 is False and len(pn.clicks) == 4)
+    check("click_through_postgame stops after max_clicks when it never leaves", got2 is False and len(pn.clicks) == 4)
+    # REGRESSION: it checks `done` only AFTER clicking, so even a done()==True-from-the-start (a false-positive Play
+    # detection on the Victory screen) still clicks at least once instead of doing nothing.
+    pd = DryRunActuator(rect=nrect, image=object())
+    got3 = click_through_postgame(pd, done=lambda: True, rng=_r.Random(0), settle=0.0, max_clicks=9)
+    check("click_through_postgame always clicks at least once (no 'detected Play, did nothing')",
+          got3 is True and len(pd.clicks) == 1)
     check("play_button_visible False without a locator", play_button_visible(DryRunActuator(rect=nrect), None) is False)
 
     # VISIBILITY GATE: with a locator, interact waits for the button to actually render (no blind-clicking a
