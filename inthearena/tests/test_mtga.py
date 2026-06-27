@@ -935,7 +935,7 @@ def _hand_checks():
                                         "cardTypes": ["CardType_Land"] if i in land_ids else ["CardType_Creature"]}
                                        for i in ids]})
     plays = lambda *ids: [Action(actionType="ActionType_Play", instanceId=i) for i in ids]
-    lname = {70: "Forest", 60: "Forest", 50: "Forest", 40: "Forest", 51: "Bravo", 52: "Charlie"}
+    lname = {70: "Forest", 60: "Forest", 50: "Forest", 40: "Forest", 51: "Bravo", 52: "Charlie", 55: "Echo"}
     olabel2, orec2 = cards.label, ocr.recognize_text
     cards.label = handmod.cards.label = lambda g: lname.get(g, "?")
     try:
@@ -1029,6 +1029,16 @@ def _hand_checks():
         a6 = DryRunActuator(rect=rect, image=object())
         ok6 = play_hand_card(a6, None, _hand(set(), {51}), 1, 51)   # 51 -> "Bravo", legible at rest
         check("play_hand_card: casts a specific spell that's legible at rest", ok6 and len(a6.clicks) == 2)
+
+        # (6b) HOVER-REVEAL clicks the NAME, not the hover point. The target ('Echo', occluded at rest: its name
+        # is up in the magnified band yf=0.50, below the 0.84 rest floor) reads at x=600 while the sweep hovers a
+        # ghost spot at x=464 just left of the fan. The click must land on the NAME (~600), not the empty hover.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Bravo", 824 / 1920, 0.90), ("Charlie", 1004 / 1920, 0.90), ("Echo", 600 / 1920, 0.50)]
+        a6b = DryRunActuator(rect=rect, image=object())
+        ok6b = play_hand_card(a6b, None, _hand(set(), {55, 51, 52}), 1, 55)   # 55 -> "Echo", occluded
+        check("play_hand_card: hover-reveal clicks where the NAME is (~600), not the ghost hover point (~464)",
+              ok6b and len(a6b.clicks) == 2 and 560 <= a6b.clicks[0][0] <= 640)
     finally:
         cards.label = handmod.cards.label = olabel2
         ocr.recognize_text = handmod.ocr.recognize_text = orec2

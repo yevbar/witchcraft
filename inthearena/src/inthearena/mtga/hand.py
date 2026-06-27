@@ -628,9 +628,13 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         actuator.wait(max(settle, _REVEAL_DWELL))          # let the magnify finish before reading
         named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
         _log.info("  %s: hover x=%d revealed %s", label, x, [t[0] for t in named2])   # diagnostic
-        if _land_hit(named2, want, near_x=x, max_dist=max_dist) is not None:
-            _log.info("  %s: revealed a wanted card near x=%d — playing", label, x)
-            play_card(actuator, (x, y))
+        hit = _land_hit(named2, want, near_x=x, max_dist=max_dist)
+        if hit is not None:
+            # click WHERE THE NAME ACTUALLY IS, not the hover point — the cursor can sit a little off the card (a
+            # ghost spot just left of the fan) yet still magnify+read it, and clicking the hover point then lands
+            # on empty felt. `hit` is the matched name's own (x, y).
+            _log.info("  %s: revealed a wanted card at %s (hovered x=%d) — playing", label, hit, x)
+            play_card(actuator, hit)
             return True
 
     _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
