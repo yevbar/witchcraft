@@ -42,10 +42,27 @@ def _lib_top(state: dict, ctrl: str, n: int):
 
 def _matches(state: dict, card: str, pred: str) -> bool:
     """True iff `card` satisfies the partition predicate, judged from the SURFACED printed identity
-    (printed_type / printed_subtype — the same the dig-to-battlefield and search handlers read)."""
+    (printed_type / printed_subtype / printed_color / printed_power / mana_cost — the same signals the
+    dig-to-battlefield, search and reveal handlers read). A predicate may carry a trailing '&<restriction>'
+    bound ('type:creature&power<=2', 'type:creature&mv<=3') the single-card typed dig fold emits; both halves
+    must hold for the card to match."""
+    base, _, restr = pred.partition("&")
+    if restr:                                                    # a readable P/MV restriction on the base type
+        if not _matches(state, card, base):
+            return False
+        if restr.startswith("power<="):
+            ppow = {int(p) for (c, p) in state.get("printed_power", set()) if c == card}
+            cap = int(restr[len("power<="):])
+            return bool(ppow) and min(ppow) <= cap               # a printed power within the cap
+        if restr.startswith("mv<="):
+            mv = next((int(v) for (c, v) in state.get("mana_cost", set()) if c == card), None)
+            return mv is not None and mv <= int(restr[len("mv<="):])
+        return False
     ptype = {t for (c, t) in state.get("printed_type", set()) if c == card}
     if pred == "nonland_permanent":                              # §205 a permanent card that isn't a land
         return bool(ptype & {"creature", "artifact", "enchantment", "planeswalker", "battle"}) and "land" not in ptype
+    if pred == "permanent":                                      # §205 any permanent card type
+        return bool(ptype & {"creature", "artifact", "enchantment", "planeswalker", "land", "battle"})
     kind, _, body = pred.partition(":")
     wanted = set(body.split("|"))
     if kind == "type":
@@ -53,6 +70,9 @@ def _matches(state: dict, card: str, pred: str) -> bool:
     if kind == "subtype":
         subs = {st for (c, st) in state.get("printed_subtype", set()) if c == card}
         return bool(subs & wanted)
+    if kind == "color":                                          # §105 a color filter; colorless = NO color row
+        cols = {x for (c, x) in state.get("printed_color", set()) if c == card}
+        return (not cols) if body == "colorless" else (body in cols)
     return False
 
 
@@ -62,6 +82,8 @@ def _apply_zone_sort(D, state, a, n, tgt, src, ctrl):
     the named zone (bottom of library / graveyard). Every choice is forced by printed type, so there is no
     free pick — but the route IS observable (the cards are revealed, the destinations public)."""
     pred, _, dest = str(tgt).partition("#")
+    dest, _, cap_s = dest.partition("#")                          # optional '#<cap>' = max matching cards kept
+    cap = int(cap_s) if cap_s.isdigit() else None                # None = keep ALL matches (the partition default)
     order, top = _lib_top(state, ctrl, int(n))
     del order[: int(n)]                                          # pull the looked-at cards out of the library
     revealed = state.setdefault("revealed", set())               # §701 the reveal -> public (info mode)
@@ -69,9 +91,10 @@ def _apply_zone_sort(D, state, a, n, tgt, src, ctrl):
     inhand = state.setdefault("in_hand", set())
     gy = state.setdefault("graveyard", set())
     to_hand, to_rest = [], []
-    for c in top:
-        revealed.add((c,))
-        (to_hand if _matches(state, c, pred) else to_rest).append(c)
+    for c in top:                                               # `top` is canonical-ordered, so a cap keeps the
+        revealed.add((c,))                                      # canonical-first matches (any match is legal §701)
+        keep = _matches(state, c, pred) and (cap is None or len(to_hand) < cap)
+        (to_hand if keep else to_rest).append(c)
     for c in to_hand:                                            # matching -> hand
         inlib.discard((ctrl, c)); inhand.add((ctrl, c))
     for c in to_rest:                                            # the rest -> bottom / graveyard

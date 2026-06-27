@@ -1432,6 +1432,129 @@ def _fold_zone_sort(effs: list, emit) -> set:
     return consumed
 
 
+# §701 the SINGLE-CARD typed dig: 'look at / reveal the top N of your library, you may reveal ONE <PRED> card
+# from among them and put it into your hand, put the rest on the bottom' (Commune with Nature, Augur of Bolas,
+# Ancient Stirrings, Seek the Wilds, Faerie Mechanist, Militia Bugler …). This is the dig fold's TYPE-FILTERED
+# sibling: like _fold_dig it keeps ONE card and bins the rest to the bottom, but the card kept must MATCH a
+# printed-identity predicate (so dig_to_hand's blind canonical-first pick would mis-route — it could grab a
+# non-matching card). We resolve it as a zone_sort with a cap of 1 matching card: zone_sort already partitions
+# the looked-at top N by printed identity (faithful — the partition is forced by type, not a hidden choice),
+# and the '#1' cap keeps only the canonical-first MATCH (the card never says WHICH match, so any is legal; a
+# no-match is a faithful no-op). The whole top N is revealed (public) and the non-kept cards go to the bottom.
+#
+# The predicate must be a CONFIRMABLE printed-identity filter (see _dig_typed_pred); a player-chosen referent
+# ('creature card OF THE CHOSEN TYPE'), a 'from among them' MULTI-pick / 'any number of' / 'up to two' count
+# (a different keep-count this single-card fold doesn't own), or any restriction we can't read from the
+# surfaced identity (kicker, X-in-cost, 'shares a type with that creature', double-faced) -> ABSTAIN.
+_DIG_TYPE_TOKENS = ("artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker",
+                    "land", "battle", "permanent")
+
+# §205.4b META-CATEGORIES (and acorn/format/property tags) that LOOK like a '<token> card' subtype but are
+# NOT a printed_subtype the surfaced identity carries — resolving one as a subtype would match NOTHING and
+# silently UNDER-keep (a wrong resolution). Abstain on these instead (faithful-or-abstain). 'historic' =
+# legendary OR artifact OR Saga; 'playtest' = the acorn/un-set tag; the rest are property filters, not subtypes.
+_DIG_NONSUBTYPE = frozenset({"historic", "playtest", "nontoken", "token", "colored", "multicolored",
+                             "monocolored", "nonbasic", "basic", "spell", "noncreature", "nonland",
+                             "legendary", "modal", "double_faced", "snow"})
+
+
+def _dig_typed_pred(extra) -> str | None:
+    """A 'reveal <X> card' filter (the reveal clause's EXTRA column) -> a zone_sort predicate the applier can
+    evaluate from the surfaced printed identity, or None to ABSTAIN. Resolvable shapes (after ground.slug):
+      'creature_card' / 'artifact_card' / 'land_card' / 'permanent_card'   -> 'type:creature' / … / 'permanent'
+      'creature_or_land_card' / 'artifact_or_enchantment_card'             -> 'type:creature|land' …
+      'colorless_card' / 'white_card' / 'blue_card' …                      -> 'color:colorless' / 'color:white'
+      'dragon_card' / 'hero_card' / 'equipment_card' / 'aura_card'         -> 'subtype:dragon' (a single subtype)
+      'human_creature_card' / 'legendary_creature_card'                    -> 'type:creature' (the leading
+                          supertype/subtype qualifier is dropped — an approximation that only WIDENS the match,
+                          never mis-routes a card OUT of its faithful zone; cf. the search handler's non-Human)
+      'creature_card_with_power_2_or_less'    -> 'type:creature&power<=2'   (a §205 type + readable P bound)
+      'creature_card_with_mana_value_3_or_less' -> 'type:creature&mv<=3'    (type + readable mana-value bound)
+    Anything else (a chosen-type referent, a 'from among them' multi-pick, an unreadable restriction) -> None."""
+    t = str(extra)
+    if "from_among" in t or "chosen" in t or t.startswith(("any_number", "up_to", "two_", "three_")):
+        return None                                              # a multi-pick / player-chosen referent -> abstain
+    # peel a readable trailing restriction: 'with power N or less' / 'with mana value N or less'.
+    rest = None
+    m = re.search(r"_with_power_(\d+)_or_less$", t)
+    if m:
+        rest, t = f"power<={m.group(1)}", t[: m.start()]
+    elif (m := re.search(r"_with_mana_value_(\d+)_or_less$", t)):
+        rest, t = f"mv<={m.group(1)}", t[: m.start()]
+    elif "_with_" in t or "_that_" in t:
+        return None                                              # an unreadable 'with …'/'that …' restriction
+    for art in ("a_", "an_"):                                    # peel a leading article ('a creature card')
+        if t.startswith(art):
+            t = t[len(art):]; break
+    if not t.endswith("_card"):
+        return None                                              # not a '<…> card' sought-object shape
+    core = t[: -len("_card")]
+    # a §106 COLOR filter ('colorless'/'white'/… card) — confirmed from printed_color (colorless = no color row).
+    if core in ("colorless", "white", "blue", "black", "red", "green"):
+        if rest is not None:
+            return None                                          # a color + restriction we don't combine -> abstain
+        return f"color:{core}"
+    # drop a leading SUPERTYPE / a creature SUBtype qualifier so 'human creature' / 'legendary creature' read as
+    # the underlying card type (the qualifier only narrows the real card; widening the match never mis-routes).
+    for qual in ("legendary_", "basic_", "snow_", "human_", "elf_", "goblin_", "merfolk_", "zombie_", "tribal_"):
+        if core.startswith(qual) and core[len(qual):] in _DIG_TYPE_TOKENS:
+            core = core[len(qual):]; break
+    parts = core.split("_or_")
+    if parts and all(p in _DIG_TYPE_TOKENS for p in parts):      # a card-TYPE (disjunction)
+        if "permanent" in parts and len(parts) > 1:
+            return None                                          # 'permanent or X' mixes the special token -> abstain
+        if parts == ["permanent"]:
+            pred = "permanent"
+        else:
+            pred = "type:" + "|".join(parts)
+        return pred + (f"&{rest}" if rest else "")
+    # a single bare token with no restriction -> a printed SUBTYPE ('dragon'/'hero'/'equipment'/'aura' card).
+    # Abstain on a §205.4b meta-category / property tag (it isn't a real subtype — would match nothing).
+    if rest is None and len(parts) == 1 and parts[0].isalpha() and parts[0] not in _DIG_NONSUBTYPE:
+        return "subtype:" + parts[0]
+    return None
+
+
+def _fold_dig_typed(effs: list, emit) -> set:
+    """Fold the single-card typed dig (see the block comment above) into ONE zone_sort effect with a 1-card
+    cap. Matches the rigid clause shape
+
+        look|reveal N top_of_library
+        reveal - you <PRED> [may]                       (the type-filtered reveal of the kept card)
+        return_to_hand|put_in_hand it|that_card|you [may]
+        put_on_bottom - library 'the_rest'
+
+    Emits zone_sort(N, '<pred>#bottom#1'). The reveal predicate must resolve via _dig_typed_pred; a missing
+    'the rest -> bottom' clause, a non-top-of-library look, a dynamic N, or an unconfirmable predicate leaves
+    the whole sequence to drop (its reveal/put clauses abstain on the normal path). ABSTAIN-over-lossy."""
+    # the leading 'look at / reveal the top N of your library' (the count source).
+    look_i = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+                   if v in ("look", "reveal") and "top_of_library" in str(t) and _int(a) is not None), None)
+    if look_i is None:
+        return set()
+    n = _int(effs[look_i][2])
+    # the TYPE-FILTERED reveal of the single kept card (a different clause than look_i: 'reveal you <pred>').
+    rev_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                  if i != look_i and v == "reveal" and str(t) == "you" and str(x) not in ("-", "")), None)
+    if rev_i is None:
+        return set()
+    pred = _dig_typed_pred(effs[rev_i][4])
+    if pred is None:
+        return set()
+    # the placement: 'put it/the revealed card into your hand' (the single kept card).
+    hand_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                   if v in ("return_to_hand", "put_in_hand") and str(t) in ("it", "that_card", "you")), None)
+    if hand_i is None:
+        return set()
+    # the partition tail: 'put the rest on the bottom of your library'.
+    rest_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                   if v == "put_on_bottom" and ("the_rest" in str(x) or str(t) == "library")), None)
+    if rest_i is None:
+        return set()
+    emit("zone_sort", n, f"{pred}#bottom#1")                     # '#1' = keep at most ONE matching card
+    return {look_i, rev_i, hand_i, rest_i}
+
+
 # §608 the anaphora a 'you may play/cast <it>' impulse rider uses for the just-exiled card(s), after peeling
 # a trailing 'without paying its mana cost' / 'this turn' rider (it doesn't change the impulse shape — an
 # impulse card is always castable for its normal cost or for free; either way it's cast from exile).
@@ -2683,8 +2806,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §706 DIE ROLL that feeds the next clause ('roll a d6. Put that many +1/+1 counters on ~' —
             # Mother Kangaroo / Adorable Kitten / Box of Free-Range Goblins) -> one atomic roll_die effect.
             roll_skip = _fold_rolldie(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §701 the SINGLE-CARD TYPED DIG on a TRIGGERED ability (Augur of Bolas, Faerie Mechanist: 'look at
+            # top N, reveal a <type> card, put it in hand, rest on bottom') -> one zone_sort with a 1-card cap.
+            dt_skip = _fold_dig_typed(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip or _idx in dt_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2850,6 +2976,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 TYPED-PARTITION zone sort 'reveal top N, put all <type> cards into hand, rest on bottom /
             # in graveyard' (Benefaction of Rhonas, Lair Delve) -> one atomic zone_sort spell_effect.
             zs_skip = _fold_zone_sort(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 SINGLE-CARD TYPED DIG 'look at top N, reveal a <type> card, put it in hand, rest on bottom'
+            # (Commune with Nature, Ancient Stirrings, Seek the Wilds) -> one zone_sort with a 1-card cap.
+            dt_skip = _fold_dig_typed(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §608 IMPULSE: 'exile top N, you may play them this turn' -> one impulse_play effect.
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §702.34 FLASHBACK GRANT (cost = mana cost): Past in Flames / Recoup -> one grant_flashback effect.
@@ -2884,7 +3013,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # Goblins / Steamfloggery) -> one atomic roll_die spell_effect (the roll + its consumer fold).
             roll_skip = _fold_rolldie(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in dt_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -3114,6 +3243,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             act_skip |= _fold_dig(act_effs, _emit_act)         # §701 'look N, put M into hand, rest to bottom/yard'
             # §701 TYPED-PARTITION zone sort 'reveal top N, put all <type> cards into hand, rest bottom/yard'.
             act_skip |= _fold_zone_sort(act_effs, _emit_act)
+            # §701 SINGLE-CARD TYPED DIG 'look at top N, reveal a <type> card, put it in hand, rest on bottom'.
+            act_skip |= _fold_dig_typed(act_effs, _emit_act)
             # §122 'put a <counter> on ~, then draw a card for each <counter> on ~' (The One Ring) -> one
             # dyn_counter_draw row (add the counter, then draw = the live counter count).
             act_skip |= _fold_counter_draw(act_effs, _emit_act)
