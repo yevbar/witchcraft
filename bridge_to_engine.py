@@ -760,6 +760,30 @@ def _anthem_target(tgt: str, corpus: dict):
 # single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
 _CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
 
+# §701.10 GRAVEYARD-HATE: 'exile [target] card from a graveyard' -> the exile_gy effect (effect_handlers.
+# library._apply_exile_gy), carrying a TYPE FILTER. We resolve ONLY the OWNER-UNRESTRICTED, MANDATORY,
+# SINGLE-card shapes whose filter the engine can read from the surfaced printed_type — exiling any matching
+# card from the flat graveyard set is then faithful regardless of owner. We ABSTAIN on:
+#   - owner-restricted ('from YOUR / an OPPONENT'S / their graveyard') — the graveyard set carries no
+#     reliable owner, so we can't honor the restriction;
+#   - optional 'up to one/two/…' and count shapes ('two/X/eight cards') — a choice/count the engine can't make;
+#   - whole-graveyard / mass ('target player's graveyard', 'all graveyards') and random/MV/counter filters.
+# These all stay dropped (a wrong or extra exile is worse than none).
+_GY_EXILE_FILTER = {
+    "target_card_from_a_graveyard": "any",
+    "a_card_from_a_graveyard": "any",
+    "target_creature_card_from_a_graveyard": "creature",
+    "a_creature_card_from_a_graveyard": "creature",
+    "target_artifact_card_from_a_graveyard": "artifact",
+    "target_instant_or_sorcery_card_from_a_graveyard": "instant_or_sorcery",
+}
+
+
+def _gy_exile_filter(tgt) -> str | None:
+    """A 'from a graveyard' exile target slug -> the type-filter the exile_gy applier reads, or None to abstain."""
+    return _GY_EXILE_FILTER.get(str(tgt))
+
+
 # §701.18 SEARCH-PLACEMENT — the object slugs that denote the just-searched card ('it' / 'that card').
 # A `search` clause and the immediately-following destination clause naming one of these are folded into a
 # single atomic search_to_<dest> spell_effect (see _fold_search_placements); spell_effect carries no clause
@@ -2066,6 +2090,11 @@ def _resolve_modes(f: dict, key: str, dropped: list) -> tuple[list, list]:
                 scope = "opp" if "don_t_control" in str(tgt) else "any"
                 mode_effs.append((key, mode, "bounce_spell", 0, scope))
                 continue
+            if verb == "exile" and _gy_exile_filter(tgt) is not None:
+                # §701.10 a modal 'exile target card from a graveyard' mode (Return to Nature's third mode) ->
+                # exile_gy, resolved by the driver ONLY if this mode is chosen (spell_effect_mode).
+                mode_effs.append((key, mode, "exile_gy", 0, _gy_exile_filter(tgt)))
+                continue
             if verb in _CREATURE_VERBS and _scope(tgt) is None:
                 ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
                 if ev is not None:
@@ -2459,6 +2488,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if st is not None:
                     add("trigger_effect", (a, "sacrifice_subtype", _int(amt) or 1, st))
                     emitted = True; continue
+                if verb == "exile" and _gy_exile_filter(tgt) is not None:
+                    # §701.10 graveyard-hate ETB/trigger (Disposal Mummy-style 'when ~ enters, exile target card
+                    # from a graveyard') -> exile_gy (owner-unrestricted, single, mandatory only; see the helper).
+                    add("trigger_effect", (a, "exile_gy", 0, _gy_exile_filter(tgt)))
+                    emitted = True; continue
                 # CREATURE-SCOPED verbs (modify_pt / grant_keyword / destroy + the §701 zone moves
                 # exile / tap / untap / return_to_hand): payload + a board scope the engine resolves to
                 # concrete creatures, NOT a player-target amount. Single 'target creature' abstains
@@ -2701,6 +2735,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §608 a sorcery that EXILES ITSELF instead of going to the graveyard (Mnemonic Betrayal's
                     # 'Exile ~') -> flag it for exile-on-resolution (the same _flashback machinery).
                     add("spell_effect", (tid, "self_exile", 0, "-")); continue
+                if verb == "exile" and _gy_exile_filter(tgt) is not None:
+                    # §701.10 graveyard-hate: 'exile [target] card from a graveyard' -> exile_gy (the driver
+                    # picks a matching graveyard card on resolution). Owner-unrestricted, single, mandatory only.
+                    add("spell_effect", (tid, "exile_gy", 0, _gy_exile_filter(tgt))); continue
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in _BOARD_SCOPES or str(tgt) in _FILTERED_BOARD_SCOPES:
@@ -2882,6 +2920,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if verb == "search":                          # an UNFOLDED search -> abstain (see the spell path)
                     dropped.append(("effect", "search")); continue
+                if verb == "exile" and _gy_exile_filter(tgt) is not None:
+                    # §701.10 graveyard-hate on an activated ability (Withered Wretch '{1}:', Crook of
+                    # Condemnation '{1},{T}:', The Scarab God) -> the exile_gy effect resolves through the
+                    # driver's _ability_effect -> _apply_effects(APPLY) slot. Single, mandatory, owner-unrestricted.
+                    add("activated_ability", (a, tid, paid[0], taps, "exile_gy", 0, _gy_exile_filter(tgt)))
+                    emitted = True; continue
                 # §115/§120/§122 single-target creature verbs on an activated ability ('{T}: tap target
                 # creature', '{2}: target creature gets +1/+1', 'deal 1 to any target' pingers). Packed into
                 # the activated_ability row with a creature-eff sentinel; the driver picks the target on

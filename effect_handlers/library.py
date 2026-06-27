@@ -588,6 +588,40 @@ def _apply_self_exile(D, state, a, n, tgt, src, ctrl):
     print(f"    {a}: {src} will be exiled instead of going to the graveyard")
 
 
+# §701.10 GRAVEYARD-HATE: 'exile target card from a graveyard'. The encoded `tgt` (spec) is a TYPE FILTER —
+# 'any' (no restriction) or a single engine-readable card type ('creature'/'artifact'/'instant_or_sorcery')
+# the surfaced printed_type confirms. Only the OWNER-UNRESTRICTED 'from a graveyard' family rides this verb
+# (the bridge abstains on 'from YOUR/an OPPONENT'S graveyard' and on optional 'up to N' shapes), so picking
+# ANY matching graveyard card is faithful regardless of owner. A wrong subsequent clause (Scarab God's copy)
+# stays dropped — exiling the card is exactly the exile clause itself.
+_GY_FILTER_TYPES = {
+    "creature": ("creature",), "artifact": ("artifact",),
+    "instant_or_sorcery": ("instant", "sorcery"),
+}
+
+
+@applier("exile_gy")
+def _apply_exile_gy(D, state, a, n, tgt, src, ctrl):
+    """§701.10 — exile one card from a graveyard matching the type filter `tgt` ('any' or a card type). Harmful
+    removal, so an opponent-owned card is preferred when ownership is still known (printed_control survives a
+    permanent's trip to the graveyard); the pick is otherwise canonical-first so games stay reproducible."""
+    types = _GY_FILTER_TYPES.get(str(tgt))                     # None for 'any' -> no type restriction
+    ptype = state.get("printed_type", set())
+    def _ok(c):
+        return types is None or any((c, t) in ptype for t in types)
+    cands = sorted(c for (c,) in state.get("graveyard", set()) if _ok(c))
+    if not cands:
+        print(f"    {a}: no matching card in any graveyard to exile ({tgt})")
+        return
+    owner = {c: p for (p, c) in state.get("printed_control", set())}
+    opps = set(D._others(state, ctrl))
+    # §701.10 prefer an opponent's card (graveyard hate is harmful); fall back to the canonical-first match.
+    card = next((c for c in cands if owner.get(c) in opps), cands[0])
+    state["graveyard"].discard((card,))
+    state.setdefault("exile", set()).add((card,))
+    print(f"    {a}: {ctrl} exiles {card} from a graveyard")
+
+
 @applier("necro_dig")
 def _apply_necro_dig(D, state, a, n, tgt, src, ctrl):
     """§601 Necropotence — exile the top card of the controller's library FACE DOWN; it is delivered to their
