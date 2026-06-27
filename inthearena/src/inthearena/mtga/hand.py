@@ -526,11 +526,24 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         play_card(actuator, hit)
         return True
 
-    # 2) hover-reveal. The leftmost cards in a wide fan overlap, hiding their banners. Sweep LEFT-TO-RIGHT across
-    # physical positions (from the legible cards' geometry, NOT the instanceId order model), magnifying each
-    # occluded card to read it, and click the FIRST one that matches. We click the hovered position; the OCR only
-    # CONFIRMS a wanted card is there (near_x ties the match to the card under the cursor).
+    # 2) ANCHORED PREDICT (deterministic — no flaky reveal). We KNOW the target's SLOT: its place in the log's
+    # ascending-instanceId screen order. And the legible cards are ANCHORS (their name -> slot is known). So fit
+    # the fan geometry to the anchors and COMPUTE the occluded target's pixel position, then click it. This is
+    # the reliable path when ≥2 cards are legible (the usual case) — we never need to OCR the occluded card.
     anchors = _name_anchors(view, seat, screen, named)
+    if len(anchors) >= 2:
+        for name, inst in want.items():                    # preference order (the bot's pick first)
+            if inst in screen:
+                slot = screen.index(inst)
+                pt = _predict_slot(anchors, slot)
+                if pt is not None:
+                    _log.info("  %s: %r occluded; predicted slot %d at %s from anchors %s",
+                              label, name, slot, pt, [(a[0], a[1]) for a in anchors])
+                    play_card(actuator, pt)
+                    return True
+
+    # 3) hover-reveal — last resort when there aren't enough anchors to predict from. Sweep LEFT-TO-RIGHT,
+    # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
     max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack

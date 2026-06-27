@@ -868,16 +868,13 @@ def _hand_checks():
         check("play_land: shadows (no click) when it can't identify a land — never misclicks",
               ok2 is False and a2.clicks == [] and len(a2.moves) > 0)
 
-        # (3) land occluded at rest but a hover REVEALS it -> clicks the hovered slot
-        seen = {"n": 0}
-        def reveal(image):
-            seen["n"] += 1
-            base = [("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]   # slots 1,2 legible; Forest(0) hidden
-            return base if seen["n"] == 1 else base + [("Forest", 770 / 1920, 0.90)]
-        ocr.recognize_text = handmod.ocr.recognize_text = reveal
+        # (3) land occluded at rest -> ANCHORED PREDICT from the legible cards (deterministic, no reveal): slots
+        # 1,2 (Bravo/Charlie) legible at x 900/1030 -> predict slot 0 (Forest) at ~770 and click it.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]
         a3 = DryRunActuator(rect=rect, image=object())
         ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
-        check("play_land: hover-reveals an occluded land then clicks it (slot 0 ~ 770)",
+        check("play_land: predicts an occluded land's slot from anchors and clicks it (slot 0 ~ 770)",
               ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
 
         # land_play_options enumerates only the lands among the Play actions
