@@ -490,13 +490,15 @@ def _navigate_checks():
     class OnEvents:                                         # orange queue Play appears only after the RP tab click
         def __init__(self):
             self.switched = False
+            self.orange = 0
 
         def locate(self, image, query):
             if "Recently" in query:
                 self.switched = True
                 return Rect(1810, 100, 100, 70)            # the Recently-played tab (top-right)
-            if "orange" in query:
-                return Rect(1700, 1000, 140, 60) if self.switched else None   # queue button (bottom-right)
+            if "orange" in query:                          # queue button: visible for the click, GONE after (queued)
+                self.orange += 1                           # orange#1=pre-switch check, #2=the click gate, #3=verify
+                return Rect(1700, 1000, 140, 60) if self.orange == 2 else None
             return None
 
     ev = DryRunActuator(rect=big_rect, image=object())
@@ -507,9 +509,13 @@ def _navigate_checks():
     check("second click is the bottom-right queue Play", ev.clicks[1][0] > 1500 and ev.clicks[1][1] > 800)
 
     class OnRecentlyPlayed:                                 # orange queue Play already visible -> no tab switch
+        def __init__(self):
+            self.orange = 0
+
         def locate(self, image, query):
-            if "orange" in query:
-                return Rect(1700, 1000, 140, 60)
+            if "orange" in query:                          # visible for the check + click gate, GONE on verify (queued)
+                self.orange += 1
+                return Rect(1700, 1000, 140, 60) if self.orange <= 2 else None
             if "Recently" in query:
                 return Rect(1810, 100, 100, 70)
             return None
@@ -526,15 +532,32 @@ def _navigate_checks():
         def locate(self, image, query):
             if "Recently" in query:
                 return None                                # the SELECTED tab -> model can't see it
-            if "orange" in query:
+            if "orange" in query:                          # miss#1 (selected tab), found#2 (click gate), gone#3 (queued)
                 self.orange += 1
-                return None if self.orange == 1 else Rect(1700, 1000, 140, 60)
+                return Rect(1700, 1000, 140, 60) if self.orange == 2 else None
             return None
 
     flaky = DryRunActuator(rect=big_rect, image=object())
     r_flaky = advance_play_menu(flaky, big_rect, _r.Random(0), locator=RPSelectedTab(), switch_timeout=0.0)
     check("on Recently-played with an undetectable selected tab -> still queues (no bail)",
           r_flaky is True and len(flaky.clicks) == 1 and flaky.clicks[0][1] > 800)
+
+    class DroppedQueue:                                     # MTGA DROPS the first queue press -> Play still up -> retry
+        def __init__(self):
+            self.orange = 0
+
+        def locate(self, image, query):
+            if "orange" in query:                          # box thru: check(1), click-gate(2), verify-still(3),
+                self.orange += 1                           # re-click-gate(4); GONE(5) once it finally takes
+                return Rect(1700, 1000, 140, 60) if self.orange <= 4 else None
+            if "Recently" in query:
+                return Rect(1810, 100, 100, 70)
+            return None
+
+    dq = DryRunActuator(rect=big_rect, image=object())
+    r_dq = advance_play_menu(dq, big_rect, _r.Random(0), locator=DroppedQueue(), switch_timeout=0.0)
+    check("play menu: a DROPPED queue click is retried until matchmaking starts (2 queue clicks)",
+          r_dq is True and len([c for c in dq.clicks if c[1] > 800]) == 2)
 
     # advance_home: the play menu is an OVERLAY on Home (log still says Home). Reliable signals: orange queue
     # Play (already on Recently-played), else Home's plain Play (overlay closed -> click to open), else the
@@ -564,11 +587,15 @@ def _navigate_checks():
           r_hm is True and len(hm.clicks) >= 2 and hm.clicks[0][0] > 1500 and hm.clicks[0][1] > 800)
 
     class OnRecentlyPlayedHome:                            # overlay already open on Recently-played
+        def __init__(self):
+            self.orange = 0
+
         def locate(self, image, query):
             if "close" in query:
                 return Rect(1490, 120, 40, 40)             # overlay open (X close top-right)
-            if "orange" in query:
-                return Rect(1700, 1000, 140, 60)
+            if "orange" in query:                          # visible for check + click gate, GONE on verify (queued)
+                self.orange += 1
+                return Rect(1700, 1000, 140, 60) if self.orange <= 2 else None
             return None
 
     hr = DryRunActuator(rect=big_rect, image=object())

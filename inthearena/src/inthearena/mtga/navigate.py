@@ -605,7 +605,22 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
             interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator, confirm_timeout=switch_timeout)
             actuator.wait(0.8)
     _log.info("play menu: queueing a game (clicking Play)")
-    return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    clicked = interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    if not clicked or locator is None:
+        return clicked
+    # VERIFY the queue actually started — MTGA occasionally DROPS the press (the cursor's on the button and it
+    # reports a click, but Arena doesn't register it). The orange Play button disappears once matchmaking begins;
+    # if it's still up after a beat, the click didn't take, so click again — parking the cursor OFF it first so the
+    # re-click is a fresh IOHID move+press (an in-place re-tap can be dropped the same way).
+    for attempt in range(3):
+        actuator.wait(1.5)
+        if _wait_locate(actuator, _QUEUE_PLAY, rect, locator, timeout=0.6, poll=0.5, rng=rng) is None:
+            _log.info("play menu: queue started (the Play button is gone)")
+            return True
+        _log.info("play menu: Play still showing — the click didn't take, clicking again (%d/3)", attempt + 1)
+        actuator.hover(rect.x + rect.w // 2, rect.y + rect.h // 2)
+        interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    return True
 
 
 def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
