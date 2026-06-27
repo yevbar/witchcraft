@@ -99,7 +99,7 @@ def _show(d, choice):
     print(f"  {d.view.phase:22s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {line}")
 
 
-def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None) -> int:
+def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None, attached: bool = False) -> int:
     """In a game: run the bot over the GRE decision stream, executing each decision via a `GameExecutor` — the
     mulligan (Keep/Mulligan), land drops and spell CASTS (read the card by name in hand, never misclick), and
     object-free combat (All Attack / No Blocks / pass via the bottom-right button). Spell TARGETS on the
@@ -168,7 +168,11 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         # mulligan hasn't been flushed to the log yet, so the tail is the previous game's last land/pass. Auto-
         # executing that would try to play a land while the client is still on the keep-hand screen. So we DON'T;
         # the genuinely-current decision (the real mulligan, then the turn's actions) arrives LIVE via follow().
-        if pending is not None and pending.kind == "mulligan":
+        # Auto-execute the seeded tail when it's the CURRENT outstanding decision: always if we ATTACHED to a
+        # game already paused on a decision (the tail IS that decision — e.g. an Assign-Damage screen we left
+        # it on), or — when we navigated in from the menu — only if it's the mulligan (other tails are likely a
+        # STALE prior-game action that would mis-fire on the keep-hand screen; those we wait for live instead).
+        if pending is not None and (attached or pending.kind == "mulligan"):
             handle(pending)
         elif pending is not None:
             print(f"  (seeded tail is {pending.kind} @ {pending.view.phase} — not auto-executed; "
@@ -235,10 +239,13 @@ def main(argv) -> int:
             gv = latest_game_view(args.log)
             print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
             return 0
+        # started ALREADY in a game: the seeded tail is the LIVE decision we're paused on (attached=True), so
+        # execute it rather than waiting for a new one that won't come (the game is blocked on us).
         if args.dry_run or args.no_click:                  # shadow only — decide + print, no clicks
-            return drive_bot(args.log, policy=policy)
+            return drive_bot(args.log, policy=policy, attached=True)
         actuator, locator = build_live(args)               # live: so the bot can execute the mulligan
-        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random(), policy=policy)
+        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random(), policy=policy,
+                         attached=True)
 
     actuator, locator = build_live(args)
     rng = random.Random()
