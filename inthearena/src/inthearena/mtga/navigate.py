@@ -196,6 +196,14 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
     return [(pt, total_duration * w / total) for pt, w in zip(pts, weights)]
 
 
+# Live-cursor glide speed: travel time = distance / _GLIDE_SPEED (clamped) so every move runs at the same fast
+# pace whether it's a short menu hop or a cross-board reach; ~one frame per _GLIDE_STEP px keeps it smooth.
+_GLIDE_SPEED = 9000.0      # px/sec
+_GLIDE_STEP = 28.0         # px between frames
+_GLIDE_MIN = 0.03          # s: floor so a tiny move still eases
+_GLIDE_MAX = 0.16          # s: ceiling so a full-screen reach doesn't drag
+
+
 def smooth_path(a: tuple, b: tuple, *, frames: int, rng: random.Random, curve: float = 0.18,
                 wobble: float = 1.0) -> list:
     """A DENSE list of points along a gentle cubic-Bézier arc a->b, for FINE, evenly-timed cursor stepping —
@@ -390,24 +398,30 @@ class PyAutoGuiActuator:
 
     def move(self, x: int, y: int, *, duration: Optional[float] = None,
              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
-        total = self._duration if duration is None else duration
         cur = self._pg.position()
-        # Play a DENSE, smoothstep-eased Bézier path with EVEN per-frame timing — a fluid glide. (The old way,
-        # one pyautogui.moveTo per coarse waypoint, stuttered: PAUSE=0.1s fired between segments and the tween
-        # decelerated at each.) Each frame is an instant move (PAUSE is 0) + a small even sleep.
-        pts = smooth_path((cur[0], cur[1]), (x, y), frames=self._frames, rng=self._rng,
+        dist = math.hypot(x - cur[0], y - cur[1])
+        # CONSTANT SPEED, not constant time: travel time scales with distance (a fixed duration made long
+        # in-game moves crawl while short menu hops were snappy). Frames scale with distance too (~one per
+        # _GLIDE_STEP px) so the per-frame hop stays smooth at any length.
+        total = duration if duration is not None else max(_GLIDE_MIN, min(_GLIDE_MAX, dist / _GLIDE_SPEED))
+        frames = max(6, min(self._frames, int(dist / _GLIDE_STEP) + 1))
+        pts = smooth_path((cur[0], cur[1]), (x, y), frames=frames, rng=self._rng,
                           curve=self._curve if curve is None else curve,
                           wobble=self._wobble if wobble is None else wobble)
-        dt = total / len(pts)
-        self._pg.PAUSE = 0                                  # no 0.1s sleep between frames -> a fluid glide…
+        # Play it on a TIME-ACCURATE clock: sleep only the slack to the next frame's deadline, so the whole
+        # move lands in ~`total` regardless of moveTo cost / sleep granularity (fixed per-frame sleeps inflated
+        # the real time ~2x). Each frame is an instant move (PAUSE 0); PAUSE is RESTORED for the clicks after.
+        self._pg.PAUSE = 0
         try:
-            for px, py in pts:
-                self._pg.moveTo(px, py)                     # instant (duration 0)
-                if dt:
-                    time.sleep(dt)
+            start = time.perf_counter()
+            n = len(pts)
+            for i, (px, py) in enumerate(pts):
+                self._pg.moveTo(px, py)
+                slack = (start + total * (i + 1) / n) - time.perf_counter()
+                if slack > 0:
+                    time.sleep(slack)
         finally:
-            self._pg.PAUSE = self._pause                    # …RESTORE for clicks/position (their timing matters
-            #                                                 for the grab/drop to register — that's what broke)
+            self._pg.PAUSE = self._pause                    # restore for clicks/position (their dwell matters)
 
     def hover(self, x: int, y: int, *, duration: Optional[float] = None,
               curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
