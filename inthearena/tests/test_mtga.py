@@ -800,7 +800,9 @@ def _hand_checks():
           a3.clicks[0] == (900, 1000 + _CARD_BODY_DROP))
     check("play_card: 2nd click DROPS straight above (SAME x, just north of the hand) — out of the hand bounds",
           a3.clicks[1] == (900, rect.y + int(rect.h * _PLAY_LIFT_Y)) and a3.clicks[1][1] < 1000)
-    check("play_card uses QUICK clicks (hold ~0)", all(args[0] == 0.0 for args in a3.click_args))
+    from inthearena.mtga.hand import _PLAY_CLICK_HOLD
+    check("play_card presses with a brief DWELL (not an instant tap Unity would drop)",
+          all(args[0] >= _PLAY_CLICK_HOLD for args in a3.click_args))
 
     # play_hand_object: map a chosen instanceId -> its hand slot and play it. The on-screen left-to-right order
     # is ASCENDING instanceId (oldest-left, newest-right) — the REVERSE of MTGA's GRE hand-zone order, which

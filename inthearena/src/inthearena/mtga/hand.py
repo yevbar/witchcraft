@@ -185,6 +185,10 @@ def sweep_hand(actuator, points: list, *, dwell: float = 0.6) -> None:
 
 
 _CARD_BODY_DROP = 28       # px below the OCR'd name banner — aim into the card BODY, a stickier hitbox than the edge
+_PLAY_CLICK_HOLD = 0.07    # s: a brief press DWELL on the grab/drop — an instantaneous down+up is often DROPPED by
+#                            Unity (the card never gets picked up, then the lift+drop plays nothing). A click on a
+#                            hand card is a toggle-pickup (it stays on the cursor after release), so a short hold
+#                            with NO movement still reads as a click, not a drag.
 
 
 def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
@@ -194,19 +198,21 @@ def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
       • move STRAIGHT onto the card (no arc/wobble — a curved glide circles the card and sweeps its neighbours),
         aiming a little BELOW the name into the card BODY (`body_drop`);
       • click once to GRAB it — in MTGA a click on a hand card picks it up and it then follows the cursor (a
-        single click alone leaves it stuck to the cursor; a second click IN the hand drops it onto a neighbour);
+        single click alone leaves it stuck to the cursor; a second click IN the hand drops it onto a neighbour).
+        The press carries a brief DWELL (`_PLAY_CLICK_HOLD`) so it isn't dropped as an instant tap;
       • lift the cursor STRAIGHT UP (same x) to just NORTH of the hand's top edge (`lift_frac`) — only far enough
         to be out of the hand, no dragging across the board — then click again to DROP it = play the land / cast
         the creature. Being out of the hand bounds means the drop click can't grab another card.
     """
     x, y = point
     rect = actuator.window_rect()
+    grab_hold = max(hold, _PLAY_CLICK_HOLD)                   # dwell so the press registers (instant taps get dropped)
     actuator.hover(x, y + body_drop, curve=0.0, wobble=0.0)   # straight, direct onto the card body
-    actuator.double_click(hold=hold, gap=gap, clicks=1)       # GRAB — the card now follows the cursor
+    actuator.double_click(hold=grab_hold, gap=gap, clicks=1)  # GRAB — the card now follows the cursor
     actuator.wait(0.12)                                       # let the client register the pickup
     lift_y = (rect.y + int(rect.h * lift_frac)) if rect is not None else (y - 120)
     actuator.hover(x, lift_y, curve=0.0, wobble=0.0)          # lift straight up, just north of the hand
-    actuator.double_click(hold=hold, gap=gap, clicks=1)       # DROP -> play
+    actuator.double_click(hold=grab_hold, gap=gap, clicks=1)  # DROP -> play
 
 
 def hand_members(view, seat: int) -> list:
