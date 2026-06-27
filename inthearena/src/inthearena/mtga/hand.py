@@ -466,10 +466,16 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     card (e.g. a leftmost Plains) is hovered ON, not above. Sweeping left-to-right finds the leftmost match first."""
     lo, hi = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
     if anchors:
-        axs = sorted(a[1] for a in anchors)
+        asorted = sorted(anchors, key=lambda a: a[1])   # by x, left-to-right
+        axs = [a[1] for a in asorted]
+        aslots = [a[0] for a in asorted]
         top_y = min(a[2] for a in anchors)              # the centre/top of the arc (edges sit below this)
-        gaps = [axs[i + 1] - axs[i] for i in range(len(axs) - 1)]
-        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
+        # PER-CARD spacing: divide each anchor pair's x-gap by its SLOT distance. Two legible anchors can be several
+        # slots apart (duplicate-named cards — e.g. two Dazzling Angels — are skipped as anchors), so the raw x-gap
+        # would be N card-widths and the sweep would step right over the occluded cards between them (and land on
+        # ghost spots off the fan). Dividing recovers one card's width.
+        per_card = [(axs[i + 1] - axs[i]) / max(1, aslots[i + 1] - aslots[i]) for i in range(len(axs) - 1)]
+        spacing = max(40.0, min(per_card)) if per_card else float(_FAN_SPACING)
         x = float(axs[0])
         while x - spacing >= lo:                        # walk left to the band edge…
             x -= spacing

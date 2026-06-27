@@ -1051,6 +1051,12 @@ def _hand_checks():
     rxs = [p[0] for p in rpos]
     check("_reveal_positions sweeps left-to-right, extends LEFT of the legible cards, skips them",
           rxs == sorted(rxs) and min(rxs) < 900 and all(abs(x - 900) > 50 and abs(x - 1030) > 50 for x in rxs))
+    # anchors at NON-ADJACENT slots (1 and 4 — duplicate-named cards between them are skipped as anchors): the
+    # spacing must be the PER-CARD width (x-gap / SLOT distance ~120), not the raw 359px gap, or the sweep steps
+    # 3 cards at a time and hovers ghost spots off the fan instead of the occluded cards (slots 0,2,3 ~704/944/1064).
+    rpos2 = [p[0] for p in _reveal_positions(rect, 5, [(1, 824, 962), (4, 1183, 970)], None)]
+    check("_reveal_positions divides the anchor gap by SLOT distance (covers cards between far-apart anchors)",
+          any(690 <= x <= 720 for x in rpos2) and any(930 <= x <= 960 for x in rpos2))
     # the hover y follows the fan ARC: edge positions sit LOWER (larger y) than the centre, so an edge card is
     # hovered ON, not above it.
     rys = [p[1] for p in rpos]
