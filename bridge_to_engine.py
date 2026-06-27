@@ -748,7 +748,12 @@ def _datalog_owns(verb, amt, tgt, extra) -> bool:
 # §701 the destination-clause verb -> the zone a just-searched card goes to. return_to_battlefield's
 # tappedness rides in `extra` (handled in _fold_search_placements). put_in_hand is the declarative variant
 # of return_to_hand ('put that card into your hand') for the same single searched card.
-_SEARCH_DEST = {"return_to_hand": "hand", "put_in_hand": "hand", "put_on_top": "top", "put_on_bottom": "bottom"}
+_SEARCH_DEST = {"return_to_hand": "hand", "put_in_hand": "hand", "put_on_top": "top", "put_on_bottom": "bottom",
+                "exile": "exile"}
+# §701.18 own-library markers: the searched library is the CONTROLLER's (so the searched card goes to THEIR
+# graveyard / exile zone). A `that_player_s_library` / `target_opponent_s_library` search is a DIFFERENT
+# effect (different owner, often 'then you may play it') — left to abstain, never folded to graveyard/exile.
+_OWN_LIBRARY = {"-", "", "your_library"}
 
 
 def _fold_search_placements(effs: list, emit, skip: set | None = None) -> set:
@@ -775,6 +780,7 @@ def _fold_search_placements(effs: list, emit, skip: set | None = None) -> set:
         pred = _lib.search_predicate(tgt)                     # 'any'/'any_land'/'subtype:…' or None
         if pred is None:
             continue                                          # a type we can't confirm -> bare-search path
+        own_lib = str(_extra) in _OWN_LIBRARY                 # gate graveyard/exile to the CONTROLLER's own library
         # scan forward to the destination clause for the searched card, folding any intervening `shuffle`
         # and SKIPPING any `reveal` of the searched card (revealing is public information — no zone change —
         # so 'search …, reveal it, put it into your hand' resolves the same as 'search …, put it in hand').
@@ -785,9 +791,16 @@ def _fold_search_placements(effs: list, emit, skip: set | None = None) -> set:
                 shuffled = True; fold_idx.append(k); k += 1; continue
             if v2 == "reveal" and str(t2) in _SEARCHED_CARD_OBJ:
                 fold_idx.append(k); k += 1; continue          # a no-op reveal of the searched card -> skip it
+            # §701 'put it into your graveyard': the searched card rides in the EXTRA column ('that_card'),
+            # the player column ('you') is whose graveyard. Faithful only for the controller's own library
+            # going to their own graveyard — a 1-card tutor-to-graveyard (Entomb / Corpse Connoisseur).
+            if v2 == "put_in_graveyard" and str(x2) in _SEARCHED_CARD_OBJ and str(t2) == "you" and own_lib:
+                dest = "graveyard"; j = k; break
             if str(t2) in _SEARCHED_CARD_OBJ:
                 if v2 == "return_to_battlefield":
                     dest = "battlefield_tapped" if "tapped" in str(x2) else "battlefield"
+                elif v2 == "exile":
+                    dest = "exile" if own_lib else None        # opponent-library exile -> abstain (different owner)
                 else:
                     dest = _SEARCH_DEST.get(v2)
                 j = k
@@ -799,9 +812,15 @@ def _fold_search_placements(effs: list, emit, skip: set | None = None) -> set:
         # library either way), so the 'shuffle_' atomic variant resolves it faithfully.
         if j + 1 < len(effs) and effs[j + 1][1] == "shuffle":
             shuffled = True; fold_idx.append(j + 1)
-        eff_dest = ("shuffle_" + dest) if shuffled else dest  # search_to_shuffle_<dest> vs search_to_<dest>
-        eff, n, target = _lib.search_to_effect(eff_dest, pred)
-        emit(eff, n, target)
+        if dest == "graveyard":
+            # the single-card tutor-to-graveyard reuses the existing search_to_graveyard applier (a multi-card
+            # 'up to N' that always shuffles) with N=1 — exactly one matching card to the controller's graveyard,
+            # then shuffle. All folded cases carry a trailing shuffle, so the always-shuffle is faithful.
+            emit("search_to_graveyard", 1, pred)
+        else:
+            eff_dest = ("shuffle_" + dest) if shuffled else dest  # search_to_shuffle_<dest> vs search_to_<dest>
+            eff, n, target = _lib.search_to_effect(eff_dest, pred)
+            emit(eff, n, target)
         consumed.update({i, j}); consumed.update(fold_idx)
     return consumed
 

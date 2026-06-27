@@ -952,6 +952,11 @@ def _place_card(state: dict, a: str, ctrl: str, card: str, dest: str) -> None:
         _order(state, ctrl).append(card)
         state.setdefault("in_library", set()).add((ctrl, card))
         print(f"    trigger {a}: {ctrl} puts {card} on the bottom of their library")
+    elif dest == "exile":
+        # §406/§701 the searched card leaves the library for the (controller-owned) exile zone. The select
+        # step already pulled it OUT of in_library/order, so this is just the destination add.
+        state.setdefault("exile", set()).add((card,))
+        print(f"    trigger {a}: {ctrl} exiles {card}")
 
 
 @applier("place_searched")
@@ -989,7 +994,7 @@ def _atomic_search(dest: str, shuffle_first: bool):
     return _apply
 
 
-for _dest in ("hand", "top", "bottom", "battlefield", "battlefield_tapped"):
+for _dest in ("hand", "top", "bottom", "battlefield", "battlefield_tapped", "exile"):
     _atomic_search(_dest, False)
     _atomic_search(_dest, True)
 
