@@ -355,6 +355,22 @@ _TARGET_CLASS = {
     # §115 'target creature or Vehicle' — a creature is always a legal target (the Vehicle-only option is
     # simply not exercised, like the 'or planeswalker' precedent); resolve the creature half.
     "target_creature_or_vehicle": "any",
+    # §115 'UP TO ONE target <permanent>' (Gearbane Orangutan, Loran of the Third Path, Cityscape Leveler) —
+    # 'up to one' MAY choose zero, but choosing exactly one is a legal subset, so we resolve it as a single
+    # permanent target (the precedent: up_to_one_target_creature -> "any"). Only the unrestricted permanent-type
+    # bases below qualify; an 'up to one … with <filter>' compound (e.g. ' or creature with flying') is a mixed
+    # restriction the engine can't honor and still abstains.
+    "up_to_one_target_artifact": "perm_artifact",
+    "up_to_one_target_artifact_or_enchantment": "perm_artifact_enchantment",
+    "up_to_one_target_nonland_permanent": "perm_nonland",
+    # §115.4 OPPONENT-controlled permanent removal — 'an opponent controls' / 'that player controls' is a HARD
+    # legal-target restriction (the caster's own permanents are illegal). The driver's perm_opp_<filter> path
+    # restricts candidates to NOT printed_control == ctrl (the mirror of 'own_'), so a destroy/bounce/tap here
+    # faithfully aims only at the opponent's board (Assassin's Trophy, Ainok Survivalist, Field of Ruin):
+    "target_artifact_an_opponent_controls": "perm_opp_artifact",
+    "target_artifact_or_enchantment_an_opponent_controls": "perm_opp_artifact_enchantment",
+    "target_permanent_an_opponent_controls": "perm_opp_any",
+    "target_nonbasic_land_an_opponent_controls": "perm_opp_nonbasic_land",
 }
 
 # §115 RESTRICTED single-target creature classes — a base class ('any'/'you_control'/'opponent') plus '#'-joined
