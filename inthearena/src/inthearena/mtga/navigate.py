@@ -356,7 +356,7 @@ class PyAutoGuiActuator:
                  focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
-        pyautogui.PAUSE = 0                                 # NO 0.1s sleep after every call — that's the stutter
+        self._pause = pyautogui.PAUSE                       # the per-call sleep (default 0.1s); kept for CLICKS
         if rect is None:
             w, h = pyautogui.size()
             rect = Rect(0, 0, int(w), int(h))
@@ -399,10 +399,15 @@ class PyAutoGuiActuator:
                           curve=self._curve if curve is None else curve,
                           wobble=self._wobble if wobble is None else wobble)
         dt = total / len(pts)
-        for px, py in pts:
-            self._pg.moveTo(px, py)                         # instant (duration 0); PAUSE disabled in __init__
-            if dt:
-                time.sleep(dt)
+        self._pg.PAUSE = 0                                  # no 0.1s sleep between frames -> a fluid glide…
+        try:
+            for px, py in pts:
+                self._pg.moveTo(px, py)                     # instant (duration 0)
+                if dt:
+                    time.sleep(dt)
+        finally:
+            self._pg.PAUSE = self._pause                    # …RESTORE for clicks/position (their timing matters
+            #                                                 for the grab/drop to register — that's what broke)
 
     def hover(self, x: int, y: int, *, duration: Optional[float] = None,
               curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
