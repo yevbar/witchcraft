@@ -1025,6 +1025,12 @@ def _execute_checks():
     r6 = GameExecutor(a6, locator=AdvLoc()).execute(dec_mull, "keep")
     check("execute: mulligan keep -> clicks (via click_mulligan)", r6.done and bool(a6.clicks))
 
+    # assign-damage order: accept the default -> click the centre 'Done' button (no longer stalls combat)
+    dec_dmg = Decision(kind="assign_damage", options=[], seat=1, view=GameView(), req=None)
+    a9 = DryRunActuator(rect=rect, image=object())
+    r9 = GameExecutor(a9, locator=AdvLoc()).execute(dec_dmg, "done")
+    check("execute: assign_damage -> clicks Done (accept default order)", r9.done and bool(a9.clicks))
+
     # WITH a board ObjectLocator: board-object moves are enacted (no longer shadowed)
     class BoardStub:                                        # returns a point per instanceId
         def locate(self, instance_id, view, image=None):

@@ -83,6 +83,8 @@ class EnginePolicy:
             return None                                      # decline targets (no board targeting)
         if d.kind == "mulligan":
             return self._fallback.decide(d)                  # keep (blind); engine-driven mulligan is TBD
+        if d.kind == "assign_damage":
+            return self._fallback.decide(d)                  # accept MTGA's suggested combat-damage order
         move = self._engine_move(d)
         if move is None:
             return self._fallback.decide(d)

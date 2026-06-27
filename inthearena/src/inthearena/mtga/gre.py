@@ -156,6 +156,12 @@ class SelectTargetsReq(_M):
     targets: list[dict] = []                                # target shape is intricate; kept loose for now
 
 
+class AssignDamageReq(_M):
+    """Order/assign combat damage among an attacker's multiple blockers (or vice versa). MTGA pre-suggests an
+    order and offers 'Auto Allocate Damage'; we just accept the default and confirm, so contents stay loose."""
+    damageAssignments: list[dict] = []
+
+
 class MulliganReq(_M):
     mulliganType: Optional[str] = None
     freeMulliganCount: Optional[int] = None
@@ -201,6 +207,7 @@ class GreMessage(_M):
     declareAttackersReq: Optional[DeclareAttackersReq] = None
     declareBlockersReq: Optional[DeclareBlockersReq] = None
     selectTargetsReq: Optional[SelectTargetsReq] = None
+    assignDamageReq: Optional[AssignDamageReq] = None
     mulliganReq: Optional[MulliganReq] = None
 
 
@@ -331,6 +338,7 @@ _DECISIONS = {
     "attackers": ("declareAttackersReq", "qualifiedAttackers"),
     "blockers": ("declareBlockersReq", "blockers"),
     "targets": ("selectTargetsReq", "targets"),
+    "assign_damage": ("assignDamageReq", None),            # order damage among multiple blockers — accept default
     "mulligan": ("mulliganReq", None),
 }
 _TYPE_TO_KIND = {
@@ -338,6 +346,7 @@ _TYPE_TO_KIND = {
     "GREMessageType_DeclareAttackersReq": "attackers",
     "GREMessageType_DeclareBlockersReq": "blockers",
     "GREMessageType_SelectTargetsReq": "targets",
+    "GREMessageType_AssignDamageReq": "assign_damage",
     "GREMessageType_MulliganReq": "mulligan",
 }
 

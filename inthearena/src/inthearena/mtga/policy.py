@@ -68,6 +68,9 @@ class AggroPolicy:
     def _on_blockers(self, d: Decision) -> list:
         return []                                            # pure aggro: never block
 
+    def _on_assign_damage(self, d: Decision) -> str:
+        return "done"                                        # accept MTGA's suggested combat-damage order
+
     def _on_mulligan(self, d: Decision) -> str:
         return "keep"                                        # always accept the opening hand
 
@@ -131,6 +134,8 @@ def describe(d: Decision, choice) -> str:
         return "attack: " + ", ".join(by_instance(a["attackerInstanceId"]) for a in choice)
     if d.kind == "blockers":
         return "no blocks"
+    if d.kind == "assign_damage":
+        return "assign damage (accept default order)"
     if d.kind == "mulligan":
         return f"mulligan -> {choice}"
     if d.kind == "targets":

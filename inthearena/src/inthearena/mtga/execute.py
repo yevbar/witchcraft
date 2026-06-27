@@ -38,6 +38,9 @@ _ADVANCE = ViewElement("advance", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="t
 _ALL_ATTACK = ViewElement("All Attack", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="All Attack button")
 _NO_ATTACKS = ViewElement("No Attacks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Attacks button")
 _NO_BLOCKS = ViewElement("No Blocks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Blocks button")
+# The combat-damage-order screen's confirm button is CENTRE-bottom (not the bottom-right rail). Verified on a
+# live frame: Moondream finds 'Done button' at ~(0.50, 0.81) of the window.
+_DONE = ViewElement("Done", ScreenAnchor.CENTER, radius=40, query="Done button", frac=(0.50, 0.81))
 
 
 @dataclass
@@ -97,6 +100,11 @@ class GameExecutor:
         from .navigate import click_mulligan
         ok = click_mulligan(self._act, choice == "keep", rng=self._rng, locator=self._locator)
         return ExecResult(ok, f"mulligan: {choice}")
+
+    def _do_assign_damage(self, decision, choice) -> ExecResult:
+        # Order combat damage among multiple blockers. MTGA pre-suggests an order ('Auto Allocate Damage' is on),
+        # so accept the default: click the centre-bottom 'Done' button.
+        return self._advance("assign damage: accept default order", _DONE)
 
     def _do_actions(self, decision, choice) -> ExecResult:
         # choice is a gre.Action (or None). Pass -> advance; play a land / cast a spell -> the HAND.
