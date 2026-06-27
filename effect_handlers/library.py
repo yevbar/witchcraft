@@ -734,9 +734,33 @@ def _encode_search_to_hand(verb, amt, tgt, extra):
     if str(extra) == "from_graveyard" or "from_your_graveyard" in str(tgt):   # §701 Regrowth — graveyard -> hand
         filt = _regrowth_filter(tgt)
         return ("regrowth", 0, filt) if filt is not None else None
+    # §701 SELF-bounce: 'Return ~ to its owner's hand' (tgt='self' is the parser's slug for the SOURCE — never
+    # the searched-card anaphor, which is 'it'/'that card'). Choice-free and deterministic: the source moves
+    # from wherever it is (battlefield for an activated/triggered permanent; the stack for a resolving spell)
+    # to its owner's hand. On the SPELL/ACTIVATED paths this rides the encoder; the TRIGGER path's self-bounce
+    # is already engine-derived (trigger_effect_return scope='self'), so it never reaches here. 'it' is left to
+    # the searched-card placement below (its self-source uses are rare/ambiguous — faithful-or-abstain).
+    if str(tgt) == "self":
+        return ("bounce_self", 0, "-")
     if str(tgt) not in _SEARCHED_OBJ:
         return None
     return ("place_searched", 0, "hand")
+
+
+@applier("bounce_self")
+def _apply_bounce_self(D, state, a, n, tgt, src, ctrl):
+    """§701 'Return ~ to its owner's hand' — move the SOURCE to its owner's hand. For an activated/triggered
+    PERMANENT the source sits on the battlefield (remove it); for a resolving INSTANT/SORCERY the source is on
+    the stack and would otherwise hit the graveyard (mark _resolved_to_hand so _resolve_top skips that). Owner =
+    the source's controller if the board knows it, else ctrl (the activating player / spell's controller)."""
+    owner = next((p for (p, c) in D.run(state, ["controls"])["controls"] if c == src), ctrl)
+    on_bf = (src,) in state.get("on_battlefield", set())
+    state.get("on_battlefield", set()).discard((src,))
+    state.setdefault("in_hand", set()).add((owner, src))
+    if not on_bf:                                              # a resolving INSTANT/SORCERY: it's now in hand, so
+        state.setdefault("_resolved_to_hand", set()).add((src,))   # _resolve_top must NOT also send it to graveyard.
+    where = "battlefield" if on_bf else "stack"
+    print(f"    {a}: returns {src} from {where} to {owner}'s hand")
 
 
 @applier("regrowth")

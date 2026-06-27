@@ -3131,6 +3131,9 @@ def _resolve_top(state: dict) -> None:
     _run_spell_effects(state, top, ctrl, tctrl)
     if (top,) in state.get("_is_copy", set()):               # §707.10a a resolved COPY ceases to exist (no graveyard)
         _discard_copy(state, top)
+    elif (top,) in state.get("_resolved_to_hand", set()):    # §701 a spell that returned ITSELF to hand (bounce_self
+        state["_resolved_to_hand"].discard((top,))           # — Hanabi Blast, 'How to Keep an Izzet Mage Busy'): the
+        #                                                      bounce_self applier already put it in hand; skip graveyard.
     else:
         _to_graveyard(state, top)
 

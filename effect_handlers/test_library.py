@@ -108,6 +108,16 @@ def _encode_checks() -> None:
     # ABSTAIN: a destination clause whose object is a real permanent target, not the searched card
     check("return_to_hand target_creature abstains",
           _enc("return_to_hand", "-", "target_creature") is None)
+    # §701 SELF-bounce: 'Return ~ to its owner's hand' (tgt='self') -> bounce_self (the SOURCE to hand).
+    check("return_to_hand self -> bounce_self",
+          _enc("return_to_hand", "-", "self") == ("bounce_self", 0, "-"))
+    # 'it' stays the searched-card placement (NOT self-bounce — the anaphor is ambiguous, leave it as-is).
+    check("return_to_hand it -> place_searched (unchanged)",
+          _enc("return_to_hand", "-", "it") == ("place_searched", 0, "hand"))
+    # a graveyard self-return ('from_graveyard') is NOT a battlefield self-bounce -> stays the regrowth path,
+    # which has no filter for a bare 'self' and so abstains (faithful: that's escape/recursion, not bounce).
+    check("return_to_hand self from_graveyard abstains (regrowth, no self filter)",
+          _enc("return_to_hand", "-", "self", "from_graveyard") is None)
     # ABSTAIN: reveal not registered (choice-driven multi-clause). 'look' IS now registered (a no-op for the
     # readable scopes — see _topdeck_checks), but a look at an UNREADABLE scope still abstains.
     check("reveal not registered (abstained)", "reveal" not in effect_handlers.ENCODE)
@@ -315,6 +325,21 @@ def _topdeck_checks() -> None:
     _fire(st, "source_to_top", 0, tgt="-", src="top")
     check("source_to_top leaves the battlefield", ("top",) not in st["on_battlefield"])
     check("source_to_top goes on top of the library", st["_lib_order"]["alice"][0] == "top")
+
+    # ── apply: bounce_self (Aethertide Whale / Blinking Spirit '{cost}: return ~ to its owner's hand') ──
+    st = _state([]); st["on_battlefield"] = {("whale",)}
+    st["printed_control"] = {("alice", "whale")}              # so controls() knows the owner
+    _fire(st, "bounce_self", 0, tgt="-", src="whale")
+    check("bounce_self leaves the battlefield", ("whale",) not in st["on_battlefield"])
+    check("bounce_self returns the source to its OWNER's hand", ("alice", "whale") in st["in_hand"])
+    check("bounce_self of a permanent does NOT flag _resolved_to_hand", ("whale",) not in st.get("_resolved_to_hand", set()))
+    # a resolving SPELL self-bounce (source NOT on the battlefield): goes to hand AND flags _resolved_to_hand
+    # so the spell-resolution disposal sends it to hand, not the graveyard (Hanabi Blast, How to Keep an Izzet…).
+    st = _state([]); st["on_battlefield"] = set(); st["printed_control"] = set()
+    _fire(st, "bounce_self", 0, tgt="-", src="bolt", ctrl="alice")
+    check("bounce_self of a resolving spell goes to the controller's hand", ("alice", "bolt") in st["in_hand"])
+    check("bounce_self of a resolving spell flags _resolved_to_hand (skip graveyard)",
+          ("bolt",) in st.get("_resolved_to_hand", set()))
 
     # ── apply: bounce_to_lib (Submerge) — strongest enemy creature to its owner's library top ──
     st = _state([])
