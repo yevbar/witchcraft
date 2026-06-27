@@ -153,6 +153,12 @@ _EVENT = {
     "an_opponent_draws_a_card": "opp_draw",
     "an_opponent_draws_their_second_card_each_turn": "opp_draw_second",
     "a_player_draws_their_second_card_each_turn": "any_draw_second",
+    # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class).
+    # CONTROLLER-scoped: fires only when the source's controller gains life (distinct from 'a player gains
+    # life'). The driver records the gaining player into just_gained_life whenever a player's life INCREASES
+    # (the _adjust_life chokepoint — every gain_life effect / dyn-gain path routes through it) and fires the
+    # window at a safe checkpoint. Amount-conditional variants ('if it was 3 or more') still abstain.
+    "you_gain_life": "you_gain_life_ctrl",
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) + §707 magecraft 'cast or copy an instant or
     # sorcery' (Storm-Kiln Artist) — the driver fires won_flip / copied_spell windows.
     "you_win_a_coin_flip": "won_coin_flip",

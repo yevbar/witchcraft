@@ -250,6 +250,7 @@ INPUTS = [
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
+    ("just_gained_life", [("p", "symbol")]),                     # §603 a player whose life just INCREASED — 'whenever you gain life'
     ("ev_search_library", [("p", "symbol")]),                    # §701.18 a player who just searched their library (Wan Shi Tong)
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
@@ -902,6 +903,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_won_flip(P)", ["won_flip(P)"])
     p.decl("ev_copy", [("p", "symbol")])                 # §707 'whenever you copy a spell' — driver-fed copy window
     p.rule("ev_copy(P)", ["copied_spell(P)"])
+    p.decl("ev_gained_life", [("p", "symbol")])          # §603 'whenever you gain life' — driver-fed life-gain window
+    p.rule("ev_gained_life(P)", ["just_gained_life(P)"])
     p.decl("ev_dies", [("c", "symbol")])
     p.rule("ev_dies(C)", ["dies(C)"])
     p.decl("ev_leaves", [("c", "symbol")])               # §603.6d 'leaves the battlefield' — a superset of dies
@@ -981,6 +984,9 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "any_draw_second")', "ev_draw(P)", "draw_ord(P, 2)"])
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.
     p.rule("fires(A, S)", ['has_trigger(A, S, "won_coin_flip")', "ev_won_flip(P)", "controls(P, S)"])
+    # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class) —
+    # CONTROLLER-scoped: the source's controller is the player whose life just increased (driver-fed window).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_gain_life_ctrl")', "ev_gained_life(P)", "controls(P, S)"])
     # §707 MAGECRAFT 'whenever you cast OR COPY an instant or sorcery spell' (Storm-Kiln Artist) — the cast
     # half reuses the cast window (spell_type i/s), the copy half the driver-fed copy window.
     p.rule("fires(A, S)", ['has_trigger(A, S, "cast_or_copy_is")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])

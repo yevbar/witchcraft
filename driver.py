@@ -175,6 +175,33 @@ def _fire_tap_triggers(state: dict) -> None:
     state["just_tapped"] = set()
 
 
+def _fire_lifegain_triggers(state: dict) -> None:
+    """§603 fire 'whenever YOU gain life' triggers (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune,
+    Cleric Class) for the players whose life INCREASED since the last checkpoint. _adjust_life arms
+    _just_gained_life with each gainer (post-replacement, post-'can't gain'); this opens the driver-fed
+    just_gained_life window, applies the NEW pending the window produces (diff vs. the standing pending so
+    unrelated triggers aren't re-applied), then CLOSES the window before applying — the search-trigger lesson:
+    a lifegain trigger that itself gains life (a counter on a lifelinker, a 'gain N life' trigger) re-arms the
+    accumulator, which a later DRAIN-LOOP round picks up, rather than re-firing this same pending. The drain
+    loop is ROUND-CAPPED so a self-re-arming chain (Archangel pumps a lifelinker that then gains again) can't
+    run away. Called at SAFE checkpoints (after a resolving stack object / each step), never mid-_adjust_life.
+    CONTROLLER-scoped: the engine fires only watchers whose controller is the gaining player."""
+    if not state.get("_just_gained_life"):
+        return
+    rounds = 0
+    while state.get("_just_gained_life") and rounds < 16:     # ROUND CAP — natural lifegain chains are short
+        rounds += 1
+        gainers = state.pop("_just_gained_life")              # the players who gained this round (each fires once)
+        before, before_dyn = _pending_both(state)
+        state["just_gained_life"] = gainers
+        now, now_dyn = _pending_both(state)
+        new, new_dyn = now - before, now_dyn - before_dyn
+        state["just_gained_life"] = set()                    # CLOSE the window before applying — a nested gain
+        _apply_effects(state, new, new_dyn)                  # re-arms _just_gained_life for the next loop round
+    state["just_gained_life"] = set()
+    state.pop("_just_gained_life", None)                     # cap hit -> drop any residual so it can't leak forward
+
+
 # --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
 # hardcoded here — so adding a variant to the rules interpretation is enough; the shim follows. ---
 def _variant_life(variant: str) -> int:
@@ -427,6 +454,8 @@ def _adjust_life(state: dict, p: str, delta: int) -> int:
         else:
             dbl, plus = _life_gain_mods(state, p)
             delta = delta * (2 ** dbl) + plus
+    if delta > 0:                                            # §603 p ACTUALLY gained life (post-replacement, post
+        state.setdefault("_just_gained_life", set()).add((p,))  # 'can't gain') -> arm a 'whenever you gain life' window
     cur = next(v for (q, v) in state["life"] if q == p)
     _set_life(state, p, cur + delta)
     return cur + delta
@@ -3231,6 +3260,7 @@ def _resolve_stack(state: dict, ap: str, players: list) -> None:
         if responded:
             continue                                         # a response was added; re-open priority on the new top
         _resolve_top(state)                                  # all passed -> resolve the top object
+        _fire_lifegain_triggers(state)                       # §603 'whenever you gain life' for any gain this resolution
     state["has_priority"] = set()
 
 
@@ -3717,6 +3747,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             if step in GRANTS_PRIORITY:              # §5 priority window — the active player may cast
                 _cast_phase(state, ap)
             _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
+            _fire_lifegain_triggers(state)           # §603 'whenever you gain life' for any gain this step (combat lifelink, effects)
             if step == "end":                        # §513 'at the beginning of your next end step' deliveries
                 _deliver_necro(state, ap)            # §601 Necropotence: exiled cards come to hand at end step
                 _return_stolen(state, ap)            # §608 Mnemonic Betrayal: stolen cards return to graveyards
