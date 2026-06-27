@@ -1122,6 +1122,28 @@ def _execute_checks():
     r3 = GameExecutor(a3, locator=AdvLoc()).execute(dec_atk, chosen_all)
     check("execute: attack with all qualified -> clicks All Attack (advance)",
           r3.done and len(a3.clicks) == 1 and a3.clicks[0][0] > 1500)
+
+    # FAILURE TOLERANCE: a dropped All Attack click leaves the 'All Attack' label on screen -> retry. Stub the OCR
+    # screen-check to report the label still present for the first 2 looks, then gone (the 3rd click lands).
+    import inthearena.mtga.ocr as _ocrmod
+    _orig_rt, _looks = _ocrmod.recognize_text, [0]
+    def _present_then_gone(image):
+        _looks[0] += 1
+        return [("All Attack", 0.9, 0.9)] if _looks[0] <= 2 else []
+    _ocrmod.recognize_text = _present_then_gone
+    try:
+        a3r = DryRunActuator(rect=rect, image=object())
+        r3r = GameExecutor(a3r, locator=AdvLoc()).execute(dec_atk, chosen_all)
+        check("execute: All Attack RETRIES until the screen changes (2 dropped clicks + 1 that lands)",
+              r3r.done and len(a3r.clicks) == 3)
+        _ocrmod.recognize_text = lambda image: [("All Attack", 0.9, 0.9)]    # never advances
+        a3g = DryRunActuator(rect=rect, image=object())
+        r3g = GameExecutor(a3g, locator=AdvLoc()).execute(dec_atk, chosen_all)
+        check("execute: All Attack gives up after the retry cap (4) when the screen never changes",
+              r3g.done is False and len(a3g.clicks) == 4)
+    finally:
+        _ocrmod.recognize_text = _orig_rt
+
     a3b = DryRunActuator(rect=rect, image=object())
     r3b = GameExecutor(a3b, locator=AdvLoc()).execute(dec_atk, [{"attackerInstanceId": 11}])  # a SUBSET
     check("execute: partial attack -> not wired (caller shadows)", r3b.done is False and a3b.clicks == [])

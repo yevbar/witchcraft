@@ -22,12 +22,15 @@ this drives the client and is opt-in.
 
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
 from .navigate import Rect, interact
 from .views import ScreenAnchor, ViewElement
+
+_log = logging.getLogger("inthearena.mtga.execute")
 
 # Bottom-right context buttons. The generic advance button's LABEL changes with the step (Pass / Resolve / Done /
 # Next); one element covers those. BUT the declare-attackers step shows TWO buttons stacked there — 'All Attack'
@@ -93,14 +96,44 @@ class GameExecutor:
         return handler(decision, choice)
 
     # ── object-free actions (wired) ──────────────────────────────────────────────────────────────────────
-    def _advance(self, note: str, element: ViewElement = _ADVANCE) -> ExecResult:
+    def _advance(self, note: str, element: ViewElement = _ADVANCE, *, verify_gone: Optional[str] = None,
+                 tries: int = 4, settle: float = 1.0) -> ExecResult:
         """Click a bottom-right context button (default: the generic advance/confirm — Pass / Resolve / Done).
         Combat passes a SPECIFIC `element` ('All Attack' / 'No Attacks' / 'No Blocks') so the right one of the two
-        stacked buttons is chosen."""
+        stacked buttons is chosen.
+
+        FAILURE TOLERANCE: with `verify_gone` (the button's own label, which DISAPPEARS once the screen advances),
+        confirm the click actually took and RETRY if not — MTGA occasionally drops a button click (the cursor
+        arrives but the press doesn't register), which would otherwise strand the bot on e.g. declare-attackers.
+        Each retry re-parks the cursor OFF the button first, so the re-click is a fresh IOHID move+press, not a
+        no-move in-place tap (which MTGA, tracking the IOHID pointer, can miss the same way)."""
         rect = self._act.window_rect()
         if rect is None:
             return ExecResult(False, "no window rect")
-        return ExecResult(interact(self._act, element, rect, self._rng, locator=self._locator), note)
+        if not verify_gone:
+            return ExecResult(interact(self._act, element, rect, self._rng, locator=self._locator), note)
+        for attempt in range(1, max(1, tries) + 1):
+            self._act.hover(rect.x + rect.w // 2, rect.y + rect.h // 2)   # off the button -> force a fresh move+press
+            interact(self._act, element, rect, self._rng, locator=self._locator)
+            self._act.wait(settle)                                        # let the click register + the UI redraw
+            if not self._label_on_screen(rect, verify_gone):             # button's label gone -> the screen advanced
+                return ExecResult(True, note if attempt == 1 else f"{note} (took {attempt} clicks)")
+            _log.info("  %s: screen unchanged after click %d/%d — clicking again", note, attempt, tries)
+        return ExecResult(False, f"{note}: screen never advanced after {tries} clicks")
+
+    def _label_on_screen(self, rect, label: str) -> bool:
+        """Is `label` (a button caption, case-insensitive) currently shown in the lower band? Used to tell whether
+        a button click advanced the screen (the label vanishes) or was dropped (it stays). False if we can't read
+        the screen — better to stop retrying than to loop forever clicking into a screen we can't verify."""
+        img = self._act.screenshot()
+        if img is None:
+            return False
+        try:
+            from .ocr import recognize_text
+            needle = label.lower()
+            return any(yf >= 0.75 and needle in text.lower() for text, _xf, yf in recognize_text(img))
+        except Exception:
+            return False
 
     def _do_mulligan(self, decision, choice) -> ExecResult:
         from .navigate import click_mulligan
@@ -133,7 +166,7 @@ class GameExecutor:
     def _do_blockers(self, decision, choice) -> ExecResult:
         # aggro never blocks -> choice is the empty list. 'No Blocks' is its own bottom-right button.
         if not choice:
-            return self._advance("no blocks", _NO_BLOCKS)
+            return self._advance("no blocks", _NO_BLOCKS, verify_gone="no blocks")
         return ExecResult(False, "blocking not wired (needs board targeting: blocker -> attacker)")
 
     def _do_attackers(self, decision, choice) -> ExecResult:
@@ -141,12 +174,14 @@ class GameExecutor:
         # the 'All Attack' button (no per-creature clicking). A SUBSET — what a heuristic bot declares — clicks
         # each chosen creature on the board (via the ObjectLocator), then confirms.
         if not choice:
-            return self._advance("no attacks", _NO_ATTACKS)
+            return self._advance("no attacks", _NO_ATTACKS, verify_gone="no attacks")
         chosen = {(c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None))
                   for c in choice}
         qualified = {getattr(a, "attackerInstanceId", None) for a in (decision.options or [])}
         if qualified and chosen >= qualified:
-            return self._advance("all attack", _ALL_ATTACK)   # 'All Attack' = every qualified attacker
+            # 'All Attack' = every qualified attacker. Verify it took (the label vanishes) and retry — this click
+            # is the one that intermittently dropped, leaving the bot stranded on declare-attackers.
+            return self._advance("all attack", _ALL_ATTACK, verify_gone="all attack")
         if self._objs is None:
             return ExecResult(False, "partial attack needs a board ObjectLocator")
         for inst in chosen:
