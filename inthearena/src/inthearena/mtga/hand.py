@@ -669,6 +669,24 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
             play_card(actuator, target)
             return True
 
+    # LAST RESORT before a TERMINAL shadow (the GRE waits on us forever): a JUST-DRAWN card slides in over ~1s and
+    # reads as nothing mid-animation — which is exactly why the decision-time snapshot missed a 'Plains' that's
+    # plainly legible once it settles. Park the cursor at rest, let the hand settle, and re-read at REST once more.
+    actuator.hover(*rest_point(rect))
+    actuator.wait(0.8)
+    image2, rect2 = capture_hand(actuator, settle=0.2)
+    if rect2 is not None:
+        settled = locate_named_cards(image2, rect2)
+        hn = _hand_names(view, seat)
+        if hn:
+            settled = [(t, x, y) for (t, x, y) in settled
+                       if any(_name_score(_norm_name(t), h) >= _NAME_MATCH for h in hn)]
+        hit = _land_hit(settled, want)
+        if hit is not None:
+            _log.info("  %s: card became legible after settling — playing at %s", label, hit)
+            play_card(actuator, hit)
+            return True
+
     _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
     return False
 

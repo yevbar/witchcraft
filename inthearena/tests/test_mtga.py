@@ -1029,6 +1029,19 @@ def _hand_checks():
         check("play_land: edge candidate confirmed as the wanted land by magnify -> plays it (~732)",
               ok3f and len(a3f.clicks) == 2 and 710 <= a3f.clicks[0][0] <= 760)
 
+        # (3g) RE-SNAPSHOT recovery: a JUST-DRAWN land is unreadable mid-animation (the decision-time snapshot and
+        # the reveal sweep see nothing), then legible once it settles. The final re-read at REST catches it and
+        # plays it instead of a TERMINAL shadow. Stub: OCR returns nothing until the settled re-read.
+        looks = [0]
+        def _settle_then_legible(image):
+            looks[0] += 1
+            return [("Forest", 700 / 1920, 0.90)] if looks[0] >= 5 else []   # nothing until the re-read at rest
+        ocr.recognize_text = handmod.ocr.recognize_text = _settle_then_legible
+        a3g = DryRunActuator(rect=rect, image=object())
+        ok3g = play_land(a3g, None, _hand({50}, {58}), 1, plays(50), 50)     # 2 cards, both occluded at first
+        check("play_land: re-reads at rest after settling -> plays a now-legible land (recovers from a stuck shadow)",
+              ok3g and len(a3g.clicks) == 2 and 680 <= a3g.clicks[0][0] <= 720)
+
         # land_play_options enumerates only the lands among the Play actions
         from inthearena.mtga import land_play_options
         v = _hand({50}, {51})
