@@ -30,6 +30,20 @@ _MINE_Y = (0.42, 0.66)     # the local player's battlefield name band (lower-mid
 _OPP_Y = (0.18, 0.42)      # the opponent's battlefield name band (upper-middle)
 _BOTH_Y = (0.18, 0.66)     # both battlefields, when we don't know which seat is ours
 
+# Where to click to TARGET a player (their avatar nameplate, normalized to the window). The opponent's
+# nameplate sits in the top-left corner, ours bottom-left — a vertical mirror. Read off a 1920x1080 capture
+# (our 'deleuze' avatar at y≈0.94); TUNE if a live player-target click misses, since the capture wasn't of a
+# highlighted target reticle. A player isn't a named battlefield permanent, so it can't go through the
+# name-OCR ObjectLocator — this fixed anchor is the click point instead.
+_PLAYER_ANCHOR_OPP = (0.025, 0.055)
+_PLAYER_ANCHOR_ME = (0.025, 0.945)
+
+
+def player_point(rect: Rect, *, is_me: bool) -> tuple:
+    """Screen point (global coords) to click to target a player's avatar — ours (is_me) or the opponent's."""
+    ax, ay = _PLAYER_ANCHOR_ME if is_me else _PLAYER_ANCHOR_OPP
+    return rect.x + int(ax * rect.w), rect.y + int(ay * rect.h)
+
 
 def locate_named_permanents(image, rect: Rect, *, y_band=_BOTH_Y) -> list:
     """[(name, x, y)] for every legible permanent name within `y_band` — screen coords, left-to-right."""

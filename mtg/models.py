@@ -254,6 +254,18 @@ class Priority:
         return self.of("block")
 
     @property
+    def resolve_triggers(self) -> list:
+        """The plays that resolve a TARGETED effect — casts/activations whose forced sub-choices name a
+        `target` (§601.2c). Same moves as `spells`/`abilities`, but surfaced for the target-resolution policy
+        (Do.RESOLVE_TRIGGER) rather than the develop policy: the engine enumerates one cast variant per legal
+        target, so scoring these by who they hit (see HeuristicPlayer.resolve_choice) IS the target choice."""
+        if "resolve_triggers" not in self._cache:
+            self._cache["resolve_triggers"] = [
+                m for m in self.moves
+                if m.kind in ("cast", "activate", "play") and (m.choices or {}).get("target") is not None]
+        return self._cache["resolve_triggers"]
+
+    @property
     def passes(self) -> list:
         """The pass move (`kind == "pass"`), if passing is legal here."""
         return self.of("pass")
@@ -297,6 +309,7 @@ class PriorityOption(Enum):
     LANDS = "lands"
     SPELLS = "spells"
     ABILITIES = "abilities"
+    RESOLVE_TRIGGER = "resolve_triggers"   # resolve a targeted effect (§601.2c) — pick WHO/WHAT it hits
     ATTACKS = "attacks"
     BLOCKS = "blocks"
     SKIP = "skip"

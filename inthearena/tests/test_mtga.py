@@ -319,6 +319,22 @@ def _engine_checks():
     check("engine: suggest reads it as alice's precombat main",
           s["active"] == "alice" and s["step"] == "precombat_main")
 
+    # RESOLVE_TRIGGER / resolve_choice: a player-targeting play is scored to hit the OPPONENT (engine side) —
+    # the same 'a player target -> the opponent' rule the inthearena bridge applies to MTGA's SelectTargets.
+    from mtg.heuristic import HeuristicPlayer
+    from mtg.models import PriorityOption as Do
+
+    class _TgtMove:                                          # a stand-in move carrying just its forced target
+        def __init__(self, tgt):
+            self.choices = {"target": tgt}
+
+    check("engine: Do.RESOLVE_TRIGGER enum present", Do.RESOLVE_TRIGGER.value == "resolve_triggers")
+    hp = HeuristicPlayer().bind(g, "alice")                  # g is alice (us) vs bob (opponent)
+    check("engine: resolve_choice prefers targeting the opponent (bob -> 1.0)",
+          hp.resolve_choice(g, _TgtMove("bob")) == 1.0)
+    check("engine: resolve_choice won't aim at ourselves (alice -> 0.0)",
+          hp.resolve_choice(g, _TgtMove("alice")) == 0.0)
+
     # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
     brawl = _apply({"type": "GameStateType_Full",
                     "gameInfo": {"variant": "GameVariant_Brawl", "superFormat": "SuperFormat_Constructed"},
@@ -1237,7 +1253,20 @@ def _engine_policy_checks():
     # decide: with the engine unavailable here, blockers/targets fall back (no block / no target)
     check("EnginePolicy declines blocks when the engine can't run (fallback)",
           ep.decide(Decision(kind="blockers", options=[{"blockerInstanceId": 1}], seat=1, view=GameView(), req=None)) == [])
-    check("EnginePolicy declines targets", ep.decide(Decision(kind="targets", options=[{"instanceId": 1}], seat=1, view=GameView(), req=None)) is None)
+    # targets: a player-target slot is aimed at the OPPONENT (the player candidate whose id isn't our seat).
+    # Players aren't battlefield permanents, so they're the candidates NOT in view.objects.
+    v_tgt = GameView()
+    v_tgt.objects = {431: object()}                          # 431 is a known permanent; players 1/2 are not
+    d_player = Decision(kind="targets", seat=1, view=v_tgt, req=None,
+                        options=[{"targetIdx": 1, "targets": [{"targetInstanceId": 1}, {"targetInstanceId": 2}]}])
+    check("EnginePolicy targets a player -> the OPPONENT (seat 2, not our seat 1)",
+          ep._targets_choice(d_player) == [{"player": 2}])
+    d_perm = Decision(kind="targets", seat=1, view=v_tgt, req=None,
+                      options=[{"targetIdx": 1, "targets": [{"targetInstanceId": 431}]}])
+    check("EnginePolicy targets a permanent-only slot -> falls back to that permanent",
+          ep._targets_choice(d_perm) == [{"instanceId": 431}])
+    check("EnginePolicy declines a target with no real slot (None)",
+          ep.decide(Decision(kind="targets", options=[{"instanceId": 1}], seat=1, view=GameView(), req=None)) is None)
 
 
 def _execute_checks():
@@ -1287,11 +1316,22 @@ def _execute_checks():
     check("execute: cast routes to the hand; unidentifiable -> shadow (no click)",
           r4.done is False and a4.clicks == [])
 
-    # targets: a board target isn't wired (shadow); but an empty/auto target advances
+    # targets: a permanent target needs the ObjectLocator (none here) -> shadow, no click
     dec_tgt = Decision(kind="targets", options=[{"instanceId": 7}], seat=1, view=GameView(), req=None)
     a5 = DryRunActuator(rect=rect, image=object())
     r5 = GameExecutor(a5, locator=AdvLoc()).execute(dec_tgt, {"instanceId": 7})
-    check("execute: board target not wired (caller shadows)", r5.done is False and a5.clicks == [])
+    check("execute: permanent target without an ObjectLocator -> shadow (no click)",
+          r5.done is False and a5.clicks == [])
+
+    # PLAYER target: click the opponent's avatar (top-left); no ObjectLocator needed (fixed anchor)
+    a5b = DryRunActuator(rect=rect, image=object())
+    r5b = GameExecutor(a5b, locator=AdvLoc()).execute(dec_tgt, [{"player": 2}])
+    check("execute: player target -> clicks the opponent avatar (top-left corner)",
+          r5b.done and len(a5b.clicks) == 1 and a5b.clicks[0][0] < 200 and a5b.clicks[0][1] < 200)
+    a5c = DryRunActuator(rect=rect, image=object())
+    GameExecutor(a5c, locator=AdvLoc()).execute(dec_tgt, [{"player": 1}])   # ourselves -> bottom-left
+    check("execute: targeting our own player -> clicks the bottom-left avatar",
+          len(a5c.clicks) == 1 and a5c.clicks[0][1] > rect.h * 0.8)
 
     # mulligan routes through the executor (keep -> the Keep button via click_mulligan)
     dec_mull = Decision(kind="mulligan", options=[], seat=1, view=GameView(), req=None)
@@ -1361,6 +1401,10 @@ def _board_checks():
         pt = BoardLocator(a, me=1).locate(77, view)         # our permanent -> lower band
         check("BoardLocator locates a permanent by name", pt == (int(0.43 * 1920), int(0.49 * 1080)))
         check("BoardLocator parks the cursor at rest before snapping (no hover-distortion)", bool(a.moves))
+        op = boardmod.player_point(rect, is_me=False)
+        me = boardmod.player_point(rect, is_me=True)
+        check("player_point: opponent avatar top-left, ours bottom-left (vertical mirror)",
+              op[0] < rect.w * 0.1 and op[1] < rect.h * 0.2 and me[1] > rect.h * 0.8)
     finally:
         boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
 

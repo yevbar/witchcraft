@@ -58,6 +58,7 @@ class HeuristicPlayer(Player):
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         return game.prioritize(
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
+            Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
             Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best spell, only if it beats passing,
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
@@ -72,6 +73,16 @@ class HeuristicPlayer(Player):
         spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
+
+    def resolve_choice(self, game, move) -> float:
+        """Resolve a TARGETED effect at the OPPONENT (Do.RESOLVE_TRIGGER). The engine enumerates one cast/
+        activate variant per legal target, so this scores the variant whose target is an opponent PLAYER at
+        1.0 and every other variant at 0.0. Under the `floor=0.0` in choose_move that means only a player-
+        targeting play (burn / 'target player') fires here — aimed at their face — while creature-targeting
+        and untargeted plays score 0 and fall through to normal development. The SAME 'a player target -> the
+        opponent' rule drives the inthearena bridge's MTGA SelectTargets pick (see engine_policy)."""
+        target = (move.choices or {}).get("target")
+        return 1.0 if target in {o.seat for o in self.opponents} else 0.0
 
     def attack_choice(self, game, move) -> float:
         """Value of declaring `move`'s attackers: damage that lands under a worst-case block (they block our

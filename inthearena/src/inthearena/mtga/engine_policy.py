@@ -7,7 +7,9 @@ the MTGA option it corresponds to — so a bot developed in python-mtg actually 
 The translation hinges on one fact: `engine.build_state` names every VISIBLE card `slug_<instanceId>`, where
 `instanceId` is the MTGA GRE id. So an engine move's `card.id` carries the MTGA instanceId straight back, and we
 just find the `Decision` option with that id. Attackers and BLOCKS map by the same id (a block move's
-`(blocker_id, attacker_id)` pairs -> MTGA pairings); targets aren't wired. NB: the engine only PRODUCES a block
+`(blocker_id, attacker_id)` pairs -> MTGA pairings). PLAYER targets are wired (`_targets_choice`): a spell that
+targets a player is aimed at the OPPONENT (the engine bakes its own target into the cast move, so the SelectTargets
+decision is resolved here directly, not by translating a move). NB: the engine only PRODUCES a block
 move once the bridge feeds it the declared attackers (`build_state` doesn't model 'attacking' yet) and the player
 declares blocks (`AggroPlayer` does, `BlindAggroPlayer` doesn't) — until then a blockers decision declines.
 
@@ -80,7 +82,7 @@ class EnginePolicy:
     # ── decide ────────────────────────────────────────────────────────────────────────────────────────────
     def decide(self, d):
         if d.kind == "targets":
-            return None                                      # decline targets (no board targeting)
+            return self._targets_choice(d)                   # aim a player target at the opponent
         if d.kind == "mulligan":
             return self._fallback.decide(d)                  # keep (blind); engine-driven mulligan is TBD
         if d.kind == "assign_damage":
@@ -93,6 +95,29 @@ class EnginePolicy:
             _log.info("  engine: move didn't map to a %s option — using %s", d.kind, self._fallback.name)
             return self._fallback.decide(d)
         return choice
+
+    def _targets_choice(self, d):
+        """Resolve MTGA's SelectTargets the way HeuristicPlayer.resolve_choice resolves it in the engine: when a
+        target slot can hit a PLAYER, aim at the OPPONENT. A player candidate is one that ISN'T a battlefield
+        permanent (its targetInstanceId isn't a known game object); the opponent is the player candidate whose
+        id isn't our seat. Returns a list of picks (one per required slot) for the executor — a player pick
+        carries `player=<seat>`, a permanent pick carries `instanceId`. A slot with no player candidate falls
+        back to the first legal candidate so play still progresses (creature-target spells aren't the focus
+        here yet). [] / no slots -> None (decline). This mirrors the engine rule but on MTGA's target dicts;
+        the engine bakes its own target into the cast move, so there's no engine move to translate here."""
+        picks = []
+        for slot in (d.options or []):
+            cands = (slot.get("targets") or []) if isinstance(slot, dict) else []
+            if not cands:
+                continue
+            ids = [(c, c.get("targetInstanceId")) for c in cands if c.get("targetInstanceId") is not None]
+            players = [(c, tid) for (c, tid) in ids if tid not in d.view.objects]   # not a permanent -> a player
+            opp = next((tid for (c, tid) in players if tid != d.seat), None)
+            if opp is not None:
+                picks.append({"player": opp})
+            elif ids:
+                picks.append({"instanceId": ids[0][1]})                             # creature/permanent target
+        return picks or None
 
     def _translate(self, d, move):
         """Map a witchcraft engine `move` to the MTGA option for decision `d`. Returns the option (an `Action` /

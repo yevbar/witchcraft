@@ -182,15 +182,40 @@ class GameExecutor:
         return self._advance("declared attackers", _ADVANCE)            # confirm the partial attack
 
     def _do_targets(self, decision, choice) -> ExecResult:
-        # Choosing a spell/ability's target = clicking a permanent/player on the battlefield (ObjectLocator).
+        # Choosing a spell/ability's target = clicking each chosen target. choice is a list of picks, one per
+        # required target slot (a bare dict/obj is accepted too, for one target). A PLAYER pick carries
+        # `player=<seat>` (click their avatar, not a permanent — players aren't named on the battlefield); a
+        # permanent pick carries `instanceId` (located by name via the ObjectLocator). The engine policy aims a
+        # player target at the opponent (see EnginePolicy._targets_choice / HeuristicPlayer.resolve_choice).
         if not choice:
             return self._advance("no target")
-        inst = getattr(choice, "instanceId", None)
-        if inst is None and isinstance(choice, dict):
-            inst = choice.get("instanceId")
-        if inst is None:
-            return ExecResult(False, "target has no instanceId")
-        return self._click_object(inst, decision.view, "target")
+        picks = choice if isinstance(choice, list) else [choice]
+        n = 0
+        for p in picks:
+            seat = p.get("player") if isinstance(p, dict) else getattr(p, "player", None)
+            inst = p.get("instanceId") if isinstance(p, dict) else getattr(p, "instanceId", None)
+            if seat is not None:
+                res = self._click_player(seat, decision.seat)
+            elif inst is not None:
+                res = self._click_object(inst, decision.view, "target")
+            else:
+                return ExecResult(False, "target has no instanceId or player")
+            if not res.done:
+                return res
+            n += 1
+        return ExecResult(True, f"selected {n} target(s)")
+
+    def _click_player(self, seat, my_seat) -> ExecResult:
+        """Click a player's avatar to target them — ours (seat == my_seat) bottom-left, the opponent top-left."""
+        rect = self._act.window_rect()
+        if rect is None:
+            return ExecResult(False, "no window rect")
+        from .board import player_point
+        x, y = player_point(rect, is_me=(seat == my_seat))
+        self._act.hover(x, y)                              # focus + IOHID so the client tracks the cursor…
+        self._act.click()                                 # …then click the avatar
+        who = "me" if seat == my_seat else "opponent"
+        return ExecResult(True, f"clicked {who} (player {seat})")
 
     # ── board objects (the ObjectLocator seam) ─────────────────────────────────────────────────────────────
     def _click_object(self, instance_id, view, what: str) -> ExecResult:
