@@ -2425,7 +2425,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
                     # graveyard creature under the controller's control on resolution. ONE WORLD: the engine
                     # DERIVES trigger_reanimate(a, mode) in datalog (translate.dl, reanimate_target +
-                    # reanimate_gate + reanimate_mode) — the bridge just stops emitting.
+                    # reanimate_gate + reanimate_mode) for the UNCONDITIONAL ('-') case — the bridge stops
+                    # emitting there. For an OPTIONAL clause ('you may return target creature card from your
+                    # graveyard …' — Reya Dawnbringer, Scion of Darkness) the datalog gate (cond="-") doesn't
+                    # fire, so the bridge re-emits the row directly: 'may' is pure optionality the model is
+                    # free to take, the mode encoder already carries the source zone + tappedness faithfully.
+                    if _cond == "may":
+                        add("trigger_reanimate", (a, _reanimate_mode(extra)))
                     emitted = True
                     continue
                 if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
@@ -2643,7 +2649,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 reanimation (Resurrection, Zombify, Animate Dead): a creature card from a graveyard
                     # to the battlefield under the caster's control. ONE WORLD: spell_reanimate is now
-                    # DATALOG-derived (translate.dl); the bridge only feeds the parse facts.
+                    # DATALOG-derived (translate.dl) for the UNCONDITIONAL ('-') case; the bridge only feeds
+                    # the parse facts there. For an OPTIONAL spell clause ('you may put a creature card …'
+                    # — Artisan of Kozilek, Cauldron Dance) the datalog gate (cond="-") doesn't fire, so the
+                    # bridge re-emits spell_reanimate directly ('may' is optionality the model may take).
+                    if _cond == "may":
+                        add("spell_reanimate", (tid, _reanimate_mode(extra)))
                     continue
                 if verb == "switch_pt" and _target_class(tgt) is not None:   # §613 'switch target creature's P/T'
                     continue                                     # spell_target (switchpt) is DATALOG-derived
