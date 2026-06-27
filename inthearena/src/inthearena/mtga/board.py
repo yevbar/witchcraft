@@ -18,6 +18,7 @@ search the right side so a same-named card on each board isn't confused, else we
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from . import cards, ocr
@@ -25,6 +26,8 @@ from .hand import _norm_name, match_named_card, rest_point
 from .navigate import Rect
 
 _log = logging.getLogger(__name__)
+
+_PT_RE = re.compile(r"^\d+\s*/\s*\d+$")     # a creature's power/toughness badge, e.g. '2/1' — OCRs reliably
 
 _MINE_Y = (0.42, 0.66)     # the local player's battlefield name band (lower-middle)
 _OPP_Y = (0.18, 0.42)      # the opponent's battlefield name band (upper-middle)
@@ -91,17 +94,42 @@ class BoardLocator:
                 if "CardType_Creature" in (getattr(o, "cardTypes", None) or [])]
         return sorted(crea, key=lambda o: o.instanceId)
 
-    def _ordinal_point(self, instance_id, view, rect):
-        """Place `instance_id` by its ORDINAL slot in its side's creature row (the fallback when the name isn't
-        legible) — returns (x, y) in global coords, or None if it isn't a battlefield creature / seat unknown."""
+    def _rank(self, instance_id, view):
+        """(index, creature instanceIds) of `instance_id` in its side's creature row (oldest->newest left->right),
+        or (None, []) if it isn't a battlefield creature / the seat is unknown."""
         o = view.objects.get(instance_id)
         seat = getattr(o, "controllerSeatId", None)
         if o is None or self._me is None or seat is None:
-            return None
+            return None, []
         ids = [c.instanceId for c in self._creature_row(seat, view)]
-        if instance_id not in ids:
+        return (ids.index(instance_id) if instance_id in ids else None), ids
+
+    def _pt_anchored_point(self, instance_id, view, rect, image, band):
+        """Place `instance_id` on the ACTUAL rendered card by anchoring to the legible POWER/TOUGHNESS badges in
+        its band. Each creature shows one '<P>/<T>' badge (numbers OCR reliably even when the NAME doesn't), so
+        when the badge count matches the side's creature count we map this creature's left->right RANK to the
+        matching badge's x and nudge up onto the card body. None if the counts don't line up (then fixed
+        geometry is the fallback). This is what the row really looks like, not a guessed centre/spacing."""
+        i, ids = self._rank(instance_id, view)
+        if i is None:
             return None
-        i, n = ids.index(instance_id), len(ids)
+        lo, hi = band
+        badges = sorted((rect.x + int(xf * rect.w), rect.y + int(yf * rect.h))
+                        for text, xf, yf in ocr.recognize_text(image)
+                        if lo <= yf <= hi and _PT_RE.match(text.strip()))
+        if len(badges) != len(ids):                           # can't align badges to creatures -> defer
+            return None
+        x, y = badges[i]
+        return x, y - int(0.035 * rect.h)                     # the badge sits low on the card; nudge to the body
+
+    def _ordinal_point(self, instance_id, view, rect):
+        """Place `instance_id` by its ORDINAL slot using FIXED row geometry — the last-resort fallback when the
+        P/T badges can't be aligned. Returns (x, y) in global coords, or None if it isn't a battlefield creature."""
+        i, ids = self._rank(instance_id, view)
+        if i is None:
+            return None
+        n = len(ids)
+        seat = view.objects[instance_id].controllerSeatId
         s = min(_SLOT_MAX, _ROW_SPAN / n)                     # tighten the spacing when the row is wide
         cx = _ROW_CX + (i - (n - 1) / 2.0) * s                # centre the row, oldest left -> newest right
         cy = _ROW_Y["mine" if seat == self._me else "opp"]
@@ -118,21 +146,28 @@ class BoardLocator:
             return None
         self._act.hover(*rest_point(rect))                  # park the cursor away — nothing hover-distorted
         self._act.wait(self._settle)
-        named = locate_named_permanents(self._act.screenshot(), rect, y_band=self._band(o))
+        shot = self._act.screenshot()
+        band = self._band(o)
+        named = locate_named_permanents(shot, rect, y_band=band)
         hit = match_named_card(name, named)
         if hit is not None:
             _log.info("  board: %r located at (%d, %d)", name, hit[0], hit[1])
             return hit
-        # Name not legible (during declare-blockers the attacker is shown ENLARGED over our band and its rules
-        # text floods the OCR). Fall back to ORDINAL placement: fan through the side's creature permanents in
-        # play order (new ones append on the RIGHT) and take this creature's slot.
-        pos = self._ordinal_point(instance_id, view, rect)
+        # Name not legible (during declare-blockers/targeting the OCR floods with the enlarged card's rules text,
+        # and short names often don't read). Place the creature by its RANK in the side's row (new permanents
+        # append on the RIGHT), anchored on the actual rendered cards via their P/T badges; fixed geometry is the
+        # last resort if the badges can't be aligned.
+        i, ids = self._rank(instance_id, view)
+        pos = self._pt_anchored_point(instance_id, view, rect, shot, band)
+        how = "P/T-anchored"
+        if pos is None:
+            pos = self._ordinal_point(instance_id, view, rect)
+            how = "fixed-geometry"
         if pos is not None:
-            ids = [c.instanceId for c in self._creature_row(o.controllerSeatId, view)]
-            _log.info("  board: %r not legible -> ordinal slot %d/%d at (%d, %d) [new=right]",
-                      name, ids.index(instance_id) + 1, len(ids), pos[0], pos[1])
+            _log.info("  board: %r not legible -> %s slot %d/%d at (%d, %d) [new=right]",
+                      name, how, i + 1, len(ids), pos[0], pos[1])
             return pos
-        band = "ours" if (self._me is not None and o.controllerSeatId == self._me) else "opp"
+        side = "ours" if (self._me is not None and o.controllerSeatId == self._me) else "opp"
         others = ", ".join(repr(n) for n, _, _ in named) or "nothing legible"
-        _log.info("  board: %r (%s band) NOT FOUND — read: %s", name, band, others)
+        _log.info("  board: %r (%s band) NOT FOUND — read: %s", name, side, others)
         return None

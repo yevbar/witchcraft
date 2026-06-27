@@ -1478,6 +1478,27 @@ def _board_checks():
               left is not None and right is not None and left[0] < right[0])
         check("BoardLocator ordinal fallback uses the creature row height (lower-middle)",
               0.42 * rect.h < left[1] < 0.66 * rect.h)
+
+        # P/T-ANCHORED: names illegible but the P/T badges read -> anchor each creature on its ACTUAL badge x
+        # (the row's real centre/spacing isn't a fixed guess). Opponent's two creatures: robber '2/1' at x0.476,
+        # other '2/3' at x0.576; robber is the older instanceId (left). Without this it landed ~x0.40 (outside).
+        boardmod.ocr.recognize_text = lambda image: [
+            ("Target a creature.", 0.50, 0.43), ("Hurloon Minotau", 0.53, 0.27),
+            ("2/1", 0.476, 0.372), ("2/3", 0.576, 0.372)]                    # legible P/T badges, no robber name
+        boardmod.cards.label = lambda g: {440: "Nest Robber", 441: "Hurloon Minotaur"}.get(g, "?")
+        opp2 = _apply({"type": "GameStateType_Full",
+                       "zones": [{"zoneId": 23, "type": "ZoneType_Battlefield", "ownerSeatId": 2}],
+                       "gameObjects": [{"instanceId": 440, "grpId": 440, "zoneId": 23, "controllerSeatId": 2,
+                                        "cardTypes": ["CardType_Creature"]},
+                                       {"instanceId": 441, "grpId": 441, "zoneId": 23, "controllerSeatId": 2,
+                                        "cardTypes": ["CardType_Creature"]}]})
+        bl2 = BoardLocator(DryRunActuator(rect=rect, image=object()), me=1)
+        robber = bl2.locate(440, opp2)                       # older=left -> the '2/1' badge at x0.476
+        other = bl2.locate(441, opp2)                        # newer=right -> the '2/3' badge at x0.576
+        check("BoardLocator P/T-anchored: robber lands on its real '2/1' badge x (not guessed geometry)",
+              robber is not None and abs(robber[0] - int(0.476 * rect.w)) <= 2)
+        check("BoardLocator P/T-anchored: newer creature lands on its '2/3' badge, right of the robber",
+              other is not None and other[0] > robber[0])
     finally:
         boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
 
