@@ -13,10 +13,12 @@ decision is resolved here directly, not by translating a move). NB: the engine o
 move once the bridge feeds it the declared attackers (`build_state` doesn't model 'attacking' yet) and the player
 declares blocks (`AggroPlayer` does, `BlindAggroPlayer` doesn't) — until then a blockers decision declines.
 
-Robustness: whenever the engine can't be used here — not importable, its datalog isn't on the repo-relative path
-(run take_over from the repo root to use it), or a move can't be mapped — `EnginePolicy` falls back to a plain
-`fallback` policy (default `blind_rage`) so the live bot never STALLS while we build the bridge and engine card
-coverage. Every step logs what the engine chose vs what was executed, so the bridge can be ironed out iteratively.
+NO BLIND FALLBACK: the engine Player drives EVERY decision — there is deliberately no blind_rage safety net, so
+what you see IS the heuristic's behaviour, nothing masked. When a decision can't be enacted (the engine isn't
+importable / its datalog isn't on the repo-relative path — run take_over from the repo root — or the chosen move
+doesn't map to an MTGA option), the bridge takes the safe NO-OP for that decision (pass / no-attack / no-block /
+decline), never a blind aggressive play. Every step logs what the engine chose and whether it mapped, so the
+heuristic can be iterated on cleanly and accurately.
 """
 
 from __future__ import annotations
@@ -24,10 +26,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from .policy import BlindRagePolicy
-
 _log = logging.getLogger(__name__)
-_FALLBACK = object()   # _translate sentinel: "couldn't map this engine move — defer to the fallback policy"
+_NOMAP = object()   # _translate sentinel: "couldn't map this engine move — take the safe no-op (pass/decline)"
 
 
 def mtga_instance_id(engine_id) -> Optional[int]:
@@ -51,13 +51,13 @@ class EnginePolicy:
     """Decide MTGA decisions by running a WITCHCRAFT engine Player over the synced board and translating its
     move back to the MTGA option. `player` is any `mtg` Player (default `AggroPlayer`, imported lazily so
     inthearena loads without the engine — it beats `HeuristicPlayer` ~68-32 head-to-head and declares blocks).
-    Falls back to `fallback` (default `blind_rage`) whenever the engine can't be used or a move can't be mapped."""
+    There is NO blind fallback: when the engine can't be used or a move can't be mapped, the bridge takes the
+    safe no-op (pass / no-attack / no-block / decline) so the engine Player's real behaviour is never masked."""
 
     name = "witchcraft"
 
-    def __init__(self, player=None, *, fallback=None, opponent_deck=None, seed: int = 0):
+    def __init__(self, player=None, *, opponent_deck=None, seed: int = 0):
         self._player = player
-        self._fallback = fallback or BlindRagePolicy()
         self._opponent_deck = opponent_deck
         self._seed = seed
 
@@ -83,7 +83,7 @@ class EnginePolicy:
                       f" {getattr(getattr(move, 'card', None), 'id', '')}".rstrip())
             return move
         except Exception as e:
-            _log.info("  engine: unusable here (%s: %s) — using %s", type(e).__name__, e, self._fallback.name)
+            _log.info("  engine: unusable here (%s: %s) — taking the no-op (pass/decline)", type(e).__name__, e)
             return None
 
     # ── decide ────────────────────────────────────────────────────────────────────────────────────────────
@@ -91,17 +91,28 @@ class EnginePolicy:
         if d.kind == "targets":
             return self._targets_choice(d)                   # aim a player target at the opponent
         if d.kind == "mulligan":
-            return self._fallback.decide(d)                  # keep (blind); engine-driven mulligan is TBD
+            return "keep"                                    # keep the opener; engine-driven mulligan is TBD
         if d.kind == "assign_damage":
-            return self._fallback.decide(d)                  # accept MTGA's suggested combat-damage order
+            return "done"                                    # accept MTGA's suggested combat-damage order
         move = self._engine_move(d)
         if move is None:
-            return self._fallback.decide(d)
+            return self._noop(d)                             # engine unusable -> pass/decline (no blind play)
         choice = self._translate(d, move)
-        if choice is _FALLBACK:
-            _log.info("  engine: move didn't map to a %s option — using %s", d.kind, self._fallback.name)
-            return self._fallback.decide(d)
+        if choice is _NOMAP:
+            _log.info("  engine: move didn't map to a %s option — taking the no-op (pass/decline)", d.kind)
+            return self._noop(d)
         return choice
+
+    @staticmethod
+    def _noop(d):
+        """The safe do-nothing choice for decision `d` when the engine can't be enacted — PASS an actions
+        decision, decline combat (no attack / no block), decline a target. Never a blind aggressive play, so the
+        engine Player's real behaviour stays visible."""
+        if d.kind == "actions":
+            return next((a for a in (d.options or []) if getattr(a, "actionType", None) == "ActionType_Pass"), None)
+        if d.kind in ("attackers", "blockers"):
+            return []                                        # no attack / no block
+        return None                                          # targets / anything else -> decline
 
     def _targets_choice(self, d):
         """Resolve MTGA's SelectTargets the way HeuristicPlayer.resolve_choice resolves it in the engine: when a
@@ -128,7 +139,7 @@ class EnginePolicy:
 
     def _translate(self, d, move):
         """Map a witchcraft engine `move` to the MTGA option for decision `d`. Returns the option (an `Action` /
-        attacker list / [] / None), or `_FALLBACK` if it can't be mapped."""
+        attacker list / [] / None), or `_NOMAP` if it can't be mapped (decide then takes the safe no-op)."""
         kind = getattr(move, "kind", None)
         if d.kind == "actions":
             if kind in (None, "pass", "skip"):
@@ -137,8 +148,8 @@ class EnginePolicy:
                 inst = mtga_instance_id(getattr(getattr(move, "card", None), "id", None))
                 want = "ActionType_Play" if kind == "play" else "ActionType_Cast"
                 a = next((o for o in d.options if o.instanceId == inst and o.actionType == want), None)
-                return a if a is not None else _FALLBACK
-            return _FALLBACK                                 # activate / unknown — not bridged yet
+                return a if a is not None else _NOMAP
+            return _NOMAP                                 # activate / unknown — not bridged yet
         if d.kind == "attackers":
             if kind != "attack" or not getattr(move, "attackers", None):
                 return []                                    # engine declines combat -> no attack
@@ -164,4 +175,4 @@ class EnginePolicy:
                 if blk is not None and atk is not None and atk in legal.get(blk, ()):
                     pairs.append({"blockerInstanceId": blk, "attackerInstanceId": atk})
             return pairs
-        return _FALLBACK
+        return _NOMAP

@@ -1239,10 +1239,11 @@ def _hand_checks():
 
 def _engine_policy_checks():
     """EnginePolicy translates a witchcraft engine move back to the MTGA option by the encoded instanceId, and
-    falls back when it can't. Move objects are duck-typed (SimpleNamespace) so the engine needn't be importable."""
+    takes the safe NO-OP (no blind fallback) when it can't. Move objects are duck-typed (SimpleNamespace) so the
+    engine needn't be importable."""
     from types import SimpleNamespace as NS
     from inthearena.mtga import EnginePolicy, mtga_instance_id
-    from inthearena.mtga.engine_policy import _FALLBACK
+    from inthearena.mtga.engine_policy import _NOMAP
     from inthearena.mtga.gre import Action, Attacker, Decision, GameView
 
     check("mtga_instance_id parses slug_<id> -> the MTGA instanceId", mtga_instance_id("command_tower_342") == 342)
@@ -1263,8 +1264,8 @@ def _engine_policy_checks():
     check("engine 'cast bolt_51' -> the MTGA Cast(51) action",
           ep._translate(d_act, move("cast", "bolt_51")) is opts[1])
     check("engine 'pass' -> the MTGA Pass action", ep._translate(d_act, move("pass")) is opts[2])
-    check("engine move with an unknown instanceId -> fallback",
-          ep._translate(d_act, move("cast", "ghost_999")) is _FALLBACK)
+    check("engine move with an unknown instanceId -> _NOMAP (decide then passes)",
+          ep._translate(d_act, move("cast", "ghost_999")) is _NOMAP)
 
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
@@ -1285,9 +1286,17 @@ def _engine_policy_checks():
     check("engine declines blocks (pass at blockers) -> no block ([])",
           ep._translate(d_blk, move("pass")) == [])
 
-    # decide: with the engine unavailable here, blockers/targets fall back (no block / no target)
-    check("EnginePolicy declines blocks when the engine can't run (fallback)",
+    # NO BLIND FALLBACK: an unenactable decision takes the safe no-op (pass / no-attack / no-block / decline),
+    # never a blind aggressive play — so the engine Player's real behaviour is never masked.
+    check("EnginePolicy no-op for actions is the MTGA Pass action", ep._noop(d_act) is opts[2])
+    check("EnginePolicy no-op for attackers/blockers is decline ([])",
+          ep._noop(d_atk) == [] and ep._noop(d_blk) == [])
+    check("EnginePolicy declines blocks via the no-op (not a blind play)",
           ep.decide(Decision(kind="blockers", options=[{"blockerInstanceId": 1}], seat=1, view=GameView(), req=None)) == [])
+    check("EnginePolicy mulligan -> keep (inline default, no blind_rage)",
+          ep.decide(Decision(kind="mulligan", options=[], seat=1, view=GameView(), req=None)) == "keep")
+    check("EnginePolicy assign_damage -> done (inline default, no blind_rage)",
+          ep.decide(Decision(kind="assign_damage", options=[], seat=1, view=GameView(), req=None)) == "done")
     # targets: a player-target slot is aimed at the OPPONENT (the player candidate whose id isn't our seat).
     # Players aren't battlefield permanents, so they're the candidates NOT in view.objects.
     v_tgt = GameView()
