@@ -44,13 +44,15 @@ _ROW_CX = 0.47                            # the row centres here
 _SLOT_MAX = 0.15                          # widest per-creature spacing (tightens to fit when there are many)
 _ROW_SPAN = 0.62                          # the row stays within this normalized width
 
-# Where to click to TARGET a player (their avatar nameplate, normalized to the window). The opponent's
-# nameplate sits in the top-left corner, ours bottom-left — a vertical mirror. Read off a 1920x1080 capture
-# (our 'deleuze' avatar at y≈0.94); TUNE if a live player-target click misses, since the capture wasn't of a
-# highlighted target reticle. A player isn't a named battlefield permanent, so it can't go through the
-# name-OCR ObjectLocator — this fixed anchor is the click point instead.
-_PLAYER_ANCHOR_OPP = (0.025, 0.055)
-_PLAYER_ANCHOR_ME = (0.025, 0.945)
+# Where to click to TARGET a player (their AVATAR portrait, normalized to the window). NOT the name nameplate in
+# the corner — clicking the opponent's name ('Sparky', top-left) does NOT target them; the avatar is the round
+# character portrait left-of-centre at the TOP (opponent) / BOTTOM (us), beside the priority orb + life total.
+# Measured off a live 'Choose any target' capture (marker verified on the portrait): the opponent avatar centres
+# at norm (0.398, 0.05). Ours is the vertical mirror at the bottom (we never actually target ourselves — the
+# engine always aims a player target at the opponent — so its exact spot is only a sane default). A player isn't a
+# named battlefield permanent, so it can't go through the name-OCR ObjectLocator; this fixed anchor is the click.
+_PLAYER_ANCHOR_OPP = (0.398, 0.05)
+_PLAYER_ANCHOR_ME = (0.398, 0.95)
 
 
 def player_point(rect: Rect, *, is_me: bool) -> tuple:

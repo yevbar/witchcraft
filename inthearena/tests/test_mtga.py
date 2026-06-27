@@ -1395,14 +1395,14 @@ def _execute_checks():
     check("execute: permanent target without an ObjectLocator -> shadow (no click)",
           r5.done is False and a5.clicks == [])
 
-    # PLAYER target: click the opponent's avatar (top-left); no ObjectLocator needed (fixed anchor)
+    # PLAYER target: click the opponent's AVATAR portrait (top, left-of-centre — NOT the corner name); fixed anchor
     a5b = DryRunActuator(rect=rect, image=object())
     r5b = GameExecutor(a5b, locator=AdvLoc()).execute(dec_tgt, [{"player": 2}])
-    check("execute: player target -> clicks the opponent avatar (top-left corner)",
-          r5b.done and len(a5b.clicks) == 1 and a5b.clicks[0][0] < 200 and a5b.clicks[0][1] < 200)
+    check("execute: player target -> clicks the opponent avatar at the TOP (not the corner name)",
+          r5b.done and len(a5b.clicks) == 1 and a5b.clicks[0][1] < rect.h * 0.2 and a5b.clicks[0][0] > rect.w * 0.25)
     a5c = DryRunActuator(rect=rect, image=object())
-    GameExecutor(a5c, locator=AdvLoc()).execute(dec_tgt, [{"player": 1}])   # ourselves -> bottom-left
-    check("execute: targeting our own player -> clicks the bottom-left avatar",
+    GameExecutor(a5c, locator=AdvLoc()).execute(dec_tgt, [{"player": 1}])   # ourselves -> the bottom avatar
+    check("execute: targeting our own player -> clicks the bottom avatar",
           len(a5c.clicks) == 1 and a5c.clicks[0][1] > rect.h * 0.8)
 
     # mulligan routes through the executor (keep -> the Keep button via click_mulligan)
@@ -1494,8 +1494,8 @@ def _board_checks():
         check("BoardLocator parks the cursor at rest before snapping (no hover-distortion)", bool(a.moves))
         op = boardmod.player_point(rect, is_me=False)
         me = boardmod.player_point(rect, is_me=True)
-        check("player_point: opponent avatar top-left, ours bottom-left (vertical mirror)",
-              op[0] < rect.w * 0.1 and op[1] < rect.h * 0.2 and me[1] > rect.h * 0.8)
+        check("player_point: opponent avatar at TOP (the portrait, not the corner name), ours at the BOTTOM",
+              op[1] < rect.h * 0.2 and me[1] > rect.h * 0.8 and op[0] > rect.w * 0.25)
 
         # ORDINAL FALLBACK: when the name can't be OCR'd (declare-blockers floods our band with the enlarged
         # attacker's rules text), place the creature by its slot among our creatures — new permanents append on
