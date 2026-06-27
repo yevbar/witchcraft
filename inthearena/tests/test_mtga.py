@@ -930,7 +930,7 @@ def _hand_checks():
                                         "cardTypes": ["CardType_Land"] if i in land_ids else ["CardType_Creature"]}
                                        for i in ids]})
     plays = lambda *ids: [Action(actionType="ActionType_Play", instanceId=i) for i in ids]
-    lname = {70: "Forest", 60: "Forest", 50: "Forest", 51: "Bravo", 52: "Charlie"}
+    lname = {70: "Forest", 60: "Forest", 50: "Forest", 40: "Forest", 51: "Bravo", 52: "Charlie"}
     olabel2, orec2 = cards.label, ocr.recognize_text
     cards.label = handmod.cards.label = lambda g: lname.get(g, "?")
     try:
@@ -964,6 +964,25 @@ def _hand_checks():
         ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
         check("play_land: clicks the occluded land just-left of the legible cards (lands sort left, ~770)",
               ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
+
+        # (3b) OPENING-HAND regression: lands on the LEFT, legible spells RIGHT-of-centre. The land even carries the
+        # MAX instanceId (70 > 51,52) — which the old 'newest=rightmost' rule mistook for a just-drawn right-side
+        # land and clicked PAST the cards. POSITION must win: legible run right-of-centre -> click LEFT.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Bravo", 1000 / 1920, 0.90), ("Charlie", 1150 / 1920, 0.90)]
+        a3b = DryRunActuator(rect=rect, image=object())
+        ok3b = play_land(a3b, None, _hand({70}, {51, 52}), 1, plays(70), 70)
+        check("play_land: opening hand — lands LEFT even when the land has the max id (position beats draw-order)",
+              ok3b and len(a3b.clicks) == 2 and a3b.clicks[0][0] < 1000)
+
+        # (3c) JUST-DRAWN regression: a single land drawn this turn sits on the RIGHT; legible spells LEFT-of-centre.
+        # The land has a LOW id (40 < 51,52) so the max-id card is a spell — position still puts the land on the right.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Bravo", 700 / 1920, 0.90), ("Charlie", 850 / 1920, 0.90)]
+        a3c = DryRunActuator(rect=rect, image=object())
+        ok3c = play_land(a3c, None, _hand({40}, {51, 52}), 1, plays(40), 40)
+        check("play_land: just-drawn land on the RIGHT — legible run left-of-centre -> click right of it",
+              ok3c and len(a3c.clicks) == 2 and a3c.clicks[0][0] > 850)
 
         # land_play_options enumerates only the lands among the Play actions
         from inthearena.mtga import land_play_options

@@ -578,30 +578,31 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
             return True
 
     # 2) The land is OCCLUDED (OCR can't read basic-land names — Vision returns nothing for "Plains" etc. even on a
-    # fully-visible card). MTGA fans the hand in DRAW order: oldest-left, newest-right (the just-drawn card lands in
-    # the RIGHTMOST slot — confirmed live). So the occluded land sits on whichever EDGE matches its draw recency:
-    #   • if the just-drawn card (the max-instanceId hand member) is itself a land -> it's the RIGHTMOST card;
-    #   • otherwise the wanted lands are older/held -> they're to the LEFT of the legible (newer) cards.
-    # Step one MEASURED fan-gap past the legible run on that edge, lowered a touch for the arc. Requires >=2 legible
-    # HAND cards: with only one, the inter-card spacing is unknown and a guessed step landed ON the neighbour and
-    # PLAYED it (cast an artifact instead of the land) — so a single anchor falls through to reveal/shadow instead.
+    # fully-visible card). The legible (readable) cards form a contiguous run; the lands fill the OTHER side of the
+    # fan. Decide the side by POSITION, not draw order: compare the legible run's centre to the hand centre (the
+    # screen-centred fan). A run sitting RIGHT of centre means the free land slots are to the LEFT, and vice versa.
+    # (instanceId/"just-drawn-is-rightmost" is unreliable — in the OPENING hand the left-side lands can carry the
+    # max id, which sent the cursor right past the cards.) Step one MEASURED fan-gap past the run on the land side.
+    # Requires >=2 legible HAND cards: with only one, the inter-card spacing is unknown and a guessed step landed ON
+    # the neighbour and PLAYED it — so a single anchor falls through to reveal/shadow instead.
     if prefer_left and len(named) >= 2:
         legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right (real hand cards only — bleed filtered)
         xs = [t[1] for t in legible]
         gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
         spacing = max(40, min(gaps))                       # measured nearest-neighbour gap
-        hand_ids = hand_members(view, seat)
-        newest_is_land = bool(hand_ids) and _is_land(view, max(hand_ids))
-        if newest_is_land:                                 # just-drawn card is a land -> it's the RIGHTMOST slot
-            tx = xs[-1] + spacing
-            ty = legible[-1][2] + int(_FAN_ARC * 0.4)      # the right edge sits a little lower (arc)
-            side = "right (just-drawn land)"
-        else:                                              # wanted lands are held/older -> to the LEFT
+        hand_center = rect.x + rect.w / 2.0
+        lands_left = (sum(xs) / len(xs)) >= hand_center     # legible run right-of-centre -> lands are to the LEFT
+        if lands_left:
             tx = xs[0] - spacing
             ty = legible[0][2] + int(_FAN_ARC * 0.4)       # the left edge sits a little lower (arc)
-            side = "left (held land)"
-        _log.info("  %s: none legible — clicking the occluded land on the %s, one fan-gap past the legible "
-                  "(%d legible at x=%s, spacing %d) at (%d,%d)", label, side, len(legible), xs, spacing, tx, ty)
+            side = "left"
+        else:
+            tx = xs[-1] + spacing
+            ty = legible[-1][2] + int(_FAN_ARC * 0.4)      # the right edge sits a little lower (arc)
+            side = "right"
+        _log.info("  %s: none legible — lands are on the %s (legible run centre %d vs hand centre %d); clicking one "
+                  "fan-gap past the legible (%d legible at x=%s, spacing %d) at (%d,%d)",
+                  label, side, int(sum(xs) / len(xs)), int(hand_center), len(legible), xs, spacing, tx, ty)
         play_card(actuator, (tx, ty))
         return True
 
