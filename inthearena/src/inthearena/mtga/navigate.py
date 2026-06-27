@@ -207,7 +207,7 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
 # Live-cursor glide speed: travel time = distance / _GLIDE_SPEED (clamped) so every move runs at the same fast
 # pace whether it's a short menu hop or a cross-board reach; ~one frame per _GLIDE_STEP px keeps it smooth.
 _GLIDE_SPEED = 33750.0     # px/sec (doubled from 16875)
-_GLIDE_STEP = 56.0         # px between frames (was 28; doubled — each pyautogui.moveTo costs ~13ms, so the glide is
+_GLIDE_STEP = 112.0        # px between frames (was 28; each pyautogui.moveTo costs ~13ms, so the glide is
 #                            FRAME-BOUND, not speed-bound; halving the frame count is what actually halves the time)
 _GLIDE_MIN = 0.02          # s: floor so a tiny move still eases
 _GLIDE_MAX = 0.043         # s: ceiling so a full-screen reach doesn't drag (halved to match the 2x speed)
@@ -367,7 +367,7 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, frames: int = 20,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, frames: int = 10,
                  wobble: float = 1.0, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
