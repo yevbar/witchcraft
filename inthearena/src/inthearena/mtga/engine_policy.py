@@ -76,7 +76,16 @@ class EnginePolicy:
             castable = {a.instanceId for a in (d.options or [])
                         if getattr(a, "actionType", None) == "ActionType_Cast"
                         and getattr(a, "instanceId", None) is not None and getattr(a, "auto_payable", False)}
-            game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed, castable=castable)
+            # GATE LAND DROPS to what MTGA offers as Play, on an actions decision only — the live view can lag a
+            # beat and still show a just-played land in hand, and Do.LANDS leads, so an ungated engine re-picks the
+            # stale land forever and the bot passes the turn instead of casting. (Non-actions decisions don't offer
+            # Plays, so `playable=None` there leaves lands ungated — irrelevant, no land decision is being made.)
+            playable = ({a.instanceId for a in (d.options or [])
+                         if getattr(a, "actionType", None) == "ActionType_Play"
+                         and getattr(a, "instanceId", None) is not None}
+                        if d.kind == "actions" else None)
+            game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed,
+                           castable=castable, playable=playable)
             move = self._player.bind(game, "alice").choose_move(game)
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
                       getattr(move, "kind", move),

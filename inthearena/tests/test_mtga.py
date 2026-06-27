@@ -347,6 +347,16 @@ def _engine_checks():
     check("engine: HeuristicPlayer PLAYS the land, not pass",
           getattr(HeuristicPlayer().bind(g, "alice").choose_move(g), "kind", None) == "play")
 
+    # LAND GATING: the live view can lag and still show a just-PLAYED land in hand; since Do.LANDS leads, an
+    # ungated engine re-picks that stale land every actions decision -> it never maps -> the bot passes the whole
+    # turn. `playable=` gates §305 land plays to MTGA's offered Play instanceIds. (view has the Plains, inst 100.)
+    check("engine: playable=set() (MTGA offers no Play -> drop used/stale) hides the land drop",
+          not any(getattr(m, "kind", None) == "play" for m in to_game(view, me=1, seed=7, playable=set()).legal_moves))
+    check("engine: playable={100} surfaces exactly that offered land drop",
+          any(getattr(m, "kind", None) == "play" for m in to_game(view, me=1, seed=7, playable={100}).legal_moves))
+    check("engine: playable=None (default) leaves lands ungated (suggest/tests)",
+          any(getattr(m, "kind", None) == "play" for m in to_game(view, me=1, seed=7).legal_moves))
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which

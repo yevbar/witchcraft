@@ -68,7 +68,7 @@ def _slug(name: str) -> str:
 
 
 def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
-                castable: Optional[set] = None) -> dict:
+                castable: Optional[set] = None, playable: Optional[set] = None) -> dict:
     """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
     zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
 
@@ -76,7 +76,13 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     fed as `free_cast` so the engine's `can_afford` fires and it surfaces those casts. The engine has no mana
     model for a determinized snapshot (mana is developed on phase ENTRY, which a static state skips) and no cost
     facts for cards outside its corpus, so AFFORDABILITY is delegated to MTGA (the oracle); the engine still
-    decides WHICH affordable spell to cast. Without it the engine sees nothing castable and just passes."""
+    decides WHICH affordable spell to cast. Without it the engine sees nothing castable and just passes.
+
+    `playable` GATES land drops to MTGA's offered Play actions: a hand land NOT in `playable` is kept in hand but
+    not surfaced as a §305 land play. The live GameView can lag a beat (a just-PLAYED land still shows in hand),
+    and the engine's Do.LANDS leads, so without this gate it re-picks the stale land every actions decision, the
+    move doesn't map, and the bot passes the whole turn instead of casting. `playable=None` = don't gate (offer
+    all hand lands — the default for tests / `suggest`); pass MTGA's Play instanceIds to gate to reality."""
     rng = random.Random(seed)
     castable = castable or set()
     s = {k: set() for k in _RELATIONS}
@@ -124,6 +130,9 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["in_hand"].add((seat_name, inst))
             if o.instanceId in castable:                       # MTGA says we can pay -> let the engine cast it
                 s["free_cast"].add((seat_name, inst))
+            if playable is not None and o.instanceId not in playable:
+                s["spell_type"].discard((inst, "land"))        # not an offered land drop (e.g. a stale, already-
+                #                                                played land still in the lagging view) -> hide it
         elif zone == "library":
             s["in_library"].add((seat_name, inst))
         elif zone == "command":                            # the commander (Brawl/Commander) — public
@@ -184,12 +193,14 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
 
 
 def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
-            castable: Optional[set] = None):
+            castable: Optional[set] = None, playable: Optional[set] = None):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
     log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
-    (fed as free_cast so the engine surfaces those casts — see build_state)."""
+    (fed as free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays to reality). See
+    build_state."""
     from mtg.game import Game
-    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed, castable=castable))
+    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed,
+                                       castable=castable, playable=playable))
 
 
 def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[list] = None, seed: int = 0):
