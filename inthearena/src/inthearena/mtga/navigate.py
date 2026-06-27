@@ -253,11 +253,11 @@ class DryRunActuator:
 
     rect: Rect = field(default_factory=lambda: Rect(0, 0, 1920, 1080))
     pos: Optional[tuple] = None
-    steps: int = 6                                         # sub-segments per move (the granularity of the glide)
-    jitter: float = 0.4                                    # ± fraction of speed variation across segments
-    wobble: float = 6.0                                    # ± px of per-point tremor on top of the curve
+    steps: int = 9                                         # sub-segments per move (more = a smoother spline)
+    jitter: float = 0.2                                    # ± fraction of speed variation across segments (low = smooth)
+    wobble: float = 2.5                                    # ± px of per-point tremor on top of the curve (low = less jittery)
     curve: float = 0.18                                    # arc bow as a fraction of the move distance
-    duration: float = 0.2                                  # default total travel time (faster cursor)
+    duration: float = 0.13                                 # default total travel time (~50% faster than 0.2)
     seed: Optional[int] = None
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
@@ -318,8 +318,8 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.2, steps: int = 6,
-                 jitter: float = 0.4, wobble: float = 6.0, curve: float = 0.18, tween=None,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, steps: int = 9,
+                 jitter: float = 0.2, wobble: float = 2.5, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
