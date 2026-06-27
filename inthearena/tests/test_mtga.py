@@ -347,6 +347,29 @@ def _engine_checks():
     check("engine: HeuristicPlayer PLAYS the land, not pass",
           getattr(HeuristicPlayer().bind(g, "alice").choose_move(g), "kind", None) == "play")
 
+    # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
+    # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
+    # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
+    # makes `can_afford` fire so the engine surfaces (and can pick) that cast.
+    spellhand = _apply({"type": "GameStateType_Full",
+                        "turnInfo": {"turnNumber": 3, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                        "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                        "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [170]},
+                                  {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                        "gameObjects": [{"instanceId": 170, "grpId": 105108, "zoneId": 10, "ownerSeatId": 1,
+                                         "controllerSeatId": 1, "cardTypes": ["CardType_Creature"],
+                                         "power": {"value": 2}, "toughness": {"value": 2}}]})  # 105108 real creature
+    st_no = build_state(spellhand, me=1, seed=0)
+    st_yes = build_state(spellhand, me=1, seed=0, castable={170})
+    check("engine: castable= feeds free_cast for that hand spell (none without it)",
+          not st_no["free_cast"] and any(i.endswith("_170") for (_p, i) in st_yes["free_cast"]))
+    if cards.available():
+        has_cast = lambda gg: any(getattr(m, "kind", None) == "cast" for m in gg.legal_moves)
+        check("engine: a payable hand spell (castable=) surfaces as a cast move",
+              has_cast(to_game(spellhand, me=1, seed=0, castable={170})))
+        check("engine: without the affordability hint the engine surfaces NO cast",
+              not has_cast(to_game(spellhand, me=1, seed=0)))
+
     # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
     brawl = _apply({"type": "GameStateType_Full",
                     "gameInfo": {"variant": "GameVariant_Brawl", "superFormat": "SuperFormat_Constructed"},

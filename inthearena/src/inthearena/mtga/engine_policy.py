@@ -69,7 +69,14 @@ class EnginePolicy:
             if self._player is None:
                 from mtg.aggro import AggroPlayer       # the default engine bot: beats HeuristicPlayer ~68-32
                 self._player = AggroPlayer()             # head-to-head (ladder.compare), and it BLOCKS (Do.BLOCKS)
-            game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed)
+            # AFFORDABILITY ORACLE: MTGA already tells us which casts we can pay for (auto_payable — no cost, or it
+            # found a tap plan). Feed those as the engine's castable set so `can_afford` fires and it surfaces the
+            # casts (the engine has no mana model for a static snapshot / uncovered cards). The engine still picks
+            # WHICH to cast; Arena stays the affordability ground truth.
+            castable = {a.instanceId for a in (d.options or [])
+                        if getattr(a, "actionType", None) == "ActionType_Cast"
+                        and getattr(a, "instanceId", None) is not None and getattr(a, "auto_payable", False)}
+            game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed, castable=castable)
             move = self._player.bind(game, "alice").choose_move(game)
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
                       getattr(move, "kind", move),

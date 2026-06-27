@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander", "attacks", "spell_type")
+              "command_zone", "is_commander", "attacks", "spell_type", "free_cast")
 
 
 def _eng(token: str) -> str:
@@ -67,10 +67,18 @@ def _slug(name: str) -> str:
     return ground.slug(name)
 
 
-def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0) -> dict:
+def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
+                castable: Optional[set] = None) -> dict:
     """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
-    zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill."""
+    zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
+
+    `castable` is the set of MTGA instanceIds in our hand that MTGA reports we can PAY for right now — they're
+    fed as `free_cast` so the engine's `can_afford` fires and it surfaces those casts. The engine has no mana
+    model for a determinized snapshot (mana is developed on phase ENTRY, which a static state skips) and no cost
+    facts for cards outside its corpus, so AFFORDABILITY is delegated to MTGA (the oracle); the engine still
+    decides WHICH affordable spell to cast. Without it the engine sees nothing castable and just passes."""
     rng = random.Random(seed)
+    castable = castable or set()
     s = {k: set() for k in _RELATIONS}
     seats = view.seats() or [me]
     name_of = {sid: ("alice" if sid == me else "bob") for sid in seats}
@@ -114,6 +122,8 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["printed_toughness"].add((inst, o.t))
         if zone == "hand":
             s["in_hand"].add((seat_name, inst))
+            if o.instanceId in castable:                       # MTGA says we can pay -> let the engine cast it
+                s["free_cast"].add((seat_name, inst))
         elif zone == "library":
             s["in_library"].add((seat_name, inst))
         elif zone == "command":                            # the commander (Brawl/Commander) — public
@@ -173,11 +183,13 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     return s
 
 
-def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0):
+def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
+            castable: Optional[set] = None):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
-    log advances to re-derive the Game from the updated view."""
+    log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
+    (fed as free_cast so the engine surfaces those casts — see build_state)."""
     from mtg.game import Game
-    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed))
+    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed, castable=castable))
 
 
 def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[list] = None, seed: int = 0):
