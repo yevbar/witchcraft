@@ -101,6 +101,11 @@ def _show(d, choice):
     print(f"  {d.view.phase:22s} seat{d.seat}  {d.kind:9s} ({len(d.options)} opts)  ->  {line}")
 
 
+# drive_bot outcomes (so the caller knows whether to start the next game or stop):
+_MATCH_OVER = 10        # the match finished — advance the post-game screens and queue again
+_INTERRUPTED = 130      # Ctrl-C — stop everything (130 = 128 + SIGINT, the usual shell convention)
+
+
 def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None, attached: bool = False) -> int:
     """In a game: run the bot over the GRE decision stream, executing each decision via a `GameExecutor` — the
     mulligan (Keep/Mulligan), land drops and spell CASTS (read the card by name in hand, never misclick), and
@@ -179,13 +184,25 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         elif pending is not None:
             print(f"  (seeded tail is {pending.kind} @ {pending.view.phase} — not auto-executed; "
                   f"likely a prior game. Waiting for the live decision.)")
+        # If the seeded log already shows the match OVER (we attached after it ended), there's nothing to drive —
+        # report it so the caller runs the post-game click-through instead of tailing for decisions never coming.
+        if state.match_over:
+            print("  (match already over — nothing to drive)")
+            return _MATCH_OVER
         # Resume from where the drain stopped — NOT the live EOF. Executing the keep above takes a couple
         # seconds, during which the GRE writes the post-mulligan turn-1 actions request; from_start=False would
         # seek past it and the bot would freeze waiting for a decision that already went by.
-        for d in follow(log_path, state=state, from_start=False, start_offset=resume):
+        # `stop` ends the follow when the match completes (the GRE stops asking us to act, so the loop would
+        # otherwise hang forever) — the caller then advances the post-game screens.
+        for d in follow(log_path, state=state, from_start=False, start_offset=resume,
+                        stop=lambda: state.match_over):
             handle(d)
+        if state.match_over:
+            print("\ngame over.")
+            return _MATCH_OVER
     except KeyboardInterrupt:
         print("\nstopped.")
+        return _INTERRUPTED
     return 0
 
 
@@ -235,42 +252,19 @@ def main(argv) -> int:
         # That's fine: the live take-over recovers by clicking the Home tab (top-left) first, then navigates.
         print("unrecognized screen — will click the Home tab (top-left) to recover, then navigate into a game.")
 
-    # already in a game: drive the bot (or just show the board with --no-bot)
-    if view is RecognizedViews.GAMEPLAY:
-        if args.no_bot:
-            gv = latest_game_view(args.log)
-            print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
-            return 0
-        # started ALREADY in a game: the seeded tail is the LIVE decision we're paused on (attached=True), so
-        # execute it rather than waiting for a new one that won't come (the game is blocked on us).
-        if args.dry_run or args.no_click:                  # shadow only — decide + print, no clicks
-            return drive_bot(args.log, policy=policy, attached=True)
-        actuator, locator = build_live(args)               # live: so the bot can execute the mulligan
-        return drive_bot(args.log, actuator=actuator, locator=locator, rng=random.Random(), policy=policy,
-                         attached=True)
-
     actuator, locator = build_live(args)
     rng = random.Random()
 
-    # POST-GAME: a match just ended — we're on the Victory/Defeat + rewards overlays (the log says 'completed',
-    # so `view` is None, but this is NOT a stray menu to Home-recover from). Click the bottom-right through to the
-    # Play button, then fall through to the normal queue flow to start the next game.
-    if view is None and match_completed(args.log):
-        print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
-        if args.dry_run or args.no_click:
+    # --dry-run / --no-click: PREVIEW one planned action (no real clicks), then stop — not the continuous loop.
+    if args.dry_run or args.no_click:
+        if view is RecognizedViews.GAMEPLAY:
+            drive_bot(args.log, policy=policy, attached=True)       # shadow the decisions
+            return 0
+        if view is None and match_completed(args.log):
             click_through_postgame(actuator, done=lambda: False, rng=rng, max_clicks=1)
             target = actuator.clicks[-1] if actuator.clicks else "?"
             print(f"{'DRY RUN' if args.dry_run else 'MOVE-ONLY'}: would click the bottom-right at {target} to advance.")
             return 0
-        # the LOG is authoritative for "left the post-game": match_completed clears only when the menu loads. (A
-        # vision Play-check false-positives on the Victory screen's orange glow and stops before clicking.)
-        if click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng):
-            print("post-game cleared — back at the menu; queuing the next game.")
-        else:
-            print("post-game: clicked through max times; menu not confirmed (will let the queue flow try).")
-
-    # --dry-run / --no-click can't actually progress through menus (no real clicks) — just preview ONE step.
-    if args.dry_run or args.no_click:
         if view is None:                                   # the recovery step: click the Home tab (top-left)
             from inthearena.mtga import go_home
             go_home(actuator, rng=rng, locator=locator)
@@ -288,18 +282,45 @@ def main(argv) -> int:
             print(f"MOVE-ONLY: cursor traveled to Play on {view.name} — NO click. Check the aim.")
         return 0
 
-    # LIVE: TAKE OVER — navigate all the way from the menu into a game (Home -> Play menu -> queue -> match)
-    print("taking over: navigating into a game (Home -> Play menu -> queue)...")
-    reached = take_over(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
-                        max_steps=args.max_steps, change_timeout=args.queue_timeout)
-    if not reached:
-        print(f"didn't reach a game — stopped on {latest_view(args.log)}. "
-              f"(If it's a menu I don't map yet, that's the next view to add.)")
-        return 1
-    print("reached a game.")
-    if args.no_bot:
-        return 0
-    return drive_bot(args.log, actuator=actuator, locator=locator, rng=rng, policy=policy)
+    # LIVE CONTINUOUS PLAY: drive the current/next game to the end, click THROUGH the post-game (Victory/Defeat +
+    # rewards) back to the Play menu, queue the next game, and repeat — until Ctrl-C. Started already in a game ->
+    # the first drive ATTACHES (executes the decision we're paused on); games we queue into start at the mulligan.
+    attached = view is RecognizedViews.GAMEPLAY
+    while True:
+        view = latest_view(args.log)
+        if view is RecognizedViews.GAMEPLAY:
+            if args.no_bot:
+                gv = latest_game_view(args.log)
+                print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
+                return 0
+            code = drive_bot(args.log, actuator=actuator, locator=locator, rng=rng, policy=policy, attached=attached)
+            attached = False
+            if code == _INTERRUPTED:                        # Ctrl-C -> stop the whole loop
+                return 0
+            continue                                        # match over -> the post-game branch handles it next
+
+        if view is None and match_completed(args.log):
+            print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
+            # the LOG is authoritative for "left the post-game" (vision Play-detection false-positives on the
+            # Victory screen's orange glow); match_completed clears only when a menu scene actually loads.
+            if click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng):
+                print("post-game cleared — back at the menu.")
+            else:
+                print("post-game: clicked through the max without reaching the menu — stopping.")
+                return 1
+            continue
+
+        # on a menu (or an unmapped screen) -> navigate into a game, then loop back to drive it
+        print("taking over: navigating into a game (Home -> Play menu -> queue)...")
+        reached = take_over(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
+                            max_steps=args.max_steps, change_timeout=args.queue_timeout)
+        if not reached:
+            print(f"didn't reach a game — stopped on {latest_view(args.log)}. "
+                  f"(If it's a menu I don't map yet, that's the next view to add.)")
+            return 1
+        print("reached a game.")
+        if args.no_bot:
+            return 0
 
 
 if __name__ == "__main__":

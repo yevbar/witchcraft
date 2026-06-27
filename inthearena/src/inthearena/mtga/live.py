@@ -79,14 +79,17 @@ class LiveState:
 
     view: GameView = field(default_factory=GameView)
     current_view: Optional[RecognizedViews] = None
+    match_over: bool = False                                 # the live match has ended (post-game overlays pending)
 
     def feed_line(self, line: str) -> list:
         """Apply one raw log line. Updates `current_view` (scene / match-state signals) and `view` (GRE
         frames); returns any `Decision`s the line raised for the local player (usually 0 or 1)."""
         if _GAME_PLAYING in line:                            # a match went live
             self.current_view = RecognizedViews.GAMEPLAY
+            self.match_over = False
         elif _GAME_DONE in line:                             # match over -> menu pending
             self.current_view = None
+            self.match_over = True
         i = line.find("SceneChange ")
         if i >= 0:
             b = line.find("{", i)

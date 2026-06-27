@@ -372,6 +372,11 @@ def _live_checks():
     check("LiveState: scene sets current_view", st.current_view == RecognizedViews.HOME)
     st.feed_line('q MatchGameRoomStateChangedEvent {"stateType":"MatchGameRoomStateType_Playing"}')
     check("LiveState: match Playing -> GAMEPLAY", st.current_view == RecognizedViews.GAMEPLAY)
+    check("LiveState: match_over False while a match is live", st.match_over is False)
+    st.feed_line('q MatchGameRoomStateChangedEvent {"stateType":"MatchGameRoomStateType_MatchCompleted"}')
+    check("LiveState: MatchCompleted -> match_over True (lets drive_bot stop the follow)", st.match_over is True)
+    st.feed_line('q MatchGameRoomStateChangedEvent {"stateType":"MatchGameRoomStateType_Playing"}')
+    check("LiveState: a new match clears match_over", st.match_over is False)
     st.feed_line(_gre({"type": "GREMessageType_GameStateMessage", "gameStateMessage": {
         "turnInfo": {"turnNumber": 4}, "players": [{"controllerSeatId": 1, "lifeTotal": 19}]}}))
     check("LiveState: GRE frame advances the live view",
