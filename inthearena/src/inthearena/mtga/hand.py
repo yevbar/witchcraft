@@ -409,6 +409,25 @@ def _hand_names(view, seat: int) -> set:
     return out
 
 
+def _nonland_names(view, seat: int) -> set:
+    """Normalized names of the NON-LAND cards in hand. Basic lands don't OCR, but the SPELLS do — so a magnified
+    occluded slot that reads one of these is definitely NOT the land we want (don't play it)."""
+    out = set()
+    for inst in hand_members(view, seat):
+        if not _is_land(view, inst):
+            o = view.objects.get(inst)
+            nm = _norm_name(cards.label(o.grpId) if o else "")
+            if nm:
+                out.add(nm)
+    return out
+
+
+def _name_near(named: list, names: set, near_x, max_dist) -> bool:
+    """True if any OCR text in `named` within `max_dist` of `near_x` matches one of `names`."""
+    return any(abs(x - near_x) <= max_dist and any(_name_score(n, _norm_name(t)) >= _NAME_MATCH for n in names)
+               for t, x, _y in named)
+
+
 def on_mulligan_screen(image) -> bool:
     """True if `image` still shows the mulligan Keep / Mulligan buttons (their text labels in the lower band).
     The opening-hand keep can lag the GRE: the first-turn actions request is logged while the client is still
@@ -622,11 +641,28 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         else:
             how = "single anchor in a >2-card hand — too ambiguous, deferring to reveal"
         if tx is not None:
-            _log.info("  %s: none legible — lands are on the %s (legible centre %d vs hand centre %d); clicking the "
-                      "%s (%d legible at x=%s) at (%d,%d)", label, "left" if lands_left else "right",
-                      int(legible_center), int(hand_center), how, len(legible), xs, tx, ty)
-            play_card(actuator, (tx, ty))
-            return True
+            # VERIFY before committing: the slot one fan-gap past the legible run ISN'T always a land — an occluded
+            # NON-LAND there (e.g. a Hallowed Priest sitting between the spells and the lands) would be MISPLAYED.
+            # Magnify+read it: a wanted land confirms the spot; a readable non-land defers to the reveal sweep
+            # (which keeps stepping); an unreadable card upholds the geometric guess (a basic land that won't OCR).
+            # TIGHT radius — only the name of the card AT the candidate (magnified, near the hover x), not the
+            # legible neighbours a card-width away that would false-trigger the non-land check.
+            md = 90
+            actuator.hover(tx, ty)
+            actuator.wait(max(settle, _REVEAL_DWELL))
+            seen = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+            landhit = _land_hit(seen, want, near_x=tx, max_dist=md)
+            if landhit is not None:
+                _log.info("  %s: candidate at %d magnified to a wanted land — playing", label, tx)
+                play_card(actuator, (landhit[0], ty))
+                return True
+            if not _name_near(seen, _nonland_names(view, seat), tx, md):
+                _log.info("  %s: lands on the %s (legible centre %d vs hand centre %d); clicking the %s at (%d,%d) "
+                          "[nothing readable there — a basic land]", label, "left" if lands_left else "right",
+                          int(legible_center), int(hand_center), how, tx, ty)
+                play_card(actuator, (tx, ty))
+                return True
+            _log.info("  %s: candidate at %d magnified to a NON-LAND — deferring to the reveal sweep", label, tx)
 
     # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).

@@ -937,7 +937,8 @@ def _hand_checks():
                                         "cardTypes": ["CardType_Land"] if i in land_ids else ["CardType_Creature"]}
                                        for i in ids]})
     plays = lambda *ids: [Action(actionType="ActionType_Play", instanceId=i) for i in ids]
-    lname = {70: "Forest", 60: "Forest", 50: "Forest", 40: "Forest", 51: "Bravo", 52: "Charlie", 55: "Echo"}
+    lname = {70: "Forest", 60: "Forest", 50: "Forest", 40: "Forest", 51: "Bravo", 52: "Charlie", 55: "Echo",
+             45: "Plains", 56: "Lifecreed Duo", 57: "Lifecreed Duo", 58: "Hallowed Priest"}
     olabel2, orec2 = cards.label, ocr.recognize_text
     cards.label = handmod.cards.label = lambda g: lname.get(g, "?")
     try:
@@ -998,6 +999,24 @@ def _hand_checks():
         ok3d = play_land(a3d, None, _hand({40}, {51}), 1, plays(40), 40)
         check("play_land: 2-card hand, lone legible spell -> mirror to the land (right of the spell, ~1079)",
               ok3d and len(a3d.clicks) == 2 and 1040 <= a3d.clicks[0][0] <= 1120)
+
+        # (3e) VERIFY the edge candidate: two legible Lifecreed Duos at 912/1092 -> candidate 732, but a Hallowed
+        # Priest (a NON-LAND, occluded at rest: name only in the magnified band yf=0.50) sits there. It must NOT be
+        # misplayed — defer to the reveal (which finds no readable Plains in this stub, so it shadows: no click).
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Lifecreed Duo", 912 / 1920, 0.90), ("Lifecreed Duo", 1092 / 1920, 0.90), ("Hallowed Priest", 732 / 1920, 0.50)]
+        a3e = DryRunActuator(rect=rect, image=object())
+        ok3e = play_land(a3e, None, _hand({45}, {56, 57, 58}), 1, plays(45), 45)
+        check("play_land: VERIFIES the edge candidate — a non-land there is NOT misplayed (defers, no click)",
+              ok3e is False and a3e.clicks == [])
+
+        # (3f) ...but when the candidate magnifies to the WANTED land (Plains readable only when hovered), play it.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Lifecreed Duo", 912 / 1920, 0.90), ("Lifecreed Duo", 1092 / 1920, 0.90), ("Plains", 732 / 1920, 0.50)]
+        a3f = DryRunActuator(rect=rect, image=object())
+        ok3f = play_land(a3f, None, _hand({45}, {56, 57}), 1, plays(45), 45)
+        check("play_land: edge candidate confirmed as the wanted land by magnify -> plays it (~732)",
+              ok3f and len(a3f.clicks) == 2 and 710 <= a3f.clicks[0][0] <= 760)
 
         # land_play_options enumerates only the lands among the Play actions
         from inthearena.mtga import land_play_options
