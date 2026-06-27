@@ -32,6 +32,11 @@ _EVENT = {
     "the_beginning_of_your_upkeep": "upkeep",
     "the_beginning_of_your_end_step": "end_step",
     "the_beginning_of_each_of_your_postcombat_main_phases": "postcombat_main",   # §505 Tymna the Weaver's draw
+    # §505.1b the SECOND main phase IS the postcombat main phase — 'your second main phase' is the same
+    # controller-scoped step as 'each of your postcombat main phases', so it aliases onto the SAME engine
+    # kind (ev_postcombat_main = current_step("postcombat_main") + active_player). All 27 cards are self/
+    # controller-scoped (Fireglass Mentor, the Survival cycle); no 'that player' cross-binding to track.
+    "the_beginning_of_your_second_main_phase": "postcombat_main",
     "the_beginning_of_combat_on_your_turn": "beginning_of_combat",
     "deals_combat_damage_to_a_player": "combat_damage_to_player",
     "deals_combat_damage_to_a_creature": "combat_damage_to_creature",
