@@ -122,7 +122,10 @@ class BoardLocator:
         if len(badges) != len(ids):                           # can't align badges to creatures -> defer
             return None
         x, y = badges[i]
-        return x, y - int(0.035 * rect.h)                     # the badge sits low on the card; nudge to the body
+        # the P/T badge sits at the card's bottom-RIGHT corner — clicking it lands on the right edge and can miss
+        # (drops the block). Step LEFT + UP to the card BODY centre (measured: centre ≈ 0.03w left, 0.055h up of
+        # the badge — e.g. Krovikan Scoundrel name/centre x≈843 vs its '2/1' badge x≈902).
+        return x - int(0.03 * rect.w), y - int(0.055 * rect.h)
 
     def _ordinal_point(self, instance_id, view, rect):
         """Place `instance_id` by its ORDINAL slot using FIXED row geometry — the last-resort fallback when the

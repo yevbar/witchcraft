@@ -1530,11 +1530,13 @@ def _board_checks():
                                        {"instanceId": 441, "grpId": 441, "zoneId": 23, "controllerSeatId": 2,
                                         "cardTypes": ["CardType_Creature"]}]})
         bl2 = BoardLocator(DryRunActuator(rect=rect, image=object()), me=1)
-        robber = bl2.locate(440, opp2)                       # older=left -> the '2/1' badge at x0.476
-        other = bl2.locate(441, opp2)                        # newer=right -> the '2/3' badge at x0.576
-        check("BoardLocator P/T-anchored: robber lands on its real '2/1' badge x (not guessed geometry)",
-              robber is not None and abs(robber[0] - int(0.476 * rect.w)) <= 2)
-        check("BoardLocator P/T-anchored: newer creature lands on its '2/3' badge, right of the robber",
+        robber = bl2.locate(440, opp2)                       # older=left -> off the '2/1' badge at x0.476
+        other = bl2.locate(441, opp2)                        # newer=right -> off the '2/3' badge at x0.576
+        # anchored to the real badge x but stepped LEFT onto the card body (the badge is the bottom-RIGHT corner;
+        # clicking it lands on the edge and drops the block), so it sits left of the badge, near its own card.
+        check("BoardLocator P/T-anchored: robber lands LEFT of its '2/1' badge (card body, not the edge)",
+              robber is not None and int(0.476 * rect.w) - 0.06 * rect.w < robber[0] < int(0.476 * rect.w))
+        check("BoardLocator P/T-anchored: newer creature is right of the robber (order preserved)",
               other is not None and other[0] > robber[0])
     finally:
         boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
