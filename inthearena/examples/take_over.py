@@ -26,10 +26,15 @@ Setup (run from the inthearena/ directory):
     #  vision runs LOCALLY: first use downloads vikhyatk/moondream2 (~3.7 GB), then it runs offline on CPU/MPS
     #  macOS: grant your terminal/Python Accessibility permission (System Settings > Privacy & Security)
 
+The default bot is `witchcraft` (the python-mtg engine, the only bot that BLOCKS), so RUN FROM THE REPO ROOT with
+the engine on the path or it falls back to `blind_rage`:
+
 Examples:
-    PYTHONPATH=src python3 examples/take_over.py                 # LIVE: navigate into a game, then run aggro
-    PYTHONPATH=src python3 examples/take_over.py --no-bot        # just get into a game
-    PYTHONPATH=src python3 examples/take_over.py --dry-run --view home   # preview the Home click
+    PYTHONPATH=inthearena/src:. python3 inthearena/examples/take_over.py            # LIVE: engine bot (blocks)
+    PYTHONPATH=inthearena/src:. python3 inthearena/examples/take_over.py --engine-player aggro   # the racer
+    PYTHONPATH=src python3 examples/take_over.py --bot blind_rage                   # no-engine aggro (never blocks)
+    PYTHONPATH=src python3 examples/take_over.py --no-bot                           # just get into a game
+    PYTHONPATH=src python3 examples/take_over.py --dry-run --view home              # preview the Home click
 """
 
 from __future__ import annotations
@@ -123,6 +128,23 @@ _MATCH_OVER = 10        # the match finished — advance the post-game screens a
 _INTERRUPTED = 130      # Ctrl-C — stop everything (130 = 128 + SIGINT, the usual shell convention)
 
 _ACTION_TRIES = 3       # clicks per decision before giving up (a dropped click is retried)
+
+
+def _engine_player(name: str):
+    """Resolve --engine-player to a python-mtg Player instance (lazy import — these only load with the engine on
+    the repo-relative path). Returns None if the engine isn't importable, in which case EnginePolicy uses its own
+    default and ultimately falls back to blind_rage. heuristic blocks readily; aggro is the head-to-head winner."""
+    try:
+        if name == "aggro":
+            from mtg.aggro import AggroPlayer
+            return AggroPlayer()
+        if name == "blind_aggro":
+            from mtg.blind_aggro import BlindAggroPlayer
+            return BlindAggroPlayer()
+        from mtg.heuristic import HeuristicPlayer
+        return HeuristicPlayer()
+    except Exception:
+        return None
 
 
 def _make_handle(execu, pol, log_path):
@@ -323,11 +345,15 @@ def main(argv) -> int:
     ap.add_argument("--no-click", action="store_true",
                     help="move the cursor to the target but DON'T click — safe to verify aim + permissions.")
     ap.add_argument("--no-bot", action="store_true", help="navigate into a game but don't run the bot.")
-    ap.add_argument("--bot", default="blind_rage", choices=("blind_rage", "aggro", "aggro_arena", "witchcraft"),
-                    help="which policy to drive with. blind_rage (default): pure aggro, never blocks/targets — "
-                         "never stalls. aggro_arena: + a keepable-hand mulligan. witchcraft: drive with the "
-                         "python-mtg BlindAggroPlayer over the synced board (run from the repo root so the engine "
-                         "finds its datalog; falls back to blind_rage where the engine can't decide).")
+    ap.add_argument("--bot", default="witchcraft", choices=("blind_rage", "aggro", "aggro_arena", "witchcraft"),
+                    help="which policy to drive with. witchcraft (default): drive with a python-mtg engine Player "
+                         "over the synced board — the only bot that BLOCKS (run from the repo root so the engine "
+                         "finds its datalog; falls back to blind_rage where the engine can't decide). blind_rage: "
+                         "pure aggro, never blocks/targets — never stalls. aggro_arena: + a keepable-hand mulligan.")
+    ap.add_argument("--engine-player", default="heuristic", choices=("heuristic", "aggro", "blind_aggro"),
+                    help="for --bot witchcraft: which engine Player decides. heuristic (default): blocks readily "
+                         "(good for validating the block gesture live). aggro: the head-to-head winner (~68-32 vs "
+                         "heuristic) but blocks rarely — it's a racer. blind_aggro: never blocks.")
     ap.add_argument("--scale", type=float, default=1.0, help="image->click scale; use ~0.5 on a Retina display.")
     ap.add_argument("--max-steps", type=int, default=6, help="max navigation transitions before giving up.")
     ap.add_argument("--queue-timeout", type=float, default=120.0,
@@ -345,8 +371,11 @@ def main(argv) -> int:
         keep_display_awake()
 
     from inthearena.mtga import AggroPolicy, ArenaAggroPolicy, BlindRagePolicy, EnginePolicy
-    policy = {"blind_rage": BlindRagePolicy, "aggro_arena": ArenaAggroPolicy,
-              "aggro": AggroPolicy, "witchcraft": EnginePolicy}[args.bot]()
+    if args.bot == "witchcraft":
+        policy = EnginePolicy(player=_engine_player(args.engine_player))
+    else:
+        policy = {"blind_rage": BlindRagePolicy, "aggro_arena": ArenaAggroPolicy,
+                  "aggro": AggroPolicy}[args.bot]()
 
     # which view are we on?
     if args.view:
