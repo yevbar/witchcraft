@@ -212,6 +212,28 @@ def _views_checks():
     finally:
         os.unlink(r)
 
+    # gre_advanced: ground-truth confirmation that an action REGISTERED — a new 'GreToClient' message past the
+    # baseline offset means the server responded (the game advanced); silence means a dropped click -> retry.
+    from inthearena.mtga import gre_advanced
+    fd, gp = tempfile.mkstemp(suffix=".log")
+    os.write(fd, b"existing content before the action\n")
+    os.close(fd)
+    try:
+        base = os.path.getsize(gp)
+        check("gre_advanced: False when the log stays silent (a dropped click)",
+              gre_advanced(gp, base, timeout=0.05, poll=0.01) is False)
+        with open(gp, "a") as fa:
+            fa.write('[UnityCrossThreadLogger]GreToClient {"greToClientEvent": {}}\n')
+        check("gre_advanced: True once a GreToClient message is written (the action took)",
+              gre_advanced(gp, base, timeout=0.5, poll=0.01) is True)
+        base2 = os.path.getsize(gp)
+        with open(gp, "a") as fa:
+            fa.write("[UnityCrossThreadLogger]ClientToMatchServiceMessage only — no server response\n")
+        check("gre_advanced: non-GreToClient growth does NOT count as the game advancing",
+              gre_advanced(gp, base2, timeout=0.05, poll=0.01) is False)
+    finally:
+        os.unlink(gp)
+
     # POST-GAME: match just ended, still on the Victory/Defeat + rewards overlays (completed, no menu scene yet).
     from inthearena.mtga import match_completed
     fd, pg = tempfile.mkstemp(suffix=".log")
@@ -1218,26 +1240,8 @@ def _execute_checks():
     check("execute: attack with all qualified -> clicks All Attack (advance)",
           r3.done and len(a3.clicks) == 1 and a3.clicks[0][0] > 1500)
 
-    # FAILURE TOLERANCE: a dropped All Attack click leaves the 'All Attack' label on screen -> retry. Stub the OCR
-    # screen-check to report the label still present for the first 2 looks, then gone (the 3rd click lands).
-    import inthearena.mtga.ocr as _ocrmod
-    _orig_rt, _looks = _ocrmod.recognize_text, [0]
-    def _present_then_gone(image):
-        _looks[0] += 1
-        return [("All Attack", 0.9, 0.9)] if _looks[0] <= 2 else []
-    _ocrmod.recognize_text = _present_then_gone
-    try:
-        a3r = DryRunActuator(rect=rect, image=object())
-        r3r = GameExecutor(a3r, locator=AdvLoc()).execute(dec_atk, chosen_all)
-        check("execute: All Attack RETRIES until the screen changes (2 dropped clicks + 1 that lands)",
-              r3r.done and len(a3r.clicks) == 3)
-        _ocrmod.recognize_text = lambda image: [("All Attack", 0.9, 0.9)]    # never advances
-        a3g = DryRunActuator(rect=rect, image=object())
-        r3g = GameExecutor(a3g, locator=AdvLoc()).execute(dec_atk, chosen_all)
-        check("execute: All Attack gives up after the retry cap (4) when the screen never changes",
-              r3g.done is False and len(a3g.clicks) == 4)
-    finally:
-        _ocrmod.recognize_text = _orig_rt
+    # (Whether the All Attack click actually REGISTERED is confirmed by drive_bot against the GRE log, not by the
+    # executor reading the screen — see the _gre_advanced checks below.)
 
     a3b = DryRunActuator(rect=rect, image=object())
     r3b = GameExecutor(a3b, locator=AdvLoc()).execute(dec_atk, [{"attackerInstanceId": 11}])  # a SUBSET

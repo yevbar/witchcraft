@@ -37,7 +37,7 @@ from .hand import (
     snapshot_hand,
     sweep_hand,
 )
-from .live import LiveState, follow, tail_lines, tail_messages
+from .live import LiveState, follow, gre_advanced, tail_lines, tail_messages
 from .navigate import (
     Actuator,
     DryRunActuator,
@@ -103,7 +103,7 @@ __all__ = [
     "current_view", "latest_view", "latest_scene_name", "iter_scene_changes", "iter_view_events", "in_game",
     "match_completed",
     "ViewRecognizer", "CallableRecognizer",
-    "tail_lines", "tail_messages", "LiveState", "follow",
+    "tail_lines", "tail_messages", "LiveState", "follow", "gre_advanced",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
     "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu", "click_mulligan",
     "click_through_postgame", "play_button_visible",

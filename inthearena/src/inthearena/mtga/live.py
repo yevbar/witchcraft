@@ -27,6 +27,26 @@ _GAME_PLAYING = "MatchGameRoomStateType_Playing"
 _GAME_DONE = "MatchGameRoomStateType_MatchCompleted"
 
 
+def gre_advanced(path: str, baseline_size: int, *, timeout: float = 4.0, poll: float = 0.2) -> bool:
+    """Did the GRE write a new server message past `baseline_size` within `timeout`? That's GROUND TRUTH that a
+    just-performed action REGISTERED and the game advanced — a dropped click leaves the log silent (the server
+    received nothing). Used to decide whether to RETRY an action, instead of reading the screen (which a
+    lock-screen or mid-animation frame can fool). Returns as soon as a new 'GreToClient' message appears."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        try:
+            if os.path.getsize(path) > baseline_size:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    fh.seek(baseline_size)
+                    if "GreToClient" in fh.read():        # the server responded to our action -> it took effect
+                        return True
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll)
+
+
 def tail_lines(path: str = DEFAULT_LOG, *, from_start: bool = True, poll: float = 0.5,
                stop: Optional[Callable[[], bool]] = None, start_offset: Optional[int] = None) -> Iterator[str]:
     """Follow `path`, yielding each complete line as it appears. Reads existing content first (unless

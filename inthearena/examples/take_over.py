@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import random
 import sys
 
@@ -47,6 +48,7 @@ from inthearena.mtga import (
     click_through_postgame,
     describe,
     follow,
+    gre_advanced,
     latest_game_view,
     latest_view,
     match_completed,
@@ -119,6 +121,8 @@ def _show(d, choice):
 _MATCH_OVER = 10        # the match finished — advance the post-game screens and queue again
 _INTERRUPTED = 130      # Ctrl-C — stop everything (130 = 128 + SIGINT, the usual shell convention)
 
+_ACTION_TRIES = 3       # clicks per decision before giving up (a dropped click is retried)
+
 
 def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None, attached: bool = False) -> int:
     """In a game: run the bot over the GRE decision stream, executing each decision via a `GameExecutor` — the
@@ -168,8 +172,28 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         _show(d, choice)
         if execu is None:
             return
-        res = execu.execute(d, choice)
-        print(f"    -> {'executed' if res.done else 'shadowed'}: {res.note}")
+        # Execute, then CONFIRM against the GRE log (ground truth) that the action registered — if the click was
+        # dropped (MTGA tracks the IOHID pointer and occasionally swallows a press; or the screen locked), the log
+        # stays silent, so RE-CLICK. This replaces reading the screen to decide whether to retry. A genuine shadow
+        # (done=False — nothing clicked) needs no confirm.
+        res = None
+        confirmed = False
+        for attempt in range(_ACTION_TRIES):
+            baseline = os.path.getsize(log_path)
+            res = execu.execute(d, choice)
+            if not res.done:
+                break
+            if gre_advanced(log_path, baseline):
+                confirmed = True
+                break
+            if attempt + 1 < _ACTION_TRIES:
+                print(f"    -> no GRE response — the click didn't register, clicking again ({attempt + 1}/{_ACTION_TRIES})")
+        if not res.done:
+            print(f"    -> shadowed: {res.note}")
+        elif confirmed:
+            print(f"    -> executed{f' (after {attempt + 1} clicks)' if attempt else ''}: {res.note}")
+        else:
+            print(f"    -> executed but UNCONFIRMED (no GRE response after {_ACTION_TRIES} clicks): {res.note}")
 
     try:
         # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
