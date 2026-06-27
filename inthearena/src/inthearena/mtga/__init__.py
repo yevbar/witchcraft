@@ -48,8 +48,10 @@ from .navigate import (
     advance_home,
     advance_play_menu,
     click_mulligan,
+    click_through_postgame,
     go_home,
     interact,
+    play_button_visible,
     resolve,
     take_over,
     take_over_view,
@@ -85,6 +87,7 @@ from .screen import (
     iter_view_events,
     latest_scene_name,
     latest_view,
+    match_completed,
 )
 from .views import RecognizedViews, ScreenAnchor, ViewElement, from_scene_name
 from .macos import capture_rect, display_scale, find_mtga_window
@@ -98,10 +101,12 @@ __all__ = [
     "to_game", "build_state", "suggest",
     "RecognizedViews", "ScreenAnchor", "ViewElement", "from_scene_name",
     "current_view", "latest_view", "latest_scene_name", "iter_scene_changes", "iter_view_events", "in_game",
+    "match_completed",
     "ViewRecognizer", "CallableRecognizer",
     "tail_lines", "tail_messages", "LiveState", "follow",
     "Navigator", "Actuator", "DryRunActuator", "PyAutoGuiActuator", "Rect", "resolve",
     "take_over", "take_over_view", "go_home", "advance_home", "advance_play_menu", "click_mulligan",
+    "click_through_postgame", "play_button_visible",
     "target_point", "interact", "ElementLocator", "MoondreamLocator",
     "find_mtga_window", "display_scale", "capture_rect",
     "GameExecutor", "ObjectLocator", "ExecResult", "BoardLocator", "locate_named_permanents",

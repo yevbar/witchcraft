@@ -207,8 +207,31 @@ def _views_checks():
     try:
         check("after match completes + return Home, view is HOME not GAMEPLAY", latest_view(r) == RecognizedViews.HOME)
         check("in_game() False back in the menu", in_game(r) is False)
+        from inthearena.mtga import match_completed
+        check("match_completed False once the menu (Home) has loaded", match_completed(r) is False)
     finally:
         os.unlink(r)
+
+    # POST-GAME: match just ended, still on the Victory/Defeat + rewards overlays (completed, no menu scene yet).
+    from inthearena.mtga import match_completed
+    fd, pg = tempfile.mkstemp(suffix=".log")
+    os.write(fd, ("y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_Playing\"}\n"
+                  "y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_MatchCompleted\"}\n").encode())
+    os.close(fd)
+    try:
+        check("match_completed True on the post-game overlay (completed, menu not loaded)", match_completed(pg) is True)
+        check("latest_view None on the post-game overlay (not a recognized menu)", latest_view(pg) is None)
+    finally:
+        os.unlink(pg)
+    # an UNRECOGNIZED scene after completion (a reward/results screen) is still post-game, not a Home-recover case
+    fd, pg2 = tempfile.mkstemp(suffix=".log")
+    os.write(fd, ("y MatchGameRoomStateChangedEvent {\"stateType\":\"MatchGameRoomStateType_MatchCompleted\"}\n"
+                  "x SceneChange {\"toSceneName\":\"MatchResults\"}\n").encode())
+    os.close(fd)
+    try:
+        check("match_completed stays True through an unrecognized post-game scene", match_completed(pg2) is True)
+    finally:
+        os.unlink(pg2)
 
 
 def _engine_checks():
@@ -680,6 +703,27 @@ def _navigate_checks():
           abs(cxp - bx) <= _ADVANCE.spread and abs(cyp - by) <= _ADVANCE.spread)
     check("frac-pinned advance does NOT click inside the skip-button box vision returned",
           not (940 <= cxp <= 990 and 740 <= cyp <= 770))
+
+    # POST-GAME click-through: click the bottom-right repeatedly (advancing Victory/Defeat + reward screens) until
+    # the orange Play button is detected in the bottom-right, then stop (so the queue flow takes over).
+    from inthearena.mtga import click_through_postgame, play_button_visible
+    class PlayAfter:                                        # no Play for the first `n` looks, then a bottom-right box
+        def __init__(self, n):
+            self.n, self.calls = n, 0
+        def locate(self, image, query):
+            self.calls += 1
+            return None if self.calls <= self.n else Rect(int(nrect.w * 0.90), int(nrect.h * 0.93), 60, 30)
+    pa = DryRunActuator(rect=nrect, image=object())
+    got = click_through_postgame(pa, locator=PlayAfter(2), rng=_r.Random(0), settle=0.0, max_clicks=15)
+    check("click_through_postgame returns True once Play appears", got is True)
+    check("click_through_postgame clicked the bottom-right until Play showed (2 advance clicks)", len(pa.clicks) == 2)
+    check("click_through_postgame aimed the bottom-right corner",
+          all(cx > nrect.w * 0.7 and cy > nrect.h * 0.8 for cx, cy in pa.clicks))
+    # never-appears: bounded by max_clicks, returns False (caller lets the normal queue flow try)
+    pn = DryRunActuator(rect=nrect, image=object())
+    got2 = click_through_postgame(pn, locator=PlayAfter(10**9), rng=_r.Random(0), settle=0.0, max_clicks=4)
+    check("click_through_postgame stops after max_clicks when Play never appears", got2 is False and len(pn.clicks) == 4)
+    check("play_button_visible False without a locator", play_button_visible(DryRunActuator(rect=nrect), None) is False)
 
     # VISIBILITY GATE: with a locator, interact waits for the button to actually render (no blind-clicking a
     # loading screen), only acts once it's clearly in the right region.

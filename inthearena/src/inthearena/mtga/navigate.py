@@ -538,6 +538,11 @@ _RECENTLY_PLAYED_TAB = ViewElement("Recently Played", ScreenAnchor.TOP_RIGHT, ra
 _QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36, query="orange Play button")
 _HOME_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
 
+# After a match, MTGA shows Victory/Defeat ('Click to Continue') then maybe reward/progression screens, each
+# dismissed by a bottom-right click ('Continue' / 'Next' / 'Proceed'), before the Play menu returns. This is the
+# spot to click to advance them — bottom-right, clear of the top-right 'View Battlefield' and the centre prompt.
+_POSTGAME_ADVANCE = ViewElement("continue", ScreenAnchor.BOTTOM_RIGHT, radius=40, frac=(0.90, 0.93))
+
 # The in-game mulligan screen: Keep / Mulligan buttons sit side by side at bottom-center (not a corner), so
 # they carry explicit window fractions for the coarse fallback (vision locates them precisely).
 # The play-menu overlay's X close button (top-right). It's present on EVERY sub-tab when the overlay is open and
@@ -732,3 +737,40 @@ def take_over(actuator: Actuator, view_provider: Callable[[], Optional[Recognize
     nav = Navigator(actuator, view_provider, poll=poll, change_timeout=change_timeout,
                     rng=rng or random.Random(), locator=locator, recover_home=recover_home)
     return nav.navigate_to_game(max_steps=max_steps)
+
+
+def play_button_visible(actuator: Actuator, locator: "Optional[ElementLocator]") -> bool:
+    """Is the orange Play button currently on screen in the bottom-right (i.e. we're back on the Play menu)? Needs
+    a vision `locator`; without one we can't tell, so returns False."""
+    if locator is None:
+        return False
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    box = _locate(actuator, _QUEUE_PLAY, locator)
+    return box is not None and _in_anchor_region(box, _QUEUE_PLAY, rect)
+
+
+def click_through_postgame(actuator: Actuator, *, locator: "Optional[ElementLocator]" = None,
+                           rng: Optional[random.Random] = None, max_clicks: int = 15,
+                           settle: float = 1.6) -> bool:
+    """Clear the post-game screens after a match. MTGA shows Victory/Defeat then possibly reward / progression
+    screens before the Play menu returns; each advances on a bottom-right click ('Click to Continue' / 'Next').
+    Click the bottom-right repeatedly — re-checking for the orange Play button each time — until Play is visible
+    (so the normal queue flow can start the next game) or `max_clicks` is spent. The intermittent reward screens
+    are exactly why this RETRIES rather than clicking once. Returns True if the Play button became visible.
+
+    With no vision `locator` we can't detect Play, so it best-effort clicks `max_clicks` times and returns False."""
+    rng = rng or random.Random()
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    for i in range(max(1, max_clicks)):
+        if play_button_visible(actuator, locator):
+            _log.info("  post-game: Play button is visible — done clicking through (%d click(s))", i)
+            return True
+        x, y = target_point(_POSTGAME_ADVANCE, rect, rng)
+        _log.info("  post-game: clicking the bottom-right to advance (%d/%d) at (%s, %s)", i + 1, max_clicks, x, y)
+        actuator.move_and_click(x, y)
+        actuator.wait(settle)
+    return play_button_visible(actuator, locator)

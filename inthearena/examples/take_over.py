@@ -44,10 +44,12 @@ from inthearena.mtga import (
     DEFAULT_LOG,
     DryRunActuator,
     RecognizedViews,
+    click_through_postgame,
     describe,
     follow,
     latest_game_view,
     latest_view,
+    match_completed,
     snapshot,
     take_over,
     take_over_view,
@@ -249,6 +251,21 @@ def main(argv) -> int:
 
     actuator, locator = build_live(args)
     rng = random.Random()
+
+    # POST-GAME: a match just ended — we're on the Victory/Defeat + rewards overlays (the log says 'completed',
+    # so `view` is None, but this is NOT a stray menu to Home-recover from). Click the bottom-right through to the
+    # Play button, then fall through to the normal queue flow to start the next game.
+    if view is None and match_completed(args.log):
+        print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
+        if args.dry_run or args.no_click:
+            click_through_postgame(actuator, locator=locator, rng=rng, max_clicks=1)
+            target = actuator.clicks[-1] if actuator.clicks else "?"
+            print(f"{'DRY RUN' if args.dry_run else 'MOVE-ONLY'}: would click the bottom-right at {target} to advance.")
+            return 0
+        if click_through_postgame(actuator, locator=locator, rng=rng):
+            print("post-game cleared — Play button visible; queuing the next game.")
+        else:
+            print("post-game: clicked through; Play not confirmed (will let the queue flow try).")
 
     # --dry-run / --no-click can't actually progress through menus (no real clicks) — just preview ONE step.
     if args.dry_run or args.no_click:
