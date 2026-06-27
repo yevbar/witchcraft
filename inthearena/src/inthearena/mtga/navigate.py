@@ -198,10 +198,10 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
 
 # Live-cursor glide speed: travel time = distance / _GLIDE_SPEED (clamped) so every move runs at the same fast
 # pace whether it's a short menu hop or a cross-board reach; ~one frame per _GLIDE_STEP px keeps it smooth.
-_GLIDE_SPEED = 9000.0      # px/sec
+_GLIDE_SPEED = 13500.0     # px/sec (50% faster)
 _GLIDE_STEP = 28.0         # px between frames
-_GLIDE_MIN = 0.03          # s: floor so a tiny move still eases
-_GLIDE_MAX = 0.16          # s: ceiling so a full-screen reach doesn't drag
+_GLIDE_MIN = 0.02          # s: floor so a tiny move still eases
+_GLIDE_MAX = 0.107         # s: ceiling so a full-screen reach doesn't drag
 
 
 def smooth_path(a: tuple, b: tuple, *, frames: int, rng: random.Random, curve: float = 0.18,
