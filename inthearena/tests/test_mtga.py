@@ -1375,6 +1375,25 @@ def _execute_checks():
     rbn = GameExecutor(abn, object_locator=BoardStub(), locator=AdvLoc()).execute(dec_block, [])
     check("execute: empty block -> single 'No Blocks' click", rbn.done and len(abn.clicks) == 1)
 
+    # robustness: everything is located on the CLEAN board BEFORE any click — so if a creature can't be found,
+    # the block aborts with NO stray clicks (the old order located the attacker AFTER selecting the blocker, which
+    # left a dangling selection that the confirm turned into an accidental 'No Blocks' swing).
+    class HalfBoard:                                        # locates the blocker but not the attacker
+        def locate(self, instance_id, view, image=None):
+            return (300 + instance_id, 500) if instance_id == 302 else None
+
+    ab2 = DryRunActuator(rect=rect, image=object())
+    rb2 = GameExecutor(ab2, object_locator=HalfBoard(), locator=AdvLoc()).execute(
+        dec_block, [{"blockerInstanceId": 302, "attackerInstanceId": 431}])
+    check("execute: block aborts with NO clicks when a creature can't be located (no dangling selection)",
+          rb2.done is False and ab2.clicks == [])
+
+    # describe() tells the truth about a block now (was hardcoded 'no blocks')
+    from inthearena.mtga.policy import describe
+    check("describe: a real block shows the pairing (not 'no blocks')",
+          describe(dec_block, [{"blockerInstanceId": 302, "attackerInstanceId": 431}]).startswith("block:"))
+    check("describe: an empty block is 'no blocks'", describe(dec_block, []) == "no blocks")
+
 
 def _board_checks():
     """BoardLocator finds a battlefield permanent's screen point by OCR-matching its card name (the board

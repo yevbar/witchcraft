@@ -87,5 +87,9 @@ class BoardLocator:
         named = locate_named_permanents(self._act.screenshot(), rect, y_band=self._band(o))
         hit = match_named_card(name, named)
         if hit is None:
-            _log.info("  board: %r not legible on the battlefield", name)
+            band = "ours" if (self._me is not None and o.controllerSeatId == self._me) else "opp"
+            others = ", ".join(repr(n) for n, _, _ in named) or "nothing legible"
+            _log.info("  board: %r (%s band) NOT FOUND — read: %s", name, band, others)
+        else:
+            _log.info("  board: %r located at (%d, %d)", name, hit[0], hit[1])
         return hit

@@ -133,7 +133,11 @@ def describe(d: Decision, choice) -> str:
             return "no attack"
         return "attack: " + ", ".join(by_instance(a["attackerInstanceId"]) for a in choice)
     if d.kind == "blockers":
-        return "no blocks"
+        if not choice:
+            return "no blocks"
+        return "block: " + ", ".join(
+            f"{by_instance(c['blockerInstanceId'])}->{by_instance(c['attackerInstanceId'])}"
+            for c in choice if isinstance(c, dict))
     if d.kind == "assign_damage":
         return "assign damage (accept default order)"
     if d.kind == "mulligan":

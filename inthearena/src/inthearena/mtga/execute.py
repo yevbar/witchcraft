@@ -149,18 +149,30 @@ class GameExecutor:
             return self._advance("no blocks", _NO_BLOCKS)
         if self._objs is None:
             return ExecResult(False, "blocking needs a board ObjectLocator")
-        pairs = 0
+        # Locate EVERY blocker + attacker on the CLEAN board FIRST — one at-rest read each, before any click.
+        # Selecting a blocker lifts it and makes its eligible attackers glow cyan, which distorts the OCR of the
+        # cards located afterward; and `BoardLocator.locate` parks the cursor + re-screenshots, so locating the
+        # attacker mid-gesture both reads a dirty board AND can cancel the pending block. Pre-locating avoids both
+        # (an attacker doesn't move when you pick a blocker), so the clicks below are pure motion, no re-reads.
+        plan = []
         for c in choice:
             blk = c.get("blockerInstanceId") if isinstance(c, dict) else getattr(c, "blockerInstanceId", None)
             atk = c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None)
-            rb = self._click_object(blk, decision.view, "blocker")     # select the blocker (lower band)
-            if not rb.done:
-                return rb
-            ra = self._click_object(atk, decision.view, "attacker")    # then the attacker it blocks (upper band)
-            if not ra.done:
-                return ra
-            pairs += 1
-        return self._advance(f"confirm {pairs} block(s)", _ADVANCE)    # bottom-right confirm
+            bpt = self._objs.locate(blk, decision.view)                # our blocker (lower band)
+            if bpt is None:
+                return ExecResult(False, f"blocker {blk} not located on the board")
+            apt = self._objs.locate(atk, decision.view)                # the attacker it blocks (upper band)
+            if apt is None:
+                return ExecResult(False, f"attacker {atk} not located on the board")
+            plan.append((bpt, apt))
+        for bpt, apt in plan:
+            self._act.hover(*bpt)                                      # select the blocker -> its border goes orange
+            self._act.click()
+            self._act.wait(0.6)                                        # let MTGA register it (attackers glow)
+            self._act.hover(*apt)                                      # then click the attacker it blocks -> assigned
+            self._act.click()
+            self._act.wait(0.3)                                        # let the assignment register before confirm
+        return self._advance(f"confirm {len(plan)} block(s)", _ADVANCE)   # bottom-right confirm
 
     def _do_attackers(self, decision, choice) -> ExecResult:
         # choice is a list of {attackerInstanceId, target}. Attacking with EVERY qualified attacker is exactly
