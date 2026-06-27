@@ -214,6 +214,11 @@ INPUTS = [
     # an optional FILTER narrowing a static anthem to a subtype/type/color ('Other Goblins get +1/+1',
     # 'Artifact creatures you control', 'Green creatures'): fkind in {subtype,type,color}, fval the value.
     ("static_filter", [("source", "symbol"), ("fkind", "symbol"), ("fval", "symbol")]),
+    # §611.2/§702.16 STATIC granted COLOUR-PROTECTION ('Enchanted creature has protection from black',
+    # 'Creatures you control have protection from red'): one row per (source, colour) over a board/attached
+    # SCOPE. The engine resolves the scope to creatures (anthem_creature, reusing static_src/static_filter)
+    # and derives protection_from(creature, colour) — the SAME consumer printed protection feeds (illegal_target).
+    ("static_protect", [("source", "symbol"), ("col", "symbol"), ("scope", "symbol")]),
     # §301/§303 ATTACHMENT — which creature an Aura/Equipment is attached to (the driver maintains it). A
     # static buff scoped to 'enchanted_creature'/'equipped_creature' applies to that creature (scope=attached).
     ("attached_to", [("permanent", "symbol"), ("creature", "symbol")]),
@@ -559,6 +564,7 @@ def _rules(p: Program) -> None:
     p.decl("static_src", [("source", "symbol"), ("scope", "symbol")])
     p.rule("static_src(S, Sc)", ["static_pt(S, _, _, Sc)"])
     p.rule("static_src(S, Sc)", ["static_grant(S, _, Sc)"])
+    p.rule("static_src(S, Sc)", ["static_protect(S, _, Sc)"])
     p.comment("an anthem with a static_filter only covers creatures matching it (subtype/type/color); an")
     p.comment("unfiltered anthem covers everything its scope picks. filter_ok unifies the two cases.")
     p.decl("static_filtered", [("source", "symbol")])
@@ -590,6 +596,11 @@ def _rules(p: Program) -> None:
     p.rule("static_mod_toughness(S, C, DT)", ["static_pt(S, _, DT, _)", "anthem_creature(S, C)"])
     p.decl("static_grant_kw", [("source", "symbol"), ("c", "symbol"), ("kw", "symbol")])
     p.rule("static_grant_kw(S, C, K)", ["static_grant(S, K, _)", "anthem_creature(S, C)"])
+    p.comment("§611.2/§702.16 STATIC granted COLOUR-PROTECTION over the resolved creatures -> protection_from,")
+    p.comment("the SAME relation printed protection feeds (illegal_target gates a Col spell). One protection_from")
+    p.comment("tuple per (covered creature, colour); static_filter narrows the scope exactly as for grants.")
+    p.rule("protection_from(C, Col)", ["static_protect(S, Col, _)", "anthem_creature(S, C)"],
+           note="§702.16e granted colour protection")
     p.comment("§613.4 layer 7c — modify: +1/+1 & -1/-1 counters and P/T modifiers, on top of the set base.")
     p.comment("mod_power/mod_toughness are the bare (persistent) inputs; eff_mod_* carry an id so a")
     p.comment("triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord")

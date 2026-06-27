@@ -634,6 +634,19 @@ def _protection_colors(param: str) -> list:
     return cols
 
 
+def _granted_protection_colors(kw) -> list:
+    """A granted-keyword slug ('protection_from_black', 'protection_from_black_and_from_red') -> the named
+    COLOURS, or [] if not a pure-colour protection. Mirrors printed protection's _protection_colors (which
+    consumes the quality slug AFTER the 'protection' head): a granted §702.16 colour protection feeds the
+    SAME engine consumer (protection_from -> illegal_target), so only the colour subset is faithful — a
+    protection from a type/everything/the-chosen-color abstains. The keyword may carry a trailing 'as long
+    as …' conditional clause (a filtered/conditional case), which makes it non-pure -> [] (abstain)."""
+    s = str(kw)
+    if not s.startswith("protection_"):
+        return []
+    return _protection_colors(s[len("protection_"):])         # strip the 'protection_' head -> 'from_<col>…'
+
+
 def _subtype_universe(corpus: dict) -> frozenset:
     """The set of all creature subtypes in the corpus (lowercased), cached per corpus object — so the lord
     parser only treats a real subtype (Goblin, Sliver) as a filter, not a stray descriptor ('attacking')."""
@@ -3110,6 +3123,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("static_pt", (tid, pt[0], pt[1], scope))
                 else:                                        # grant_keyword — for a static ability the granted
                     kw = amt if amt in _ENGINE_KEYWORDS else extra   # keyword is in `amt` ('have trample'),
+                    # §702.16 STATIC granted COLOUR-PROTECTION ('Enchanted creature has protection from black',
+                    # 'Creatures you control have protection from red'). The protection slug rides in `amt` OR
+                    # `extra` (corpus has it in `extra`); `kw` above already resolved to whichever holds it. A
+                    # pure-colour protection feeds protection_from(creature, colour) (the SAME consumer as
+                    # printed protection; illegal_target gates a spell of that colour) over the resolved scope —
+                    # faithful and choice-free. Non-colour / chosen-colour / conditional protection abstains
+                    # (its colours come back [], so it falls to the generic 'grant_keyword' drop below).
+                    pcols = _granted_protection_colors(kw)
+                    if pcols:
+                        for col in pcols:
+                            add("static_protect", (tid, col, scope))
+                        if fkind is not None:                # a subtype/type/color lord -> narrow the anthem
+                            add("static_filter", (tid, fkind, fval))
+                        continue
                     if kw not in _ENGINE_KEYWORDS:               # unlike triggered/activated (in `extra`).
                         dropped.append(("grant_keyword", kw)); continue
                     # ONE WORLD: the keyword-in-AMOUNT grants whose RAW target is one of the 4 unfiltered
