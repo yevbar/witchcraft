@@ -494,6 +494,52 @@ _MANA_QTY_COLORS = {"white", "blue", "black", "red", "green", "colorless"}
 _MANA_QTY_SELF = {"you", "controller", "self", "it", "-", ""}
 
 
+# §111 'create N tokens FOR EACH <a game quantity>' (a DYNAMIC count). card_effects folds the trailing
+# 'for each <X>' / 'equal to the number of <X>' into the create's AMOUNT as a non-numeric slug. We map only
+# the slugs the driver's §STRUCTURAL-#3 count evaluator (driver._dyn_count) already resolves against live
+# state — REUSING the exact dyn_amount_tag vocabulary the player-scoped 'for each' effects use — plus the
+# 'opponents' count (a clean read of the player set). Everything else (X — a cast-time choice; 'that_amount'
+# — an anaphoric back-reference to a prior clause; 'destroyed/revealed/exiled this way' event counts the
+# engine doesn't accrue; devotion / experience-counter / power reads) ABSTAINS. A wrong token count is worse
+# than dropping. A faithfully-mapped tag pairs with a CLEAN token spec (P/T spec or known token_def).
+_CREATE_QTY = {
+    "1_per_opponent": "opponents",                            # §111 Acererak — 1 Zombie per opponent
+    "1_per_opponent_you_have": "opponents",
+    "equal_to_the_number_of_opponents_you_have": "opponents",
+    "1_per_creature_you_control": "creature_yc",
+    "equal_to_the_number_of_creatures_you_control": "creature_yc",
+    "1_per_artifact_you_control": "artifact_yc",
+    "equal_to_the_number_of_artifacts_you_control": "artifact_yc",
+    "1_per_land_you_control": "land_yc",
+    "equal_to_the_number_of_lands_you_control": "land_yc",
+    "1_per_card_in_your_hand": "cards_in_hand",
+    "equal_to_the_number_of_cards_in_your_hand": "cards_in_hand",
+    "1_per_creature_card_in_your_graveyard": "creature_cards_in_gy",
+    "equal_to_the_number_of_creature_cards_in_your_graveyard": "creature_cards_in_gy",
+}
+
+
+def _create_count_tag(amt) -> str | None:
+    """A DYNAMIC create count slug -> a count TAG driver._dyn_count resolves live (or None to abstain). Only
+    a 1-per / equal-to-the-number-of count maps (no dynamic multiplier on a token count — rare, unmodeled)."""
+    return _CREATE_QTY.get(str(amt))
+
+
+def _clean_token_spec(spec: str) -> bool:
+    """True iff `spec` is a token the driver can faithfully instantiate: a P/T spec ('1_1_white_soldier_creature')
+    or a known predefined token_def (treasure/food/blood/clue/…). A 'tapped_…' / 'copy_of_…' / unknown-named
+    spec is NOT clean here (the driver would mis-parse it as a bogus subtype) -> the dynamic create abstains."""
+    s = str(spec)
+    parts = s.split("_")
+    if len(parts) >= 3 and parts[0].lstrip("-").isdigit() and parts[1].lstrip("-").isdigit():
+        return True                                           # a numeric P/T spec
+    try:
+        import driver
+        return s in driver.TOKEN_DEFS                         # a known predefined token
+    except Exception:
+        return False
+
+
 # §611.2 static anthem/lord board scopes the engine resolves continuously while the source is in play.
 # Attachment scopes ('enchanted/equipped creature') and opponent-board / token-only scopes still abstain —
 # the engine has no attachment join here — but subtype/type/color lords map via an extra static_filter.
@@ -1634,14 +1680,20 @@ def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
         return h(verb, amt, tgt, extra) if h else None
     if eff == "counter":                                     # §701.5 'counter target spell' — amount unused
         return ("counter", 0, "target_spell")
-    n = _int(amt)
-    if n is None:
-        return None
     if eff == "create_token":                                # §111 the token's spec is in `extra`, not the
         spec = str(extra)                                    # target — carry it through so the driver builds
         if not spec or spec == "-":                          # the right token (P/T/types/subtypes/colors).
             return None
-        return (eff, n, spec)
+        n = _int(amt)
+        if n is not None:                                    # a NUMERIC count -> the static create_token path
+            return (eff, n, spec)
+        tag = _create_count_tag(amt)                         # a DYNAMIC count ('1 per opponent' / 'equal to …'):
+        if tag is None or not _clean_token_spec(spec):       # map it to a faithful live-count tag, paired with a
+            return None                                      # CLEAN spec, else abstain (a wrong count / garbage
+        return ("dyn_create_token", 1, f"{tag}|{spec}")      # token is worse than dropping the clause).
+    n = _int(amt)
+    if n is None:
+        return None
     if eff == "add_counter" and _counter_kind(extra) is None:
         import effect_handlers                                # a NAMED non-P/T counter (burden/loyalty/knowledge)
         effect_handlers.load()                                # on the SOURCE -> the pluggable counters.py handler

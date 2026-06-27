@@ -132,6 +132,25 @@ def _apply_populate(D, state, a, n, tgt, src, ctrl):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# dyn_create_token (§111) — 'create N tokens FOR EACH <a game quantity>'
+# ─────────────────────────────────────────────────────────────────────────────
+@applier("dyn_create_token")
+def _apply_dyn_create_token(D, state, a, n, tgt, src, ctrl):
+    """§111 create (base × live-count) tokens of a fixed spec, the count read at resolution. The bridge
+    (_resolved_effect) emits this only for a CLEAN spec (P/T spec or a known token_def) paired with a count
+    slug driver._dyn_count resolves — REUSING the §STRUCTURAL-#3 count vocabulary (opponents / creature_yc /
+    artifact_yc / land_yc / cards_in_hand / creature_cards_in_gy). `tgt` is 'tag|spec'; `n` is the base
+    multiplier (1). A zero count creates nothing (correct). The tokens ride D._create_token, so token doublers
+    (§614) and summoning sickness apply, and they're PUBLIC (observe.py shows them to every seat)."""
+    tag, _, spec = str(tgt).partition("|")
+    count = D._dyn_count(state, tag, ctrl)
+    total = int(n) * count
+    if total > 0:
+        D._create_token(state, spec, ctrl, total)
+    print(f"    {a}: {ctrl} creates {total} {spec} token(s) (= {n}× {count} {tag})")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # explore (§701.40) — a creature explores
 # ─────────────────────────────────────────────────────────────────────────────
 @encoder("explore")

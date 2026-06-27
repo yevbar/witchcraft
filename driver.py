@@ -335,10 +335,13 @@ def _dyn_count(state: dict, tag: str, ctrl: str) -> int:
     dyn_amount_tag table already restricts to these). Battlefield counts come from the engine's DERIVED
     controls/creature/has_type (so casting-entered permanents and layer effects are included, like
     _creatures_of); hand/graveyard counts come from the zone sets the driver tracks.
+      opponents            — the number of opponents you have (the other players)
       creature_yc          — creatures you control
       artifact_yc/land_yc  — artifacts/lands you control (has_type)
       cards_in_hand        — cards in your hand
       creature_cards_in_gy — creature cards in your graveyard (owned by you, via printed_control + card_type)"""
+    if tag == "opponents":                                    # §111 'for each opponent you have' (token-makers)
+        return len(_others(state, ctrl))
     if tag == "creature_yc":
         return len(_creatures_of(state, ctrl))
     if tag in ("artifact_yc", "land_yc"):
