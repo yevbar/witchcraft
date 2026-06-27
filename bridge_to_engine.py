@@ -110,6 +110,13 @@ _EVENT = {
     # attacking creature you control (an over-fire vs the once-per-combat reading, so kept conservative:
     # only the controller-scoped attacks join, NOT a board-wide 'a creature attacks').
     "you_attack": "you_attack",
+    # §301/§303 ATTACHED-PERMANENT triggers — an Aura/Equipment whose ATTACHED creature O is the subject of a
+    # reused event signal; the engine joins the ev_* signal with attached_to(S, O) (NO new driver signal). The
+    # creature dying/attacking and the aura leaving are simultaneous in ONE engine pass (dies/ev_attacks are
+    # SBAs/windows derived while attached_to still holds — see build_engine), so no §603.10 look-back is needed.
+    "equipped_creature_attacks": "equipped_attacks",                     # Bone Sabres, Captain's Claws (~53)
+    "equipped_creature_deals_combat_damage_to_a_player": "equipped_combat_dmg_player",  # Wand of Orcus, the Swords (~41)
+    "enchanted_creature_dies": "enchanted_dies",                         # Nurgle's Rot, Fool's Demise (~55)
     "the_beginning_of_your_first_main_phase": "first_main_phase",
     "the_beginning_of_your_precombat_main_phase": "first_main_phase",
     "the_beginning_of_your_draw_step": "draw_step",          # §504 (Mana Vault, Howling Mine-likes)
@@ -231,13 +238,21 @@ def _counter_payload(amt, extra) -> str | None:
 _ATTACHED_TGT = {"enchanted_creature", "equipped_creature"}
 
 
-def _attached_counter_payload(amt, tgt, extra) -> str | None:
+def _attached_counter_payload(amt, tgt, extra, attached_source=False) -> str | None:
     """'put N +1/+1 / -1/-1 counters on enchanted/equipped creature' -> a 'p1p1:N'/'m1m1:N' payload the driver
     applies to the attached host (add_counter_attached), or None to abstain (non-attachment target, non-P/T
-    counter, or a variable count). The payload format matches _counter_payload (kind:N)."""
-    if str(tgt) not in _ATTACHED_TGT:
-        return None
-    return _counter_payload(amt, extra)
+    counter, or a variable count). The payload format matches _counter_payload (kind:N).
+
+    `attached_source`: when the SOURCE is itself an Aura/Equipment (so its attached creature is the only host),
+    a bare 'it'/'self' target in a trigger like 'whenever equipped creature attacks, put four +1/+1 counters on
+    IT' (Bone Sabres) refers to THAT attached creature — not the artifact. Without this, the source-counter
+    fallthrough would silently put the P/T counter on the Equipment itself (which isn't a creature). So treat
+    it/self as the attached host when the source is an attachment (the same choice-free host the driver reads)."""
+    if str(tgt) in _ATTACHED_TGT:
+        return _counter_payload(amt, extra)
+    if attached_source and str(tgt) in ("it", "self", "itself"):
+        return _counter_payload(amt, extra)
+    return None
 
 
 # a fixed '+N/+N' / '-N/-N' P/T string (e.g. '+2/+0', '-1/-1') -> (dp, dt). Variable/conditional pumps
@@ -2268,6 +2283,10 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     f = db.get(facts, {})
     out: dict[str, set] = {}
     dropped: list = []
+    # §301/§303 — is this card an ATTACHMENT (Aura / Equipment / Fortification)? Its triggered abilities'
+    # 'it'/'self' references point at the ATTACHED creature, so a counter 'on it' lands on the host (read via
+    # attached_to), not the artifact/enchantment itself. Detected from the §205.3 subtype line.
+    attached_source = bool({"Aura", "Equipment", "Fortification"} & set(c.get("subtypes") or []))
 
     def add(rel, row):
         out.setdefault(rel, set()).add(row)
@@ -2632,7 +2651,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §301/§303 a P/T counter on enchanted/equipped creature (Forced Adaptation, Cocoon, Blade of
                     # the Bloodchief) -> the driver applies it to the attached host (add_counter_attached), and an
                     # attach_counter marker makes _attach_aura attach a bare-trigger Aura (host side by sign).
-                    acp = _attached_counter_payload(amt, tgt, extra)
+                    acp = _attached_counter_payload(amt, tgt, extra, attached_source)
                     if acp is not None:
                         kind = acp.split(":")[0]
                         add("trigger_effect", (a, "add_counter_attached", _int(amt), kind))

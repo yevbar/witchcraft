@@ -1032,6 +1032,18 @@ def _rules(p: Program) -> None:
     # several damaging creatures collapse to ONE firing of S.
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creatures_combat_damage")',
                            "ev_combat_dmg_player(C, _)", "controls(P, C)", "controls(P, S)"])
+    # §301/§303 ATTACHED-PERMANENT trigger family — an Aura/Equipment S fires off an event happening to the
+    # creature O it is attached_to (the bridge maps the §603 attached phrase to these engine kinds). Each
+    # REUSES an existing ev_* signal joined with attached_to(S, O); NO new driver signal. The simultaneous-leave
+    # timing is safe with NO look-back: ev_attacks/ev_combat_dmg_player are driver-fed windows and ev_dies is an
+    # SBA derived (toughness/lethal) while the creature is STILL on the battlefield — so attached_to(S, O) still
+    # holds in the SAME engine evaluation pass (the driver only moves O to the graveyard AFTER reading pending).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "equipped_attacks")', "ev_attacks(O)", "attached_to(S, O)"],
+           note="§508 'whenever equipped creature attacks' (Bone Sabres)")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "equipped_combat_dmg_player")', "ev_combat_dmg_player(O, _)", "attached_to(S, O)"],
+           note="§510 'whenever equipped creature deals combat damage to a player' (Wand of Orcus, the Swords)")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "enchanted_dies")', "ev_dies(O)", "attached_to(S, O)"],
+           note="§704 'whenever enchanted creature dies' (Nurgle's Rot, Fool's Demise)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
