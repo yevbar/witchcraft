@@ -19,6 +19,10 @@ from effect_handlers import applier
 
 @applier("impulse_play")
 def _apply_impulse_play(D, state, a, n, tgt, src, ctrl):
+    # payload tgt: '-' = play for its NORMAL cost (may_play only); 'free' = 'you may play them WITHOUT paying
+    # their mana cost' (Mind's Desire, Oracle's Vault's brick-fed mode) -> also set free_grant so the engine's
+    # free_cast(P,S) :- free_grant(P,S), playable_source(P,S) makes the cast cost 0 (the driver pays no mana).
+    free = str(tgt) == "free"
     lib = state.setdefault("_lib_order", {})
     if ctrl not in lib:                                          # materialize the ordered library (top = index 0)
         lib[ctrl] = sorted(c for (pp, c) in state.get("in_library", set()) if pp == ctrl)
@@ -29,11 +33,15 @@ def _apply_impulse_play(D, state, a, n, tgt, src, ctrl):
     inlib = state.setdefault("in_library", set())
     exile = state.setdefault("exile", set())
     may = state.setdefault("may_play", set())
+    grant = state.setdefault("free_grant", set())
     for c in top:                                              # -> exile, with a 'may play this turn' permission
         inlib.discard((ctrl, c))
         exile.add((c,))
         may.add((ctrl, c))
-    print(f"    {ctrl} exiles top {len(top)} of library and may play them this turn (§608 impulse): {top}")
+        if free:                                              # §118.9 'without paying its mana cost' -> free_cast
+            grant.add((ctrl, c))
+    how = "play them this turn without paying their mana cost" if free else "play them this turn"
+    print(f"    {ctrl} exiles top {len(top)} of library and may {how} (§608 impulse): {top}")
 
 
 def _mv_of(state, c: str) -> int:

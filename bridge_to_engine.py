@@ -1748,7 +1748,47 @@ def _fold_impulse(effs: list, emit) -> set:
                    if v in ("play", "cast") and _is_impulse_card_obj(_t)), None)
     if play_i is None:
         return set()                                            # an exile with no 'play them' clause isn't impulse
-    emit("impulse_play", n, "-")
+    emit("impulse_play", n, _impulse_free(effs[play_i]))
+    return {ex_i, play_i}
+
+
+def _impulse_free(play_clause) -> str:
+    """The impulse_play payload: 'free' iff the play/cast clause says 'WITHOUT PAYING its mana cost' (Mind's
+    Desire, Etali-style; the applier then sets free_grant so the exiled cards cast for 0), else '-' (the
+    exiled cards are played for their normal cost). The 'without paying' tag may ride the target slug or the
+    extra field (the parser places it on either)."""
+    _s, _v, _a, t, x, _c = play_clause
+    return "free" if ("without_paying" in str(t) or "without_paying" in str(x)) else "-"
+
+
+# §608 a CLEAN impulse permission cond — a bare 'you may' / mandatory, with NO embedded restriction. A cond
+# like Nivix's 'may__it_s_an_instant_or_sorcery_spell' restricts WHICH exiled card may be cast; the engine
+# can't gate that on the impulse_play path (it would over-permissively offer every type), so we abstain.
+_IMPULSE_CLEAN_COND = {"may", "-"}
+
+
+def _fold_impulse_activated(effs: list, emit) -> set:
+    """§608 IMPULSE on an ACTIVATED ability ('{cost}: Exile the top N of your library. Until end of turn, you
+    may play them.' — Dark-Dweller Oracle, Professional Face-Breaker, Oracle's Vault). Same shape as
+    _fold_impulse, but the activated path's _ability_effect slot holds ONE effect per ability id, so we fold
+    ONLY when the impulse [exile top N] + [play/cast them] PAIR is the ability's ENTIRE effect list — a sibling
+    clause (Oracle's Vault's 'put a brick counter', Magmatic Channeler's mode choice) would otherwise be split
+    into a second, mutually-exclusive activated_ability row (you'd play the card OR add the counter, never
+    both). We also require a CLEAN permission cond (no 'if it's an instant or sorcery' restriction the engine
+    can't gate). emit -> one impulse_play activated_ability row (free iff 'without paying its mana cost')."""
+    if len(effs) != 2:
+        return set()                                            # not a bare impulse pair -> leave to the loop
+    ex_i = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+                 if v == "exile" and str(t) == "top_of_library" and _int(a) is not None), None)
+    play_i = next((i for i, (_s, v, _a, t, _x, c) in enumerate(effs)
+                   if v in ("play", "cast") and _is_impulse_card_obj(t)
+                   and str(c) in _IMPULSE_CLEAN_COND), None)
+    if ex_i is None or play_i is None or ex_i == play_i:
+        return set()
+    n = _int(effs[ex_i][2])
+    if n is None or n <= 0:
+        return set()                                            # a variable count ('X') -> abstain (leave dropped)
+    emit("impulse_play", n, _impulse_free(effs[play_i]))
     return {ex_i, play_i}
 
 
@@ -3088,6 +3128,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §706 DIE ROLL feeding the next clause on an ACTIVATED ability ('{2}{B/R}{B/R},{T}: Roll a d6.
             # Create that many tokens' — The Big Idea) -> one atomic roll_die activated_ability row.
             act_skip |= _fold_rolldie(act_effs, _emit_act)
+            # §608 IMPULSE on an activated ability ('{cost}: Exile the top N, you may play them this turn') ->
+            # one impulse_play row (only when the impulse pair is the ability's whole effect — see the helper).
+            act_skip |= _fold_impulse_activated(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT

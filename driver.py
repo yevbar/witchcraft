@@ -3860,6 +3860,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}        # §608 per-player nth-cast ordinals reset each turn
         state["_draw_by"] = {}                                   # §603 per-player draw ordinal ('Nth card each turn') resets
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
+        state["free_grant"] = set()                             # §118.9 the impulse 'play without paying' grant expires with may_play
         state["_extra_combats"] = {}; state["_skip_step"] = set()  # §505/§506 + §500.7 turn-structure flags are per-turn
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start

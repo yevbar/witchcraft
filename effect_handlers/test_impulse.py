@@ -45,6 +45,72 @@ def _fold_checks():
     check("impulse does NOT fold a play of an UNRELATED object (not the exiled cards)",
           not fires("top_of_library", "play", "target_land"))
 
+    # §118.9 the impulse_play payload carries the FREE flag when the play clause says 'without paying its mana
+    # cost' (Mind's Desire); the applier then sets free_grant (cast cost 0). A normal impulse carries '-'.
+    payloads = {}
+    B._fold_impulse([(0, "exile", "1", "top_of_library", "-", "-"),
+                     (1, "play", "-", "that_card_without_paying_its_mana_cost", "-", "may")],
+                    lambda e, n, t: payloads.update({e: t}))
+    check("impulse_play carries 'free' for a 'without paying' play clause", payloads.get("impulse_play") == "free")
+    payloads.clear()
+    B._fold_impulse([(0, "exile", "2", "top_of_library", "-", "-"),
+                     (1, "play", "-", "those_cards", "-", "may")],
+                    lambda e, n, t: payloads.update({e: t}))
+    check("impulse_play carries '-' for a normal-cost play clause", payloads.get("impulse_play") == "-")
+
+    # §608 ACTIVATED impulse fold — only when the [exile top N] + [play them] pair is the WHOLE ability.
+    A = lambda effs: B._fold_impulse_activated(effs, lambda *a: None)
+    check("activated impulse folds the bare exile+play pair (Dark-Dweller Oracle)",
+          bool(A([(0, "exile", "1", "top_of_library", "-", "-"), (1, "play", "-", "that_card", "-", "may")])))
+    check("activated impulse ABSTAINS with a sibling clause (Oracle's Vault's brick counter)",
+          not A([(0, "exile", "1", "top_of_library", "-", "-"), (1, "play", "-", "that_card", "-", "may"),
+                 (2, "put_counter", "1", "self", "brick", "-")]))
+    check("activated impulse ABSTAINS on a restricted cond (Nivix: 'if it's an instant or sorcery')",
+          not A([(0, "exile", "1", "top_of_library", "-", "-"),
+                 (1, "cast", "-", "it", "-", "may__it_s_an_instant_or_sorcery_spell")]))
+
+    # end to end: an ACTIVATED impulse_play exiles top N and makes them castable FROM EXILE (the can_cast gate).
+    ast = {"is_player": {("me",)}, "has_priority": {("me",)}, "active_player": {("me",)},
+           "current_step": {("precombat_main",)}, "in_library": {("me", "z1"), ("me", "z2")},
+           "_lib_order": {"me": ["z1", "z2"]}, "exile": set(), "may_play": set(), "free_grant": set(),
+           "spell_type": {("z1", "instant")}, "mana_cost": {("z1", 1)}, "mana_available": {("me", 5)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(ast, {("dwo_a0", "impulse_play", 1, "-", "dwo", "me")})
+    check("activated impulse exiles the top card", ("z1",) in ast["exile"])
+    check("activated impulse makes it castable FROM EXILE (can_cast)",
+          ("me", "z1") in _run(ast, ["can_cast"])["can_cast"])
+    check("a NORMAL-cost impulse does not free-grant the card", ("me", "z1") not in ast["free_grant"])
+
+    # the FREE impulse (Oracle's Vault's brick-fed mode): free_grant -> free_cast -> castable with ZERO mana.
+    fst = {"is_player": {("me",)}, "has_priority": {("me",)}, "active_player": {("me",)},
+           "current_step": {("precombat_main",)}, "in_library": {("me", "w1")}, "_lib_order": {"me": ["w1"]},
+           "exile": set(), "may_play": set(), "free_grant": set(), "spell_type": {("w1", "sorcery")},
+           "mana_generic": {("w1", 4)}, "mana_pip": set(), "mana_available": {("me", 0)}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(fst, {("ov_a1", "impulse_play", 1, "free", "ov", "me")})
+    check("free impulse sets free_grant on the exiled card", ("me", "w1") in fst["free_grant"])
+    check("free impulse makes it castable with ZERO mana (free_cast)",
+          ("me", "w1") in _run(fst, ["can_cast"])["can_cast"])
+
+    # the real corpus cards this recovers resolve CLEAN (no dropped play/cast clause).
+    import card_corpus
+    import sim
+    _db = sim.load_db()
+    _corpus = {c["name"]: c for c in card_corpus.load_cards()}
+    for nm in ("Dark-Dweller Oracle", "Professional Face-Breaker"):
+        _f, _dr = B.card_facts(nm, "me", "x", _db, _corpus)
+        check(f"{nm}: no dropped play/cast clause",
+              not [d for d in _dr if d[0] == "effect" and d[1] in ("play", "cast")])
+    # Oracle's Vault: its FREE brick-fed mode (a1) folds with the 'free' payload (castable for 0 from exile);
+    # its other mode (a0) keeps a sibling brick-counter clause, so that one stays abstained (single-slot path).
+    _ovf, _ = B.card_facts("Oracle's Vault", "me", "x", _db, _corpus)
+    check("Oracle's Vault free mode folds with the 'free' payload",
+          any(r[4] == "impulse_play" and r[6] == "free" for r in _ovf.get("activated_ability", set())))
+    # Nivix's restricted impulse is correctly ABSTAINED (its play/cast clause stays dropped — never mis-cast).
+    _f, _dr = B.card_facts("Nivix, Aerie of the Firemind", "me", "x", _db, _corpus)
+    check("Nivix (restricted impulse) is faithfully abstained (cast clause dropped)",
+          any(d[1] == "cast" for d in _dr if d[0] == "effect"))
+
     # end to end: a TRIGGERED impulse_play exiles top N and flags may_play (the Stella Lee path).
     st = {"is_player": {("me",)}, "in_library": {("me", "z1"), ("me", "z2")}, "_lib_order": {"me": ["z1", "z2"]},
           "exile": set(), "may_play": set()}

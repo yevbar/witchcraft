@@ -451,6 +451,7 @@ def _advance_one(state: dict) -> None:
         state["_combat_damaged"] = set()                       # §510 'dealt combat damage this turn' resets (Tymna)
         state["_cast_by"] = {}; state["_cast_nc_by"] = {}       # §608 per-player nth-cast ordinals reset each turn
         state["may_play"] = set(); state["_flashback"] = set() # §608/§702.34 impulse + flashback permissions expire EOT
+        state["free_grant"] = set()                            # §118.9 impulse 'play without paying' grant expires with may_play
         ctrl = {c for (pp, c) in driver.run(state, ["controls"])["controls"] if pp == nxt}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 wears off
     _develop_if_main(state)
