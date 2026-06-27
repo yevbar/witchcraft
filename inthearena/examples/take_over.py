@@ -93,6 +93,20 @@ def build_live(args):
     return actuator, locator
 
 
+def keep_display_awake():
+    """Stop macOS idling the display into the LOCK SCREEN mid-game — once it locks, clicks land on the lock
+    screen (not MTGA) and the bot silently no-ops while the log still shows a game. `caffeinate -d -i` holds the
+    display + system awake; `-w <pid>` ties it to THIS process so it exits when we do. Best-effort."""
+    import os
+    import subprocess
+    try:
+        subprocess.Popen(["caffeinate", "-d", "-i", "-w", str(os.getpid())],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("keeping the display awake (caffeinate) so the screen doesn't lock mid-game.")
+    except Exception as e:
+        print(f"couldn't start caffeinate ({type(e).__name__}) — the screen may lock during a long unattended run.")
+
+
 def _show(d, choice):
     try:
         line = describe(d, choice)
@@ -232,6 +246,9 @@ def main(argv) -> int:
     # each, so this is the difference between "working" and "looks hung". Keep other libraries quiet.
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logging.getLogger("inthearena").setLevel(logging.INFO)
+
+    if not args.dry_run:                                   # live run -> keep the screen from locking under us
+        keep_display_awake()
 
     from inthearena.mtga import AggroPolicy, ArenaAggroPolicy, BlindRagePolicy, EnginePolicy
     policy = {"blind_rage": BlindRagePolicy, "aggro_arena": ArenaAggroPolicy,
