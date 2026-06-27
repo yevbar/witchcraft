@@ -1738,6 +1738,10 @@ def _fold_threaten(effs: list, emit) -> set:
     if gc_i is None:
         return set()
     _s, _v, amt, tgt, extra, _c = effs[gc_i]
+    if str(_c) not in ("-", "until_end_of_turn"):                # §720 a CONDITIONAL spell-side steal ('if you
+        return set()                                             # did', coin-flip, power-threshold) would fold
+        #                                                          UNCONDITIONALLY -> abstain ('until_end_of_turn'
+        #                                                          rides _c as a pure DURATION marker, allowed).
     cls = _steal_target_class(tgt)
     skip = {gc_i}
     flags = []
@@ -1773,6 +1777,10 @@ def _resolved_effect(verb, amt, tgt, extra, cond="-") -> tuple | None:
         return None                                          # only an UNCONDITIONAL sacrifice resolves faithfully
     if verb == "fight" and str(cond) != "-":                 # §701.12 only an UNCONDITIONAL fight resolves
         return None                                          # faithfully (may / if-kicked / threshold abstain)
+    if verb == "gain_control" and str(cond) != "-":          # §720 a MAY / conditional / coin-flip / power-
+        return None                                          # threshold steal (Exert Influence) is a choice or an
+        #                                                      unevaluable condition; the encoder takes control
+        #                                                      UNCONDITIONALLY, so abstain unless cond is '-'.
     if verb == "prevent_damage":                             # §615 Fog: 'prevent all combat damage this turn'.
         if str(amt) == "all" and ("combat" in str(tgt) or "combat" in str(extra)):
             return ("fog", 0, "-")                           # the driver sets prevent_all_combat for the turn

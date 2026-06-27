@@ -18,7 +18,62 @@ See effect_handlers/__init__.py for the @applier contract.
 """
 from __future__ import annotations
 
-from effect_handlers import applier
+import re
+
+from effect_handlers import applier, encoder
+
+
+# §720 the creature-target class a BARE 'gain control of target creature' clause picks in (no untap/haste
+# riders — those are folded spell-side by bridge_to_engine._fold_threaten). Faithful-or-abstain: only CLEAN,
+# choice-free CREATURE targets resolve; named subtypes / dynamic-count restrictions / 'legendary' / chosen /
+# anaphoric ('it'/'that creature') targets ABSTAIN (the applier picks the strongest enemy creature, which
+# would be WRONG for a restricted or anaphor-bound target). 'any' and 'opponent' both map to 'a creature you
+# don't control' in the applier, so a 'gain control of target creature' steal always aims at an enemy.
+def _steal_target_class(tgt) -> str | None:
+    s = str(tgt)
+    if s in ("target_creature", "another_target_creature", "a_target_creature",
+             "up_to_one_target_creature", "target_creature_or_planeswalker",
+             "target_creature_or_vehicle"):
+        return "any"
+    if s in ("target_creature_an_opponent_controls", "target_creature_you_don_t_control",
+             "up_to_one_target_creature_that_player_controls", "target_creature_that_player_controls",
+             "up_to_one_target_creature_an_opponent_controls"):
+        return "opponent"                                        # a HARD enemy-creature restriction
+    if s == "target_creature_you_control" or s == "another_target_creature_you_control":
+        return "you_control"
+    m = re.match(r"^target_creature_with_mana_value_(\d+)_or_less$", s)
+    if m:                                                        # a LITERAL mana-value cap (not the symbol X)
+        return f"mvle:{m.group(1)}"
+    return None                                                  # everything else -> abstain (faithful)
+
+
+# §720/§514.2 the duration of a bare gain-control clause. A clause whose duration the engine can REVERT at
+# cleanup ('until end of turn') or a TRUE permanent steal (no duration) resolve; any duration that needs a
+# revert the engine can't track ('for as long as you control ~', '~ remains tapped', 'until ~ leaves') would
+# leave a PERMANENT steal where the rules want a temporary one -> ABSTAIN (a wrong duration is unfaithful).
+def _steal_duration(extra) -> str | None:
+    s = str(extra)
+    if s == "until_end_of_turn":
+        return "eot"
+    if s == "-":
+        return "perm"
+    return None                                                 # for_as_long_as / by_<player> / per_opponent
+
+
+@encoder("gain_control")
+def encode_gain_control(verb, amt, tgt, extra):
+    """§720 'gain control of target creature' as a SPELL/TRIGGERED/ACTIVATED effect (Agent of Treachery's
+    ETB, Piper of the Swarm's activated steal). Resolve the bare control grant onto the same eff_gain_control
+    machinery the applier + control-Aura share; abstain on anything not a clean, choice-free creature target
+    with a faithfully-revertable (or permanent) duration. payload = '<class>|<dur>|<flags>' — flags always
+    '-' here (untap/haste riders are folded spell-side by bridge_to_engine._fold_threaten)."""
+    cls = _steal_target_class(tgt)
+    if cls is None:
+        return None
+    dur = _steal_duration(extra)
+    if dur is None:
+        return None
+    return ("gain_control", 0, f"{cls}|{dur}|-")
 
 
 def _mana_value(state, c: str) -> int:
