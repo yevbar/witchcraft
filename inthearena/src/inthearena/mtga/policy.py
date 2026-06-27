@@ -36,21 +36,23 @@ class AggroPolicy:
     def decide(self, d: Decision):
         return getattr(self, f"_on_{d.kind}", self._on_default)(d)
 
-    # priority: land > spell > activate > pass (the whole aggro strategy, one ranking)
+    # priority: land > spell > pass. (Like `mtg.aggro.AggroPlayer`, aggro does NOT proactively ACTIVATE
+    # abilities — it just develops and attacks; mana abilities auto-resolve as part of paying a cost.)
     def _on_actions(self, d: Decision) -> Optional[Action]:
-        # A land drop first (always free). Then a spell/ability — but only one MTGA can AUTO-PAY for
-        # (`auto_payable`): MTGA lists unpayable casts too (a 3-mana spell with 2 available, e.g. Angel of
-        # Vitality), and the click-only bridge can't tap mana itself, so it would jam on it instead of casting
-        # what it can (Lifecreed Duo). This is a CONSERVATIVE engine-less filter: a spell payable only via a tap
-        # SEQUENCE (no autoTapSolution) is legal+playable but gets skipped here — deciding that needs the rules
-        # engine's legal-move search (the `witchcraft` / EnginePolicy path), not an Arena UI hint.
+        # A land drop first (always free). Then a spell MTGA can AUTO-PAY for (`auto_payable`): MTGA lists
+        # unpayable casts too (a 3-mana spell with 2 available, e.g. Angel of Vitality), and the click-only
+        # bridge can't tap mana itself, so it would jam on it instead of casting what it can (Lifecreed Duo).
+        # Conservative, engine-less filter — a spell payable only via a tap SEQUENCE is legal but needs the
+        # rules-engine legal-move search (EnginePolicy) to confirm, not an Arena UI hint.
         land = next((a for a in d.options if a.actionType == _PLAY), None)
         if land is not None:
             return land
-        for kind in (_CAST, _ACTIVATE):
-            move = next((a for a in d.options if a.actionType == kind and a.auto_payable), None)
-            if move is not None:
-                return move
+        cast = next((a for a in d.options if a.actionType == _CAST and a.auto_payable), None)
+        if cast is not None:
+            return cast
+        # Nothing left to develop -> PASS. The executor's advance button reads 'To Combat' in a main phase, so
+        # passing here is exactly "proceed to combat" — we don't get stuck on an ability we don't care about
+        # (e.g. sacrificing a Mind Stone). (Phase is on d.view.phase if a policy wants to branch on it.)
         return next((a for a in d.options if a.actionType == _PASS), None)
 
     # attack with EVERY qualified attacker, each at the opponent (first legal player recipient)

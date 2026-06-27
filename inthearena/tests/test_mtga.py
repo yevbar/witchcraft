@@ -1098,6 +1098,16 @@ def run():
         check("aggro skips the un-auto-payable cast and casts the auto-payable one",
               pol.decide(afford).instanceId == 301)
 
+        # aggro does NOT activate abilities it doesn't want (e.g. sacrifice a Mind Stone) — it PASSES, which the
+        # executor turns into 'To Combat' in a main phase. (Phase is on the view for any policy that wants it.)
+        act_only = _Dec0(kind="actions", seat=1, view=GameView(), req=None, options=[
+            _Act(actionType="ActionType_Activate", instanceId=165),
+            _Act(actionType="ActionType_Pass")])
+        check("aggro passes (proceed to combat) instead of activating an ability it doesn't want",
+              pol.decide(act_only).actionType == "ActionType_Pass")
+        check("the python shim exposes the phase/step for the driver",
+              "Phase" in d_actions.view.phase or d_actions.view.turn.phase is not None)
+
         atk = pol.decide(decisions[1])
         check("aggro attacks with ALL qualified attackers", sorted(x["attackerInstanceId"] for x in atk) == [51, 60])
         check("attackers aimed at the opponent player", atk[0]["target"].playerSystemSeatId == 2)
