@@ -1436,6 +1436,25 @@ def _board_checks():
         me = boardmod.player_point(rect, is_me=True)
         check("player_point: opponent avatar top-left, ours bottom-left (vertical mirror)",
               op[0] < rect.w * 0.1 and op[1] < rect.h * 0.2 and me[1] > rect.h * 0.8)
+
+        # ORDINAL FALLBACK: when the name can't be OCR'd (declare-blockers floods our band with the enlarged
+        # attacker's rules text), place the creature by its slot among our creatures — new permanents append on
+        # the RIGHT (instanceId ascending == left to right).
+        boardmod.ocr.recognize_text = lambda image: [("Choose blockers.", 0.5, 0.5)]   # name NOT legible
+        boardmod.cards.label = lambda g: {200: "Otter", 292: "Wrestler"}.get(g, "?")
+        twocrea = _apply({"type": "GameStateType_Full",
+                          "zones": [{"zoneId": 30, "type": "ZoneType_Battlefield", "ownerSeatId": 1}],
+                          "gameObjects": [{"instanceId": 200, "grpId": 200, "zoneId": 30, "controllerSeatId": 1,
+                                           "cardTypes": ["CardType_Creature"]},
+                                          {"instanceId": 292, "grpId": 292, "zoneId": 30, "controllerSeatId": 1,
+                                           "cardTypes": ["CardType_Creature"]}]})
+        bl = BoardLocator(DryRunActuator(rect=rect, image=object()), me=1)
+        left = bl.locate(200, twocrea)                       # older instanceId -> left slot
+        right = bl.locate(292, twocrea)                      # newer instanceId -> right slot
+        check("BoardLocator ordinal fallback places older-left, newer-right (new appends right)",
+              left is not None and right is not None and left[0] < right[0])
+        check("BoardLocator ordinal fallback uses the creature row height (lower-middle)",
+              0.42 * rect.h < left[1] < 0.66 * rect.h)
     finally:
         boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
 
