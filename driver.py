@@ -133,6 +133,15 @@ def _flip_coin(state: dict, key: str = "coin") -> str:
     return _random(state, key, ("heads", "tails"))
 
 
+def _roll_die(state: dict, key: str, sides: int) -> int:
+    """§706 roll a single dN -> an integer in 1..sides through the SAME seeded chance seam as the coin flip
+    (_random). A search/policy can OBSERVE or FIX the roll via state['_chance']; otherwise it is a uniform
+    draw from the state's seeded RNG, so a game is fully reproducible given its seed and a clone carries its
+    own copy of the stream. NEVER use python's global random here — that would be a clone-safety/repro bug."""
+    sides = max(1, int(sides))
+    return int(_random(state, key, tuple(range(1, sides + 1))))
+
+
 def _tap(state: dict, c: str) -> None:
     """§701.20 tap a permanent AND record it in just_tapped so a 'whenever ~ becomes tapped' trigger (City of
     Brass) can fire at the next _fire_tap_triggers checkpoint. A no-op for the trigger if it was already tapped."""

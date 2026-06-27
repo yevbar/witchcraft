@@ -1648,6 +1648,51 @@ def _fold_coinflip(effs: list, emit) -> set:
     return skip
 
 
+# §706 a die roll that PRODUCES A NUMBER consumed by the very next clause ('roll a d6. You gain life equal to
+# the result'). The parser splits this into two effects — roll_die(1, you, dN) and a consumer whose amount
+# slug is 'equal_to_the_result' / 'equal_to_that_result'. spell_effect/trigger_effect carry NO clause order,
+# and the driver resolves the DYNAMIC ('for each') amounts BEFORE the fixed ones, so the consumer would read
+# the roll before it happened — a two-row split can't work. So we FOLD the roll + its single consumer into ONE
+# atomic roll_die effect (payload 'dN|verb|arg') whose applier rolls through the seeded chance seam and feeds
+# the number to the consumer in-place, guaranteeing order and clone-safety. ABSTAINS unless the consumer is a
+# CLEAN controller/self-scoped numeric verb (gain_life / lose_life-self / draw / +1/+1 on self / create a
+# clean token) — a TARGETED consumer (deal_damage to a creature, lose_life to an opponent), a chosen/odd/even
+# OUTCOME-TABLE, multi-roll-and-choose, or any other shape is left to drop (faithful abstain).
+_ROLL_CONSUME_AMT = {"equal_to_the_result", "equal_to_that_result"}
+_ROLL_SELF_TGT = {"you", "controller", "self", "it", "-"}
+
+
+def _fold_rolldie(effs: list, emit) -> set:
+    roll_i = next((i for i, (_s, v, a, _t, _x, _c) in enumerate(effs)
+                   if v == "roll_die" and _int(a) == 1 and re.fullmatch(r"d\d+", str(_x))), None)
+    if roll_i is None:
+        return set()                                          # no single 1×dN roll -> not our shape
+    # more than one roll in the clause (Valiant Endeavor 'roll TWO d6 and choose one result') -> abstain: the
+    # 'choose / other / difference' arithmetic over multiple results isn't a single fed number.
+    if sum(1 for (_s, v, _a, _t, _x, _c) in effs if v == "roll_die") != 1:
+        return set()
+    die = str(effs[roll_i][4])                                # 'dN'
+    payload = None
+    cons_i = None
+    for i, (_s, v, a, t, x, _c) in enumerate(effs):
+        if i == roll_i:
+            continue
+        amt, tgt, extra = str(a), str(t), str(x)
+        if v in ("gain_life", "draw") and amt in _ROLL_CONSUME_AMT and tgt in _ROLL_SELF_TGT:
+            payload, cons_i = f"{die}|{v}|-", i; break
+        if v == "lose_life" and amt in _ROLL_CONSUME_AMT and tgt in _ROLL_SELF_TGT:
+            payload, cons_i = f"{die}|lose_life|-", i; break
+        if v == "put_counter" and amt in _ROLL_CONSUME_AMT and tgt in ("self", "it", "-") \
+                and _counter_kind(extra) is not None:
+            payload, cons_i = f"{die}|counter|{_counter_kind(extra)}", i; break
+        if v == "create" and amt in _ROLL_CONSUME_AMT and tgt == "token" and _clean_token_spec(extra):
+            payload, cons_i = f"{die}|create|{extra}", i; break
+    if payload is None:
+        return set()                                          # no clean single consumer -> leave roll_die to drop
+    emit("roll_die", 0, payload)
+    return {roll_i, cons_i}
+
+
 def _fold_discard_draw(effs: list, emit) -> set:
     """§700.2 'each player may discard their hand and draw N cards' (Will of the Jeskai mode1) — fold the
     discard-hand clause + the matching draw clause into ONE atomic discard_draw effect (per player it is a
@@ -2595,8 +2640,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 the TYPED-PARTITION zone sort on a TRIGGERED ability ('reveal the top N, put all <type>
             # cards into your hand and the rest on the bottom / in your graveyard') -> one zone_sort effect.
             zs_skip = _fold_zone_sort(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §706 DIE ROLL that feeds the next clause ('roll a d6. Put that many +1/+1 counters on ~' —
+            # Mother Kangaroo / Adorable Kitten / Box of Free-Range Goblins) -> one atomic roll_die effect.
+            roll_skip = _fold_rolldie(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2792,8 +2840,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 sh, dr, scope, zones, dn = wheel
                 add("spell_effect", (tid, "wheel", dn, f"{scope}|{zones}"))
                 wheel_skip = {sh, dr}
+            # §706 DIE ROLL that feeds the next clause ('Roll a d6. Create that many tokens' — Box of Free-Range
+            # Goblins / Steamfloggery) -> one atomic roll_die spell_effect (the roll + its consumer fold).
+            roll_skip = _fold_rolldie(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
@@ -3034,6 +3085,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             act_skip |= _fold_thrasios_dig(act_effs, _emit_act)
             # §603 Nezahal 'Discard three cards: Exile ~, return it tapped' — a self-blink (removal dodge).
             act_skip |= _fold_blink_self(act_effs, _emit_act)
+            # §706 DIE ROLL feeding the next clause on an ACTIVATED ability ('{2}{B/R}{B/R},{T}: Roll a d6.
+            # Create that many tokens' — The Big Idea) -> one atomic roll_die activated_ability row.
+            act_skip |= _fold_rolldie(act_effs, _emit_act)
             if act_skip:
                 emitted = True
             # §605 a {T}/{cost}: 'Add one mana of any color' ACTIVATED mana ability the parser did NOT
