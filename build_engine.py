@@ -252,6 +252,7 @@ INPUTS = [
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
     ("just_gained_life", [("p", "symbol")]),                     # §603 a player whose life just INCREASED — 'whenever you gain life'
     ("ev_search_library", [("p", "symbol")]),                    # §701.18 a player who just searched their library (Wan Shi Tong)
+    ("committed_crime", [("p", "symbol")]),                       # §700.x a player who just committed a crime (driver-fed crime window)
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -1045,6 +1046,21 @@ def _rules(p: Program) -> None:
     # by P when a DIFFERENT player Q searched their library (driver-fed ev_search_library).
     p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_searches_library")',
                            "ev_search_library(Q)", "controls(P, S)", "P != Q"])
+    # §700.x COMMIT A CRIME (MKM): the driver feeds committed_crime(P) when P's spell/ability TARGETED an
+    # opponent or an opponent-controlled/owned object (driver._note_crime), exactly once per crime. The
+    # criminal is P; 'you commit a crime' fires for a watcher S the criminal P controls; 'an opponent / a
+    # player commits a crime' fires for the watchers around P. The 'during your turn' variant adds the
+    # active_player guard so it only fires on the criminal's own turn (Overzealous Muscle).
+    p.decl("ev_committed_crime", [("p", "symbol")])          # §700.x the criminal P (driver-fed crime window)
+    p.rule("ev_committed_crime(P)", ["committed_crime(P)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_commit_a_crime")',
+                           "ev_committed_crime(P)", "controls(P, S)"], note="§700.x 'whenever you commit a crime'")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_commit_a_crime_your_turn")',
+                           "ev_committed_crime(P)", "controls(P, S)", "active_player(P)"], note="§700.x 'whenever you commit a crime during your turn'")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opponent_commits_a_crime")',
+                           "ev_committed_crime(P)", "controls(Q, S)", "P != Q"], note="§700.x 'whenever an opponent commits a crime'")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "any_commits_a_crime")',
+                           "ev_committed_crime(P)", "controls(_, S)"], note="§700.x 'whenever a player commits a crime'")
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles): the SOURCE S
     # fires when a creature C its controller P also controls dealt combat damage — fires(A,S) is a SET, so the
     # several damaging creatures collapse to ONE firing of S.

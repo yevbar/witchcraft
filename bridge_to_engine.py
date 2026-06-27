@@ -46,6 +46,14 @@ _EVENT = {
     # §701.18 'whenever an opponent searches their library' (Wan Shi Tong) — fired by the driver whenever a
     # player searches their library; the engine fires it for that player's OPPONENTS' watchers.
     "an_opponent_searches_their_library": "opponent_searches_library",
+    # §700.x 'whenever you commit a crime' (MKM — Deepmuck Desperado, Marauding Sphinx, Magda, …) — the driver
+    # fires committed_crime(P) when P's spell/ability TARGETS an opponent or an opponent-controlled/owned
+    # object (see driver._note_crime). The engine fires you_commit_a_crime for the criminal P, and the
+    # opponent-scoped variants (an_opponent / a_player) for the watchers around P.
+    "you_commit_a_crime": "you_commit_a_crime",
+    "you_commit_a_crime_during_your_turn": "you_commit_a_crime_your_turn",
+    "an_opponent_commits_a_crime": "opponent_commits_a_crime",
+    "a_player_commits_a_crime": "any_commits_a_crime",
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles) — fires once
     # per combat for the controller (set semantics dedupe the per-creature ev_combat_dmg_player).
     "one_or_more_creatures_you_control_deal_combat_damage_to_a_player": "your_creatures_combat_damage",

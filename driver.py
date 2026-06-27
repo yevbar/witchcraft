@@ -1085,6 +1085,12 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
     triggered abilities (kind='trigger') and §608 instant/sorcery resolution (kind='spell'). A P/T
     pump or keyword grant is an until-EOT continuous effect; destroy/exile/return/tap/untap are §701
     one-shot zone/state moves. `kind` only flavors the log line."""
+    # §700.x COMMIT A CRIME — this targeted verb is a crime iff the targeted object belongs to an OPPONENT
+    # of the source's controller (targeting your own permanent is never a crime). Noted BEFORE the verb so
+    # the still-present target's controller is read. _note_crime fires the 'whenever you commit a crime'
+    # triggers exactly once per (controller, source). Beneficial verbs (a pump/grant on your own creature)
+    # have owner_of[tgt] == ctrl and are correctly skipped; a buff aimed at an opponent's creature IS a crime.
+    _note_crime(state, ctrl, owner_of.get(tgt), a)
     if verb == "modify_pt":
         dp, dt = (int(x) for x in payload.split("/"))
         eid = f"{a}__pt__{tgt}"
@@ -1487,6 +1493,56 @@ def _fire_search_triggers(state: dict, searcher: str) -> None:
     finally:
         state["ev_search_library"] = set()
         state["_in_search_trigger"] -= 1
+
+
+def _note_crime(state: dict, ctrl: str, victim_owner: str | None, source: str) -> None:
+    """§700.x — a player COMMITS A CRIME when a spell/ability/action they control TARGETS an opponent, a
+    permanent/spell/ability an opponent controls, or a card in an opponent's graveyard. The driver calls this
+    from the single-target resolution chokepoints once a chosen target's CONTROLLER/OWNER is known: `ctrl` is
+    the player who controls the targeting source, `victim_owner` the opponent who controls/owns the targeted
+    object (or the opponent player themselves, for a player-target effect), and `source` the spell/ability id
+    doing the targeting. A crime fires ONLY when victim_owner is a DIFFERENT player than ctrl (targeting your
+    own object is not a crime). De-duped per (ctrl, source) so a multi-target / multi-effect source that hits
+    an opponent more than once fires the crime ONCE, not once per target. The trigger loop runs in
+    _fire_crime_triggers.
+
+    FAITHFULNESS / MOMENT: the rules commit the crime when targets are CHOSEN (at announcement, as the
+    spell/ability goes on the stack). This engine does not expose chosen targets at cast/activate time —
+    targets are picked transiently at RESOLUTION (see _pick_target / _apply_target_verb / _apply_damage). So
+    the crime is detected at resolution, the first point the targeted object's controller is known. For the
+    'whenever you commit a crime' payoffs this models (counters, draw, drain — none care about the intervening
+    announce->resolve window), the observable outcome matches; the only divergence is the exact timing of the
+    crime relative to an opponent's response window, which this engine does not simulate at target granularity."""
+    if victim_owner is None or victim_owner == ctrl:
+        return                                                # targeting your own object / no opponent owner — not a crime
+    seen = state.setdefault("_crime_noted", set())
+    key = (ctrl, source)
+    if key in seen:                                           # once per crime (per source), not once per target
+        return
+    seen.add(key)
+    _fire_crime_triggers(state, ctrl)
+
+
+def _fire_crime_triggers(state: dict, criminal: str) -> None:
+    """§700.x fire 'whenever you commit a crime' triggers (MKM — Deepmuck Desperado, Marauding Sphinx, …) for
+    a crime just committed by `criminal` (their spell/ability targeted an opponent's stuff — see _note_crime).
+    Driver-fed committed_crime opens the window; the engine fires the watchers CONTROLLED BY the criminal
+    (you_commit_a_crime) and that player's opponents (an_opponent_commits_a_crime / a_player_commits_a_crime).
+    Apply only the NEW pending the window produces (diff vs. pre-window) so unrelated standing triggers aren't
+    re-applied; a re-entrancy guard caps a crime-trigger that itself commits a crime."""
+    if state.get("_in_crime_trigger", 0) >= 8:
+        return
+    before, before_dyn = _pending_both(state)
+    state["_in_crime_trigger"] = state.get("_in_crime_trigger", 0) + 1
+    try:
+        state["committed_crime"] = {(criminal,)}
+        now, now_dyn = _pending_both(state)
+        new, new_dyn = now - before, now_dyn - before_dyn
+        state["committed_crime"] = set()                     # CLOSE the window before applying the new triggers
+        _apply_effects(state, new, new_dyn)
+    finally:
+        state["committed_crime"] = set()
+        state["_in_crime_trigger"] -= 1
 
 
 def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
@@ -2888,32 +2944,40 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
         else:
             print(f"      {label} deals {n} to {p} -> {_adjust_life(state, p, -n)} life")
 
+    owner_of = {c: p for (p, c) in controls}                  # §700.x for the crime check below — a hit creature's controller
     if kind == "self":
-        hit_player(ctrl)
+        hit_player(ctrl)                                       # 'damage to you' targets the controller — never a crime
     elif kind == "face":
         if opp is not None:
+            _note_crime(state, ctrl, opp, label)              # §700.x burn targeting an opponent player IS a crime
             hit_player(opp)
     elif kind.startswith("creature_fixed:"):                  # §701.12 a FIXED creature (fight): the target is
         tgt = kind.split(":", 1)[1]                            # already chosen — apply n to THAT creature, lethal
         if tgt not in creatures or tgt not in on_bf:           # if n >= its toughness (unless indestructible/regen)
             print(f"      {label} has no creature {tgt} to damage")
-        elif tough.get(tgt, 1) <= n:
-            kill(tgt)
         else:
-            print(f"      {label} deals {n} to {tgt} (non-lethal)")
+            _note_crime(state, ctrl, owner_of.get(tgt), label)  # §700.x crime iff the fought creature is an opponent's
+            if tough.get(tgt, 1) <= n:
+                kill(tgt)
+            else:
+                print(f"      {label} deals {n} to {tgt} (non-lethal)")
     elif kind in ("creature_any", "creature_opponent"):
         tgt = best_killable() or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
         if tgt is None:
             print(f"      {label} has no creature to damage")
-        elif tough.get(tgt, 1) <= n:
-            kill(tgt)
         else:
-            print(f"      {label} deals {n} to {tgt} (non-lethal)")
+            _note_crime(state, ctrl, owner_of.get(tgt), label)  # §700.x crime iff the damaged creature is an opponent's
+            if tough.get(tgt, 1) <= n:
+                kill(tgt)
+            else:
+                print(f"      {label} deals {n} to {tgt} (non-lethal)")
     elif kind == "any_target":                                # kill a real threat if we can, else go face
         tgt = best_killable()
         if tgt is not None:
+            _note_crime(state, ctrl, owner_of.get(tgt), label)  # §700.x 'any target' resolving onto an opponent's creature
             kill(tgt)
         elif opp is not None:
+            _note_crime(state, ctrl, opp, label)              # §700.x 'any target' going to an opponent's face
             print(f"      {label} deals {n} to {opp} -> {_adjust_life(state, opp, -n)} life")
     elif kind.startswith(("all_creatures", "all_ground", "all_flyers")):   # §120 a board sweeper (Pyroclasm,
         flyers = {c for (c, k) in run(state, ["has_keyword"])["has_keyword"] if k == "flying"}  # Earthquake, Hurricane)
@@ -3720,6 +3784,7 @@ def _end_of_turn(state: dict) -> None:
     state["cant_be_regenerated"] = set()                     # §701.15g the 'can't be regenerated this turn' rider
     state["_spend_any_color"] = set()                        # §106.6 'spend mana as though any color' is a per-turn grant
     state["_damage_redirect"] = {}                           # §616 a 'damage to you is dealt to <creature>' redirect this turn
+    state["_crime_noted"] = set()                            # §700.x reset the per-(controller, source) crime dedup each turn
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
