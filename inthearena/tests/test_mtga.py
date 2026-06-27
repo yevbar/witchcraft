@@ -876,12 +876,21 @@ def _hand_checks():
         ok = play_land(a, None, _hand({70}), 1, plays(70), 70)
         check("play_land: clicks a land that's legible at rest", ok and len(a.clicks) == 2)
 
-        # (2) nothing identifiable, no detection -> hover-reveal sweeps but clicks NOTHING (shadow, no misclick)
+        # (2) AMBIGUOUS multi-card hand, nothing identifiable, no detection -> hover-reveal sweeps but clicks NOTHING
+        # (shadow, no misclick). Two cards means the land's slot can't be pinned without reading a name.
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: []
         a2 = DryRunActuator(rect=rect, image=object())
-        ok2 = play_land(a2, None, _hand({60}), 1, plays(60), 60)
-        check("play_land: shadows (no click) when it can't identify a land — never misclicks",
+        ok2 = play_land(a2, None, _hand({60}, {61}), 1, plays(60), 60)
+        check("play_land: shadows (no click) when it can't identify a land in an ambiguous hand — never misclicks",
               ok2 is False and a2.clicks == [] and len(a2.moves) > 0)
+
+        # (2b) a SINGLE card in hand that's the wanted land -> UNAMBIGUOUS, click the hand centre (even though OCR
+        # can't read the basic land). MTGA rests a lone card centred; clicking it is the common late land drop.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: []
+        a2b = DryRunActuator(rect=rect, image=object())
+        ok2b = play_land(a2b, None, _hand({60}), 1, plays(60), 60)
+        check("play_land: plays a lone wanted land at the hand centre (no OCR needed — unambiguous)",
+              ok2b and len(a2b.clicks) == 2 and abs(a2b.clicks[0][0] - (rect.x + rect.w // 2)) <= 2)
 
         # (3) no land legible at rest -> lands sort LEFTMOST (MTGA orders the hand by mana value), so click just
         # LEFT of the leftmost legible card. Bravo/Charlie legible at x 900/1030 (spacing 130) -> click ~770.

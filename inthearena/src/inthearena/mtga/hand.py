@@ -484,7 +484,9 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     else:
         top_y = rect.y + int(0.88 * rect.h)
         slots = max(n, 1)
-        xs = [int(lo + k * (hi - lo) / max(slots - 1, 1)) for k in range(slots)]
+        cx = rect.x + rect.w / 2.0                      # MTGA centres the fan; spread nominal steps about the centre
+        span = (slots - 1) * _FAN_SPACING               # (NOT lo..hi — a small hand doesn't fill the whole band, and
+        xs = [int(cx - span / 2 + k * _FAN_SPACING) for k in range(slots)]   # collapsing 1 slot to `lo` hovered empty)
     span = sorted(xs)
     return [(sx, _bowed_y(sx, span, top_y)) for sx in xs]
 
@@ -557,6 +559,20 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         _log.info("  %s: a wanted card is legible at rest — playing at %s", label, hit)
         play_card(actuator, hit)
         return True
+
+    # 1b) SINGLE card in hand and it's the one we want? Then it's UNAMBIGUOUS — no need to read it (OCR can't read a
+    # basic land anyway). MTGA rests a lone card at the hand CENTRE (screen-centred), so click there directly. This
+    # is the common late-game land drop (one card, it's the land) that no anchor/reveal can otherwise place.
+    if len(screen) == 1:
+        only = screen[0]
+        o = view.objects.get(only)
+        nm = _norm_name(cards.label(o.grpId) if o else "")
+        if nm in want or only in set(want.values()):
+            cx = rect.x + rect.w // 2
+            cy = rect.y + int(rect.h * _NAME_Y)
+            _log.info("  %s: only one card in hand and it's wanted — playing it at the hand centre (%d,%d)", label, cx, cy)
+            play_card(actuator, (cx, cy))
+            return True
 
     # 2) The land is OCCLUDED (OCR can't read basic-land names — Vision returns nothing for "Plains" etc. even on a
     # fully-visible card). MTGA fans the hand in DRAW order: oldest-left, newest-right (the just-drawn card lands in
