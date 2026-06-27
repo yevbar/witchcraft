@@ -58,6 +58,13 @@ _EVENT = {
     "a_creature_dies": "other_creature_dies",
     "another_creature_you_control_dies": "your_creature_dies",
     "a_creature_you_control_dies": "your_creature_dies",
+    # §603 'whenever a creature AN OPPONENT CONTROLS dies' (Yahenni, Malakir Cullblade) — fires for the source's
+    # controller when a creature dies that some OTHER player controls (the dier's controller != the source's).
+    "a_creature_an_opponent_controls_dies": "opp_creature_dies",
+    # §603 'whenever a/another creature OR PLANESWALKER you control dies' (Cruel Celebrant, Ajani's Last Stand,
+    # Rising Populace) — controller-scoped union over the two types; reuses ev_dies (no new driver signal).
+    "a_creature_or_planeswalker_you_control_dies": "your_creature_or_pw_dies",
+    "another_creature_or_planeswalker_you_control_dies": "your_creature_or_pw_dies",
     # §601 cast triggers — the driver feeds cast_spell for the cast window.
     "you_cast": "you_cast",
     "you_cast_a_spell": "you_cast",

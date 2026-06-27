@@ -946,6 +946,13 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_etb")', "ev_etb(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "other_creature_dies")', "ev_dies(O)", "O != S", "creature(O)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_dies")', "ev_dies(O)", "O != S", "creature(O)", "controls(P, O)", "controls(P, S)"])
+    # §603 'a creature an OPPONENT controls dies' — same ev_dies, but the dier's controller (Q) differs from the
+    # source's controller (P). Fires for the watcher only on a creature OTHER players control, never its own.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "opp_creature_dies")', "ev_dies(O)", "O != S", "creature(O)", "controls(Q, O)", "controls(P, S)", "Q != P"])
+    # §603 'a/another creature OR PLANESWALKER you control dies' — controller-scoped union over the two types
+    # (mirrors the typed-ETB has_type join); two rules = the 'creature or planeswalker' disjunction.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_or_pw_dies")', "ev_dies(O)", "O != S", 'has_type(O, "creature")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_or_pw_dies")', "ev_dies(O)", "O != S", 'has_type(O, "planeswalker")', "controls(P, O)", "controls(P, S)"])
     # §603 TYPED 'a/another <type> you control enters' — controller-scoped, restricted by card type/subtype.
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_land_etb")', "ev_etb(O)", "O != S", 'has_type(O, "land")', "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_artifact_etb")', "ev_etb(O)", "O != S", 'has_type(O, "artifact")', "controls(P, O)", "controls(P, S)"])
