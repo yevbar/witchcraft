@@ -386,6 +386,20 @@ def _navigate_checks():
     x, y = resolve(ViewElement("Play", SA.BOTTOM_RIGHT), Rect(0, 0, 1000, 800))
     check("resolve: bottom-right anchor -> bottom-right pixels", x > 500 and y > 400)
 
+    # smooth_path: a DENSE, smoothstep-eased glide for the LIVE cursor (no per-segment pyautogui stutter) —
+    # ends exactly on target, slow at the ends / fast in the middle (eased), small steps (smooth)
+    import math as _m
+    import random as _rnd
+    from inthearena.mtga.navigate import smooth_path
+    sp = smooth_path((100, 900), (1400, 950), frames=40, rng=_rnd.Random(0))
+    seg = [_m.dist(sp[i], sp[i + 1]) for i in range(len(sp) - 1)]
+    check("smooth_path is dense and lands exactly on target", len(sp) == 40 and sp[-1] == (1400, 950))
+    check("smooth_path eases (smaller steps at the ends than the middle)",
+          seg[0] < seg[len(seg) // 2] and seg[-1] < seg[len(seg) // 2])
+    straight = smooth_path((100, 900), (1400, 900), frames=20, rng=_rnd.Random(1), curve=0.0, wobble=0.0)
+    check("smooth_path straight glide when curve=wobble=0 (x monotonic, y flat — no wiggle)",
+          all(a[0] <= b[0] for a, b in zip(straight, straight[1:])) and all(p[1] == 900 for p in straight))
+
     # interaction is a CURVED, speed-jittered glide A->B then a click — not a straight teleport
     import math
     dry = DryRunActuator(rect=Rect(0, 0, 1000, 800), steps=10, jitter=0.5, wobble=6, curve=0.18, seed=1)

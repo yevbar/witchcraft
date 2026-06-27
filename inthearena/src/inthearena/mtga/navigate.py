@@ -196,6 +196,38 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
     return [(pt, total_duration * w / total) for pt, w in zip(pts, weights)]
 
 
+def smooth_path(a: tuple, b: tuple, *, frames: int, rng: random.Random, curve: float = 0.18,
+                wobble: float = 1.0) -> list:
+    """A DENSE list of points along a gentle cubic-Bézier arc a->b, for FINE, evenly-timed cursor stepping —
+    the smooth alternative to `jittered_segments`' few human-jittery waypoints (which, played one-pyautogui-call-
+    per-segment, stutter). `t` is eased by smoothstep so the motion accelerates out of a and decelerates into b
+    (natural, not robotic) while the per-frame TIME stays even; a tiny `wobble` tapers to 0 at the ends; the last
+    point is exactly b. Pass curve=wobble=0 for a dead-straight glide."""
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / length, dx / length                     # unit perpendicular
+    side = rng.uniform(-1.0, 1.0) * curve * length         # one arc to a random side
+    o1, o2 = side * rng.uniform(0.6, 1.0), side * rng.uniform(0.6, 1.0)
+    c1 = (ax + dx / 3.0 + nx * o1, ay + dy / 3.0 + ny * o1)
+    c2 = (ax + 2.0 * dx / 3.0 + nx * o2, ay + 2.0 * dy / 3.0 + ny * o2)
+    n = max(2, int(frames))
+    out = []
+    for i in range(1, n + 1):
+        u = i / n
+        t = u * u * (3.0 - 2.0 * u)                         # smoothstep ease-in-out (even time -> eased speed)
+        v = 1.0 - t
+        cx = v * v * v * ax + 3 * v * v * t * c1[0] + 3 * v * t * t * c2[0] + t * t * t * bx
+        cy = v * v * v * ay + 3 * v * v * t * c1[1] + 3 * v * t * t * c2[1] + t * t * t * by
+        if i < n and wobble:
+            off = rng.uniform(-wobble, wobble) * math.sin(math.pi * t)
+            cx, cy = cx + nx * off, cy + ny * off
+        out.append((round(cx), round(cy)))
+    out[-1] = (bx, by)                                     # land exactly on target
+    return out
+
+
 class Actuator(Protocol):
     """Performs physical interactions. `window_rect()` locates the client, `position()` reads the cursor,
     `screenshot()` grabs the screen (for a vision locator), `move_and_click(x, y)` travels the cursor from where
@@ -318,22 +350,22 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, steps: int = 9,
-                 jitter: float = 0.2, wobble: float = 2.5, curve: float = 0.18, tween=None,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, frames: int = 40,
+                 wobble: float = 1.0, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
+        pyautogui.PAUSE = 0                                 # NO 0.1s sleep after every call — that's the stutter
         if rect is None:
             w, h = pyautogui.size()
             rect = Rect(0, 0, int(w), int(h))
         self._rect = rect
         self._duration = duration
-        self._steps = steps
-        self._jitter = jitter
+        self._frames = frames                              # dense sub-steps per move -> a smooth glide
         self._wobble = wobble
         self._curve = curve
-        self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
+        self._tween = tween
         self._rng = random.Random(seed)
         self._no_click = no_click                          # move the cursor but never press (safe verification)
         self._capture = capture                            # optional region grabber (e.g. just the MTGA window)
@@ -360,16 +392,17 @@ class PyAutoGuiActuator:
              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         total = self._duration if duration is None else duration
         cur = self._pg.position()
-        # travel a->b as wobbled, speed-jittered sub-segments so the real cursor neither runs dead straight
-        # nor moves at a constant speed (curve/wobble can be overridden to 0 for a straight, precise approach)
-        for (px, py), dur in jittered_segments((cur[0], cur[1]), (x, y), steps=self._steps,
-                                               total_duration=total, jitter=self._jitter, rng=self._rng,
-                                               wobble=self._wobble if wobble is None else wobble,
-                                               curve=self._curve if curve is None else curve):
-            if self._tween is not None:
-                self._pg.moveTo(px, py, duration=dur, tween=self._tween)
-            else:
-                self._pg.moveTo(px, py, duration=dur)
+        # Play a DENSE, smoothstep-eased Bézier path with EVEN per-frame timing — a fluid glide. (The old way,
+        # one pyautogui.moveTo per coarse waypoint, stuttered: PAUSE=0.1s fired between segments and the tween
+        # decelerated at each.) Each frame is an instant move (PAUSE is 0) + a small even sleep.
+        pts = smooth_path((cur[0], cur[1]), (x, y), frames=self._frames, rng=self._rng,
+                          curve=self._curve if curve is None else curve,
+                          wobble=self._wobble if wobble is None else wobble)
+        dt = total / len(pts)
+        for px, py in pts:
+            self._pg.moveTo(px, py)                         # instant (duration 0); PAUSE disabled in __init__
+            if dt:
+                time.sleep(dt)
 
     def hover(self, x: int, y: int, *, duration: Optional[float] = None,
               curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
