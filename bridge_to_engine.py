@@ -417,6 +417,10 @@ _DAMAGE_TARGET = {
     "any_target": "any_target",
     "target_player": "face", "target_opponent": "face", "each_opponent": "face",
     "that_player": "face", "target_player_or_planeswalker": "face",
+    # §115 'target OPPONENT or planeswalker' (Fireblade Artist, Jeskai Charm, Cult Guildmage): choosing the
+    # opponent is a legal subset of the printed target (the driver's 'face' damages an opponent, never the
+    # PW alternative — faithful, exactly like target_player_or_planeswalker above).
+    "target_opponent_or_planeswalker": "face",
     "you": "self", "yourself": "self",
     # 'deal N damage to each of one or two targets' (Prismari Charm mode 2): one chosen target is a legal
     # subset of 'one or two' -> any target (the driver kills a finishable threat or goes face).
