@@ -335,6 +335,18 @@ def _engine_checks():
     check("engine: resolve_choice won't aim at ourselves (alice -> 0.0)",
           hp.resolve_choice(g, _TgtMove("alice")) == 0.0)
 
+    # REGRESSION (land-first stall): the engine must surface the §305 land drop as a MOVE and a land-first
+    # player must PLAY it. Needs BOTH _explicit_lands (so the move appears at all) AND spell_type(inst,"land")
+    # fed as a shim input (so _playable_lands recognises it) — without either the engine auto-develops / sees
+    # no land, HeuristicPlayer passes, and the real land in hand is discarded at end of turn. (view has a Plains
+    # in hand on our precombat main.)
+    check("engine: state carries _explicit_lands + spell_type(…, 'land')",
+          st.get("_explicit_lands") is True and any(t == "land" for (_i, t) in st.get("spell_type", set())))
+    land_plays = [m for m in g.legal_moves if getattr(m, "kind", None) == "play"]
+    check("engine: a land in hand surfaces a 'play' move", len(land_plays) >= 1)
+    check("engine: HeuristicPlayer PLAYS the land, not pass",
+          getattr(HeuristicPlayer().bind(g, "alice").choose_move(g), "kind", None) == "play")
+
     # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
     brawl = _apply({"type": "GameStateType_Full",
                     "gameInfo": {"variant": "GameVariant_Brawl", "superFormat": "SuperFormat_Constructed"},

@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander", "attacks")
+              "command_zone", "is_commander", "attacks", "spell_type")
 
 
 def _eng(token: str) -> str:
@@ -97,6 +97,11 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
         s["instance_of"].add((inst, slug))
         for ct in o.cardTypes:
             s["printed_type"].add((inst, _eng(ct)))
+            # spell_type is a SHIM INPUT keyed per-instance (engine.dl SHIM_INPUTS), NOT derived from
+            # printed_type. _playable_lands gates on spell_type(inst, "land") and can_cast on spell_type(inst,
+            # "instant"/"sorcery"/…) — so without feeding it the engine sees NO playable lands and NO castable
+            # spells for a determinized card, and a land-first player just passes. Fed from the GRE card types.
+            s["spell_type"].add((inst, _eng(ct)))
         for st in o.subtypes:
             s["printed_subtype"].add((inst, _eng(st)))
         for sup in o.superTypes:
@@ -160,6 +165,11 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     s["_turn"] = view.turn.turnNumber or 0
     s["_seed"] = seed
     s["_variant"] = view.variant                           # brawl / two-player, from the match's format
+    # §305 EXPLICIT land drops: the bridge must surface "play a land" as an engine MOVE so it can ENACT it as an
+    # MTGA click — without this the engine auto-develops lands in its own model and never offers the move, so a
+    # land-first player (HeuristicPlayer/AggroPlayer all list Do.LANDS) sees no land to play and PASSES, stranding
+    # the real land in hand into the end-of-turn discard. `Game.from_state` reads this flag off the state.
+    s["_explicit_lands"] = True
     return s
 
 
