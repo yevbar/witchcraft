@@ -451,6 +451,14 @@ def land_play_options(view, options) -> list:
     return out
 
 
+def _name_matches(want_name: str, text: str) -> bool:
+    """Does OCR `text` name the wanted card? Fuzzy ratio, OR the wanted name appears as a standalone WORD in the
+    text — a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (and often only that, not a clean
+    'Plains'), where the plain fuzzy ratio of 'plains' vs 'basic land plains' is only ~0.35 and would miss it."""
+    t = _norm_name(text)
+    return _name_score(want_name, t) >= _NAME_MATCH or want_name in t.split()
+
+
 def _land_hit(named: list, want: dict, *, near_x=None, max_dist=None):
     """First (x, y) in `named` whose text matches a wanted land name (`want`: normalized-name -> instanceId, in
     PREFERENCE order). With `near_x`/`max_dist`, restrict to names within that x-distance (the magnified card
@@ -458,12 +466,12 @@ def _land_hit(named: list, want: dict, *, near_x=None, max_dist=None):
     if near_x is None:
         for nm in want:                                # preference order: the bot's pick first
             for text, x, y in named:
-                if _name_score(nm, _norm_name(text)) >= _NAME_MATCH:
+                if _name_matches(nm, text):
                     return x, y
         return None
     best, best_d = None, None
     for text, x, y in named:
-        if any(_name_score(nm, _norm_name(text)) >= _NAME_MATCH for nm in want):
+        if any(_name_matches(nm, text) for nm in want):
             d = abs(x - near_x)
             if max_dist is not None and d > max_dist:
                 continue
@@ -667,6 +675,11 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
     anchors = _name_anchors(view, seat, screen, named)
+    if not anchors and len(named) >= 2:
+        # _name_anchors needs UNIQUELY-named legible cards to pin slots; a hand with DUPLICATES (e.g. two Lifecreed
+        # Duos) yields none, collapsing the sweep to a too-narrow uniform fan that misses the real cards. Their X
+        # positions still calibrate the fan, so use them as POSITIONAL anchors (left-to-right index as the slot).
+        anchors = [(i, t[1], t[2]) for i, t in enumerate(sorted(named, key=lambda t: t[1]))]
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
     max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack

@@ -1084,6 +1084,13 @@ def _hand_checks():
     check("_reveal_positions bows the hover y down toward the edges (arc)",
           rys[0] > min(rys) and rys[-1] > min(rys))
 
+    # a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (often not a clean 'Plains'); the wanted
+    # name must still match it (as a word), or the reveal skips a real land and grabs something else.
+    from inthearena.mtga.hand import _name_matches
+    check("_name_matches: 'Basic Land - Plains' counts as the wanted 'plains'", _name_matches("plains", "Basic Land - Plains"))
+    check("_name_matches: a clean 'Plains' matches", _name_matches("plains", "Plains"))
+    check("_name_matches: a non-land name does NOT match 'plains'", not _name_matches("plains", "Lifecreed Duo"))
+
 
 def _engine_policy_checks():
     """EnginePolicy translates a witchcraft engine move back to the MTGA option by the encoded instanceId, and
