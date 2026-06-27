@@ -389,6 +389,19 @@ def _is_land(view, instance_id) -> bool:
     return bool(o and "CardType_Land" in (o.cardTypes or []))
 
 
+def _hand_names(view, seat: int) -> set:
+    """Normalized NAMES of the cards currently in `seat`'s hand. Used to reject OCR text that isn't a hand card —
+    on a busy board the battlefield's permanents (already-cast creatures) bleed into the hand name-band and would
+    otherwise be taken as legible 'hand' cards, anchoring the occluded-land guess on the wrong position."""
+    out = set()
+    for inst in hand_members(view, seat):
+        o = view.objects.get(inst)
+        nm = _norm_name(cards.label(o.grpId) if o else "")
+        if nm:
+            out.add(nm)
+    return out
+
+
 def on_mulligan_screen(image) -> bool:
     """True if `image` still shows the mulligan Keep / Mulligan buttons (their text labels in the lower band).
     The opening-hand keep can lag the GRE: the first-turn actions request is logged while the client is still
@@ -525,6 +538,19 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
 
     named = locate_named_cards(image, rect)
 
+    # Drop OCR text that isn't a card in HAND — the battlefield's permanents (already-cast creatures) bleed into the
+    # name-band on a busy board. Anchoring the occluded-land guess on a battlefield card put the click on the wrong
+    # hand card and PLAYED it (cast an artifact instead of the land). Keep only names that match a real hand card.
+    hand_names = _hand_names(view, seat)
+    if hand_names and named:
+        kept = [(t, x, y) for (t, x, y) in named
+                if any(_name_score(_norm_name(t), hn) >= _NAME_MATCH for hn in hand_names)]
+        if len(kept) != len(named):
+            dropped = [t for (t, _x, _y) in named if (t, _x, _y) not in kept]
+            _log.info("  %s: ignoring %d OCR name(s) not in hand (board bleed): %s",
+                      label, len(named) - len(kept), dropped)
+        named = kept
+
     # 1) a wanted card legible at rest?
     hit = _land_hit(named, want)
     if hit is not None:
@@ -537,13 +563,14 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     # the RIGHTMOST slot — confirmed live). So the occluded land sits on whichever EDGE matches its draw recency:
     #   • if the just-drawn card (the max-instanceId hand member) is itself a land -> it's the RIGHTMOST card;
     #   • otherwise the wanted lands are older/held -> they're to the LEFT of the legible (newer) cards.
-    # Click one fan-step past the legible run on that edge, lowered a touch for the arc. No instanceId-slot
-    # interpolation (that was non-monotonic per hand) — just the reliable newest-goes-right invariant.
-    if prefer_left and len(named) >= 1:
-        legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right
+    # Step one MEASURED fan-gap past the legible run on that edge, lowered a touch for the arc. Requires >=2 legible
+    # HAND cards: with only one, the inter-card spacing is unknown and a guessed step landed ON the neighbour and
+    # PLAYED it (cast an artifact instead of the land) — so a single anchor falls through to reveal/shadow instead.
+    if prefer_left and len(named) >= 2:
+        legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right (real hand cards only — bleed filtered)
         xs = [t[1] for t in legible]
         gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING   # 1 legible -> no measurable gap, use default step
+        spacing = max(40, min(gaps))                       # measured nearest-neighbour gap
         hand_ids = hand_members(view, seat)
         newest_is_land = bool(hand_ids) and _is_land(view, max(hand_ids))
         if newest_is_land:                                 # just-drawn card is a land -> it's the RIGHTMOST slot
@@ -554,7 +581,7 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
             tx = xs[0] - spacing
             ty = legible[0][2] + int(_FAN_ARC * 0.4)       # the left edge sits a little lower (arc)
             side = "left (held land)"
-        _log.info("  %s: none legible — clicking the occluded land on the %s, one fan-step past the legible "
+        _log.info("  %s: none legible — clicking the occluded land on the %s, one fan-gap past the legible "
                   "(%d legible at x=%s, spacing %d) at (%d,%d)", label, side, len(legible), xs, spacing, tx, ty)
         play_card(actuator, (tx, ty))
         return True
