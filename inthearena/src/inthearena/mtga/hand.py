@@ -47,6 +47,7 @@ _MIN_GAP = 40              # px: collapse near-coincident detections (Moondream 
 # _HAND_X because a fully-exposed rightmost card's name sits out near x~0.80; the far-left avatar panel (x<0.20)
 # and the bottom-right action button (x>0.90) are excluded.
 _NAME_Y = 0.84
+_LONE_CARD_Y = 0.90        # frac-h to grab a lone centred card: into its ART, BELOW the avatar/life badge it rests under
 _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
@@ -569,9 +570,11 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         nm = _norm_name(cards.label(o.grpId) if o else "")
         if nm in want or only in set(want.values()):
             cx = rect.x + rect.w // 2
-            cy = rect.y + int(rect.h * _NAME_Y)
+            # Aim into the card ART, not the name banner: a lone card rests directly UNDER the avatar/life badge
+            # (~0.84h), so a name-line click grabs the avatar. The art body sits ~0.90h; drop into it.
+            cy = rect.y + int(rect.h * _LONE_CARD_Y)
             _log.info("  %s: only one card in hand and it's wanted — playing it at the hand centre (%d,%d)", label, cx, cy)
-            play_card(actuator, (cx, cy))
+            play_card(actuator, (cx, cy), body_drop=0)
             return True
 
     # 2) The land is OCCLUDED (OCR can't read basic-land names — Vision returns nothing for "Plains" etc. even on a
