@@ -192,11 +192,72 @@ def _bridge_checks() -> None:
     check("the corpus yields a body of control Auras (>= 20)", nc >= 20)
 
 
+def _attached_counter_checks() -> None:
+    """§301/§303 'put a +1/+1 / -1/-1 counter on enchanted/equipped creature' -> add_counter_attached on the
+    HOST (not the Aura/Equip itself, the pre-existing misresolution this fixes). Bridge emit + driver arm +
+    the attach-by-sign host pick, plus the non-P/T / variable / non-attachment ABSTAINS."""
+    import sim, card_corpus
+    db = sim.load_db()
+    corpus = {c["name"]: c for c in card_corpus.load_cards()}
+
+    # bridge: a +1/+1 'enchanted creature' upkeep aura -> add_counter_attached + a 'pos' attach marker.
+    f, _ = bridge.card_facts("Forced Adaptation", "alice", "fa", db, corpus)
+    check("Forced Adaptation -> trigger add_counter_attached(1, p1p1) on the host",
+          ("fa_a1", "add_counter_attached", 1, "p1p1") in f.get("trigger_effect", set()))
+    check("Forced Adaptation -> attach_counter(pos)", ("fa", "pos") in f.get("attach_counter", set()))
+
+    # bridge: a -1/-1 aura -> a 'neg' marker (so _attach_aura picks an ENEMY host).
+    f, _ = bridge.card_facts("Biting Tether", "alice", "bt", db, corpus)
+    check("Biting Tether -> trigger add_counter_attached(1, m1m1)",
+          ("bt_a2", "add_counter_attached", 1, "m1m1") in f.get("trigger_effect", set()))
+    check("Biting Tether -> attach_counter(neg)", ("bt", "neg") in f.get("attach_counter", set()))
+
+    # bridge: an activated 'put a +1/+1 on enchanted creature' (Daily Regimen) -> add_counter_attached.
+    f, _ = bridge.card_facts("Daily Regimen", "alice", "dr", db, corpus)
+    check("Daily Regimen -> activated add_counter_attached(1, p1p1)",
+          any(r[4] == "add_counter_attached" and r[5] == 1 and r[6] == "p1p1"
+              for r in f.get("activated_ability", set())))
+
+    # bridge ABSTAINS: a non-symmetric P/T attached counter (+1/+0 — no engine consumer).
+    f, _ = bridge.card_facts("Consuming Ferocity", "alice", "cf", db, corpus)
+    check("Consuming Ferocity (+1/+0 attached) abstains (no add_counter_attached)",
+          not any("add_counter_attached" in str(r) for r in f.get("trigger_effect", set())))
+
+    # driver arm: the counter lands on the HOST, never on the Aura/Equipment instance.
+    st = {"attached_to": {("aura1", "bear")}, "counter": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, {("a", "add_counter_attached", 1, "p1p1", "aura1", "alice")})
+    check("add_counter_attached lands on the host (bear gets +1/+1)", ("bear", "p1p1", 1) in st["counter"])
+    check("add_counter_attached does NOT counter the aura itself",
+          not any(o == "aura1" for (o, _k, _c) in st["counter"]))
+
+    # driver arm: no host -> graceful no-op (never fabricates a target).
+    st = {"attached_to": set(), "counter": set()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._apply_effects(st, {("a", "add_counter_attached", 2, "m1m1", "aura2", "alice")})
+    check("add_counter_attached with no host is a no-op", st["counter"] == set())
+
+    # _attach_aura: a bare-trigger +1/+1 aura attaches to the controller's strongest creature (bear);
+    # a -1/-1 aura attaches to the opponent's strongest (ogre).
+    st = _board(); st["printed_subtype"].add(("ca", "aura")); st["on_battlefield"].add(("ca",))
+    st["attach_counter"] = {("ca", "pos")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._attach_aura(st, "ca", "alice")
+    check("a +1/+1 counter aura attaches to an own creature (bear)", ("ca", "bear") in st["attached_to"])
+
+    st = _board(); st["printed_subtype"].add(("cn", "aura")); st["on_battlefield"].add(("cn",))
+    st["attach_counter"] = {("cn", "neg")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        driver._attach_aura(st, "cn", "alice")
+    check("a -1/-1 counter aura attaches to the opponent's creature (ogre)", ("cn", "ogre") in st["attached_to"])
+
+
 def run() -> None:
     _driver_checks()
     _equipment_checks()
     _control_checks()
     _bridge_checks()
+    _attached_counter_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

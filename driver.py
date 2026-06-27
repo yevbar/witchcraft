@@ -882,6 +882,11 @@ def _apply_effects(state: dict, pending: set, pending_dyn: set | None = None) ->
         elif eff == "add_counter":                           # tgt = counter kind (p1p1/m1m1), on the source
             _bump_counter(state, src, tgt, n)
             print(f"    trigger {a}: {src} gets {n} {tgt} counter(s)")
+        elif eff == "add_counter_attached":                  # §301/§303 tgt = kind; on the host this Aura/Equip
+            host = next((h for (au, h) in state.get("attached_to", set()) if au == src), None)
+            if host is not None:                             # is attached to (choice-free; no host -> no-op)
+                _bump_counter(state, host, tgt, n)
+                print(f"    {a}: {host} (attached to {src}) gets {n} {tgt} counter(s)")
         elif eff == "create_token":                          # tgt = predefined token name
             _create_token(state, tgt, ctrl, n)
         elif eff == "fog":                                   # §615 Fog — prevent all combat damage this turn
@@ -2927,15 +2932,28 @@ def _has_attached_static(state: dict, perm: str) -> bool:
         or any(s == perm and sc == "attached" for (s, _kw, sc) in state.get("static_grant", set()))
 
 
+def _attach_counter_sign(state: dict, perm: str) -> str | None:
+    """The sign of a permanent's 'put a counter on enchanted/equipped creature' effect ('pos' for +1/+1,
+    'neg' for -1/-1), or None if it carries no such marker. Auras whose ONLY 'attached' effect is this
+    counter (Forced Adaptation, Biting Tether) still need to attach so the host can be found at resolution;
+    the sign picks a friendly (pos) vs enemy (neg) host, like a static P/T buff's sign does."""
+    signs = {sg for (p, sg) in state.get("attach_counter", set()) if p == perm}
+    if not signs:
+        return None
+    return "neg" if "neg" in signs else "pos"
+
+
 def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
     """§303.4 an Aura enters the battlefield attached to a creature. We attach Auras that carry a P/T or
-    keyword 'enchanted creature' static buff (applied via attached_to) or that STEAL control (Control Magic,
-    via eff_gain_control): a beneficial buff goes on the controller's strongest creature; a negative buff or
-    a control-steal goes on the opponent's strongest. Auras with no legal host stay unattached (no effect)."""
+    keyword 'enchanted creature' static buff (applied via attached_to), a 'counter on enchanted creature'
+    effect (attach_counter), or that STEAL control (Control Magic, via eff_gain_control): a beneficial buff
+    goes on the controller's strongest creature; a negative buff or a control-steal goes on the opponent's
+    strongest. Auras with no legal host stay unattached (no effect)."""
     is_control = (aura,) in state.get("aura_control", set())
+    csign = _attach_counter_sign(state, aura)
     if (aura, "aura") not in state.get("printed_subtype", set()):
         return
-    if not _has_attached_static(state, aura) and not is_control:
+    if not _has_attached_static(state, aura) and not is_control and csign is None:
         return
     out = run(state, ["controls", "creature", "power"])
     controls = {(p, c) for (p, c) in out["controls"]}
@@ -2943,7 +2961,8 @@ def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
     powers = {c: int(n) for (c, n) in out["power"]}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = {c for (p, c) in controls if p == ctrl}
-    harmful = is_control or _static_attached_pt(state, aura) < 0   # a control-steal targets an enemy
+    # a control-steal / negative static buff / a -1/-1 'attached' counter targets an enemy; else a friend.
+    harmful = is_control or _static_attached_pt(state, aura) < 0 or csign == "neg"
     cands = [c for c in creatures if c in on_bf and c != aura and ((c not in mine) if harmful else (c in mine))]
     if not cands:                                            # no legal host of the wanted side -> any creature
         cands = [c for c in creatures if c in on_bf and c != aura]

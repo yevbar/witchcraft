@@ -211,6 +211,30 @@ def _counter_payload(amt, extra) -> str | None:
     return f"{kind}:{n}"
 
 
+# §301/§303 ATTACHMENT targets: a counter the Aura/Equipment puts on the permanent it's ATTACHED TO ('put a
+# +1/+1 counter on enchanted/equipped creature' — Forced Adaptation, Cocoon, Blade of the Bloodchief, Daily
+# Regimen, Lost Jitte). This is a CHOICE-FREE placement onto the known host (the driver reads attached_to), so
+# it resolves faithfully via the driver's add_counter_attached arm WITHOUT a targeting choice. We accept ONLY
+# the bare attachment slugs + a clean P/T counter (p1p1/m1m1 fold into the §613 layer sum) + a fixed positive
+# count. A FILTERED host ('equipped creature if it's blue' — Ring of Evos Isle), a CONDITIONAL host ('… if it
+# attacked' — Shape of the Wiitigo), 'enchanted permanent'/'enchanted planeswalker' (a non-creature host the
+# P/T counter is inert on), a NON-P/T attached counter (+1/+0 / loyalty — no engine consumer), and a VARIABLE
+# count (Awakened Awareness's X) all ABSTAIN (faithful-or-abstain — the driver carries no signal for them).
+# NOTE: before this, a P/T attached counter fell through to _resolved_effect -> ('add_counter', N, kind) and
+# the driver's add_counter arm put it on the SOURCE (the Aura/Equipment itself, which isn't even a creature) —
+# a silent MISresolution. Routing it to add_counter_attached fixes that and places it on the host instead.
+_ATTACHED_TGT = {"enchanted_creature", "equipped_creature"}
+
+
+def _attached_counter_payload(amt, tgt, extra) -> str | None:
+    """'put N +1/+1 / -1/-1 counters on enchanted/equipped creature' -> a 'p1p1:N'/'m1m1:N' payload the driver
+    applies to the attached host (add_counter_attached), or None to abstain (non-attachment target, non-P/T
+    counter, or a variable count). The payload format matches _counter_payload (kind:N)."""
+    if str(tgt) not in _ATTACHED_TGT:
+        return None
+    return _counter_payload(amt, extra)
+
+
 # a fixed '+N/+N' / '-N/-N' P/T string (e.g. '+2/+0', '-1/-1') -> (dp, dt). Variable/conditional pumps
 # (+X/+X, '+1/+0_per_…') don't parse to constants and abstain (the engine has no count to feed).
 _PT = re.compile(r"^([+-]\d+)/([+-]\d+)$")
@@ -2552,6 +2576,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _counter_payload(amt, extra) is not None and _target_class(tgt) is not None:
                         emitted = True
                         continue
+                    # §301/§303 a P/T counter on enchanted/equipped creature (Forced Adaptation, Cocoon, Blade of
+                    # the Bloodchief) -> the driver applies it to the attached host (add_counter_attached), and an
+                    # attach_counter marker makes _attach_aura attach a bare-trigger Aura (host side by sign).
+                    acp = _attached_counter_payload(amt, tgt, extra)
+                    if acp is not None:
+                        kind = acp.split(":")[0]
+                        add("trigger_effect", (a, "add_counter_attached", _int(amt), kind))
+                        add("attach_counter", (tid, "neg" if kind == "m1m1" else "pos"))
+                        emitted = True
+                        continue
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 triggered reanimation (Reya Dawnbringer's upkeep) -> the driver moves the best
                     # graveyard creature under the controller's control on resolution. ONE WORLD: the engine
@@ -2781,6 +2815,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                             continue                             # spell_target (counter) is DATALOG-derived
                         if sc in ("creatures_you_control", "all_creatures"):
                             continue                             # spell_scope (counter) is DATALOG-derived
+                    # §303 an Aura spell that puts a P/T counter on enchanted creature on resolution (Lost Jitte's
+                    # 'enters with' rider read as a spell put_counter) -> add_counter_attached on the host.
+                    acp = _attached_counter_payload(amt, tgt, extra)
+                    if acp is not None:
+                        kind = acp.split(":")[0]
+                        add("spell_effect", (tid, "add_counter_attached", _int(amt), kind))
+                        add("attach_counter", (tid, "neg" if kind == "m1m1" else "pos"))
+                        continue
                 if verb == "return_to_battlefield" and _reanimates(tgt, extra):
                     # §701 reanimation (Resurrection, Zombify, Animate Dead): a creature card from a graveyard
                     # to the battlefield under the caster's control. ONE WORLD: spell_reanimate is now
@@ -2952,6 +2994,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     cp, cls = _counter_payload(amt, extra), _target_class(tgt)
                     if cp is not None and cls is not None:
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"counter|{cp}|{cls}"))
+                        emitted = True
+                        continue
+                    # §301/§303 '{cost}: put a +1/+1 counter on enchanted/equipped creature' (Daily Regimen,
+                    # Krasis Incubation) -> the driver applies it to the attached host on resolution.
+                    acp = _attached_counter_payload(amt, tgt, extra)
+                    if acp is not None:
+                        kind = acp.split(":")[0]
+                        add("activated_ability", (a, tid, paid[0], taps, "add_counter_attached", _int(amt), kind))
+                        add("attach_counter", (tid, "neg" if kind == "m1m1" else "pos"))
                         emitted = True
                         continue
                 if verb == "becomes" and str(tgt) in ("self", "it") and "creature" in str(extra):
