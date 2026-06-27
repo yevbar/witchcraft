@@ -1771,6 +1771,8 @@ def _resolved_effect(verb, amt, tgt, extra, cond="-") -> tuple | None:
     applier resolves it unconditionally, so we abstain unless the sacrifice is unconditional (cond '-')."""
     if verb == "sacrifice" and str(cond) != "-":
         return None                                          # only an UNCONDITIONAL sacrifice resolves faithfully
+    if verb == "fight" and str(cond) != "-":                 # §701.12 only an UNCONDITIONAL fight resolves
+        return None                                          # faithfully (may / if-kicked / threshold abstain)
     if verb == "prevent_damage":                             # §615 Fog: 'prevent all combat damage this turn'.
         if str(amt) == "all" and ("combat" in str(tgt) or "combat" in str(extra)):
             return ("fog", 0, "-")                           # the driver sets prevent_all_combat for the turn

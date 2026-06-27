@@ -2851,6 +2851,14 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
     elif kind == "face":
         if opp is not None:
             hit_player(opp)
+    elif kind.startswith("creature_fixed:"):                  # §701.12 a FIXED creature (fight): the target is
+        tgt = kind.split(":", 1)[1]                            # already chosen — apply n to THAT creature, lethal
+        if tgt not in creatures or tgt not in on_bf:           # if n >= its toughness (unless indestructible/regen)
+            print(f"      {label} has no creature {tgt} to damage")
+        elif tough.get(tgt, 1) <= n:
+            kill(tgt)
+        else:
+            print(f"      {label} deals {n} to {tgt} (non-lethal)")
     elif kind in ("creature_any", "creature_opponent"):
         tgt = best_killable() or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
         if tgt is None:
