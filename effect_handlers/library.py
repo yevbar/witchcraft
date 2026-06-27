@@ -373,37 +373,70 @@ def _encode_search(verb, amt, tgt, extra):
     return ("search_select", 0, pred) if pred is not None else None
 
 
+# §205 PERMANENT card types (the §110.4 permanent supertypes a 'permanent card' predicate accepts).
+_PERMANENT_TYPES = ("creature", "artifact", "enchantment", "planeswalker", "land", "battle")
+
+
+def _mv_bound_ok(state: dict, card: str, mv_clause: str) -> bool:
+    """True iff `card` satisfies an optional '&mv…' mana-value bound on a predicate ('mv<=N' / 'mv=N'),
+    judged from the surfaced mana_cost. An EMPTY clause = no bound = always ok. A bound the surfaced
+    identity can't confirm (no mana_cost row for the card) is NOT a match — faithful-or-abstain at the
+    per-card level (same conservatism the typed search uses)."""
+    if not mv_clause:
+        return True
+    if mv_clause.startswith("mv<=") or mv_clause.startswith("mv="):
+        exact = mv_clause.startswith("mv=")
+        cap = int(mv_clause[len("mv=" if exact else "mv<="):])
+        mv = next((v for (c, v) in state.get("mana_cost", set()) if c == card), None)
+        if mv is None:
+            return False                                       # no surfaced mana value -> can't confirm -> no match
+        return mv == cap if exact else mv <= cap
+    return False                                               # unknown bound shape -> conservative no match
+
+
 def _matches(state: dict, card: str, pred: str) -> bool:
-    """True if `card` satisfies the §701.18 search predicate, judged from the SURFACED printed identity."""
+    """True if `card` satisfies the §701.18 search / §701.x seek predicate, judged from the SURFACED printed
+    identity. A predicate is a head kind, optionally with a trailing '&mv…' mana-value bound (shared by search
+    and seek). The head kinds: 'any' (no restriction), 'any_land' / 'nonbasic_land' (a land, optionally one with
+    no basic-land subtype), 'nonland' (NOT a land), 'permanent' (a §110.4 permanent card type), 'type:<a>|<b>…'
+    (a §205 card-TYPE disjunction), 'subtype:<s>…' (a LAND of a basic-land type — the fetchland family), and
+    'csub:<s>…' (a card of an arbitrary printed subtype, e.g. an Elf/Dragon card — used by seek)."""
     if pred == "any":
         return True
+    head, _, mv_clause = pred.partition("&")
     if pred == "keyword:flashback":                          # §702.34 a card that natively has flashback (Quiet
         return (card,) in state.get("flashback_card", set())  # Speculation: 'cards with flashback'); surfaced by the bridge
     ptype = state.get("printed_type", set())
-    if pred == "any_land":
-        return (card, "land") in ptype
-    if pred.startswith("subtype:"):
-        wanted = set(pred[len("subtype:"):].split("|"))
+    is_land = (card, "land") in ptype
+    if head == "any_land":
+        return is_land and _mv_bound_ok(state, card, mv_clause)
+    if head == "nonbasic_land":                              # §305 a land WITHOUT any basic-land subtype
         subs = {st for (c, st) in state.get("printed_subtype", set()) if c == card}
-        return (card, "land") in ptype and bool(subs & wanted)
-    if pred.startswith("type:"):
+        return is_land and not (subs & set(_BASIC_LAND_SUBTYPES)) and _mv_bound_ok(state, card, mv_clause)
+    if head == "nonland":                                    # §205 NOT a land card (the common 'seek a nonland card')
+        return not is_land and _mv_bound_ok(state, card, mv_clause)
+    if head == "permanent":                                  # §110.4 a card of ANY permanent type (land included)
+        types = {t for (c, t) in ptype if c == card}
+        return bool(types & set(_PERMANENT_TYPES)) and _mv_bound_ok(state, card, mv_clause)
+    if head == "nonland_permanent":                          # §110.4 a permanent type that is NOT a land
+        types = {t for (c, t) in ptype if c == card}
+        return bool(types & (set(_PERMANENT_TYPES) - {"land"})) and not is_land and _mv_bound_ok(state, card, mv_clause)
+    if head.startswith("subtype:"):                          # a LAND of a basic-land type (fetchland family)
+        wanted = set(head[len("subtype:"):].split("|"))
+        subs = {st for (c, st) in state.get("printed_subtype", set()) if c == card}
+        return is_land and bool(subs & wanted) and _mv_bound_ok(state, card, mv_clause)
+    if head.startswith("csub:"):                             # an ARBITRARY printed subtype (Elf/Dragon/Pirate card)
+        wanted = set(head[len("csub:"):].split("|"))
+        subs = {st for (c, st) in state.get("printed_subtype", set()) if c == card}
+        return bool(subs & wanted) and _mv_bound_ok(state, card, mv_clause)
+    if head.startswith("type:"):
         # 'type:<a>|<b>…' optionally '&mv<=N' — a §205 card-TYPE disjunction with an optional mana-value
         # bound. The card's types come from printed_type; its mana value from mana_cost (the engine surfaces
         # both for every library card). A card matches iff it has ONE of the wanted types AND (if bounded)
         # its mana value is within the cap.
-        body, _, mv_clause = pred[len("type:"):].partition("&")
-        wanted = set(body.split("|"))
+        wanted = set(head[len("type:"):].split("|"))
         types = {t for (c, t) in ptype if c == card}
-        if not (types & wanted):
-            return False
-        if mv_clause.startswith("mv<=") or mv_clause.startswith("mv="):
-            exact = mv_clause.startswith("mv=")
-            cap = int(mv_clause[len("mv=" if exact else "mv<="):])
-            mv = next((v for (c, v) in state.get("mana_cost", set()) if c == card), None)
-            if mv is None:
-                return False                                   # no surfaced mana value -> can't confirm -> no match
-            return mv == cap if exact else mv <= cap
-        return True
+        return bool(types & wanted) and _mv_bound_ok(state, card, mv_clause)
     return False
 
 
@@ -442,6 +475,139 @@ def _apply_search_select(D, state, a, n, tgt, src, ctrl):
         return
     state.setdefault("_searched", {})[ctrl] = card
     print(f"    trigger {a}: {ctrl} searches their library and finds {card}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# seek (§701.x) — "seek a [quality] card": the player puts a card matching the quality from their library
+# into their hand WITHOUT SEARCHING, WITHOUT REVEALING, and WITHOUT SHUFFLING. It is NOT a tutor: there is no
+# library search event (no §701.18 'a player searches their library' watcher fires — Wan Shi Tong / Aven
+# Mindcensor do NOT see a seek), nothing is revealed, and the library is NOT shuffled. Seek is RANDOM among
+# the cards that match the quality, so ANY matching card is a legal outcome — which is exactly why a fixed
+# deterministic pick is faithful: with opaque library ids the canonical-first match is one of the legal random
+# results (the same justification the tutor uses for its canonical-first choice). Reproducible across runs.
+#
+# We resolve only the qualities we can EVALUATE from the surfaced printed identity (printed_type /
+# printed_subtype / mana_cost): a bare card TYPE ('a creature/land/instant/artifact card'), 'nonland' /
+# 'nonbasic land' / 'basic land' / 'permanent', a single arbitrary subtype ('an Elf card'), a §205 type
+# disjunction ('an instant or sorcery card'), each optionally with a mana-value CAP we can test ('… with mana
+# value 3 or less'). The count rides as a leading number word in the slug ('two nonland cards'); a FIXED small
+# count resolves (take that many matching cards, canonical-first), a VARIABLE count ('X cards', 'that many')
+# ABSTAINS. Any quality the identity can't confirm — named, 'most prevalent type', power/toughness, 'greatest
+# mana value', a color-of-choice, 'mana value equal to <live quantity>', 'shares a type with the discarded
+# card' — ABSTAINS at encode (a wrong card pulled to hand is worse than dropping the clause).
+# ─────────────────────────────────────────────────────────────────────────────
+_SEEK_COUNT_WORD = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+# §700 card CATEGORY words a one-token 'a_<word>_card' seek can name that are NOT printed subtypes — they are
+# properties (color) or composite categories the surfaced identity doesn't carry as a subtype, so a 'csub:'
+# match against them would silently find nothing. We ABSTAIN on these instead of emitting a dead predicate.
+_SEEK_NON_SUBTYPE = {"historic", "multicolored", "monocolored", "colored", "colorless", "legendary",
+                     "nonlegendary", "snow", "modal", "outlaw", "token"}
+
+# qualifier words a seek slug can prefix onto a bare card type, mapped to a self-contained predicate. Each is
+# a §205/§110.4 quality the surfaced identity confirms. (A bare 'card' = 'any'.)
+_SEEK_BARE = {
+    "card": "any",
+    "nonland_card": "nonland",
+    "land_card": "any_land",
+    "basic_land_card": "any_land",                            # any basic land (we don't distinguish basic from land
+    "nonbasic_land_card": "nonbasic_land",                    #   for a SEEK to hand — both are 'a land you can play')
+    "permanent_card": "permanent",
+    "nonland_permanent_card": "nonland_permanent",            # a permanent type that is NOT a land (creature/artifact/
+    #                                                          enchantment/planeswalker/battle) — the common bounded seek
+}
+
+
+def seek_predicate(tgt) -> tuple | None:
+    """A §701.x seek target slug -> (predicate, count) the applier resolves, or None to abstain. `count` is a
+    FIXED positive int (a variable count abstains). Predicate kinds are exactly those `_matches` understands.
+    Shapes (after ground.slug), e.g. 'a_nonland_card' -> ('nonland', 1), 'two_nonland_cards' -> ('nonland', 2),
+    'a_creature_card_with_mana_value_2_or_less' -> ('type:creature&mv<=2', 1), 'an_elf_card' -> ('csub:elf', 1)."""
+    t = str(tgt)
+    # leading count: a number word ('two_…' -> 2) OR a bare article ('a_…'/'an_…' -> 1). A VARIABLE count
+    # ('x_…', 'that_many_…', 's_that_many_…') or any other lead has no fixed value to feed -> abstain.
+    first, _, rest = t.partition("_")
+    if first in _SEEK_COUNT_WORD:                            # 'a'/'an'/'one'/'two'/'three'/… — fixed count
+        count = _SEEK_COUNT_WORD[first]
+        head = rest
+    else:
+        return None                                          # variable / unrecognized lead -> abstain
+    # peel a trailing mana-value CAP ('with mana value N or less'); only the cap (≤) is evaluable for a seek.
+    mv_clause = ""
+    m = re.search(r"_with_mana_value_(\d+)_or_less$", head)
+    if m:
+        mv_clause = f"&mv<={m.group(1)}"
+        head = head[: m.start()]
+    elif "_with_mana_value" in head or "_with_" in head:
+        return None                                          # a non-cap mv restriction / other 'with …' -> abstain
+    # the singular/plural article+'_card(s)' wrapper -> a bare quality token.
+    if head.endswith("_cards"):
+        head = head[: -len("_cards")] + "_card"
+    # a bare-type quality ('nonland_card', 'creature_card', …) we mapped directly.
+    bare = _SEEK_BARE.get(head)
+    if bare is not None:
+        return (bare + mv_clause, count)
+    # a §205 card-TYPE disjunction ('instant_or_sorcery_card' / 'artifact_card') — reuse the search type map.
+    if head.endswith("_card"):
+        core = head[: -len("_card")]
+        parts = core.split("_or_")
+        if parts and all(p in _CARD_TYPES for p in parts):
+            return ("type:" + "|".join(parts) + mv_clause, count)
+        # a basic-land-type seek ('two Forest cards') -> the land-restricted subtype predicate (fetchland path).
+        if core in _BASIC_LAND_SUBTYPES:
+            return ("subtype:" + core, count)
+        # a single ARBITRARY printed subtype ('elf' / 'dragon' / 'pirate' / 'rat' / 'merfolk' / 'kithkin') —
+        # a one-token alphabetic word that isn't a card type and isn't a §700 card CATEGORY we can't read as a
+        # subtype ('historic' = legendary/artifact/Saga, 'multicolored'/'colored' = a color property). Those
+        # CATEGORY words abstain (they are never a printed_subtype, so matching them would silently find nothing).
+        if core and core.isalpha() and core not in _CARD_TYPES and core not in _SEEK_NON_SUBTYPE:
+            return ("csub:" + core, count)
+    return None                                              # anything else (named / live-quantity / 'greatest') abstains
+
+
+def _seek_cards(state: dict, ctrl: str, pred: str, count: int) -> list:
+    """§701.x pull up to `count` canonical-first library cards matching `pred` OUT of the controller's library
+    and into their hand — NO search event, NO reveal, NO shuffle. Returns the moved cards. Fewer than `count`
+    matches is a faithful partial seek (you seek as many as you can; §701.x 'seek' just finds nothing more)."""
+    inlib = state.setdefault("in_library", set())
+    inhand = state.setdefault("in_hand", set())
+    order = state.get("_lib_order", {}).get(ctrl)
+    moved = []
+    for _ in range(count):
+        lib = sorted(c for (pp, c) in inlib if pp == ctrl)
+        card = next((c for c in lib if _matches(state, c, pred)), None)
+        if card is None:
+            break
+        inlib.discard((ctrl, card))
+        if order is not None and card in order:
+            order.remove(card)
+        inhand.add((ctrl, card))                              # straight to hand (no _searched set-aside; seek places it)
+        moved.append(card)
+    return moved
+
+
+@encoder("seek")
+def _encode_seek(verb, amt, tgt, extra):
+    # a seek with a rider we can't model ('per card exiled from your hand' scaling the count) abstains.
+    if str(extra) not in ("-", ""):
+        return None
+    spec = seek_predicate(tgt)
+    if spec is None:
+        return None
+    pred, count = spec
+    return ("seek", count, pred)
+
+
+@applier("seek")
+def _apply_seek(D, state, a, n, tgt, src, ctrl):
+    """§701.x seek: put up to `n` cards matching the quality `tgt` from the controller's library into their
+    hand — NO search event, NO reveal, NO shuffle (seek is not a tutor). Canonical-first among the matches (a
+    legal outcome of the random seek). A fail-to-find / partial is a faithful no-op-ish (you seek what you can)."""
+    moved = _seek_cards(state, ctrl, str(tgt), int(n))
+    if moved:
+        print(f"    {a}: {ctrl} seeks {len(moved)} card(s) -> hand ({', '.join(moved)})")
+    else:
+        print(f"    {a}: {ctrl} seeks but finds no card matching {tgt}")
 
 
 @applier("search_to_graveyard")
