@@ -181,6 +181,21 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             if iid not in placed:
                 place_hidden(nm, zone)
 
+    # 3) PLAYABLE-FROM-ANYWHERE: MTGA's Play options are the ground truth of which lands we can play THIS turn —
+    #    and they're not always in hand. Recent sets exile a card and let you play it ('impulse draw' / adventure
+    #    / plot), so a Plains MTGA offers as a Play can sit in ZoneType_Exile (which the engine doesn't model).
+    #    Surface every offered land as a playable hand land so the engine doesn't ignore it. (ActionType_Play is
+    #    always a land drop; `playable` is None when ungated.)
+    for iid in (playable or ()):
+        o = view.objects.get(iid)
+        if o is None or not cards.card_name(o.grpId):
+            continue
+        slug = _slug(cards.card_name(o.grpId))
+        inst = f"{slug}_{iid}"
+        s["instance_of"].add((inst, slug))
+        s["in_hand"].add((name_of.get(me, "alice"), inst))   # treat it as castable-from-hand for the §305 drop
+        s["spell_type"].add((inst, "land"))
+
     s["_turn"] = view.turn.turnNumber or 0
     s["_seed"] = seed
     s["_variant"] = view.variant                           # brawl / two-player, from the match's format

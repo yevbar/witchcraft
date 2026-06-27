@@ -357,6 +357,24 @@ def _engine_checks():
     check("engine: playable=None (default) leaves lands ungated (suggest/tests)",
           any(getattr(m, "kind", None) == "play" for m in to_game(view, me=1, seed=7).legal_moves))
 
+    # PLAY-FROM-ANYWHERE: MTGA's Play options are ground truth — a land it offers can sit in EXILE (impulse-draw /
+    # 'play from exile'), which the engine doesn't model as a zone. A land in `playable` is surfaced as a playable
+    # land even from exile, so the bot doesn't ignore impulse-drawn lands.
+    exiled = _apply({"type": "GameStateType_Full",
+                     "turnInfo": {"turnNumber": 4, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                     "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                     "zones": [{"zoneId": 29, "type": "ZoneType_Exile"},
+                               {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                     "gameObjects": [{"instanceId": 535, "grpId": 105174, "zoneId": 29, "ownerSeatId": 1,
+                                      "controllerSeatId": 1, "cardTypes": ["CardType_Land"]}]})  # Plains in EXILE
+    ungated = to_game(exiled, me=1, seed=0)                            # not told it's playable -> ignored (exile)
+    check("engine: an exile land is NOT a play move when not offered (ungated)",
+          not any(getattr(m, "kind", None) == "play" for m in ungated.legal_moves))
+    offered = to_game(exiled, me=1, seed=0, playable={535})            # MTGA offers Play(535) -> surfaced
+    play535 = [m for m in offered.legal_moves if getattr(m, "kind", None) == "play"]
+    check("engine: a land MTGA offers from EXILE is surfaced as a play (impulse-draw not ignored)",
+          len(play535) >= 1 and str(play535[0].card.id).endswith("_535"))
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
