@@ -50,6 +50,7 @@ _NAME_Y = 0.84
 _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
+_FAN_ARC = 48              # px the hand fan bows down at its EDGES vs the centre (hover lower toward the edges)
 _REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
 _PLAY_LIFT_Y = 0.58        # y-fraction to lift a grabbed card to — ABOVE the player avatar's head (its flaming
 #                            head tops out ~0.60-0.65 of the window; a card only becomes playable once the cursor
@@ -424,16 +425,27 @@ def _land_hit(named: list, want: dict, *, near_x=None, max_dist=None):
     return best
 
 
+def _bowed_y(x: int, xs: list, top_y: int) -> int:
+    """The hover y at screen-x `x` along the hand's ARC. The fan bows: the centre card sits highest (`top_y`),
+    the EDGE cards lower — so hover y must increase (move DOWN) toward the edges, or we hover ABOVE an edge card
+    and never magnify it. Quadratic in the distance from the sweep's centre, up to `_FAN_ARC` px at the edges."""
+    if len(xs) < 2:
+        return top_y
+    cx = (xs[0] + xs[-1]) / 2.0
+    half = (xs[-1] - xs[0]) / 2.0 or 1.0
+    return int(top_y + _FAN_ARC * ((x - cx) / half) ** 2)
+
+
 def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     """LEFT-TO-RIGHT (x, y) points to hover for revealing OCCLUDED cards — derived from PHYSICAL positions, NOT
     the instanceId order model (which may not match this hand's layout). Legible `anchors` set the spacing/span;
-    step by that spacing across the whole band, skipping the anchors themselves (already-read non-lands). Falls
-    back to detected card x's, then a uniform fan. Sweeping left-to-right means the FIRST legal land found is the
-    leftmost — which is what we want when several copies (e.g. three Forests) sit on the left."""
+    step by that spacing across the whole band, skipping the anchors themselves. Falls back to detected card x's,
+    then a uniform fan. Each point's y follows the hand's ARC (`_bowed_y`) — lower toward the edges — so an edge
+    card (e.g. a leftmost Plains) is hovered ON, not above. Sweeping left-to-right finds the leftmost match first."""
     lo, hi = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
     if anchors:
         axs = sorted(a[1] for a in anchors)
-        y = sum(a[2] for a in anchors) // len(anchors)
+        top_y = min(a[2] for a in anchors)              # the centre/top of the arc (edges sit below this)
         gaps = [axs[i + 1] - axs[i] for i in range(len(axs) - 1)]
         spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
         x = float(axs[0])
@@ -443,14 +455,17 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
         while x <= hi + 1 and len(xs) < 2 * max(n, 1):  # …then march right across the whole band
             xs.append(int(round(x)))
             x += spacing
-        # skip points sitting on an anchor (those cards are legible non-lands already; only sweep the gaps/edges)
-        return [(sx, y) for sx in xs if all(abs(sx - ax) > spacing * 0.45 for ax in axs)]
-    if det:
-        y = sum(p[1] for p in det) // len(det)
-        return [(p[0], y) for p in sorted(det)]
-    y = rect.y + int(0.90 * rect.h)
-    slots = max(n, 1)
-    return [(int(lo + k * (hi - lo) / max(slots - 1, 1)), y) for k in range(slots)]
+        # skip points sitting on an anchor (those cards are legible already; only sweep the gaps/edges)
+        xs = [sx for sx in xs if all(abs(sx - ax) > spacing * 0.45 for ax in axs)]
+    elif det:
+        top_y = min(p[1] for p in det)
+        xs = [p[0] for p in sorted(det)]
+    else:
+        top_y = rect.y + int(0.88 * rect.h)
+        slots = max(n, 1)
+        xs = [int(lo + k * (hi - lo) / max(slots - 1, 1)) for k in range(slots)]
+    span = sorted(xs)
+    return [(sx, _bowed_y(sx, span, top_y)) for sx in xs]
 
 
 def _want_names(view, insts: list) -> dict:
