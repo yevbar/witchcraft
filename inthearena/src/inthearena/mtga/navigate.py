@@ -144,7 +144,15 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
         box = _wait_locate(actuator, element, rect, locator, timeout=confirm_timeout, poll=poll, rng=rng)
         if box is None:
             return False                                   # never rendered (still loading?) — don't blind-click
-        target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
+        if element.frac is not None:
+            # FIXED-POSITION button (an explicit frac): the frac is AUTHORITATIVE for WHERE to click; vision only
+            # gated TIMING (is it rendered yet?). Several bottom-right buttons stack in the same coarse quadrant —
+            # the big action button (~0.87h) and the 'Pass Turn' fast-forward SKIP just below it — and vision can
+            # return the skip; clicking the frac instead never lands on the wrong one (a skip = a missed combat).
+            anchor = resolve(element, rect)
+            target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
+        else:
+            target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
     else:                                                  # FALLBACK: coarse anchor estimate
         anchor = resolve(element, rect)
         target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))

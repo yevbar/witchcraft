@@ -34,10 +34,16 @@ from .views import ScreenAnchor, ViewElement
 # (lower) and 'No Attacks' (above it) — both inside the bottom-right anchor region, so a generic query could grab
 # either. Verified on a live frame: Moondream cleanly distinguishes them by their exact LABEL, so combat queries
 # the specific button it wants. ('All Attack' located at ~(0.92, 0.88) of a 1920x1080 window; 'No Attacks' above.)
-_ADVANCE = ViewElement("advance", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="the bottom-right action button")
-_ALL_ATTACK = ViewElement("All Attack", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="All Attack button")
-_NO_ATTACKS = ViewElement("No Attacks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Attacks button")
-_NO_BLOCKS = ViewElement("No Blocks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Blocks button")
+# The big primary action button (label tracks the step: Pass / Resolve / To Combat / All Attack / No Blocks) sits at
+# a FIXED spot, measured (0.917, 0.87) of a 1920x1080 window. Just BELOW it is the 'Pass Turn' fast-forward SKIP
+# (~0.96, 0.95) — same coarse bottom-right quadrant, so vision can't be trusted to pick between them; clicking the
+# skip ENDS THE TURN and misses combat. So pin these to the measured frac (vision still gates that it's rendered).
+_BIG_BTN = (0.917, 0.87)
+_ADVANCE = ViewElement("advance", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="the bottom-right action button", frac=_BIG_BTN)
+_ALL_ATTACK = ViewElement("All Attack", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="All Attack button", frac=_BIG_BTN)
+# 'No Attacks' stacks just ABOVE 'All Attack' on the declare-attackers step (aggro rarely declines) — estimated frac.
+_NO_ATTACKS = ViewElement("No Attacks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Attacks button", frac=(0.917, 0.81))
+_NO_BLOCKS = ViewElement("No Blocks", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="No Blocks button", frac=_BIG_BTN)
 # The combat-damage-order screen's confirm button is CENTRE-bottom (not the bottom-right rail). Verified on a
 # live frame: Moondream finds 'Done button' at ~(0.50, 0.81) of the window.
 _DONE = ViewElement("Done", ScreenAnchor.CENTER, radius=40, query="Done button", frac=(0.50, 0.81))

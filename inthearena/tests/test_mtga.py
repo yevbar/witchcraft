@@ -667,6 +667,20 @@ def _navigate_checks():
     interact(a_fb, play, a_fb.rect, _r.Random(0))          # no locator -> coarse fallback
     check("no locator -> coarse-anchor fallback still works", a_fb.clicks[0][0] > 500)
 
+    # FRAC-PINNED button: a fixed-position button with an explicit frac (e.g. the in-game advance button) must
+    # click the FRAC even when vision returns a box at the wrong stacked button — the 'Pass Turn' fast-forward
+    # SKIP sits just below the action button in the same bottom-right quadrant, and clicking it misses combat.
+    from inthearena.mtga.execute import _ADVANCE, _BIG_BTN
+    skip_box = FakeLocator(Rect(940, 740, 50, 30))         # vision (wrongly) returns the SKIP button's bbox
+    af = DryRunActuator(rect=nrect, image=object())
+    interact(af, _ADVANCE, af.rect, _r.Random(0), locator=skip_box)
+    bx, by = int(nrect.w * _BIG_BTN[0]), int(nrect.h * _BIG_BTN[1])   # the measured big-button frac
+    cxp, cyp = af.clicks[0]
+    check("frac-pinned advance clicks the big action button (the frac), NOT the vision box",
+          abs(cxp - bx) <= _ADVANCE.spread and abs(cyp - by) <= _ADVANCE.spread)
+    check("frac-pinned advance does NOT click inside the skip-button box vision returned",
+          not (940 <= cxp <= 990 and 740 <= cyp <= 770))
+
     # VISIBILITY GATE: with a locator, interact waits for the button to actually render (no blind-clicking a
     # loading screen), only acts once it's clearly in the right region.
     class Loading:                                          # returns None until the Nth look, then the box
