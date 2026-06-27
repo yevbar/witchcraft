@@ -180,8 +180,8 @@ def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[lis
     unmodeled board the suggestion will often be just 'pass' — this is the seam to build coverage against."""
     try:
         if player is None:
-            from mtg.blind_aggro import BlindAggroPlayer
-            player = BlindAggroPlayer()
+            from mtg.aggro import AggroPlayer            # default engine bot (beats HeuristicPlayer head-to-head)
+            player = AggroPlayer()
     except Exception:
         return None
     try:

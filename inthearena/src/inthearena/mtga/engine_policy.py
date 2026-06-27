@@ -47,9 +47,9 @@ def _attacker_target(atk):
 
 class EnginePolicy:
     """Decide MTGA decisions by running a WITCHCRAFT engine Player over the synced board and translating its
-    move back to the MTGA option. `player` is any `mtg` Player (default `BlindAggroPlayer`, imported lazily so
-    inthearena loads without the engine). Falls back to `fallback` (default `blind_rage`) whenever the engine
-    can't be used or a move can't be mapped."""
+    move back to the MTGA option. `player` is any `mtg` Player (default `AggroPlayer`, imported lazily so
+    inthearena loads without the engine — it beats `HeuristicPlayer` ~68-32 head-to-head and declares blocks).
+    Falls back to `fallback` (default `blind_rage`) whenever the engine can't be used or a move can't be mapped."""
 
     name = "witchcraft"
 
@@ -65,8 +65,8 @@ class EnginePolicy:
         try:
             from .engine import to_game
             if self._player is None:
-                from mtg.blind_aggro import BlindAggroPlayer
-                self._player = BlindAggroPlayer()
+                from mtg.aggro import AggroPlayer       # the default engine bot: beats HeuristicPlayer ~68-32
+                self._player = AggroPlayer()             # head-to-head (ladder.compare), and it BLOCKS (Do.BLOCKS)
             game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed)
             move = self._player.bind(game, "alice").choose_move(game)
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
