@@ -2966,8 +2966,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         continue                                 # engine conditional static rule owns it
                     dropped.append(("static", verb))
                     continue
-                if str(tgt) in ("enchanted_creature", "equipped_creature"):
-                    parsed = ("attached", None, None)        # §301/§303 buff the attached creature
+                if str(tgt) in ("enchanted_creature", "equipped_creature", "enchanted_permanent"):
+                    # §301/§303 buff the attached creature. 'enchanted_permanent' is an Aura that buffs
+                    # whatever it enchants (Silken Strength, Roadside Assistance, Lightwheel Enhancements):
+                    # the engine's attached anthem_creature rule already gates on creature(C), so a +N/+N
+                    # rides only when the enchanted permanent IS a creature (§613 — P/T mods are inert
+                    # otherwise), making the 'attached' scope faithful for the permanent-target form too.
+                    parsed = ("attached", None, None)
                 else:
                     parsed = _anthem_target(tgt, corpus)
                 if parsed is None:
