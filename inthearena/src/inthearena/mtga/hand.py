@@ -483,7 +483,8 @@ def _want_names(view, insts: list) -> dict:
     return want
 
 
-def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: float, label: str) -> bool:
+def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: float, label: str,
+                    prefer_left: bool = False) -> bool:
     """Play a hand card WITHOUT ever misclicking — the shared core of play_land / play_hand_card. Clicks only a
     card whose on-screen NAME positively matches one of `want` (a normalized-name -> instanceId dict, in
     preference order). Order of attempts:
@@ -526,24 +527,26 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         play_card(actuator, hit)
         return True
 
-    # 2) ANCHORED PREDICT (deterministic — no flaky reveal). We KNOW the target's SLOT: its place in the log's
-    # ascending-instanceId screen order. And the legible cards are ANCHORS (their name -> slot is known). So fit
-    # the fan geometry to the anchors and COMPUTE the occluded target's pixel position, then click it. This is
-    # the reliable path when ≥2 cards are legible (the usual case) — we never need to OCR the occluded card.
-    anchors = _name_anchors(view, seat, screen, named)
-    if len(anchors) >= 2:
-        for name, inst in want.items():                    # preference order (the bot's pick first)
-            if inst in screen:
-                slot = screen.index(inst)
-                pt = _predict_slot(anchors, slot)
-                if pt is not None:
-                    _log.info("  %s: %r occluded; predicted slot %d at %s from anchors %s",
-                              label, name, slot, pt, [(a[0], a[1]) for a in anchors])
-                    play_card(actuator, pt)
-                    return True
+    # 2) LANDS sort LEFTMOST. MTGA orders the hand by MANA VALUE (NOT instanceId — verified: a hand's
+    # instanceId-slot -> screen-x was non-monotonic), so lands (CMC 0) are the leftmost cards, and since none is
+    # legible here they're the OCCLUDED ones on the left. Click just LEFT of the leftmost legible card (= the
+    # rightmost, least-occluded land), one fan-step over, lowered a touch for the arc. Deterministic; no flaky
+    # reveal and no instanceId-order assumption.
+    if prefer_left and len(named) >= 2:
+        legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right
+        xs = [t[1] for t in legible]
+        gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
+        tx = xs[0] - spacing
+        ty = legible[0][2] + int(_FAN_ARC * 0.4)           # the leftmost edge sits a little lower (arc)
+        _log.info("  %s: lands sort left & none legible — clicking the occluded land just-left of the legible "
+                  "(%d legible at x=%s, spacing %d) at (%d,%d)", label, len(legible), xs, spacing, tx, ty)
+        play_card(actuator, (tx, ty))
+        return True
 
-    # 3) hover-reveal — last resort when there aren't enough anchors to predict from. Sweep LEFT-TO-RIGHT,
+    # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
+    anchors = _name_anchors(view, seat, screen, named)
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
     max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack
@@ -574,7 +577,7 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
     pref_first = ([preferred] if preferred in legal else []) + [i for i in legal if i != preferred]
     want = _want_names(view, pref_first)
     _log.info("  land: legal land drops = %s (want names %s)", legal, list(want))
-    return _play_from_hand(actuator, locator, view, seat, want, settle=settle, label="land")
+    return _play_from_hand(actuator, locator, view, seat, want, settle=settle, label="land", prefer_left=True)
 
 
 def play_hand_card(actuator, locator, view, seat: int, instance_id: int, *, settle: float = 0.3) -> bool:

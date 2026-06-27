@@ -868,13 +868,13 @@ def _hand_checks():
         check("play_land: shadows (no click) when it can't identify a land — never misclicks",
               ok2 is False and a2.clicks == [] and len(a2.moves) > 0)
 
-        # (3) land occluded at rest -> ANCHORED PREDICT from the legible cards (deterministic, no reveal): slots
-        # 1,2 (Bravo/Charlie) legible at x 900/1030 -> predict slot 0 (Forest) at ~770 and click it.
+        # (3) no land legible at rest -> lands sort LEFTMOST (MTGA orders the hand by mana value), so click just
+        # LEFT of the leftmost legible card. Bravo/Charlie legible at x 900/1030 (spacing 130) -> click ~770.
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
             ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]
         a3 = DryRunActuator(rect=rect, image=object())
         ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
-        check("play_land: predicts an occluded land's slot from anchors and clicks it (slot 0 ~ 770)",
+        check("play_land: clicks the occluded land just-left of the legible cards (lands sort left, ~770)",
               ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
 
         # land_play_options enumerates only the lands among the Play actions
