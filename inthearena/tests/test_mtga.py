@@ -1151,6 +1151,11 @@ def _hand_checks():
     rpos2 = [p[0] for p in _reveal_positions(rect, 5, [(1, 824, 962), (4, 1183, 970)], None)]
     check("_reveal_positions divides the anchor gap by SLOT distance (covers cards between far-apart anchors)",
           any(690 <= x <= 720 for x in rpos2) and any(930 <= x <= 960 for x in rpos2))
+    # NEVER return 0 positions: when anchors blanket the band the 'skip points on an anchor' filter can empty the
+    # sweep — which made the caller give up without hovering a single card. Fall back to a uniform fan instead.
+    rdense = _reveal_positions(rect, 7, [(i, 420 + i * 130, 970) for i in range(11)], None)
+    check("_reveal_positions never returns empty (uniform-fan fallback when the anchor filter empties it)",
+          len(rdense) > 0)
     # the hover y follows the fan ARC: edge positions sit LOWER (larger y) than the centre, so an edge card is
     # hovered ON, not above it.
     rys = [p[1] for p in rpos]

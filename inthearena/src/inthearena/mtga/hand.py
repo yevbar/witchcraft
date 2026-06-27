@@ -479,6 +479,8 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     then a uniform fan. Each point's y follows the hand's ARC (`_bowed_y`) — lower toward the edges — so an edge
     card (e.g. a leftmost Plains) is hovered ON, not above. Sweeping left-to-right finds the leftmost match first."""
     lo, hi = rect.x + int(_NAME_X[0] * rect.w), rect.x + int(_NAME_X[1] * rect.w)
+    top_y = rect.y + int(0.88 * rect.h)
+    xs = []
     if anchors:
         asorted = sorted(anchors, key=lambda a: a[1])   # by x, left-to-right
         axs = [a[1] for a in asorted]
@@ -493,7 +495,6 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
         x = float(axs[0])
         while x - spacing >= lo:                        # walk left to the band edge…
             x -= spacing
-        xs = []
         while x <= hi + 1 and len(xs) < 2 * max(n, 1):  # …then march right across the whole band
             xs.append(int(round(x)))
             x += spacing
@@ -502,12 +503,14 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     elif det:
         top_y = min(p[1] for p in det)
         xs = [p[0] for p in sorted(det)]
-    else:
-        top_y = rect.y + int(0.88 * rect.h)
+    if not xs:
+        # No usable anchors/detections — OR the anchor filter removed every point. NEVER return empty (that makes
+        # the caller give up without sweeping a single card); fall back to a uniform fan centred on the hand so the
+        # occluded cards still get hovered.
         slots = max(n, 1)
-        cx = rect.x + rect.w / 2.0                      # MTGA centres the fan; spread nominal steps about the centre
-        span = (slots - 1) * _FAN_SPACING               # (NOT lo..hi — a small hand doesn't fill the whole band, and
-        xs = [int(cx - span / 2 + k * _FAN_SPACING) for k in range(slots)]   # collapsing 1 slot to `lo` hovered empty)
+        cx = rect.x + rect.w / 2.0
+        span = (slots - 1) * _FAN_SPACING
+        xs = [int(cx - span / 2 + k * _FAN_SPACING) for k in range(slots)]
     span = sorted(xs)
     return [(sx, _bowed_y(sx, span, top_y)) for sx in xs]
 
@@ -527,15 +530,10 @@ def _want_names(view, insts: list) -> dict:
 def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: float, label: str,
                     prefer_left: bool = False) -> bool:
     """Play a hand card WITHOUT ever misclicking — the shared core of play_land / play_hand_card. Clicks only a
-    card whose on-screen NAME positively matches one of `want` (a normalized-name -> instanceId dict, in
-    preference order). Order of attempts:
-
-      1. Snapshot at rest; if a wanted card's name is legible, click it (preference order, leftmost copy).
-      2. Otherwise HOVER-REVEAL: sweep left-to-right, magnifying each occluded card to read it, and click the
-         first that matches a wanted name.
-      3. Else return False (the caller shadows). Never guess a pixel.
-
-    Also waits out the mulligan keep if it's still on screen. Returns True only on a positively-identified click."""
+    card whose on-screen NAME positively matches one of `want`. Snapshots the hand, waits out a lingering mulligan
+    keep, then identifies the card (`_locate_in_hand`). On failure it RE-CAPTURES once after letting the hand
+    settle and tries again — a just-drawn card slides in over ~1s and a mid-animation snapshot reads poorly (bad
+    legible positions, no reveal hits). Returns True only on a positively-identified click."""
     if not want:
         _log.info("  %s: nothing to identify", label)
         return False
@@ -559,6 +557,29 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         if rect is None:
             return False
 
+    if _locate_in_hand(actuator, locator, view, seat, want, image=image, rect=rect, screen=screen,
+                       label=label, prefer_left=prefer_left, settle=settle):
+        return True
+
+    # RETRY once on a SETTLED re-capture: the first snapshot can catch a just-drawn card mid-slide (unreadable
+    # names, an off-the-fan candidate, a 0-position sweep). Park the cursor, let the hand settle, snap again.
+    _log.info("  %s: first pass found nothing — settling and retrying once", label)
+    actuator.hover(*rest_point(rect))
+    actuator.wait(0.8)
+    image2, rect2 = capture_hand(actuator, settle=0.2)
+    if rect2 is not None and _locate_in_hand(actuator, locator, view, seat, want, image=image2, rect=rect2,
+                                             screen=screen, label=label, prefer_left=prefer_left, settle=settle):
+        return True
+
+    _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
+    return False
+
+
+def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, rect, screen: list, label: str,
+                    prefer_left: bool, settle: float) -> bool:
+    """Identify and click a wanted card in ONE snapshot (`image`/`rect`): legible-at-rest, then a lone-card click,
+    then the occluded-land geometric guess (confirmed by magnify), then the hover-reveal sweep. Returns True only
+    on a positively-identified click; False means try again (the caller re-captures)."""
     named = locate_named_cards(image, rect)
 
     # Drop OCR text that isn't a card in HAND — the battlefield's permanents (already-cast creatures) bleed into the
@@ -669,25 +690,6 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
             play_card(actuator, target)
             return True
 
-    # LAST RESORT before a TERMINAL shadow (the GRE waits on us forever): a JUST-DRAWN card slides in over ~1s and
-    # reads as nothing mid-animation — which is exactly why the decision-time snapshot missed a 'Plains' that's
-    # plainly legible once it settles. Park the cursor at rest, let the hand settle, and re-read at REST once more.
-    actuator.hover(*rest_point(rect))
-    actuator.wait(0.8)
-    image2, rect2 = capture_hand(actuator, settle=0.2)
-    if rect2 is not None:
-        settled = locate_named_cards(image2, rect2)
-        hn = _hand_names(view, seat)
-        if hn:
-            settled = [(t, x, y) for (t, x, y) in settled
-                       if any(_name_score(_norm_name(t), h) >= _NAME_MATCH for h in hn)]
-        hit = _land_hit(settled, want)
-        if hit is not None:
-            _log.info("  %s: card became legible after settling — playing at %s", label, hit)
-            play_card(actuator, hit)
-            return True
-
-    _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
     return False
 
 
