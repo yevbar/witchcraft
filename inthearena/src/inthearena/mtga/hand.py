@@ -642,11 +642,14 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         _log.info("  %s: hover x=%d revealed %s", label, x, [t[0] for t in named2])   # diagnostic
         hit = _land_hit(named2, want, near_x=x, max_dist=max_dist)
         if hit is not None:
-            # click WHERE THE NAME ACTUALLY IS, not the hover point — the cursor can sit a little off the card (a
-            # ghost spot just left of the fan) yet still magnify+read it, and clicking the hover point then lands
-            # on empty felt. `hit` is the matched name's own (x, y).
-            _log.info("  %s: revealed a wanted card at %s (hovered x=%d) — playing", label, hit, x)
-            play_card(actuator, hit)
+            # Grab at the matched name's X (the card's true column — the cursor can sit a little off the card, a
+            # ghost spot just left of the fan, yet still magnify+read it; clicking the hover X then lands on empty
+            # felt) but at the RESTING fan Y of the sweep, NOT the name's read Y — that Y is the MAGNIFIED banner
+            # lifted well up, so grabbing there can miss the card once it settles back. play_card re-hovers, which
+            # re-magnifies, and grabs on the resting body (same as the legible-at-rest path).
+            target = (hit[0], y)
+            _log.info("  %s: revealed a wanted card (name x=%d) — playing at %s", label, hit[0], target)
+            play_card(actuator, target)
             return True
 
     _log.info("  %s: couldn't positively identify the card — shadowing (no pixel guess)", label)
