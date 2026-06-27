@@ -51,7 +51,10 @@ _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 _FAN_ARC = 48              # px the hand fan bows down at its EDGES vs the centre (hover lower toward the edges)
-_REVEAL_Y = 0.60           # taller name band used while a hovered card is MAGNIFIED (its banner lifts up)
+_REVEAL_Y = 0.45           # name-band floor while a hovered card is MAGNIFIED — it lifts its banner well UP, so
+#                            this must reach much higher than the resting hand band (0.84). near_x keeps a
+#                            battlefield card of the same name (also in this band) from matching.
+_REVEAL_DWELL = 0.45       # s to dwell on a hovered card so MTGA finishes magnifying before we read its name
 _PLAY_LIFT_Y = 0.58        # y-fraction to lift a grabbed card to — ABOVE the player avatar's head (its flaming
 #                            head tops out ~0.60-0.65 of the window; a card only becomes playable once the cursor
 #                            clears it), while staying on the player's battlefield. Tune if the avatar differs.
@@ -530,12 +533,13 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     anchors = _name_anchors(view, seat, screen, named)
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
-    max_dist = int(0.06 * rect.w)
+    max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack
     _log.info("  %s: not legible at rest — hover-revealing %d position(s) left-to-right", label, len(positions))
     for x, y in positions:
         actuator.hover(x, y)
-        actuator.wait(settle)
+        actuator.wait(max(settle, _REVEAL_DWELL))          # let the magnify finish before reading
         named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+        _log.info("  %s: hover x=%d revealed %s", label, x, [t[0] for t in named2])   # diagnostic
         if _land_hit(named2, want, near_x=x, max_dist=max_dist) is not None:
             _log.info("  %s: revealed a wanted card near x=%d — playing", label, x)
             play_card(actuator, (x, y))
