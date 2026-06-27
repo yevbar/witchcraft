@@ -828,7 +828,7 @@ def _gy_exile_filter(tgt) -> str | None:
 _SEARCHED_CARD_OBJ = {"it", "that_card", "that_land", "the_card"}
 
 
-def _creature_verb_payload(verb, amt, extra):
+def _creature_verb_payload(verb, amt, extra, cond="-"):
     """The engine (verb, payload) for a creature-scoped verb, independent of WHICH creatures it hits:
     grant_keyword -> ('grant', keyword); modify_pt -> ('modify_pt', 'dp/dt'); the §701 zone moves ->
     (verb, '-'). Returns (None, reason_kind, reason_detail) when the payload can't be made concrete."""
@@ -841,16 +841,32 @@ def _creature_verb_payload(verb, amt, extra):
         if extra not in _ENGINE_KEYWORDS:
             return None, "grant_keyword", extra
         return "grant", extra
+    if verb == "becomes":
+        # §613 layer 7b 'target creature becomes a P/T creature' — a base-P/T SET (Diminish 1/1, Humble
+        # 0/1, Quandrix Charm 5/5). Resolve ONLY a bare numeric P/T whose 'extra' marks it a base_pt set
+        # (not a type/color/copy becomes), and a duration the driver can honor: permanent ('-') -> 'setpt',
+        # until_end_of_turn -> 'setpt_eot'. A variable (X/X) P/T or any other duration/extra abstains —
+        # base-P/T-setting counters/pumps still layer ON TOP (§613 7c), so this is faithful, choice-free.
+        if str(extra) != "base_pt":
+            return None, "becomes", extra
+        pt = _animation_pt(amt)
+        if pt is None:
+            return None, "becomes_pt", amt
+        if str(cond) == "-":
+            return "setpt", pt
+        if str(cond) == "until_end_of_turn":
+            return "setpt_eot", pt
+        return None, "becomes_dur", cond
     return verb, "-"
 
 
-def _single_target_payload(verb, amt, tgt, extra):
+def _single_target_payload(verb, amt, tgt, extra, cond="-"):
     """Translate a single 'target creature' creature-verb clause into the engine (verb, payload, class),
     or (None, reason_kind, reason_detail) to abstain. The class is the legal-target set the driver picks in."""
     cls = _target_class(tgt)
     if cls is None:
         return None, "scope", tgt
-    r = _creature_verb_payload(verb, amt, extra)
+    r = _creature_verb_payload(verb, amt, extra, cond)
     if r[0] is None:
         return r
     return r[0], r[1], cls
@@ -2132,8 +2148,17 @@ def _resolve_modes(f: dict, key: str, dropped: list) -> tuple[list, list]:
                 # exile_gy, resolved by the driver ONLY if this mode is chosen (spell_effect_mode).
                 mode_effs.append((key, mode, "exile_gy", 0, _gy_exile_filter(tgt)))
                 continue
+            if verb == "becomes" and _scope(tgt) is None and _target_class(tgt) is not None:
+                # §613 layer 7b 'target creature becomes a P/T creature' as a MODE (Quandrix Charm's 5/5
+                # mode) -> a ctarget the driver resolves only if this mode is chosen. base_pt + bare numeric
+                # P/T + a duration the driver honors only; anything else abstains (recorded dropped).
+                ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
+                if ev is None:
+                    dropped.append((payload, cls)); continue
+                mode_effs.append((key, mode, "ctarget", 0, f"{ev}|{payload}|{cls}"))
+                continue
             if verb in _CREATURE_VERBS and _scope(tgt) is None:
-                ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
                 if ev is not None:
                     mode_effs.append((key, mode, "ctarget", 0, f"{ev}|{payload}|{cls}"))
                     continue
@@ -2190,7 +2215,7 @@ def _fold_channel(c: dict, f: dict, tid: str, add, dropped: list) -> set:
     if prim is None:
         return set()
     _seq, verb, amt, tgt, extra, _cond = prim
-    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
     if ev is None:
         return set()
     # the consolation rider (Boseiju): a separate ability that lets THAT PLAYER (the one whose permanent was
@@ -2786,6 +2811,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §701.10 graveyard-hate: 'exile [target] card from a graveyard' -> exile_gy (the driver
                     # picks a matching graveyard card on resolution). Owner-unrestricted, single, mandatory only.
                     add("spell_effect", (tid, "exile_gy", 0, _gy_exile_filter(tgt))); continue
+                if verb == "becomes" and _scope(tgt) is None and _target_class(tgt) is not None:
+                    # §613 layer 7b 'target creature becomes a P/T creature' (Diminish, Humble, Ovinize,
+                    # Quandrix Charm). NOT datalog-derived — emit a python spell_effect ctarget the driver
+                    # resolves at resolution (it picks a creature in `cls`, sets eff_set_power/toughness;
+                    # _single_target_payload abstains on a variable P/T / non-base_pt / unhandled duration).
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
+                    if ev is None:
+                        dropped.append((payload, cls)); continue
+                    add("spell_effect", (tid, "ctarget", 0, f"{ev}|{payload}|{cls}")); continue
                 if verb in _CREATURE_VERBS:
                     scope = _scope(tgt)
                     if scope in _BOARD_SCOPES or str(tgt) in _FILTERED_BOARD_SCOPES:
@@ -2985,8 +3019,19 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # creature', '{2}: target creature gets +1/+1', 'deal 1 to any target' pingers). Packed into
                 # the activated_ability row with a creature-eff sentinel; the driver picks the target on
                 # resolution. Board scopes fall through to the player-scoped resolver below.
+                if verb == "becomes" and _scope(tgt) is None and _target_class(tgt) is not None:
+                    # §613 layer 7b '{cost}: target creature becomes a P/T creature' (Gigantomancer '{1}: …
+                    # 7/7', Creeperhulk '… 5/5 until end of turn') -> a ctarget the driver resolves; the
+                    # driver picks a creature in `cls` and SETS its base P/T. base_pt + bare P/T + honored
+                    # duration only — anything else abstains (recorded dropped, no activated_ability row).
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
+                    if ev is None:
+                        dropped.append((payload, cls)); continue
+                    add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"{ev}|{payload}|{cls}"))
+                    emitted = True
+                    continue
                 if verb in _CREATURE_VERBS and _scope(tgt) is None:
-                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra)
+                    ev, payload, cls = _single_target_payload(verb, amt, tgt, extra, _cond)
                     if ev is not None:
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"{ev}|{payload}|{cls}"))
                         emitted = True

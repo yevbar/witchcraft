@@ -1055,6 +1055,20 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         state.setdefault("eff_switch_pt", set()).add((eid, tgt))
         state.setdefault("until_eot", set()).add((eid,))
         print(f"    {kind} {a}: switches {tgt}'s power and toughness until end of turn")
+    elif verb in ("setpt", "setpt_eot"):                     # §613 layer 7b 'becomes a P/T creature' — SET base P/T
+        # eff_set_power/toughness feed the engine's set_power -> base_power (§613 7b); counters (7c) and pumps
+        # still layer on top. 'setpt' is a PERMANENT set (Diminish 1/1, Quandrix Charm 5/5 — no duration);
+        # 'setpt_eot' wears off at cleanup (Humble/Ovinize 0/1 'until end of turn'). The engine doesn't model
+        # an Aura-style attachment, so this is the one-shot/EOT target case only — the source's own type/color
+        # are untouched (a 'becomes a P/T creature' on a creature target sets only the P/T, choice-free).
+        dp, dt = (int(x) for x in payload.split("/"))
+        eid = f"{a}__setpt__{tgt}"
+        state.setdefault("eff_set_power", set()).add((eid, tgt, dp, 1))
+        state.setdefault("eff_set_toughness", set()).add((eid, tgt, dt, 1))
+        if verb == "setpt_eot":
+            state.setdefault("until_eot", set()).add((eid,))
+        suffix = " until end of turn" if verb == "setpt_eot" else ""
+        print(f"    {kind} {a}: {tgt} becomes a {dp}/{dt} creature{suffix}")
     elif verb == "counter":                                  # §122 put N +1/+1 or -1/-1 counters (PERSISTENT)
         ckind, n = payload.split(":")
         # counters are cumulative, but a triggered pending_target is RE-DERIVED on every _apply_creature_
@@ -1255,6 +1269,12 @@ def _pick_target(state: dict, ctrl: str, cls: str, verb: str, payload: str,
         harmful = (dp + dt) < 0
     elif verb == "counter":                                  # a -1/-1 counter is removal; +1/+1 is a buff
         harmful = payload.startswith("m1m1")
+    elif verb in ("setpt", "setpt_eot"):                     # §613 'becomes a P/T creature' — a SET base P/T.
+        # Heuristic, choice-free: a SMALL set P/T (Diminish 1/1, Humble/Ovinize 0/1) is removal-flavored ->
+        # aim at the strongest enemy to neuter it; a LARGE set (Quandrix Charm 5/5, Gigantomancer 7/7) is a
+        # buff -> aim at the controller's strongest. (you_control-classed clauses already restrict to own.)
+        dp, dt = (int(x) for x in payload.split("/"))
+        harmful = (dp + dt) <= 3
     # prefer enemy creatures for harmful effects, own creatures for beneficial ones, then strongest.
     def keyf(c):
         own = c in mine
