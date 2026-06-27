@@ -57,6 +57,12 @@ _EVENT = {
     # §603 'whenever ONE OR MORE creatures you control deal combat damage to a player' (Knuckles) — fires once
     # per combat for the controller (set semantics dedupe the per-creature ev_combat_dmg_player).
     "one_or_more_creatures_you_control_deal_combat_damage_to_a_player": "your_creatures_combat_damage",
+    # §603 'whenever A creature you control deals combat damage to a player' (Rogue Class, Reconnaissance
+    # Mission, Bident of Thassa, Old Gnawbone) — SAME firing condition as the 'one or more' variant: a creature
+    # C the source's controller P also controls dealt combat damage to a player. fires(A,S) is a SET, so even
+    # if several of P's creatures connect, S fires exactly once (the 'a creature' singular vs 'one or more'
+    # distinction is cosmetic at the trigger-fire layer — both watch the same event). Reuses the same kind.
+    "a_creature_you_control_deals_combat_damage_to_a_player": "your_creatures_combat_damage",
     # §603 'another creature [you control]' enters/dies — the engine restricts to creature + controller.
     "another_creature_enters": "other_creature_etb",
     "a_creature_enters": "other_creature_etb",
@@ -125,6 +131,15 @@ _EVENT = {
     # attacking creature you control (an over-fire vs the once-per-combat reading, so kept conservative:
     # only the controller-scoped attacks join, NOT a board-wide 'a creature attacks').
     "you_attack": "you_attack",
+    # §508 'whenever ~ attacks alone' (Rogue Kavu, Grunn, Nefarox) — SELF attacks AND it is the only attacker
+    # (exactly one creature is attacking this combat). The engine joins ev_attacks(S) with the derived
+    # exactly_one_attacker() condition (souffle count of attackers == 1). Reuses the driver-fed `attacks`
+    # input + combat_now window; NO new driver signal.
+    "attacks_alone": "self_attacks_alone",
+    # §508 'whenever A CREATURE YOU CONTROL attacks alone' (Rafiq, Battlegrace Angel, Sovereigns) — a creature
+    # the source's controller P controls is attacking AND it is the only attacker. Same exactly_one_attacker()
+    # condition, controller-scoped (the lone attacker O is one of P's creatures, and P controls S).
+    "a_creature_you_control_attacks_alone": "your_creature_attacks_alone",
     # §301/§303 ATTACHED-PERMANENT triggers — an Aura/Equipment whose ATTACHED creature O is the subject of a
     # reused event signal; the engine joins the ev_* signal with attached_to(S, O) (NO new driver signal). The
     # creature dying/attacking and the aura leaving are simultaneous in ONE engine pass (dies/ev_attacks are

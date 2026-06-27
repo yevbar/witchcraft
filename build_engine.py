@@ -913,6 +913,11 @@ def _rules(p: Program) -> None:
     p.rule("ev_leaves(O)", ["sacrificed(O)"])            # so does a sacrificed permanent (bounce/exile via effects: TODO)
     p.decl("ev_attacks", [("a", "symbol")])
     p.rule("ev_attacks(A)", ["attacks(A, _)", "combat_now()"])
+    # §508 'attacks alone' = EXACTLY ONE creature is attacking this combat. attacks(A, D) is the driver-fed
+    # declare-attackers relation (one row per attacker -> its defender); a single attacker means the COUNT of
+    # distinct attacking creatures is 1. Gated by combat_now() so it's only true during the combat window.
+    p.decl("exactly_one_attacker", [])
+    p.rule("exactly_one_attacker()", ["combat_now()", "1 = count : { attacks(_, _) }"])
     p.decl("ev_blocks", [("b", "symbol")])
     p.rule("ev_blocks(B)", ["blocks(B, _)", "combat_now()"])
     p.decl("ev_combat_dmg_player", [("s", "symbol"), ("p", "symbol")])
@@ -1034,6 +1039,12 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_self")', "ev_leaves(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "leaves_other")', "ev_leaves(O)", "O != S"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_self")', "ev_attacks(S)"])
+    # §508 'whenever ~ attacks alone' (Rogue Kavu, Grunn) — the SOURCE itself attacks AND it is the only
+    # attacker this combat (exactly_one_attacker). ev_attacks(S) implies S is the lone attacker.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_attacks_alone")', "ev_attacks(S)", "exactly_one_attacker()"])
+    # §508 'whenever A CREATURE YOU CONTROL attacks alone' (Rafiq, Battlegrace Angel) — a creature O the
+    # source's controller P controls is attacking AND it is the only attacker. The lone attacker need not be S.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_attacks_alone")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)", "exactly_one_attacker()"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "blocks_self")', "ev_blocks(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_player")', "ev_combat_dmg_player(S, _)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "combat_damage_to_creature")', "ev_combat_dmg_creature(S, _)"])
