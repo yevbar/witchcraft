@@ -6,8 +6,10 @@ the MTGA option it corresponds to — so a bot developed in python-mtg actually 
 
 The translation hinges on one fact: `engine.build_state` names every VISIBLE card `slug_<instanceId>`, where
 `instanceId` is the MTGA GRE id. So an engine move's `card.id` carries the MTGA instanceId straight back, and we
-just find the `Decision` option with that id. Attackers map by the same id; blocks/targets aren't wired (the
-blind player doesn't make them).
+just find the `Decision` option with that id. Attackers and BLOCKS map by the same id (a block move's
+`(blocker_id, attacker_id)` pairs -> MTGA pairings); targets aren't wired. NB: the engine only PRODUCES a block
+move once the bridge feeds it the declared attackers (`build_state` doesn't model 'attacking' yet) and the player
+declares blocks (`AggroPlayer` does, `BlindAggroPlayer` doesn't) — until then a blockers decision declines.
 
 Robustness: whenever the engine can't be used here — not importable, its datalog isn't on the repo-relative path
 (run take_over from the repo root to use it), or a move can't be mapped — `EnginePolicy` falls back to a plain
@@ -77,8 +79,6 @@ class EnginePolicy:
 
     # ── decide ────────────────────────────────────────────────────────────────────────────────────────────
     def decide(self, d):
-        if d.kind == "blockers":
-            return []                                        # never block
         if d.kind == "targets":
             return None                                      # decline targets (no board targeting)
         if d.kind == "mulligan":
@@ -113,4 +113,23 @@ class EnginePolicy:
             want = {mtga_instance_id(a) for a in move.attackers}
             return [{"attackerInstanceId": atk.attackerInstanceId, "target": _attacker_target(atk)}
                     for atk in (d.options or []) if atk.attackerInstanceId in want]
+        if d.kind == "blockers":
+            # The engine's block move is kind == "block" with `blocks` = a set of (blocker_id, attacker_id) engine
+            # pairs (slug_<instanceId>). Map each back to MTGA ids and keep only LEGAL pairings per the GRE
+            # (declareBlockersReq lists, per blocker, the attackers it may block). [] -> decline ('No Blocks').
+            if kind != "block" or not getattr(move, "blocks", None):
+                return []
+            legal = {}                                       # blockerInstanceId -> {attackers it may block}
+            for b in (d.options or []):
+                bid = b.get("blockerInstanceId") if isinstance(b, dict) else None
+                if bid is not None:
+                    legal[bid] = set(b.get("attackerInstanceIds") or []) | set(b.get("selectedAttackerInstanceIds") or [])
+            pairs = []
+            for pair in move.blocks:
+                if not isinstance(pair, (tuple, list, frozenset, set)) or len(pair) != 2:
+                    continue
+                blk, atk = (mtga_instance_id(x) for x in tuple(pair))
+                if blk is not None and atk is not None and atk in legal.get(blk, ()):
+                    pairs.append({"blockerInstanceId": blk, "attackerInstanceId": atk})
+            return pairs
         return _FALLBACK

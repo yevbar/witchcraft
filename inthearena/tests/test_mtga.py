@@ -1183,7 +1183,8 @@ def _engine_policy_checks():
     check("mtga_instance_id None for a bare slug / empty", mtga_instance_id("forest") is None and mtga_instance_id("") is None)
 
     ep = EnginePolicy()
-    move = lambda kind, cid=None, attackers=(): NS(kind=kind, card=(NS(id=cid) if cid else None), attackers=frozenset(attackers))
+    move = lambda kind, cid=None, attackers=(), blocks=(): NS(kind=kind, card=(NS(id=cid) if cid else None),
+                                                              attackers=frozenset(attackers), blocks=frozenset(blocks))
 
     # actions: a land-play move maps to the Play option with that instanceId; a cast to the Cast option
     opts = [Action(actionType="ActionType_Play", instanceId=342),
@@ -1207,8 +1208,19 @@ def _engine_policy_checks():
     check("engine declines combat (pass at attackers) -> no attack ([])",
           ep._translate(d_atk, move("pass")) == [])
 
-    # decide routes blockers/targets/mulligan without touching the engine
-    check("EnginePolicy never blocks", ep.decide(Decision(kind="blockers", options=[{"x": 1}], seat=1, view=GameView(), req=None)) == [])
+    # blockers: the engine's (blocker, attacker) pairs map to MTGA pairings, kept ONLY if legal per the GRE
+    d_blk = Decision(kind="blockers", seat=1, view=GameView(), req=None, options=[
+        {"blockerInstanceId": 302, "attackerInstanceIds": [431]},
+        {"blockerInstanceId": 315, "attackerInstanceIds": [431, 432]}])
+    blk = ep._translate(d_blk, move("block", blocks=[("crea_302", "atk_431"), ("crea_315", "atk_999")]))
+    check("engine blocks -> only LEGAL (blocker,attacker) pairings (315->999 dropped)",
+          blk == [{"blockerInstanceId": 302, "attackerInstanceId": 431}])
+    check("engine declines blocks (pass at blockers) -> no block ([])",
+          ep._translate(d_blk, move("pass")) == [])
+
+    # decide: with the engine unavailable here, blockers/targets fall back (no block / no target)
+    check("EnginePolicy declines blocks when the engine can't run (fallback)",
+          ep.decide(Decision(kind="blockers", options=[{"blockerInstanceId": 1}], seat=1, view=GameView(), req=None)) == [])
     check("EnginePolicy declines targets", ep.decide(Decision(kind="targets", options=[{"instanceId": 1}], seat=1, view=GameView(), req=None)) is None)
 
 
@@ -1292,6 +1304,20 @@ def _execute_checks():
     a8 = DryRunActuator(rect=rect, image=object())
     r8 = GameExecutor(a8, object_locator=BoardStub(), locator=AdvLoc()).execute(dec_tgt, {"instanceId": 7})
     check("execute: target clicks the located board object", r8.done and len(a8.clicks) == 1)
+
+    # BLOCK: choice is {blockerInstanceId -> attackerInstanceId} pairs -> click each blocker (lower band) then the
+    # attacker it blocks (upper band), per pair, then confirm with the bottom-right button.
+    ab = DryRunActuator(rect=rect, image=object())
+    rb = GameExecutor(ab, object_locator=BoardStub(), locator=AdvLoc()).execute(
+        dec_block, [{"blockerInstanceId": 302, "attackerInstanceId": 431},
+                    {"blockerInstanceId": 315, "attackerInstanceId": 431}])
+    check("execute: block clicks each blocker then its attacker, then confirms",
+          rb.done and len(ab.clicks) == 5)                 # 2 pairs * (blocker + attacker) + 1 confirm
+    check("execute: first block click is the blocker (302), second is its attacker (431)",
+          ab.clicks[0][0] == 300 + 302 and ab.clicks[1][0] == 300 + 431)
+    abn = DryRunActuator(rect=rect, image=object())
+    rbn = GameExecutor(abn, object_locator=BoardStub(), locator=AdvLoc()).execute(dec_block, [])
+    check("execute: empty block -> single 'No Blocks' click", rbn.done and len(abn.clicks) == 1)
 
 
 def _board_checks():

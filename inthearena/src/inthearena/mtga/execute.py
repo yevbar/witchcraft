@@ -90,6 +90,11 @@ class GameExecutor:
     def execute(self, decision, choice) -> ExecResult:
         """Drive the client to carry out `choice` for `decision`. Dispatch by decision kind; return an
         ExecResult (done=False means the caller should shadow it)."""
+        # Tell the board ObjectLocator which seat is OURS, so it searches the right name-band per object (our
+        # blockers render in the lower-middle, the opponent's attackers in the upper-middle — same name on both
+        # boards otherwise confuses them). Set once from the first decision; the local seat is constant per game.
+        if self._objs is not None and getattr(self._objs, "_me", None) is None:
+            self._objs._me = decision.seat
         handler = getattr(self, f"_do_{decision.kind}", None)
         if handler is None:
             return ExecResult(False, f"no executor for {decision.kind!r}")
@@ -136,10 +141,26 @@ class GameExecutor:
         return ExecResult(False, f"{at} not wired (activated abilities etc.)")
 
     def _do_blockers(self, decision, choice) -> ExecResult:
-        # aggro never blocks -> choice is the empty list. 'No Blocks' is its own bottom-right button.
+        # choice is a list of {blockerInstanceId, attackerInstanceId} pairs (our creature -> the attacker it
+        # blocks). Empty -> decline all via the 'No Blocks' button. Otherwise enact each pairing the way Arena
+        # does it: click OUR blocker (lower band) — its border goes orange — then click the attacker it should
+        # block (upper band, which then glows), one pair at a time; finally confirm with the bottom-right button.
         if not choice:
             return self._advance("no blocks", _NO_BLOCKS)
-        return ExecResult(False, "blocking not wired (needs board targeting: blocker -> attacker)")
+        if self._objs is None:
+            return ExecResult(False, "blocking needs a board ObjectLocator")
+        pairs = 0
+        for c in choice:
+            blk = c.get("blockerInstanceId") if isinstance(c, dict) else getattr(c, "blockerInstanceId", None)
+            atk = c.get("attackerInstanceId") if isinstance(c, dict) else getattr(c, "attackerInstanceId", None)
+            rb = self._click_object(blk, decision.view, "blocker")     # select the blocker (lower band)
+            if not rb.done:
+                return rb
+            ra = self._click_object(atk, decision.view, "attacker")    # then the attacker it blocks (upper band)
+            if not ra.done:
+                return ra
+            pairs += 1
+        return self._advance(f"confirm {pairs} block(s)", _ADVANCE)    # bottom-right confirm
 
     def _do_attackers(self, decision, choice) -> ExecResult:
         # choice is a list of {attackerInstanceId, target}. Attacking with EVERY qualified attacker is exactly
