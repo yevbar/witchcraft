@@ -984,6 +984,14 @@ def _hand_checks():
         check("play_land: just-drawn land on the RIGHT — legible run left-of-centre -> click right of it",
               ok3c and len(a3c.clicks) == 2 and a3c.clicks[0][0] > 850)
 
+        # (3d) TWO-card hand, ONE legible spell left-of-centre + the just-drawn land (unreadable) beside it. Only one
+        # anchor -> MIRROR it across the hand centre to find the land. (Bravo at x=841; centre 960 -> land ~1079.)
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [("Bravo", 841 / 1920, 0.90)]
+        a3d = DryRunActuator(rect=rect, image=object())     # rect is 1920x1080 -> centre 960
+        ok3d = play_land(a3d, None, _hand({40}, {51}), 1, plays(40), 40)
+        check("play_land: 2-card hand, lone legible spell -> mirror to the land (right of the spell, ~1079)",
+              ok3d and len(a3d.clicks) == 2 and 1040 <= a3d.clicks[0][0] <= 1120)
+
         # land_play_options enumerates only the lands among the Play actions
         from inthearena.mtga import land_play_options
         v = _hand({50}, {51})

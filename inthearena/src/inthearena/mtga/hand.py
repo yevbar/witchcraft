@@ -582,29 +582,39 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     # fan. Decide the side by POSITION, not draw order: compare the legible run's centre to the hand centre (the
     # screen-centred fan). A run sitting RIGHT of centre means the free land slots are to the LEFT, and vice versa.
     # (instanceId/"just-drawn-is-rightmost" is unreliable — in the OPENING hand the left-side lands can carry the
-    # max id, which sent the cursor right past the cards.) Step one MEASURED fan-gap past the run on the land side.
-    # Requires >=2 legible HAND cards: with only one, the inter-card spacing is unknown and a guessed step landed ON
-    # the neighbour and PLAYED it — so a single anchor falls through to reveal/shadow instead.
-    if prefer_left and len(named) >= 2:
+    # max id, which sent the cursor right past the cards.)
+    if prefer_left and len(named) >= 1:
         legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right (real hand cards only — bleed filtered)
         xs = [t[1] for t in legible]
-        gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-        spacing = max(40, min(gaps))                       # measured nearest-neighbour gap
         hand_center = rect.x + rect.w / 2.0
-        lands_left = (sum(xs) / len(xs)) >= hand_center     # legible run right-of-centre -> lands are to the LEFT
-        if lands_left:
-            tx = xs[0] - spacing
-            ty = legible[0][2] + int(_FAN_ARC * 0.4)       # the left edge sits a little lower (arc)
-            side = "left"
+        legible_center = sum(xs) / len(xs)
+        lands_left = legible_center >= hand_center          # legible run right-of-centre -> lands are to the LEFT
+        tx = None
+        if len(xs) >= 2:
+            # >=2 anchors: step one MEASURED nearest-neighbour fan-gap past the run on the land side.
+            spacing = max(40, min(xs[i + 1] - xs[i] for i in range(len(xs) - 1)))
+            if lands_left:
+                tx, ty = xs[0] - spacing, legible[0][2] + int(_FAN_ARC * 0.4)
+            else:
+                tx, ty = xs[-1] + spacing, legible[-1][2] + int(_FAN_ARC * 0.4)
+            how = "fan-gap %d past the legible" % spacing
+        elif len(screen) == 2:
+            # ONE legible card in a TWO-card hand: the other (unreadable) card is the land. The inter-card gap is
+            # unmeasurable, so MIRROR the lone card across the hand centre — for the common just-drawn-land-beside-
+            # one-spell hand this lands on the land, and the mirror auto-scales the step for a sparse hand (a fixed
+            # fan-gap guess fell short and grabbed the neighbour). With >2 cards a single anchor is too ambiguous.
+            mx = int(2 * hand_center - xs[0])
+            if abs(mx - xs[0]) >= 90:                        # else ambiguous (both cards crowd the centre) -> reveal
+                tx, ty = mx, legible[0][2] + int(_FAN_ARC * 0.4)
+            how = "mirror of the lone legible across centre"
         else:
-            tx = xs[-1] + spacing
-            ty = legible[-1][2] + int(_FAN_ARC * 0.4)      # the right edge sits a little lower (arc)
-            side = "right"
-        _log.info("  %s: none legible — lands are on the %s (legible run centre %d vs hand centre %d); clicking one "
-                  "fan-gap past the legible (%d legible at x=%s, spacing %d) at (%d,%d)",
-                  label, side, int(sum(xs) / len(xs)), int(hand_center), len(legible), xs, spacing, tx, ty)
-        play_card(actuator, (tx, ty))
-        return True
+            how = "single anchor in a >2-card hand — too ambiguous, deferring to reveal"
+        if tx is not None:
+            _log.info("  %s: none legible — lands are on the %s (legible centre %d vs hand centre %d); clicking the "
+                      "%s (%d legible at x=%s) at (%d,%d)", label, "left" if lands_left else "right",
+                      int(legible_center), int(hand_center), how, len(legible), xs, tx, ty)
+            play_card(actuator, (tx, ty))
+            return True
 
     # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
