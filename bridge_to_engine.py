@@ -1810,16 +1810,23 @@ def _fold_threaten(effs: list, emit) -> set:
     return skip
 
 
-def _resolved_effect(verb, amt, tgt, extra, cond="-") -> tuple | None:
+def _resolved_effect(verb, amt, tgt, extra, cond="-", attached_source=True) -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
     so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution).
     `cond` is the clause's condition slug ('-' = unconditional). It gates the verbs whose resolution
     would be UNFAITHFUL under a condition the engine can't evaluate — currently `sacrifice`: a MAY /
     DELAYED / UNLESS-PAY sacrifice is a player choice or a future-step event we don't model, and the
-    applier resolves it unconditionally, so we abstain unless the sacrifice is unconditional (cond '-')."""
+    applier resolves it unconditionally, so we abstain unless the sacrifice is unconditional (cond '-').
+    `attached_source` (default True) is whether THIS card is itself an Aura/Equipment/Fortification — it
+    gates §701.3 `attach`: a self-attach's moved object ('it'/'self') only means the source when the source
+    IS an attachment; on a non-attachment source ('search for an Equipment … attach it' — Stonehewer Giant)
+    'it' is a FETCHED object the encoder can't identify, so we abstain (see effect_handlers/attach.py)."""
     if verb == "sacrifice" and str(cond) != "-":
         return None                                          # only an UNCONDITIONAL sacrifice resolves faithfully
+    if verb == "attach" and (str(cond) != "-" or not attached_source):
+        return None                                          # §701.3 conditional/'may' move, or a non-attachment
+        #                                                      source whose 'it'/'self' is a fetched object -> abstain
     if verb == "fight" and str(cond) != "-":                 # §701.12 only an UNCONDITIONAL fight resolves
         return None                                          # faithfully (may / if-kicked / threshold abstain)
     if verb == "gain_control" and str(cond) != "-":          # §720 a MAY / conditional / coin-flip / power-
@@ -2724,7 +2731,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("trigger_effect", (a, "win_lib_empty", 0, "controller"))
                     emitted = True
                     continue
-                r = _resolved_effect(verb, amt, tgt, extra, _cond)  # player-scoped effects via the unified helper
+                r = _resolved_effect(verb, amt, tgt, extra, _cond, attached_source)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
@@ -2955,7 +2962,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         mult, qtag = mq
                         add("spell_effect", (tid, "dyn_mana", mult, f"{qtag}|{color}"))
                         continue
-                r = _resolved_effect(verb, amt, tgt, extra, _cond)
+                r = _resolved_effect(verb, amt, tgt, extra, _cond, attached_source)
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
@@ -3146,7 +3153,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _target_class(tgt) is not None:        # target creature -> ctarget (driver picks + applies, EOT)
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"cant_be_blocked|-|{_target_class(tgt)}"))
                         emitted = True; continue
-                r = _resolved_effect(verb, amt, tgt, extra, _cond)
+                r = _resolved_effect(verb, amt, tgt, extra, _cond, attached_source)
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
