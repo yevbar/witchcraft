@@ -1664,10 +1664,16 @@ def _fold_threaten(effs: list, emit) -> set:
     return skip
 
 
-def _resolved_effect(verb, amt, tgt, extra) -> tuple | None:
+def _resolved_effect(verb, amt, tgt, extra, cond="-") -> tuple | None:
     """Translate one cards.dl effect clause into the (eff, amount, target) the driver's _apply_effects
     resolves, or None to abstain. Shared by triggered abilities, activated abilities and spell effects
-    so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution)."""
+    so all three resolution paths use one faithful-or-abstain vocabulary (§608 effect resolution).
+    `cond` is the clause's condition slug ('-' = unconditional). It gates the verbs whose resolution
+    would be UNFAITHFUL under a condition the engine can't evaluate — currently `sacrifice`: a MAY /
+    DELAYED / UNLESS-PAY sacrifice is a player choice or a future-step event we don't model, and the
+    applier resolves it unconditionally, so we abstain unless the sacrifice is unconditional (cond '-')."""
+    if verb == "sacrifice" and str(cond) != "-":
+        return None                                          # only an UNCONDITIONAL sacrifice resolves faithfully
     if verb == "prevent_damage":                             # §615 Fog: 'prevent all combat damage this turn'.
         if str(amt) == "all" and ("combat" in str(tgt) or "combat" in str(extra)):
             return ("fog", 0, "-")                           # the driver sets prevent_all_combat for the turn
@@ -2055,7 +2061,7 @@ def _resolve_modes(f: dict, key: str, dropped: list) -> tuple[list, list]:
                     mult, qtag = mq
                     mode_effs.append((key, mode, "dyn_mana", mult, f"{qtag}|{color}"))
                     continue
-            r = _resolved_effect(verb, amt, tgt, extra)
+            r = _resolved_effect(verb, amt, tgt, extra, _cond)
             if r is None:
                 dropped.append(("effect", verb))
                 continue
@@ -2367,7 +2373,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # driver runs when the Class reaches level N; an unresolvable effect still abstains.
                 lvl = int(trig.rsplit("_", 1)[1])
                 for _seq, verb, amt, tgt, extra, _cond in ab.get("effects", []):
-                    r = _resolved_effect(verb, amt, tgt, extra)
+                    r = _resolved_effect(verb, amt, tgt, extra, _cond)
                     if r is None:
                         dropped.append(("effect", verb))
                         continue
@@ -2533,7 +2539,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("trigger_effect", (a, "win_lib_empty", 0, "controller"))
                     emitted = True
                     continue
-                r = _resolved_effect(verb, amt, tgt, extra)  # player-scoped effects via the unified helper
+                r = _resolved_effect(verb, amt, tgt, extra, _cond)  # player-scoped effects via the unified helper
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
@@ -2743,7 +2749,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         mult, qtag = mq
                         add("spell_effect", (tid, "dyn_mana", mult, f"{qtag}|{color}"))
                         continue
-                r = _resolved_effect(verb, amt, tgt, extra)
+                r = _resolved_effect(verb, amt, tgt, extra, _cond)
                 if r is None:
                     dropped.append(("effect", verb))
                     continue
@@ -2908,7 +2914,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _target_class(tgt) is not None:        # target creature -> ctarget (driver picks + applies, EOT)
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"cant_be_blocked|-|{_target_class(tgt)}"))
                         emitted = True; continue
-                r = _resolved_effect(verb, amt, tgt, extra)
+                r = _resolved_effect(verb, amt, tgt, extra, _cond)
                 if r is None:
                     dropped.append(("effect", verb))
                     continue

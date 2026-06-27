@@ -8,14 +8,19 @@ player-scoped trigger_effect path with target in {'controller','each_opponent'} 
   - set_life   ('your/each opponent's life total becomes N' — a player-scoped life set)
 
 MODEL
-  sacrifice: amt is the COUNT, tgt is the class/scope. We only resolve the faithful, choice-free case
-    'a player sacrifices N CREATURES of their own choosing': pick the N lowest-power creatures that player
-    controls (ties broken by id) from the engine's DERIVED controls/creature/power, and move them to the
-    graveyard via D._to_graveyard after firing any 'when ~ is sacrificed' look-back trigger (D._sacrifice).
-    target='controller' (the controller sacrifices) or 'each_opponent' ('each opponent sacrifices a
-    creature'). ABSTAIN on a SPECIFIC/named/subtyped/conditional class ('a Food', 'another Dragon', 'all
-    creatures', 'any number of …', a named permanent), a non-creature class (land/artifact/permanent), and
-    variable amounts ('X creatures', '1_per_…') — those need a choice or count the engine can't supply.
+  sacrifice: amt is the COUNT, tgt/extra carry the class/scope. We resolve the faithful, choice-free case
+    'a player sacrifices N <TYPE> of their own choosing', TYPE in {creature, artifact, land, enchantment,
+    planeswalker, permanent}: per player, pick N victims DETERMINISTICALLY via D._sac_candidates +
+    D._sac_default — the same greedy 'least valuable body, not the source' model the engine's 'Sacrifice a
+    <X>' activation COST uses — and move each to the graveyard via D._sacrifice (fires any 'when ~ is
+    sacrificed' look-back first). scope='controller' ('Sacrifice a creature/land') or 'each_opponent' (an
+    EDICT — 'each opponent / target player sacrifices a creature/artifact/… of their choice'); the type
+    rides the target as 'scope|kind'. 'Sacrifice ~/this/it' (the source) -> sacrifice_self. ABSTAIN on: a
+    SUBTYPE/named/token class ('a Food', 'another Dragon' — routed to sacrifice_subtype or needing a
+    choice), a COMPOUND class ('a creature or artifact'), a MASS / 'the rest' / 'any number' / 'all … they
+    control' class, a back-reference ('that token'), a variable count, and any NON-'-' condition (a MAY /
+    DELAYED / UNLESS-PAY sacrifice — gated upstream in the bridge's _resolved_effect: our applier resolves
+    unconditionally, so a conditional one would over-fire).
 
   get_energy: amt is a plain int -> the player gains N {E}. Stored in a driver-side state relation
     state['energy'] = {(player, total)}; read back / accumulated in apply. ABSTAIN on variable amounts.
@@ -60,50 +65,77 @@ def _player_scope(tgt):
 
 
 # ----- sacrifice ------------------------------------------------------------------------------------
-# The only choice-free creature classes we resolve: a generic 'creature' the player sacrifices of their
-# own choosing (we pick the weakest). A specific subtype / named / non-creature / 'all'/'any number' /
-# conditional class abstains (needs a choice or selects a different permanent kind than we'd pick).
-_SAC_CREATURE_CLASSES = {
-    "a_creature", "another_creature", "a_nontoken_creature", "another_creature_you_control",
-    "a_creature_of_their_choice", "a_nontoken_creature_of_their_choice",
-}
+# A choice-free 'sacrifice a <TYPE>' (or 'sacrifices a <type> of their choice') we resolve by picking a
+# valid victim DETERMINISTICALLY (D._sac_candidates + D._sac_default — the same victim model the engine's
+# 'Sacrifice a <X>' activation COST uses, so an edict and an activation cost pick consistently). The class
+# slug must name ONE clean permanent type the engine can enumerate:
+#   - 'a/an/another <type> [you control] [of their choice]', type in
+#     {creature, artifact, land, enchantment, planeswalker, permanent}.
+# We ABSTAIN (None) on:
+#   - a SUBTYPE / named / token class ('a Food', 'another Dragon' beyond the type word) — those route
+#     elsewhere (sacrifice_subtype) or need a choice we don't model;
+#   - a COMPOUND class ('a creature or artifact', 'a creature or planeswalker', '… or discard a card'),
+#     a MASS / 'the rest' / 'any number' / 'all … they control' class, a back-reference ('that token',
+#     'those creatures'), and a count > a single named type's implicit 1 unless the count is explicit;
+#   - any NON-'-' condition (gated upstream in the bridge: a MAY / DELAYED / UNLESS-PAY sacrifice).
+# A single phrase resolves to ('sacrifice', n, 'scope|kind'); the applier reads scope + kind from tgt.
+_SAC_TYPE_WORDS = {"creature", "artifact", "land", "enchantment", "planeswalker", "permanent"}
+
+
+def _sac_kind(cls: str):
+    """A clean 'a/an/another <TYPE> [you control] [of their choice]' class slug -> the type word the
+    driver's _sac_candidates enumerates, or None to abstain. Reject a COMPOUND ('_or_'), a 'nontoken'
+    creature (still a creature, but the qualifier is harmless — kept as creature), a NUMBER-word class
+    ('two_creatures…'), a back-reference, and anything whose remaining tokens aren't exactly one type."""
+    s = str(cls)
+    if "_or_" in s or s.startswith(("all_", "any_", "x_", "two_", "three_", "the_")):
+        return None                                           # compound / mass / variable / 'the rest'
+    toks = [t for t in s.split("_") if t not in
+            ("a", "an", "another", "of", "their", "choice", "you", "control", "nontoken")]
+    # what's left must be exactly the type word (singular). 'a_creature_of_their_choice' -> ['creature'].
+    if len(toks) == 1 and toks[0] in _SAC_TYPE_WORDS:
+        return toks[0]
+    return None
 
 
 @encoder("sacrifice")
 def encode_sacrifice(verb, amt, tgt, extra):
-    # amt = COUNT (default 1 when the count is implicit and the class names a single creature);
-    # the class lives in tgt for controller-scoped ('Sacrifice a creature') and in extra for
-    # player-targeted ('each opponent sacrifices a creature of their choice').
+    # amt = COUNT (default 1 when the count is implicit and the class names a single permanent);
+    # the class lives in tgt for controller-scoped ('Sacrifice a creature') and in extra for a
+    # player-targeted edict ('each opponent sacrifices a creature of their choice').
     if str(tgt) in ("self", "it"):                            # §701.16 'Sacrifice this permanent' (the source)
         return ("sacrifice_self", 0, "-")
     if str(extra) not in ("-", "None") and _player_scope(tgt):
-        scope, cls = _player_scope(tgt), str(extra)
-        n = _int(amt)
-        n = 1 if n is None and cls in _SAC_CREATURE_CLASSES else n
+        scope, cls = _player_scope(tgt), str(extra)           # edict: 'each opponent sacrifices a <type>'
     else:
-        scope, cls = "controller", str(tgt)
-        n = _int(amt)
-        n = 1 if n is None and cls in _SAC_CREATURE_CLASSES else n
-    if scope is None or n is None or n < 1 or cls not in _SAC_CREATURE_CLASSES:
+        scope, cls = "controller", str(tgt)                   # controller: 'Sacrifice a <type>'
+    kind = _sac_kind(cls)
+    if scope is None or kind is None:
         return None
-    return ("sacrifice", n, scope)
+    n = _int(amt)
+    n = 1 if n is None else n                                 # an implicit single-permanent class -> 1
+    if n < 1:
+        return None
+    return ("sacrifice", n, f"{scope}|{kind}")
 
 
 @applier("sacrifice")
 def apply_sacrifice(D, state, a, n, tgt, src, ctrl):
-    """The chosen player(s) sacrifice their n weakest creatures (lowest power, ties by id) — a faithful
-    deterministic 'sacrifice a creature of their choice'. Uses the engine's DERIVED controls/creature/
-    power so a creature that entered via casting counts, and D._sacrifice so any 'when ~ is sacrificed'
-    look-back trigger fires before it leaves for the graveyard."""
-    players = D._others(state, ctrl) if tgt == "each_opponent" else [ctrl]
+    """The chosen player(s) each sacrifice n of their permanents of the named type — a faithful
+    deterministic 'sacrifice a <type> of their choice'. tgt = 'scope|kind' (scope: controller /
+    each_opponent; kind: creature/artifact/land/enchantment/planeswalker/permanent). The victim is
+    picked PER PLAYER by D._sac_candidates + D._sac_default (the same greedy 'least valuable body'
+    the activation-cost sacrifice uses), and D._sacrifice fires any 'when ~ is sacrificed' look-back
+    before it leaves for the graveyard. A faithful no-op for a player with no eligible permanent."""
+    scope, _, kind = str(tgt).partition("|")
+    players = D._others(state, ctrl) if scope == "each_opponent" else [ctrl]
     for p in players:
-        out = D.run(state, ["controls", "creature", "power"])
-        creatures = {c for (c,) in out["creature"]}
-        power = {c: int(v) for (c, v) in out["power"]}
-        mine = sorted(c for (pp, c) in out["controls"] if pp == p and c in creatures)
-        mine.sort(key=lambda c: (power.get(c, 0), c))     # weakest first, deterministic tie-break
-        for c in mine[:n]:
-            D._sacrifice(state, c)                         # fires 'when sacrificed', then -> graveyard
+        for _ in range(int(n)):
+            cands = D._sac_candidates(state, p, kind, src)    # re-query each time (the prior sac shrinks the board)
+            if not cands:
+                break
+            victim = D._choose(state, "sacrifice", cands, D._sac_default(state, cands, src))
+            D._sacrifice(state, victim)                       # fires 'when sacrificed', then -> graveyard
 
 
 @applier("sacrifice_subtype")
