@@ -209,13 +209,18 @@ def play_card(actuator, point: tuple, *, gap: float = 0.015, hold: float = 0.0,
 
 
 def hand_members(view, seat: int) -> list:
-    """The instanceIds in `seat`'s hand (membership, GRE zone order). Falls back to the GameView hand objects."""
+    """The instanceIds in `seat`'s hand. Membership is AUTHORITATIVE from each object's own zoneId (`view.hand`):
+    the GameView treats a zone's `objectInstanceIds` list as POSSIBLY-STALE — a card that was cast or played can
+    linger in that list after its zoneId already moved to the stack/battlefield, which would add a GHOST hand slot
+    (a swept-but-empty position). Order by the GRE hand-zone list where present (newest-first), but FILTERED to the
+    objects actually in hand, with any list/object drift reconciled to the zoneId truth."""
+    live = {o.instanceId for o in view.hand(seat)}          # authoritative membership (by object zoneId)
     for z in view.zones.values():
         if getattr(z, "type", None) == "ZoneType_Hand" and getattr(z, "ownerSeatId", None) == seat:
-            ids = list(z.objectInstanceIds or [])
-            if ids:
-                return ids
-    return [o.instanceId for o in view.hand(seat)]
+            ordered = [i for i in (z.objectInstanceIds or []) if i in live]   # zone order, ghosts dropped
+            extra = [i for i in live if i not in set(ordered)]                # in hand but missing from the list
+            return ordered + extra
+    return list(live)
 
 
 def hand_screen_order(view, seat: int) -> list:
@@ -534,11 +539,11 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     #   • otherwise the wanted lands are older/held -> they're to the LEFT of the legible (newer) cards.
     # Click one fan-step past the legible run on that edge, lowered a touch for the arc. No instanceId-slot
     # interpolation (that was non-monotonic per hand) — just the reliable newest-goes-right invariant.
-    if prefer_left and len(named) >= 2:
+    if prefer_left and len(named) >= 1:
         legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right
         xs = [t[1] for t in legible]
         gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
+        spacing = max(40, min(gaps)) if gaps else _FAN_SPACING   # 1 legible -> no measurable gap, use default step
         hand_ids = hand_members(view, seat)
         newest_is_land = bool(hand_ids) and _is_land(view, max(hand_ids))
         if newest_is_land:                                 # just-drawn card is a land -> it's the RIGHTMOST slot

@@ -750,6 +750,21 @@ def _hand_checks():
                                     "controllerSeatId": 1} for i in (479, 462, 344, 343)]})
     check("hand_screen_order reverses the newest-first zone order to oldest-left screen order",
           hand_screen_order(desc, 1) == [343, 344, 462, 479])
+    # GHOST SLOT: the hand-zone's objectInstanceIds list can lag — a cast/played card stays listed there after its
+    # zoneId already moved to the battlefield. Membership must come from object zoneIds (authoritative), so the
+    # stale entry is NOT swept as an empty hand slot. Here 304 is listed in hand but its object sits on the field.
+    from inthearena.mtga import hand_members
+    ghost = _apply({"type": "GameStateType_Full",
+                    "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                               "objectInstanceIds": [367, 304, 290]},   # 304 lingers here after being cast
+                               {"zoneId": 20, "type": "ZoneType_Battlefield", "ownerSeatId": 1}],
+                    "gameObjects": [{"instanceId": 290, "grpId": 1, "zoneId": 10, "ownerSeatId": 1, "controllerSeatId": 1},
+                                    {"instanceId": 367, "grpId": 1, "zoneId": 10, "ownerSeatId": 1, "controllerSeatId": 1},
+                                    {"instanceId": 304, "grpId": 1, "zoneId": 20, "ownerSeatId": 1, "controllerSeatId": 1}]})
+    check("hand_members drops a ghost (cast card still listed in the zone but whose object left the hand)",
+          sorted(hand_members(ghost, 1)) == [290, 367])
+    check("hand_screen_order excludes the ghost too (no empty swept slot)",
+          hand_screen_order(ghost, 1) == [290, 367])
 
     class Loc3:
         def locate_all(self, image, query):
