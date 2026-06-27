@@ -277,6 +277,7 @@ def _apply_checks() -> None:
     _topdeck_checks()
     _loot_bottom_checks()
     _name_exile_checks()
+    _gy_to_lib_checks()
 
 
 def _loot_bottom_checks() -> None:
@@ -434,6 +435,93 @@ def _name_exile_checks() -> None:
     _fire(st, "name_exile_lib", 0, tgt="controller_loselife")
     check("spoils: the whole library is exiled (n_top=0, name absent)", len(st["exile"]) == 10)
     check("spoils: lose 1 life per exiled card (40 - 10)", ("alice", 30) in st["life"])
+
+
+def _gy_to_lib_checks() -> None:
+    # ── encode: 'put target … from [a] graveyard on top/bottom of … library' (Reclaim / Mortuary Mire / etc.)
+    check("put_on_top from your gy (any) -> top|any|1|your",
+          _enc("put_on_top", "-", "target_card_from_your_graveyard") == ("gy_to_lib", 0, "top|any|1|your"))
+    check("put_on_top creature from your gy -> top|creature|1|your",
+          _enc("put_on_top", "-", "target_creature_card_from_your_graveyard") == ("gy_to_lib", 0, "top|creature|1|your"))
+    check("put_on_top zombie subtype from your gy -> subtype:zombie",
+          _enc("put_on_top", "-", "target_zombie_card_from_your_graveyard") == ("gy_to_lib", 0, "top|subtype:zombie|1|your"))
+    check("put_on_top 'a land card' from your gy (article peel) -> top|land|1|your",
+          _enc("put_on_top", "-", "a_land_card_from_your_graveyard") == ("gy_to_lib", 0, "top|land|1|your"))
+    check("put_on_top 'up to one' instant/sorcery -> count 1",
+          _enc("put_on_top", "-", "up_to_one_target_instant_or_sorcery_card_from_your_graveyard")
+          == ("gy_to_lib", 0, "top|instant_or_sorcery|1|your"))
+    check("put_on_top 'any number of' creatures (plural) -> count all",
+          _enc("put_on_top", "-", "any_number_of_target_creature_cards_from_your_graveyard")
+          == ("gy_to_lib", 0, "top|creature|all|your"))
+    check("put_on_top 'up to three' creatures -> count 3",
+          _enc("put_on_top", "-", "up_to_three_target_creature_cards_from_your_graveyard")
+          == ("gy_to_lib", 0, "top|creature|3|your"))
+    check("put_on_bottom card from a graveyard (gy hate) -> bottom|any|1|any",
+          _enc("put_on_bottom", "-", "target_card_from_a_graveyard") == ("gy_to_lib", 0, "bottom|any|1|any"))
+    check("put_on_top from an opponent's gy -> owner any (gy hate)",
+          _enc("put_on_top", "-", "up_to_three_target_cards_from_an_opponent_s_graveyard")
+          == ("gy_to_lib", 0, "top|any|3|any"))
+    # ABSTAIN: a battlefield/hand bounce (no graveyard source), and 'put the rest' look-tails / searched-obj.
+    check("put_on_top two_target_lands abstains (battlefield, not gy)",
+          _enc("put_on_top", "-", "two_target_lands") is None)
+    check("put_on_bottom target_attacking_creature abstains (Condemn, battlefield)",
+          _enc("put_on_bottom", "-", "target_attacking_creature") is None)
+    check("put_on_top it still -> place_searched (searched-card path unchanged)",
+          _enc("put_on_top", "-", "it") == ("place_searched", 0, "top"))
+
+    # ── apply: zone/order update, no card lost or duplicated.
+    def _gy_state(gy_owned):
+        st = {
+            "is_player": {("alice",), ("bob",)},
+            "graveyard": {(c,) for (c, _o) in gy_owned},
+            "printed_control": {(o, c) for (c, o) in gy_owned},
+            "instance_of": set(), "card_type": set(), "card_subtype": set(),
+            "in_library": set(), "_lib_order": {},
+        }
+        return st
+
+    def _all_ids(st):
+        ids = {c for (c,) in st.get("graveyard", set())}
+        ids |= {c for (_p, c) in st.get("in_library", set())}
+        return ids
+
+    # Reclaim: any card from alice's gy -> top of alice's library; bob's card untouched.
+    st = _gy_state([("gA", "alice"), ("gB", "alice"), ("gC", "bob")])
+    st["instance_of"] = {("gA", "x"), ("gB", "y"), ("gC", "z")}
+    before = _all_ids(st)
+    _fire(st, "gy_to_lib", 0, tgt="top|any|1|your")
+    check("gy_to_lib your: a card moved gy -> top of library", st["_lib_order"]["alice"][0] in ("gA", "gB"))
+    check("gy_to_lib your: only one card moved (count 1)", len(st["_lib_order"]["alice"]) == 1)
+    check("gy_to_lib your: bob's card stays in gy", ("gC",) in st["graveyard"])
+    check("gy_to_lib your: no card lost/duplicated", _all_ids(st) == before)
+
+    # subtype filter: only the Zombie is eligible.
+    st = _gy_state([("z1", "alice"), ("n1", "alice")])
+    st["instance_of"] = {("z1", "gc"), ("n1", "sh")}
+    st["card_type"] = {("gc", "creature"), ("sh", "instant")}
+    st["card_subtype"] = {("gc", "zombie")}
+    _fire(st, "gy_to_lib", 0, tgt="top|subtype:zombie|1|your")
+    check("gy_to_lib subtype: picks the zombie, not the instant", st["_lib_order"]["alice"] == ["z1"])
+    check("gy_to_lib subtype: non-zombie stays in gy", ("n1",) in st["graveyard"])
+
+    # graveyard hate: 'from a graveyard' -> bottom of the card's OWNER library, opponent preferred.
+    st = _gy_state([("aC", "alice"), ("bC", "bob")])
+    st["instance_of"] = {("aC", "p"), ("bC", "q")}
+    st["card_type"] = {("p", "creature"), ("q", "creature")}
+    before = _all_ids(st)
+    _fire(st, "gy_to_lib", 0, tgt="bottom|any|1|any", ctrl="alice")
+    check("gy_to_lib hate: opponent's card chosen first", ("bob", "bC") in st["in_library"])
+    check("gy_to_lib hate: routed to OWNER's (bob's) library", st["_lib_order"].get("bob") == ["bC"])
+    check("gy_to_lib hate: alice's card untouched in gy", ("aC",) in st["graveyard"])
+    check("gy_to_lib hate: no card lost/duplicated", _all_ids(st) == before)
+
+    # 'any number' moves all matching (capped at availability); a non-match stays.
+    st = _gy_state([("c1", "alice"), ("c2", "alice"), ("i1", "alice")])
+    st["instance_of"] = {("c1", "a"), ("c2", "b"), ("i1", "c")}
+    st["card_type"] = {("a", "creature"), ("b", "creature"), ("c", "instant")}
+    _fire(st, "gy_to_lib", 0, tgt="top|creature|all|your")
+    check("gy_to_lib all: both creatures moved", sorted(st["_lib_order"]["alice"]) == ["c1", "c2"])
+    check("gy_to_lib all: the instant stays in gy", ("i1",) in st["graveyard"])
 
 
 def run() -> None:

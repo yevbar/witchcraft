@@ -763,6 +763,123 @@ def _regrowth_filter(tgt) -> str | None:
     return None
 
 
+# ── §701 'put target card from [your/a] graveyard on top/bottom of [your/its owner's] library' (Reclaim,
+# Mortuary Mire, Academy Ruins, Unholy Grotto, Vessel of Endless Rest, …). The graveyard→library twin of
+# regrowth: same canonical-first-match faithfulness (an opaque-id graveyard return never says WHICH card, so
+# any match is a legal choice), but the destination is a library slot instead of the hand. We fold the whole
+# target slug into (filter, count, owner_scope):
+#   • filter — a §205 card TYPE ('creature'/'artifact'/'instant_or_sorcery'/'land'/'enchantment'/'permanent'/
+#     'any') confirmed from the card's surfaced identity, OR a single 'subtype:<sub>' (Unholy Grotto's
+#     'Zombie card') matched against card_subtype. A named / power / mana-value restriction we can't confirm
+#     ABSTAINS (returns None) — a wrong card returned is worse than dropping.
+#   • count — 1 ('target … card'), or the 'up to one' / 'any number of' / 'up to N' / 'N target' multi forms.
+#     Moving ANY number of matches (capped at N) is always a legal 'up to N', so the faithful choice is to move
+#     as many matching cards as available up to the cap; canonical order keeps it reproducible.
+#   • owner_scope — 'your' = the controller's OWN graveyard, cards go to the CONTROLLER's library ('from your
+#     graveyard'); 'any' = any graveyard (graveyard hate: 'from a graveyard'), each returned card goes to ITS
+#     OWNER's library and an opponent's card is preferred (the disruptive intent), like exile_gy.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+# subtype words a 'put target <Subtype> card from your graveyard …' slug can name (we match these against
+# card_subtype). Only creature/permanent subtypes that ride card_subtype faithfully; anything else abstains.
+_GY_LIB_COUNT_PREFIX = {                                       # leading count qualifier -> (count, is_cap)
+    "up_to_one_": (1, True), "any_number_of_": (None, True),   # None cap = all matching
+    "two_": (2, False), "three_": (3, False),
+    "up_to_two_": (2, True), "up_to_three_": (3, True),
+}
+
+
+def gy_to_lib_spec(tgt) -> tuple | None:
+    """Resolve a 'put … from [a] graveyard on top/bottom of … library' target slug to
+    ('<filter>', count|'all', '<your|any>'), or None to abstain. `count` is an int (exact / cap) or 'all'."""
+    t = str(tgt)
+    # the graveyard source must be IN the target slug (these returns name the graveyard explicitly); without it
+    # the clause is a battlefield/hand bounce that this family does NOT own (left to other paths / abstain).
+    if "from_your_graveyard" in t:
+        owner = "your"
+        head = t.split("_from_your_graveyard", 1)[0]
+    elif "from_a_graveyard" in t:
+        owner = "any"
+        head = t.split("_from_a_graveyard", 1)[0]
+    elif "from_an_opponent_s_graveyard" in t:
+        owner = "any"                                          # an opponent's graveyard — pick an opponent card
+        head = t.split("_from_an_opponent_s_graveyard", 1)[0]
+    else:
+        return None
+    count: int | str = 1
+    for pre, (cnt, _cap) in _GY_LIB_COUNT_PREFIX.items():
+        if head.startswith(pre):
+            count = "all" if cnt is None else cnt
+            head = head[len(pre):]
+            break
+    for art in ("target_", "a_", "an_"):                      # peel a leading 'target ' / article (Glowspore's 'a land
+        if head.startswith(art):                              # card', the count-prefixed 'target creature cards')
+            head = head[len(art):]
+            break
+    if head.endswith("_cards"):                               # singularize the plural the multi-count forms leave
+        head = head[: -len("_cards")] + "_card"               # ('creature cards' -> 'creature card', 'cards' -> 'card')
+    elif head == "cards":
+        head = "card"
+    # a §205 card TYPE filter ('creature_card' / 'instant_or_sorcery_card' / 'card' …) — reuse the regrowth map.
+    filt = _REGROWTH_FILTER.get(head) or _REGROWTH_FILTER.get("target_" + head) or _REGROWTH_FILTER.get("a_" + head)
+    if filt is not None:
+        return (filt, count, owner)
+    # a single-SUBTYPE filter ('zombie_card' -> subtype:zombie). Only a bare '<subtype>_card' shape; anything
+    # with an extra restriction we can't confirm abstains.
+    if head.endswith("_card") and head.count("_") == 1:
+        sub = head[: -len("_card")]
+        if sub and sub.isalpha():
+            return ("subtype:" + sub, count, owner)
+    return None
+
+
+def _gy_card_matches(state: dict, g: str, filt: str) -> bool:
+    """True iff graveyard object `g` matches the §701 graveyard-return filter (judged from its card identity:
+    instance_of -> card_type / card_subtype)."""
+    inst = {o: c for (o, c) in state.get("instance_of", set())}
+    card = inst.get(g, g)
+    if filt == "any":
+        return True
+    types = {t for (c, t) in state.get("card_type", set()) if c == card}
+    if filt == "permanent":
+        return bool(types & {"creature", "artifact", "enchantment", "land", "planeswalker"})
+    if filt == "instant_or_sorcery":
+        return bool(types & {"instant", "sorcery"})
+    if filt.startswith("subtype:"):
+        want = filt[len("subtype:"):]
+        return (card, want) in state.get("card_subtype", set())
+    return filt in types
+
+
+@applier("gy_to_lib")
+def _apply_gy_to_lib(D, state, a, n, tgt, src, ctrl):
+    """§701 move matching graveyard card(s) onto the top/bottom of a library. `tgt` is
+    '<dest>|<filter>|<count>|<owner>' (dest: top|bottom; count: int or 'all'; owner: your|any). Canonical-first
+    among the matches (a faithful, always-legal pick — the card never says WHICH); 'any'-owner = graveyard hate,
+    so an OPPONENT's card is preferred and each card lands on ITS OWNER's library. No card is lost or duplicated:
+    every moved card leaves the graveyard and is added to in_library + the owner's order list exactly once."""
+    dest, _, rest = str(tgt).partition("|")
+    filt, _, rest2 = rest.partition("|")
+    cnt_s, _, owner = rest2.partition("|")
+    owner_of = {c: p for (p, c) in state.get("printed_control", set())}
+    opps = set(D._others(state, ctrl))
+    cands = sorted(c for (c,) in state.get("graveyard", set()) if _gy_card_matches(state, c, filt))
+    if owner == "your":                                       # 'from your graveyard' — only the controller's cards
+        cands = [c for c in cands if owner_of.get(c, ctrl) == ctrl]
+    elif owner == "any":                                      # graveyard hate — prefer an opponent's card first
+        cands = [c for c in cands if owner_of.get(c) in opps] + [c for c in cands if owner_of.get(c) not in opps]
+    limit = len(cands) if cnt_s == "all" else min(int(cnt_s), len(cands))
+    moved = 0
+    for c in cands[:limit]:
+        dest_owner = ctrl if owner == "your" else owner_of.get(c, ctrl)
+        state.get("graveyard", set()).discard((c,))
+        order = _order(state, dest_owner)
+        order.insert(0, c) if dest == "top" else order.append(c)
+        state.setdefault("in_library", set()).add((dest_owner, c))
+        moved += 1
+    print(f"    {a}: {ctrl} puts {moved} card(s) ({filt}) from {'their' if owner == 'your' else 'a'} "
+          f"graveyard on the {dest} of " + ("their library" if owner == "your" else "the owner's library"))
+
+
 @encoder("return_to_hand")
 def _encode_search_to_hand(verb, amt, tgt, extra):
     if str(extra) == "from_graveyard" or "from_your_graveyard" in str(tgt):   # §701 Regrowth — graveyard -> hand
@@ -873,6 +990,10 @@ def _apply_look_noop(D, state, a, n, tgt, src, ctrl):
 @encoder("put_on_top")
 def _encode_put_on_top(verb, amt, tgt, extra):
     t = str(tgt)
+    spec = gy_to_lib_spec(t)                                  # §701 'put target … from [a] graveyard on top of …'
+    if spec is not None:
+        filt, count, owner = spec
+        return ("gy_to_lib", 0, f"top|{filt}|{count}|{owner}")
     if t in _SEARCHED_OBJ:
         return ("place_searched", 0, "top")
     if t in _REORDER_OBJ:                                    # 'put them back on top in any order' -> reorder no-op
@@ -894,6 +1015,10 @@ def _encode_put_on_bottom(verb, amt, tgt, extra):
     t = str(tgt)
     if t in _SEARCHED_OBJ:
         return ("place_searched", 0, "bottom")
+    spec = gy_to_lib_spec(t)                                  # §701 'put target … from a graveyard on the bottom of …'
+    if spec is not None:
+        filt, count, owner = spec
+        return ("gy_to_lib", 0, f"bottom|{filt}|{count}|{owner}")
     if "graveyard" in t and "all" in t:                     # §701 'put ALL the cards from their graveyard on the
         return ("graveyard_to_library", 0, "-")             # bottom of their library' (Endurance — graveyard hate)
     if t in _REORDER_OBJ:                                    # 'put the rest on the bottom in any order' -> no-op-ish
