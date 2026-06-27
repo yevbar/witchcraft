@@ -964,33 +964,44 @@ def _hand_checks():
         check("play_land: plays a lone wanted land at the hand centre (no OCR needed — unambiguous)",
               ok2b and len(a2b.clicks) == 2 and abs(a2b.clicks[0][0] - (rect.x + rect.w // 2)) <= 2)
 
-        # (3) no land legible at rest -> lands sort LEFTMOST (MTGA orders the hand by mana value), so click just
-        # LEFT of the leftmost legible card. Bravo/Charlie legible at x 900/1030 (spacing 130) -> click ~770.
+        # (3) no land legible at REST -> lands sort to the side the legible run doesn't fill. Here Bravo/Charlie
+        # are right-of-centre (900/1030) so lands are LEFT; the candidate one fan-gap left (~770) is CONFIRMED by
+        # magnify (the land reads 'Forest' in the lifted band yf=0.50) and clicked. A non-confirming candidate
+        # would defer to the reveal — a blind click here misplayed interspersed spells.
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
-            ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]
+            ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90), ("Forest", 770 / 1920, 0.50)]
         a3 = DryRunActuator(rect=rect, image=object())
         ok3 = play_land(a3, None, _hand({50}, {51, 52}), 1, plays(50), 50)
-        check("play_land: clicks the occluded land just-left of the legible cards (lands sort left, ~770)",
+        check("play_land: occluded land just-left of the legible, CONFIRMED by magnify -> clicks it (~770)",
               ok3 and len(a3.clicks) == 2 and 740 <= a3.clicks[0][0] <= 800)
 
-        # (3b) OPENING-HAND regression: lands on the LEFT, legible spells RIGHT-of-centre. The land even carries the
-        # MAX instanceId (70 > 51,52) — which the old 'newest=rightmost' rule mistook for a just-drawn right-side
-        # land and clicked PAST the cards. POSITION must win: legible run right-of-centre -> click LEFT.
+        # (3b) OPENING-HAND regression: lands LEFT, legible spells RIGHT-of-centre. The land carries the MAX
+        # instanceId (70 > 51,52) — which the old 'newest=rightmost' rule mistook for a right-side land. POSITION
+        # wins: candidate left of the run (~850), confirmed by magnify ('Forest' at yf=0.50).
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
-            ("Bravo", 1000 / 1920, 0.90), ("Charlie", 1150 / 1920, 0.90)]
+            ("Bravo", 1000 / 1920, 0.90), ("Charlie", 1150 / 1920, 0.90), ("Forest", 850 / 1920, 0.50)]
         a3b = DryRunActuator(rect=rect, image=object())
         ok3b = play_land(a3b, None, _hand({70}, {51, 52}), 1, plays(70), 70)
         check("play_land: opening hand — lands LEFT even when the land has the max id (position beats draw-order)",
               ok3b and len(a3b.clicks) == 2 and a3b.clicks[0][0] < 1000)
 
-        # (3c) JUST-DRAWN regression: a single land drawn this turn sits on the RIGHT; legible spells LEFT-of-centre.
-        # The land has a LOW id (40 < 51,52) so the max-id card is a spell — position still puts the land on the right.
+        # (3c) JUST-DRAWN regression: a single land on the RIGHT; legible spells LEFT-of-centre. Candidate right of
+        # the run (~1000), confirmed by magnify ('Forest' at yf=0.50).
         ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
-            ("Bravo", 700 / 1920, 0.90), ("Charlie", 850 / 1920, 0.90)]
+            ("Bravo", 700 / 1920, 0.90), ("Charlie", 850 / 1920, 0.90), ("Forest", 1000 / 1920, 0.50)]
         a3c = DryRunActuator(rect=rect, image=object())
         ok3c = play_land(a3c, None, _hand({40}, {51, 52}), 1, plays(40), 40)
         check("play_land: just-drawn land on the RIGHT — legible run left-of-centre -> click right of it",
               ok3c and len(a3c.clicks) == 2 and a3c.clicks[0][0] > 850)
+
+        # (3c2) the candidate does NOT confirm as a land (nothing readable there — could be an unread non-land) ->
+        # DEFER, don't blind-click. With no readable land anywhere in this stub, the reveal then shadows.
+        ocr.recognize_text = handmod.ocr.recognize_text = lambda image: [
+            ("Bravo", 900 / 1920, 0.90), ("Charlie", 1030 / 1920, 0.90)]
+        a3c2 = DryRunActuator(rect=rect, image=object())
+        ok3c2 = play_land(a3c2, None, _hand({50}, {51, 52}), 1, plays(50), 50)
+        check("play_land: unconfirmed candidate is NOT blind-clicked (defers; a non-land there isn't misplayed)",
+              ok3c2 is False and a3c2.clicks == [])
 
         # (3d) TWO-card hand, ONE legible spell left-of-centre + the just-drawn land (unreadable) beside it. Only one
         # anchor -> MIRROR it across the hand centre to find the land. (Bravo at x=841; centre 960 -> land ~1079.)

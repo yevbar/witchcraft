@@ -409,25 +409,6 @@ def _hand_names(view, seat: int) -> set:
     return out
 
 
-def _nonland_names(view, seat: int) -> set:
-    """Normalized names of the NON-LAND cards in hand. Basic lands don't OCR, but the SPELLS do — so a magnified
-    occluded slot that reads one of these is definitely NOT the land we want (don't play it)."""
-    out = set()
-    for inst in hand_members(view, seat):
-        if not _is_land(view, inst):
-            o = view.objects.get(inst)
-            nm = _norm_name(cards.label(o.grpId) if o else "")
-            if nm:
-                out.add(nm)
-    return out
-
-
-def _name_near(named: list, names: set, near_x, max_dist) -> bool:
-    """True if any OCR text in `named` within `max_dist` of `near_x` matches one of `names`."""
-    return any(abs(x - near_x) <= max_dist and any(_name_score(n, _norm_name(t)) >= _NAME_MATCH for n in names)
-               for t, x, _y in named)
-
-
 def on_mulligan_screen(image) -> bool:
     """True if `image` still shows the mulligan Keep / Mulligan buttons (their text labels in the lower band).
     The opening-hand keep can lag the GRE: the first-turn actions request is logged while the client is still
@@ -622,55 +603,42 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
     # screen-centred fan). A run sitting RIGHT of centre means the free land slots are to the LEFT, and vice versa.
     # (instanceId/"just-drawn-is-rightmost" is unreliable — in the OPENING hand the left-side lands can carry the
     # max id, which sent the cursor right past the cards.)
-    if prefer_left and len(named) >= 1:
+    if prefer_left and len(named) >= 2:
+        # >=2 legible: the lands fill the side of the fan the legible run doesn't (legible run right-of-centre =>
+        # lands LEFT, else RIGHT). Step one MEASURED fan-gap past the run, then CONFIRM by magnifying — the slot
+        # there isn't always a land (a spell can sit between the legible cards and the lands). Click ONLY on a
+        # confirmed land read; otherwise DEFER to the reveal sweep. A blind geometric click misplayed interspersed
+        # spells — a Hallowed Priest, and a Sanctuary Cat that simply didn't OCR ("nothing readable" != "a land").
         legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right (real hand cards only — bleed filtered)
         xs = [t[1] for t in legible]
         hand_center = rect.x + rect.w / 2.0
-        legible_center = sum(xs) / len(xs)
-        lands_left = legible_center >= hand_center          # legible run right-of-centre -> lands are to the LEFT
-        tx = None
-        if len(xs) >= 2:
-            # >=2 anchors: step one MEASURED nearest-neighbour fan-gap past the run on the land side.
-            spacing = max(40, min(xs[i + 1] - xs[i] for i in range(len(xs) - 1)))
-            if lands_left:
-                tx, ty = xs[0] - spacing, legible[0][2] + int(_FAN_ARC * 0.4)
-            else:
-                tx, ty = xs[-1] + spacing, legible[-1][2] + int(_FAN_ARC * 0.4)
-            how = "fan-gap %d past the legible" % spacing
-        elif len(screen) == 2:
-            # ONE legible card in a TWO-card hand: the other (unreadable) card is the land. The inter-card gap is
-            # unmeasurable, so MIRROR the lone card across the hand centre — for the common just-drawn-land-beside-
-            # one-spell hand this lands on the land, and the mirror auto-scales the step for a sparse hand (a fixed
-            # fan-gap guess fell short and grabbed the neighbour). With >2 cards a single anchor is too ambiguous.
-            mx = int(2 * hand_center - xs[0])
-            if abs(mx - xs[0]) >= 90:                        # else ambiguous (both cards crowd the centre) -> reveal
-                tx, ty = mx, legible[0][2] + int(_FAN_ARC * 0.4)
-            how = "mirror of the lone legible across centre"
+        lands_left = sum(xs) / len(xs) >= hand_center
+        spacing = max(40, min(xs[i + 1] - xs[i] for i in range(len(xs) - 1)))
+        if lands_left:
+            tx, ty = xs[0] - spacing, legible[0][2] + int(_FAN_ARC * 0.4)
         else:
-            how = "single anchor in a >2-card hand — too ambiguous, deferring to reveal"
-        if tx is not None:
-            # VERIFY before committing: the slot one fan-gap past the legible run ISN'T always a land — an occluded
-            # NON-LAND there (e.g. a Hallowed Priest sitting between the spells and the lands) would be MISPLAYED.
-            # Magnify+read it: a wanted land confirms the spot; a readable non-land defers to the reveal sweep
-            # (which keeps stepping); an unreadable card upholds the geometric guess (a basic land that won't OCR).
-            # TIGHT radius — only the name of the card AT the candidate (magnified, near the hover x), not the
-            # legible neighbours a card-width away that would false-trigger the non-land check.
-            md = 90
-            actuator.hover(tx, ty)
-            actuator.wait(max(settle, _REVEAL_DWELL))
-            seen = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
-            landhit = _land_hit(seen, want, near_x=tx, max_dist=md)
-            if landhit is not None:
-                _log.info("  %s: candidate at %d magnified to a wanted land — playing", label, tx)
-                play_card(actuator, (landhit[0], ty))
-                return True
-            if not _name_near(seen, _nonland_names(view, seat), tx, md):
-                _log.info("  %s: lands on the %s (legible centre %d vs hand centre %d); clicking the %s at (%d,%d) "
-                          "[nothing readable there — a basic land]", label, "left" if lands_left else "right",
-                          int(legible_center), int(hand_center), how, tx, ty)
-                play_card(actuator, (tx, ty))
-                return True
-            _log.info("  %s: candidate at %d magnified to a NON-LAND — deferring to the reveal sweep", label, tx)
+            tx, ty = xs[-1] + spacing, legible[-1][2] + int(_FAN_ARC * 0.4)
+        actuator.hover(tx, ty)
+        actuator.wait(max(settle, _REVEAL_DWELL))
+        seen = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+        landhit = _land_hit(seen, want, near_x=tx, max_dist=int(0.11 * rect.w))
+        if landhit is not None:
+            _log.info("  %s: candidate one fan-gap to the %s of the legible (x=%d) CONFIRMED as a land — playing",
+                      label, "left" if lands_left else "right", tx)
+            play_card(actuator, (landhit[0], ty))
+            return True
+        _log.info("  %s: candidate at %d didn't confirm as a land — deferring to the reveal sweep", label, tx)
+
+    elif prefer_left and len(named) == 1 and len(screen) == 2:
+        # ONE legible card in a TWO-card hand: the OTHER (unreadable) card is the land BY ELIMINATION (a legible
+        # land would have been clicked at rest). Mirror the lone legible across the hand centre — no read needed,
+        # there's nothing else it could be; the mirror auto-scales the step for a sparse hand.
+        x0, y0 = named[0][1], named[0][2]
+        mx = int(2 * (rect.x + rect.w / 2.0) - x0)
+        if abs(mx - x0) >= 90:                              # else ambiguous (both cards crowd the centre) -> reveal
+            _log.info("  %s: 2-card hand — the unreadable card is the land; mirroring the lone legible to %d", label, mx)
+            play_card(actuator, (mx, y0 + int(_FAN_ARC * 0.4)))
+            return True
 
     # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
