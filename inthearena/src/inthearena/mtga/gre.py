@@ -79,6 +79,12 @@ class GameObject(_M):
     isCopy: bool = False
     damage: int = 0
     parentId: Optional[int] = None
+    attackState: Optional[str] = None                      # 'AttackState_Attacking'/'_Declared' while in combat
+    blockState: Optional[str] = None                       # 'BlockState_Declared' once it's blocking
+
+    @property
+    def is_attacking(self) -> bool:
+        return self.attackState in ("AttackState_Attacking", "AttackState_Declared")
 
     @property
     def p(self) -> Optional[int]:

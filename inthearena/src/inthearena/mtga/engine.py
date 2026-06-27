@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander")
+              "command_zone", "is_commander", "attacks")
 
 
 def _eng(token: str) -> str:
@@ -77,6 +77,8 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     opp = next((x for x in seats if x != me), None)
     if opp is not None and opp not in name_of:
         name_of[opp] = "bob"
+    # who an attacker controlled by each player is attacking (the OTHER player) — for the `attacks` combat fact
+    defender_of = {nm: next((o for o in name_of.values() if o != nm), None) for nm in name_of.values()}
 
     for sid in seats:
         s["is_player"].add((name_of[sid],))
@@ -117,6 +119,12 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["printed_control"].add((seat_name, inst))
             if o.isTapped:
                 s["tapped"].add((inst,))
+            if o.is_attacking and defender_of.get(seat_name):
+                # COMBAT: an attacking creature attacks the DEFENDING player (the other seat). Feeding this
+                # `attacks(attacker, defender)` fact is what lets the engine enumerate real blocks at
+                # declare-blockers — without it the engine sees combat with no attackers and offers only 'no
+                # blocks'. (Player target only; attacks on planeswalkers aren't modelled here.)
+                s["attacks"].add((inst, defender_of[seat_name]))
 
     def place_hidden(seat_name: str, zone: str) -> None:
         slug = rng.choice(pool)

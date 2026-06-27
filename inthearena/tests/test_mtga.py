@@ -290,6 +290,22 @@ def _engine_checks():
     check("engine: same seed -> identical hidden fill", build_state(view, 1, seed=7)["in_library"] == st["in_library"])
     check("engine: different seed -> different hidden fill", build_state(view, 1, seed=8)["in_library"] != st["in_library"])
 
+    # COMBAT: an opponent's attacking creature (attackState set) emits an attacks(attacker, defender) fact aimed
+    # at US — this is what lets the engine enumerate real blocks at declare-blockers (without it, only 'no blocks').
+    combat = _apply({"type": "GameStateType_Full",
+                     "turnInfo": {"turnNumber": 4, "phase": "Phase_Combat", "step": "Step_DeclareBlock", "activePlayer": 2},
+                     "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                     "zones": [{"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                     "gameObjects": [{"instanceId": 440, "grpId": 75442, "zoneId": 13, "ownerSeatId": 2,
+                                      "controllerSeatId": 2, "cardTypes": ["CardType_Creature"],
+                                      "power": {"value": 2}, "toughness": {"value": 2},
+                                      "attackState": "AttackState_Attacking"}]})
+    cs = build_state(combat, me=1, seed=0)
+    check("engine: an attacking creature emits attacks(attacker, defender=us 'alice')",
+          len(cs["attacks"]) == 1 and next(iter(cs["attacks"]))[1] == "alice")
+    nofight = build_state(view, me=1, seed=0)               # the non-combat board has no attacks facts
+    check("engine: no attacks facts when nothing is attacking", cs and nofight["attacks"] == set())
+
     g = to_game(view, me=1, seed=7)
     check("engine: to_game returns an mtg.Game at the right life", g.life() == {"alice": 18, "bob": 15})
     if cards.available():
