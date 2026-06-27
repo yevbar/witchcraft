@@ -527,20 +527,30 @@ def _play_from_hand(actuator, locator, view, seat: int, want: dict, *, settle: f
         play_card(actuator, hit)
         return True
 
-    # 2) LANDS sort LEFTMOST. MTGA orders the hand by MANA VALUE (NOT instanceId — verified: a hand's
-    # instanceId-slot -> screen-x was non-monotonic), so lands (CMC 0) are the leftmost cards, and since none is
-    # legible here they're the OCCLUDED ones on the left. Click just LEFT of the leftmost legible card (= the
-    # rightmost, least-occluded land), one fan-step over, lowered a touch for the arc. Deterministic; no flaky
-    # reveal and no instanceId-order assumption.
+    # 2) The land is OCCLUDED (OCR can't read basic-land names — Vision returns nothing for "Plains" etc. even on a
+    # fully-visible card). MTGA fans the hand in DRAW order: oldest-left, newest-right (the just-drawn card lands in
+    # the RIGHTMOST slot — confirmed live). So the occluded land sits on whichever EDGE matches its draw recency:
+    #   • if the just-drawn card (the max-instanceId hand member) is itself a land -> it's the RIGHTMOST card;
+    #   • otherwise the wanted lands are older/held -> they're to the LEFT of the legible (newer) cards.
+    # Click one fan-step past the legible run on that edge, lowered a touch for the arc. No instanceId-slot
+    # interpolation (that was non-monotonic per hand) — just the reliable newest-goes-right invariant.
     if prefer_left and len(named) >= 2:
         legible = sorted(named, key=lambda t: t[1])        # by x, left-to-right
         xs = [t[1] for t in legible]
         gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
         spacing = max(40, min(gaps)) if gaps else _FAN_SPACING
-        tx = xs[0] - spacing
-        ty = legible[0][2] + int(_FAN_ARC * 0.4)           # the leftmost edge sits a little lower (arc)
-        _log.info("  %s: lands sort left & none legible — clicking the occluded land just-left of the legible "
-                  "(%d legible at x=%s, spacing %d) at (%d,%d)", label, len(legible), xs, spacing, tx, ty)
+        hand_ids = hand_members(view, seat)
+        newest_is_land = bool(hand_ids) and _is_land(view, max(hand_ids))
+        if newest_is_land:                                 # just-drawn card is a land -> it's the RIGHTMOST slot
+            tx = xs[-1] + spacing
+            ty = legible[-1][2] + int(_FAN_ARC * 0.4)      # the right edge sits a little lower (arc)
+            side = "right (just-drawn land)"
+        else:                                              # wanted lands are held/older -> to the LEFT
+            tx = xs[0] - spacing
+            ty = legible[0][2] + int(_FAN_ARC * 0.4)       # the left edge sits a little lower (arc)
+            side = "left (held land)"
+        _log.info("  %s: none legible — clicking the occluded land on the %s, one fan-step past the legible "
+                  "(%d legible at x=%s, spacing %d) at (%d,%d)", label, side, len(legible), xs, spacing, tx, ty)
         play_card(actuator, (tx, ty))
         return True
 
