@@ -557,6 +557,7 @@ def step(state: dict, action: tuple) -> dict:
             if cost:
                 driver._spend_ability_mana(s, ap, cost)
             driver.turn_face_up(s, card)
+            driver._fire_turn_face_up_triggers(s)               # §603 'when ~ is turned face up' (Boltbender)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
             _advance_one(s)

@@ -748,8 +748,21 @@ def turn_face_up(state: dict, card: str) -> bool:
         return False
     state["face_down"].discard((card,))
     state.setdefault("revealed", set()).add((card,))         # §708 it is now public to every player
+    state.setdefault("_just_turned_face_up", set()).add((card,))  # §603 'is turned face up' window (Boltbender)
     print(f"    {card} is turned face up")
     return True
+
+
+def _fire_turn_face_up_triggers(state: dict) -> None:
+    """§603/§708.5 fire 'when this permanent is turned face up' triggers for the permanents the driver just
+    turned face up. Fed as just_turned_face_up (mirrors the just_tapped 'becomes tapped' pattern); resolve the
+    pending, then clear the window so it doesn't re-fire. Called right after the turn-face-up action resolves."""
+    just = state.pop("_just_turned_face_up", set())
+    if not just:
+        return
+    state["just_turned_face_up"] = just
+    _apply_effects(state, *_pending_both(state))
+    state["just_turned_face_up"] = set()
 
 
 def cast_face_down(state: dict, card: str, ctrl: str) -> bool:

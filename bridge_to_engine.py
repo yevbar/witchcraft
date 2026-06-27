@@ -142,6 +142,10 @@ _EVENT = {
     # §603 'whenever this becomes tapped' (City of Brass + many) — the driver feeds just_tapped when it taps a
     # permanent and fires this window at a safe checkpoint (after mana payment / a {T} cost / a tap effect).
     "becomes_tapped": "becomes_tapped",
+    # §603/§708.5 'when this permanent is turned face up' (Boltbender + the morph/disguise reveal family) — the
+    # driver feeds just_turned_face_up when env.turn_face_up flips a face-down permanent up and fires this window
+    # at that moment (self-scoped: the permanent that turned face up IS the trigger source — has_trigger(A,S) S).
+    "is_turned_face_up": "turned_face_up",
     # §603 DRAW triggers (driver feeds just_drew + a per-(player,turn) draw ordinal). 'an opponent draws their
     # second card each turn' (Faerie Mastermind) / 'whenever you draw a card' / 'whenever an opponent draws'.
     "you_draw_a_card": "you_draw",

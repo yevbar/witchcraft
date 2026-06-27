@@ -245,6 +245,7 @@ INPUTS = [
     ("pitch_cost", [("s", "symbol"), ("color", "symbol"), ("gate", "symbol")]),   # §118.9 'exile a <color> card rather than pay'
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
+    ("just_turned_face_up", [("o", "symbol")]),                   # §708.5 a permanent the driver just turned face up — 'is turned face up'
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
@@ -893,6 +894,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_etb(O)", ["just_entered(O)"])
     p.decl("ev_tapped", [("o", "symbol")])               # §603 'whenever ~ becomes tapped' — driver-fed tap window
     p.rule("ev_tapped(O)", ["just_tapped(O)"])
+    p.decl("ev_turned_face_up", [("o", "symbol")])       # §708.5 'when ~ is turned face up' — driver-fed reveal window
+    p.rule("ev_turned_face_up(O)", ["just_turned_face_up(O)"])
     p.decl("ev_draw", [("p", "symbol")])                 # §603 'whenever a player draws a card' — driver-fed draw window
     p.rule("ev_draw(P)", ["just_drew(P)"])
     p.decl("ev_won_flip", [("p", "symbol")])             # §705 'whenever you win a coin flip' — driver-fed flip window
@@ -968,6 +971,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "draw_step")', "ev_draw_step(P)", "controls(P, S)"])
     # §603 'whenever ~ becomes tapped' (City of Brass) — the SOURCE itself was just tapped.
     p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_tapped")', "ev_tapped(S)"])
+    # §603/§708.5 'when this permanent is turned face up' (Boltbender) — the SOURCE itself was just turned face up.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "turned_face_up")', "ev_turned_face_up(S)"])
     # §603 DRAW triggers (driver-fed just_drew + per-(player,turn) draw ordinal). 'you draw' = the controller
     # drew; 'opponent draws their Nth card each turn' = another player drew, gated on draw_ord.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_draw")', "ev_draw(P)", "controls(P, S)"])
