@@ -39,6 +39,7 @@ import logging
 import os
 import random
 import sys
+import time
 
 from inthearena.mtga import (
     AggroPolicy,
@@ -124,25 +125,17 @@ _INTERRUPTED = 130      # Ctrl-C — stop everything (130 = 128 + SIGINT, the us
 _ACTION_TRIES = 3       # clicks per decision before giving up (a dropped click is retried)
 
 
-def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None, attached: bool = False) -> int:
-    """In a game: run the bot over the GRE decision stream, executing each decision via a `GameExecutor` — the
-    mulligan (Keep/Mulligan), land drops and spell CASTS (read the card by name in hand, never misclick), and
-    object-free combat (All Attack / No Blocks / pass via the bottom-right button). Spell TARGETS on the
-    battlefield aren't wired yet, so a targeted spell is cast but its target is shadowed (the user picks it)."""
-    from inthearena.mtga import BoardLocator, GameExecutor, LiveState
-    pol = policy or AggroPolicy()
-    # the board ObjectLocator (find a permanent by its name via OCR) lets the executor enact moves that touch
-    # battlefield objects — declare a SUBSET of attackers, click a target — not just the object-free buttons.
-    execu = (GameExecutor(actuator, object_locator=BoardLocator(actuator), locator=locator, rng=rng)
-             if actuator is not None else None)
-    print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
-    picked: dict = {}            # instanceId -> times we've chosen it THIS turn (anti-fixation)
+def _make_handle(execu, pol, log_path):
+    """Build the per-decision handler. It applies anti-fixation, executes the chosen action, then CONFIRMS against
+    the GRE log (ground truth) that the click registered — re-clicking if the log stays silent. `execu=None` -> a
+    SHADOW handler (decide + print, no clicks). Closure state (`picked` / `turn_no`) is cleared every turn, so
+    NOTHING accumulates across a long run."""
+    picked: dict = {}            # instanceId -> times chosen THIS turn (anti-fixation); cleared each turn
     turn_no = [None]
     _FIXATED = 2                 # after this many picks of a card that keeps coming back, move on to another
 
     def next_playable(d, skip):
-        """The next land/spell to play whose instanceId isn't in `skip` (cards we've given up on this turn),
-        preferring a land drop, then a spell; else the Pass action."""
+        """The next land/spell to play whose instanceId isn't in `skip` (given up on this turn); else Pass."""
         for at in ("ActionType_Play", "ActionType_Cast"):
             for a in d.options:
                 if a.actionType == at and getattr(a, "instanceId", None) not in skip:
@@ -156,11 +149,9 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         choice = pol.decide(d)
         inst = getattr(choice, "instanceId", None)
         at = getattr(choice, "actionType", None)
-        # ANTI-FIXATION — for SPELLS/abilities only, NEVER a land. A land drop must always be retried until it
-        # lands (it's always playable; a slow grab can just get the priority re-asked). But an UNAFFORDABLE cast
-        # the GRE keeps offering (Angel of Vitality at 3 mana with 2 available) will never go down — so once it's
-        # been tried a couple times, give up on it this turn and take the next playable option (Lifecreed Duo),
-        # so one stuck card doesn't block the ones we CAN play.
+        # ANTI-FIXATION — SPELLS/abilities only, NEVER a land (a land is always playable; just re-try it). An
+        # UNAFFORDABLE cast the GRE keeps offering will never go down, so after a couple tries take the next
+        # playable option this turn so one stuck card doesn't block the ones we CAN play.
         spellish = at in ("ActionType_Cast", "ActionType_Activate")
         if d.kind == "actions" and spellish and inst is not None and picked.get(inst, 0) >= _FIXATED:
             alt = next_playable(d, {i for i, c in picked.items() if c >= _FIXATED})
@@ -172,10 +163,9 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         _show(d, choice)
         if execu is None:
             return
-        # Execute, then CONFIRM against the GRE log (ground truth) that the action registered — if the click was
-        # dropped (MTGA tracks the IOHID pointer and occasionally swallows a press; or the screen locked), the log
-        # stays silent, so RE-CLICK. This replaces reading the screen to decide whether to retry. A genuine shadow
-        # (done=False — nothing clicked) needs no confirm.
+        # Execute, then CONFIRM against the GRE log that the action registered — if the click was dropped (MTGA
+        # occasionally swallows a press; or the screen locked), the log stays silent, so RE-CLICK. This replaces
+        # reading the screen to decide whether to retry. A genuine shadow (done=False) needs no confirm.
         res = None
         confirmed = False
         for attempt in range(_ACTION_TRIES):
@@ -195,45 +185,31 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         else:
             print(f"    -> executed but UNCONFIRMED (no GRE response after {_ACTION_TRIES} clicks): {res.note}")
 
+    return handle
+
+
+def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=None, attached: bool = False) -> int:
+    """SHADOW one game's decisions (used by --dry-run): seed state from the log, then follow and PRINT what the
+    bot would do. LIVE back-to-back play uses `drive_session`, which tails CONTINUOUSLY without re-seeding."""
+    from inthearena.mtga import BoardLocator, GameExecutor, LiveState
+    pol = policy or AggroPolicy()
+    execu = (GameExecutor(actuator, object_locator=BoardLocator(actuator), locator=locator, rng=rng)
+             if actuator is not None else None)
+    handle = _make_handle(execu, pol, log_path)
+    print(f"\nin a game — driving with '{pol.name}' (Ctrl-C to stop):")
     try:
-        # SEED a LiveState from the whole current log first, so its `view` is COMPLETE (hand zones, board) —
-        # the game-setup frames were written before we attached. Then tail NEW decisions with the SAME seeded
-        # state, so each decision's view still has the hand (a bare from_start=False follow would miss it).
         state = LiveState()
         pending = None
         with open(log_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 for d in state.feed_line(line):
                     pending = d
-            resume = fh.tell()                              # byte offset where the EXISTING content ends
-        # The seeded log spans the WHOLE session — usually several games. Its last decision (`pending`) is only
-        # safe to auto-execute if it's the MULLIGAN: that's the entry decision we navigate into, and
-        # click_mulligan self-validates (it acts only if the Keep button is actually on screen, else no-ops). A
-        # non-mulligan `pending` is almost always a STALE board action from a PRIOR game — e.g. the new game's
-        # mulligan hasn't been flushed to the log yet, so the tail is the previous game's last land/pass. Auto-
-        # executing that would try to play a land while the client is still on the keep-hand screen. So we DON'T;
-        # the genuinely-current decision (the real mulligan, then the turn's actions) arrives LIVE via follow().
-        # Auto-execute the seeded tail when it's the CURRENT outstanding decision: always if we ATTACHED to a
-        # game already paused on a decision (the tail IS that decision — e.g. an Assign-Damage screen we left
-        # it on), or — when we navigated in from the menu — only if it's the mulligan (other tails are likely a
-        # STALE prior-game action that would mis-fire on the keep-hand screen; those we wait for live instead).
+            resume = fh.tell()
         if pending is not None and (attached or pending.kind == "mulligan"):
             handle(pending)
-        elif pending is not None:
-            print(f"  (seeded tail is {pending.kind} @ {pending.view.phase} — not auto-executed; "
-                  f"likely a prior game. Waiting for the live decision.)")
-        # If the seeded log already shows the match OVER (we attached after it ended), there's nothing to drive —
-        # report it so the caller runs the post-game click-through instead of tailing for decisions never coming.
         if state.match_over:
-            print("  (match already over — nothing to drive)")
             return _MATCH_OVER
-        # Resume from where the drain stopped — NOT the live EOF. Executing the keep above takes a couple
-        # seconds, during which the GRE writes the post-mulligan turn-1 actions request; from_start=False would
-        # seek past it and the bot would freeze waiting for a decision that already went by.
-        # `stop` ends the follow when the match completes (the GRE stops asking us to act, so the loop would
-        # otherwise hang forever) — the caller then advances the post-game screens.
-        for d in follow(log_path, state=state, from_start=False, start_offset=resume,
-                        stop=lambda: state.match_over):
+        for d in follow(log_path, state=state, from_start=False, start_offset=resume, stop=lambda: state.match_over):
             handle(d)
         if state.match_over:
             print("\ngame over.")
@@ -242,6 +218,100 @@ def drive_bot(log_path: str, *, actuator=None, locator=None, rng=None, policy=No
         print("\nstopped.")
         return _INTERRUPTED
     return 0
+
+
+def _take_over_to_game(actuator, locator, rng, args) -> bool:
+    """Navigate the menus (Home -> Play menu -> queue) until a game is live. Returns True if it reached one."""
+    print("taking over: navigating into a game (Home -> Play menu -> queue)...")
+    if not take_over(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
+                     max_steps=args.max_steps, change_timeout=args.queue_timeout):
+        print(f"didn't reach a game — stopped on {latest_view(args.log)}.")
+        return False
+    print("reached a game.")
+    return True
+
+
+def _post_game_then_queue(actuator, locator, rng, args) -> bool:
+    """After a match ends: click through the Victory/Defeat + reward screens to the Play menu, then queue the next
+    game. The LOG is authoritative for 'left the post-game' (match_completed clears only when a menu scene loads —
+    vision Play-detection false-positives on the Victory screen's glow)."""
+    print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
+    if not click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng):
+        print("post-game: clicked through the max without reaching the menu — stopping.")
+        return False
+    print("post-game cleared — back at the menu.")
+    return _take_over_to_game(actuator, locator, rng, args)
+
+
+def drive_session(log_path: str, *, actuator, locator, rng, policy, args) -> int:
+    """Play games BACK-TO-BACK in ONE continuous loop until Ctrl-C: tail the log ONCE (no per-game re-seed — the
+    old re-seed mis-judged whether the seeded tail was the live decision and stranded the bot), drive each game's
+    decisions, then click through the post-game and queue the next. One `LiveState` the whole time — its objects
+    reset on each game's GameStateType_Full frame, and the line buffer drains as it goes, so memory stays bounded;
+    nothing accumulates per game."""
+    from inthearena.mtga import BoardLocator, GameExecutor, LiveState
+    pol = policy or AggroPolicy()
+    execu = GameExecutor(actuator, object_locator=BoardLocator(actuator), locator=locator, rng=rng)
+    handle = _make_handle(execu, pol, log_path)
+    state = LiveState()
+    print(f"\ndriving with '{pol.name}' back-to-back (Ctrl-C to stop):")
+
+    # One-time drain: build the CURRENT state and leave the tail at EOF. Lines are fed, not stored; objects reset
+    # each game, so this is O(log) in time but O(one game) in memory.
+    fh = open(log_path, encoding="utf-8", errors="replace")
+    buf = ""
+    pending = None
+    for line in fh:
+        for d in state.feed_line(line):
+            pending = d
+    # If we START already inside a game with a decision pending (the drained tail), it's the LIVE one the GRE is
+    # waiting on -> act on it once. (current_view==GAMEPLAY only when the last match-state line was 'Playing'; a
+    # finished game leaves match_over set, a menu leaves current_view on a menu scene — so this won't fire on a
+    # STALE prior-game tail.) Every later game's decisions arrive via read_new(), so this only matters at startup.
+    if pending is not None and state.current_view is RecognizedViews.GAMEPLAY and not state.match_over:
+        handle(pending)
+
+    def read_new():
+        """Pull newly-appended complete lines, feed them to `state`, return the decisions they raised, in order."""
+        nonlocal buf
+        try:
+            if os.path.getsize(log_path) < fh.tell():       # truncated/rotated (client restart) -> re-sync
+                fh.seek(0)
+                buf = ""
+        except OSError:
+            pass
+        buf += fh.read()
+        out = []
+        nl = buf.find("\n")
+        while nl >= 0:
+            out.extend(state.feed_line(buf[:nl + 1]))
+            buf = buf[nl + 1:]
+            nl = buf.find("\n")
+        return out
+
+    try:
+        while True:
+            decisions = read_new()
+            if state.match_over:                            # the match just ended -> clear post-game + queue next
+                print("\ngame over.")
+                if not _post_game_then_queue(actuator, locator, rng, args):
+                    return 1
+                state.match_over = False                    # the new game's 'Playing' line re-confirms; reset early
+                continue
+            if decisions:
+                handle(decisions[-1])                       # only the LATEST is the live, pending decision
+                continue
+            if state.current_view is not RecognizedViews.GAMEPLAY:
+                # not in a game (and no fresh game-over) — a menu / unmapped screen; navigate into a game
+                if not _take_over_to_game(actuator, locator, rng, args):
+                    return 1
+                continue
+            time.sleep(0.4)                                 # in a game, waiting on the GRE for the next decision
+    except KeyboardInterrupt:
+        print("\nstopped.")
+        return 0
+    finally:
+        fh.close()
 
 
 def main(argv) -> int:
@@ -323,45 +393,20 @@ def main(argv) -> int:
             print(f"MOVE-ONLY: cursor traveled to Play on {view.name} — NO click. Check the aim.")
         return 0
 
-    # LIVE CONTINUOUS PLAY: drive the current/next game to the end, click THROUGH the post-game (Victory/Defeat +
-    # rewards) back to the Play menu, queue the next game, and repeat — until Ctrl-C. Started already in a game ->
-    # the first drive ATTACHES (executes the decision we're paused on); games we queue into start at the mulligan.
-    attached = view is RecognizedViews.GAMEPLAY
-    while True:
-        view = latest_view(args.log)
+    # --no-bot: navigate into a game (or just render the live board) and STOP — don't drive.
+    if args.no_bot:
         if view is RecognizedViews.GAMEPLAY:
-            if args.no_bot:
-                gv = latest_game_view(args.log)
-                print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
-                return 0
-            code = drive_bot(args.log, actuator=actuator, locator=locator, rng=rng, policy=policy, attached=attached)
-            attached = False
-            if code == _INTERRUPTED:                        # Ctrl-C -> stop the whole loop
-                return 0
-            continue                                        # match over -> the post-game branch handles it next
-
-        if view is None and match_completed(args.log):
-            print("post-game (Victory/Defeat) — clicking the bottom-right through to the Play button...")
-            # the LOG is authoritative for "left the post-game" (vision Play-detection false-positives on the
-            # Victory screen's orange glow); match_completed clears only when a menu scene actually loads.
-            if click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng):
-                print("post-game cleared — back at the menu.")
-            else:
-                print("post-game: clicked through the max without reaching the menu — stopping.")
-                return 1
-            continue
-
-        # on a menu (or an unmapped screen) -> navigate into a game, then loop back to drive it
-        print("taking over: navigating into a game (Home -> Play menu -> queue)...")
-        reached = take_over(actuator, lambda: latest_view(args.log), rng=rng, locator=locator,
-                            max_steps=args.max_steps, change_timeout=args.queue_timeout)
-        if not reached:
-            print(f"didn't reach a game — stopped on {latest_view(args.log)}. "
-                  f"(If it's a menu I don't map yet, that's the next view to add.)")
-            return 1
-        print("reached a game.")
-        if args.no_bot:
+            gv = latest_game_view(args.log)
+            print(snapshot(gv).render() if gv else "no gameplay state in the log yet.")
             return 0
+        if view is None and match_completed(args.log):
+            click_through_postgame(actuator, done=lambda: not match_completed(args.log), locator=locator, rng=rng)
+        return 0 if _take_over_to_game(actuator, locator, rng, args) else 1
+
+    # LIVE CONTINUOUS PLAY: drive the current/next game to the end, click THROUGH the post-game back to the Play
+    # menu, queue the next, and repeat — all in ONE continuous tail of the log (no per-game re-seed). Started in a
+    # game -> ATTACH (act on the decision we're paused on); games we queue into start at the mulligan.
+    return drive_session(args.log, actuator=actuator, locator=locator, rng=rng, policy=policy, args=args)
 
 
 if __name__ == "__main__":
