@@ -130,6 +130,38 @@ _INTERRUPTED = 130      # Ctrl-C — stop everything (130 = 128 + SIGINT, the us
 _ACTION_TRIES = 3       # clicks per decision before giving up (a dropped click is retried)
 
 
+def _bootstrap_engine() -> bool:
+    """Make the python-mtg engine importable for `--bot witchcraft` no matter where take_over is launched from.
+    The engine lives at the REPO ROOT (mtg/, driver.py, env.py) and reads its datalog by paths RELATIVE TO THE
+    CWD (driver.py: `Path("datalog/…")`), at runtime — so the root must be BOTH on sys.path AND the working
+    directory, else `import mtg` raises ModuleNotFoundError (or FileNotFoundError on the datalog) and EnginePolicy
+    silently degrades to blind_rage (no blocks/targets). Discover the root (walk up for datalog/engine_rules.dl),
+    put it on the path, and chdir there. inthearena's own paths are absolute (log, snapshots, window capture), so
+    the chdir is safe. Returns True if the engine is importable afterwards; on failure prints WHY and what to do."""
+    from pathlib import Path
+    try:
+        import mtg  # noqa: F401  — already importable (launched from the right place / installed)
+        return True
+    except ModuleNotFoundError:
+        pass
+    here = Path(__file__).resolve()
+    root = next((p for p in here.parents if (p / "datalog" / "engine_rules.dl").exists()), None)
+    if root is None:
+        print(f"witchcraft: couldn't find the python-mtg engine (no datalog/engine_rules.dl above {here}); "
+              "--bot witchcraft will fall back to blind_rage (no blocks/targets).")
+        return False
+    sys.path.insert(0, str(root))
+    os.chdir(root)
+    try:
+        import mtg  # noqa: F401
+        print(f"witchcraft: loaded the python-mtg engine from {root} (cwd set there so it finds its datalog).")
+        return True
+    except Exception as e:
+        print(f"witchcraft: engine found at {root} but failed to import ({type(e).__name__}: {e}); "
+              "falling back to blind_rage.")
+        return False
+
+
 def _engine_player(name: str):
     """Resolve --engine-player to a python-mtg Player instance (lazy import — these only load with the engine on
     the repo-relative path). Returns None if the engine isn't importable, in which case EnginePolicy uses its own
@@ -372,6 +404,7 @@ def main(argv) -> int:
 
     from inthearena.mtga import AggroPolicy, ArenaAggroPolicy, BlindRagePolicy, EnginePolicy
     if args.bot == "witchcraft":
+        _bootstrap_engine()                                # ensure mtg is importable + cwd has its datalog
         policy = EnginePolicy(player=_engine_player(args.engine_player))
     else:
         policy = {"blind_rage": BlindRagePolicy, "aggro_arena": ArenaAggroPolicy,
