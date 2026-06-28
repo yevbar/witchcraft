@@ -55,11 +55,16 @@ class SocietyOfControlPlayer(Player):
     W_CURVE = 1.0
     _CURVE_BASE = 20.0
 
+    # burn_choice base: a lethal creature-removal cast scores _BURN_BASE + the dead creature's power, so the
+    # biggest threat is answered first; >0 clears the floor=0.0 gate (it only fires on an actual kill).
+    _BURN_BASE = 1.0
+
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         return game.prioritize(
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
+            Do.SPELLS.prefer(self.burn_choice, floor=0.0),      # then KILL an opp creature with creature-target damage,
             Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
             Do.SPELLS.prefer(self.permanent_choice, floor=0.0),  # then deploy other PERMANENTS (artifact/enchantment/PW),
             Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best remaining spell (instant/sorcery) if it beats passing,
@@ -76,6 +81,44 @@ class SocietyOfControlPlayer(Player):
         spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
+
+    def _creature_damage(self, game, card_id) -> int | None:
+        """The most damage a CREATURE-TARGETING (not face) `deal_damage` effect of `card_id` deals, or None if it
+        has no such effect (or a variable amount). Read from `card_effect` (slug-keyed: verb/amount/scope). A
+        scope that can hit a PLAYER ('any_target', 'target_creature_or_player') is FACE burn — handled by the
+        resolve line — so it's excluded here; only 'target_creature' / '…creature_or_planeswalker' / the like
+        count. `card_effect` is empty in contexts that don't load card rules (the live bridge today), so this
+        returns None there and `burn_choice` stays cleanly inert until the card's coverage loads."""
+        slug = next((s for (i, s) in game.state.get("instance_of", set()) if i == card_id), None)
+        if slug is None:
+            return None
+        best = None
+        for row in game.state.get("card_effect", set()):
+            c, _aid, _seq, verb, amount, scope = row[0], row[1], row[2], row[3], row[4], row[5]
+            if c != slug or verb != "deal_damage" or "creature" not in scope or "player" in scope or "any" in scope:
+                continue
+            if str(amount).isdigit():
+                best = max(best or 0, int(amount))
+        return best
+
+    def burn_choice(self, game, move) -> float:
+        """Cast a CREATURE-TARGETING damage spell (strictly target creature, NOT 'any target') ONLY when it WOULD
+        KILL an opponent creature — removal that answers a threat, never fired for its own sake. A damage spell
+        picks its target at RESOLUTION, so this cast-time choice fires when SOME opponent creature is within the
+        spell's damage (its toughness <= the damage dealt), scoring by the biggest such threat removed; -inf
+        otherwise, so the floor=0.0 gate skips it (no lethal target -> hold it; a face-burn 'any target' spell ->
+        handled by the resolve line). Lethality is `damage >= toughness` (ignores marked damage / deathtouch /
+        indestructible — a heuristic). Active wherever card rules are loaded (engine self-play now; the live
+        bridge once the card's coverage loads). (Picking WHICH creature at resolution is the resolve-line job.)"""
+        if getattr(move, "kind", None) != "cast" or move.card is None:
+            return float("-inf")
+        dmg = self._creature_damage(game, move.card.id)
+        if dmg is None:
+            return float("-inf")                       # not a creature-target damage spell (or it's face burn)
+        killable = [c.power for o in self.opponents for c in o.creatures if c.toughness <= dmg]
+        if not killable:
+            return float("-inf")                       # no opponent creature it would kill -> don't fire it
+        return self._BURN_BASE + max(killable)         # cast it; weight by the BIGGEST threat it can remove
 
     def creature_choice(self, game, move) -> float:
         """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
