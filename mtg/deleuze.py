@@ -50,7 +50,8 @@ class DeleuzePlayer(Player):
         return game.prioritize(
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
-            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best spell, only if it beats passing,
+            Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
+            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best non-creature spell, only if it beats passing,
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
@@ -64,6 +65,16 @@ class DeleuzePlayer(Player):
         spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
+
+    def creature_choice(self, game, move) -> float:
+        """Score a CREATURE spell by how much it improves the board (same 1-ply metric as `develop_choice`); a
+        NON-creature spell scores -inf so it never wins this category. Placed before the general SPELLS line in
+        `choose_move`, this casts creatures BEFORE other spell types — deploy the board first, then fill in with
+        non-creatures only when no creature is castable."""
+        card = move.card
+        if card is None or not card.has_type("creature"):
+            return float("-inf")
+        return self.develop_choice(game, move)
 
     def resolve_choice(self, game, move) -> float:
         """Resolve a TARGETED effect at the OPPONENT (Do.RESOLVE_TRIGGER). The engine enumerates one cast/
