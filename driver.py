@@ -963,12 +963,24 @@ def cycling_cost(state: dict, card: str) -> int | None:
     return next((n for (s, n) in state.get("cycling_card", set()) if s == slug), None)
 
 
+def typecycling_predicate(state: dict, card: str) -> str | None:
+    """§702.29 — if `card`'s cycling is a TYPECYCLING variant (Plainscycling/Basic landcycling/Slivercycling),
+    the §701.18 search predicate for the card it fetches ('any_land' / 'subtype:plains' / 'csub:sliver'), else
+    None (plain cycling — the effect is a DRAW). Carried driver-side as typecycling_card(slug, pred), folded
+    from the parse facts by the bridge (read by slug through instance_of, like cycling_card)."""
+    inst = {i: c for (i, c) in state.get("instance_of", set())}
+    slug = inst.get(card)
+    return next((p for (s, p) in state.get("typecycling_card", set()) if s == slug), None)
+
+
 def cycle(state: dict, card: str, ctrl: str) -> bool:
-    """§702.29 CYCLING — a from-hand activated ability: '{cost}, Discard this card: Draw a card.' Pay the
+    """§702.28/29 CYCLING — a from-hand activated ability: '{cost}, Discard this card: Draw a card.' Pay the
     cycling mana, discard the card from hand to the graveyard (§701.8 / _discard_zone), open the §603
     just_cycled window so 'whenever you cycle a card' payoffs fire (Renewed Faith, Decree of Justice), then
-    draw a card off the true top (honoring the seeded library order, and firing the §603 draw watchers via
-    _draw). False if the card isn't in ctrl's hand or has no plain-mana cycling cost."""
+    the EFFECT: a plain cycle DRAWS a card; a §702.29 TYPECYCLING (Plains/Basic land/Sliver…cycling) instead
+    SEARCHES the library for a matching [type] card, puts it into HAND, and shuffles (reusing the §701.18 tutor
+    machinery in effect_handlers/library). Both fire their respective §603 watchers (draw / search). False if
+    the card isn't in ctrl's hand or has no plain-mana cycling cost."""
     if (ctrl, card) not in state.get("in_hand", set()):
         return False
     cost = cycling_cost(state, card)
@@ -980,7 +992,18 @@ def cycle(state: dict, card: str, ctrl: str) -> bool:
     state.setdefault(_discard_zone(state, ctrl), set()).add((card,))
     print(f"    {ctrl} cycles {card}")
     _fire_cycle_triggers(state, ctrl)                        # §603 'whenever you cycle a card' payoffs
-    _draw(state, ctrl)                                       # §702.29a the effect: draw a card (fires draw triggers)
+    pred = typecycling_predicate(state, card)
+    if pred is not None:
+        from effect_handlers import library as _lib          # §702.29 SEARCH for 'a [type] card' -> HAND, then shuffle
+        found = _lib._select_card(state, ctrl, pred)         # §701.18 tutor: pull the matching card OUT (fires search triggers)
+        if found is not None:
+            state.setdefault("in_hand", set()).add((ctrl, found))
+            print(f"    {ctrl} searches and puts {found} into hand")
+        else:
+            print(f"    {ctrl} searches but finds no matching card")   # §701.18c legal fail-to-find
+        _shuffle_library(state, ctrl)                        # §701.18 'then shuffle' (the fetched card is already out)
+    else:
+        _draw(state, ctrl)                                   # §702.29a plain cycling: draw a card (fires draw triggers)
     return True
 
 

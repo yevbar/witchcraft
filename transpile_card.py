@@ -171,7 +171,10 @@ def _ground_kw_part(part: str):
     pm = re.match(r"^(\w+) ((?:\{[^}]+\})+|\d+)$", part)
     if pm:
         gk = _ground_kw(pm.group(1))
-        if gk and gk[0]:
+        # gk[1] set means the stem is a parametrized VARIANT carrying its OWN arg already — a typecycling
+        # ('Plainscycling {2}' -> cycling/plains) or megamorph etc. Returning (kw, cost) here would DROP that
+        # type and keep only the cost; abstain so _typecycling owns it and emits BOTH (type + cost_<cost>).
+        if gk and gk[0] and gk[1] is None:
             return (gk[0], ground.slug(pm.group(2)))
     return None
 

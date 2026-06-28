@@ -2825,14 +2825,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_loyalty", (facts, int(c["loyalty"])))      # (driver-side: set as loyalty counters on enter)
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
         add("card_keyword", (facts, kw))
+    cyc_params = sorted(p for (k, p) in f.get("keyword_param", set()) if k == "cycling")
     for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
         add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
-        if kw == "cycling":                                  # §702.29 a from-hand activated ability: '{cost}, Discard
-            cyc = _cycling_cost_generic(param)               # this card: Draw a card.' Carry the plain mana total so
-            if cyc is not None:                              # the driver can offer + pay the cycle action; abstain on
-                add("cycling_card", (facts, cyc))            # a non-mana (type/searching) cost — that stays unmodeled.
-            else:
-                dropped.append(("cycling_cost", param))
         if kw == "protection":                               # §702.16 protection FROM a colour -> the engine's
             cols = _protection_colors(param)                 # protection_from input (illegal_target gates Col spells).
             if cols:                                         # The engine models the TARGETING half of protection; the
@@ -2840,6 +2835,33 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("protection_from", (tid, col))
             else:                                            # protection from a TYPE / everything / mono-or-multicolored —
                 dropped.append(("protection", param))        # not a single colour the engine can gate -> faithful abstain
+    # §702.28/29 CYCLING — a from-hand activated ability '{cost}, Discard this card: Draw a card' (plain cycling)
+    # or '… Search your library for a [type] card, reveal it, put it into your hand, then shuffle' (TYPECYCLING).
+    # The parser emits the cost as keyword_param(_, 'cycling', 'cost_<cost>') (or a bare cost slug for plain
+    # cycling) and, for typecycling, a SEPARATE keyword_param(_, 'cycling', '<type>'). We split them: the cost
+    # feeds cycling_card (driver offers + pays the from-hand action); the type feeds typecycling_card so the
+    # driver SEARCHES for a matching land/subtype card to HAND instead of drawing. Withhold cycling_card (=> no
+    # cycle action offered) when the cost isn't plain mana OR a typecycling whose type the search machinery
+    # can't confirm — abstaining is faithful (a draw would be wrong for a search card; a wrong tutored card is
+    # worse than dropping the ability).
+    if cyc_params:
+        from effect_handlers import library as _lib
+        cost_toks = [p for p in cyc_params if str(p).startswith("cost_")]
+        type_toks = [p for p in cyc_params if not str(p).startswith("cost_")
+                     and _cycling_cost_generic(p) is None]   # a non-mana token = the TYPE (a mana slug = a bare cost)
+        # the cost: the explicit 'cost_<…>' slug if present, else a bare mana slug (plain cycling's only param)
+        cost_param = cost_toks[0][len("cost_"):] if cost_toks else next(
+            (p for p in cyc_params if _cycling_cost_generic(p) is not None), "")
+        cyc = _cycling_cost_generic(cost_param) if cost_param != "" else None
+        tpred = _lib.typecycling_predicate(type_toks[0]) if type_toks else None
+        if type_toks and tpred is None:                      # a typecycling we can't confirm -> withhold the action
+            dropped.append(("typecycling", type_toks[0]))
+        elif cyc is None:                                    # a non-mana cycling cost -> unmodeled (abstain)
+            dropped.append(("cycling_cost", cost_param or (cyc_params[0] if cyc_params else "")))
+        else:
+            add("cycling_card", (facts, cyc))                # the driver offers + pays the from-hand cycle action
+            if tpred is not None:                            # TYPECYCLING: search for 'a [type] card' to HAND, not draw
+                add("typecycling_card", (facts, tpred))
     if "flashback" in {str(k).lower() for k in f.get("keywords", set())}:
         add("flashback_card", (tid,))                        # §702.34 a card that natively HAS flashback (driver-side
         #                                                      filter for 'search for cards with flashback' — Quiet Speculation)

@@ -359,6 +359,30 @@ def search_predicate(tgt) -> str | None:
     return _type_predicate(tgt)                              # a §205 card-TYPE fetch, else None -> abstain
 
 
+def typecycling_predicate(type_slug) -> str | None:
+    """§702.29 the search predicate for a TYPECYCLING type token (the parser's keyword_param(_, 'cycling',
+    '<type>') arg), or None to ABSTAIN when the surfaced printed identity can't confirm the type. Typecycling
+    is cycling whose effect SEARCHES the library for 'a [type] card' (and puts it in HAND) instead of drawing.
+    Shapes (after ground.slug):
+      'land' / 'basic_land'  -> 'any_land'              (Landcycling / Basic landcycling — any [basic] land)
+      'plains'/'island'/'swamp'/'mountain'/'forest' -> 'subtype:<t>'  (§702.29 a land of that basic type)
+      'sliver'/'wizard'/<other printed subtype>     -> 'csub:<t>'     (a card of that creature/other subtype)
+    A type the predicate machinery can't express as a single confirmable predicate (e.g. 'artifact_land' —
+    a land AND artifact combo) returns None so the bridge withholds the cycle action (faithful abstain — a
+    plain DRAW would be unfaithful for a search card, and a wrong card pulled to hand is worse than dropping)."""
+    t = str(type_slug)
+    if t in ("land", "basic_land", "a_land", "a_basic_land"):
+        return "any_land"
+    if t in _BASIC_LAND_SUBTYPES:                            # a basic-land-type cycle -> a LAND of that subtype
+        return "subtype:" + t
+    # a single ARBITRARY printed subtype (Sliver/Wizard/…): a one-token alphabetic word that isn't a card type
+    # and isn't a §700 category word that never rides as a subtype (color/composite qualities — matching them
+    # would silently find nothing; _SEEK_NON_SUBTYPE) -> 'csub:' (confirmed from printed_subtype).
+    if t and t.isalpha() and t not in _CARD_TYPES and t not in _SEEK_NON_SUBTYPE:
+        return "csub:" + t
+    return None                                              # 'artifact_land' / unconfirmable -> abstain
+
+
 # the atomic search effect for a destination ('hand'/'top'/'bottom'/'battlefield'/'battlefield_tapped') ->
 # a search_to_<dest> effect verb the bridge emits, packing the §701.18 predicate in the target column.
 def search_to_effect(dest: str, pred: str):
