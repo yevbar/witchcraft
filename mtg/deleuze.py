@@ -196,12 +196,8 @@ class DeleuzePlayer(Player):
             return 0.0
         my_life = life[seat]
         opp_life = min((v for p, v in life.items() if p != seat), default=20)
-        saved = (self._game, self._seat)
-        self.bind(game, seat)                                  # point self.creatures/.opponent at `game`
-        try:
+        with self.bound(game, seat):                           # point self.creatures/.opponent at `game`, restore after
             my_creatures, opp_creatures = self.creatures, self.opponent.creatures
-        finally:
-            self._game, self._seat = saved
         my_pow = sum(c.power for c in my_creatures)
         opp_pow = sum(c.power for c in opp_creatures)
         hands = game.hand_count()

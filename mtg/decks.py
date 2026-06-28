@@ -61,6 +61,60 @@ def load_deck(path: str) -> list[str]:
         return parse_deck(f.read())
 
 
+def read_cards(path: str) -> list[str]:
+    """Read a card POOL from a text file of newline-separated card names — the format the inthearena collection
+    scraper writes (and `pool.txt` uses): one human-readable oracle name per line, NO counts. Returns the
+    DISTINCT names in first-seen order: a pool is the SET of cards available to build with, so duplicates
+    collapse (unlike `parse_deck`, where a repeated line means another copy in a 60-card list). Blank lines and
+    `#`/`//` comments are skipped. The names are the oracle names the engine resolves directly — feed the result
+    to `mtg.deckbuilding.find_best_deck`.
+
+        pool = mtg.read_cards("pool.txt")          # -> ['A.I.M. Bot', 'Aang, the Last Airbender', ...]
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("//"):
+                continue
+            if line not in seen:
+                seen.add(line)
+                out.append(line)
+    return out
+
+
+_ARENA_LINE = re.compile(r"^(\d+)\s+(.+?)\s*$")            # 'N Card Name …' (count-led); headers have no count
+_ARENA_SUFFIX = re.compile(r"\s+\([^)]+\)\s+\S+$")          # strip the ' (SET) 123' / ' (SET) 123a' printing tag
+
+
+def read_arena_cards(path: str) -> list[str]:
+    """Read a deck in MTG ARENA's copy/paste export format, returning the flat card-name list with COUNTS
+    expanded — the deck-list analog of `load_deck`, ready for `Game(...)`. Arena exports look like::
+
+        Commander
+        1 Electro, Assaulting Battery (SPM) 76
+
+        Deck
+        17 Mountain (SOS) 279
+        1 Lightning Bolt (DMU) 137
+        1 Glassworks // Shattered Yard (DSK) 137
+
+    Section-header lines (any line WITHOUT a leading count — 'Deck', 'Commander', 'Sideboard', blanks, an
+    'About' block) are skipped; the trailing ' (SET) number' printing tag is stripped; a double-faced
+    'Front // Back' name is kept whole (the engine resolves by oracle name). Unlike `read_cards` (a deduped
+    POOL), this preserves a deck's repeats (e.g. 17× Mountain). The Commander card is included in the list."""
+    out: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            m = _ARENA_LINE.match(raw.strip())
+            if not m:
+                continue                                   # section header / blank / non-card line
+            name = _ARENA_SUFFIX.sub("", m.group(2)).strip()
+            out.extend([name] * int(m.group(1)))
+    return out
+
+
 def bundled_decks() -> list[str]:
     """Names of the deck lists shipped with the package (pass any to `load_deck`)."""
     if not os.path.isdir(_DECKS_DIR):

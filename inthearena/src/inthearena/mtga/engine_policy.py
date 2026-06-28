@@ -90,7 +90,8 @@ class EnginePolicy:
                      and getattr(a, "instanceId", None) is not None and a.manaCost}
             game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed,
                            castable=castable, playable=playable, costs=costs)
-            move = self._player.bind(game, "alice").choose_move(game)
+            me = game.state.get("_me", "alice")              # OUR engine seat name (set by build_state), not a magic
+            move = self._player.bind(game, me).choose_move(game)  # constant — generalises if the naming ever changes
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
                       getattr(move, "kind", move),
                       f" {getattr(getattr(move, 'card', None), 'id', '')}".rstrip())
@@ -102,7 +103,12 @@ class EnginePolicy:
     # ── decide ────────────────────────────────────────────────────────────────────────────────────────────
     def decide(self, d):
         if d.kind == "targets":
-            return self._targets_choice(d)                   # aim a player target at the opponent
+            picks = self._targets_choice(d)                  # aim a player target at the opponent
+            if not picks and (d.options or []):
+                _log.info("  engine: DECLINED a targets decision with %d slot(s) — no legal pick resolved "
+                          "(mandatory SelectTargets may stall; creature/permanent targeting isn't fully wired)",
+                          len(d.options or []))
+            return picks
         if d.kind == "mulligan":
             return "keep"                                    # keep the opener; engine-driven mulligan is TBD
         if d.kind == "assign_damage":
@@ -116,7 +122,38 @@ class EnginePolicy:
             return self._noop(d)
         if d.kind == "actions" and getattr(choice, "actionType", None) == "ActionType_Pass":
             self._explain_pass(d)                            # surface WHY a castable-looking hand still passed
+        elif d.kind in ("attackers", "blockers") and not choice:
+            self._explain_decline(d, move)                   # surface WHY a combat decision declined (no silent skip)
         return choice
+
+    def _explain_decline(self, d, move) -> None:
+        """When an attackers/blockers decision resolves to NO action, say WHY — same anti-silence rationale as
+        `_explain_pass` on the actions path (a combat decision that 'mysteriously declines' is otherwise an empty
+        list with no trace). Two cases, opposite conclusions:
+
+          * the engine genuinely DECLINED combat (its move wasn't an attack/block) -> INFO: expected, the
+            heuristic chose not to swing/block.
+          * the engine DID choose to attack/block but nothing mapped to MTGA's offered options (a qualified
+            attacker / a legal blocker pairing) -> WARNING: a real bridge MAPPING bug, the engine wanted to act.
+        """
+        kind = getattr(move, "kind", None)
+        offered = len(d.options or [])
+        if d.kind == "attackers":
+            wanted = kind == "attack" and bool(getattr(move, "attackers", None))
+            if wanted:
+                _log.warning("  engine: declared NO attackers though the engine chose to ATTACK with %s — none "
+                             "mapped to the %d qualified attacker(s) MTGA offered (bridge mapping bug)",
+                             list(getattr(move, "attackers", []))[:5], offered)
+            elif offered:
+                _log.info("  engine: declined to attack (%d attacker(s) available) — engine move was %s", offered, kind)
+        else:  # blockers
+            wanted = kind == "block" and bool(getattr(move, "blocks", None))
+            if wanted:
+                _log.warning("  engine: declared NO blocks though the engine chose to BLOCK %s — none mapped to a "
+                             "LEGAL pairing among the %d blocker option(s) (bridge mapping bug)",
+                             list(getattr(move, "blocks", []))[:5], offered)
+            elif offered:
+                _log.info("  engine: declined to block (%d blocker option(s) available) — engine move was %s", offered, kind)
 
     def _explain_pass(self, d) -> None:
         """When we PASS an actions decision while MTGA listed casts, log WHY none were taken. Three cases, and the

@@ -342,6 +342,12 @@ def _engine_checks():
     # in hand on our precombat main.)
     check("engine: state carries _explicit_lands + spell_type(…, 'land')",
           st.get("_explicit_lands") is True and any(t == "land" for (_i, t) in st.get("spell_type", set())))
+    # §117.1a instant-speed window is always opened (MTGA is the priority authority — it only hands us an actions
+    # decision when we truly hold priority). Lets our-turn instants (combat tricks / instant removal) surface at
+    # non-main steps; without it legal_moves at a non-main step is just [pass]. (Opp-turn reactive priority is a
+    # separate, deeper engine change — env fills the window for the ACTIVE player only.)
+    check("engine: state carries _instant_speed (instants can surface in non-main windows)",
+          st.get("_instant_speed") is True)
     land_plays = [m for m in g.legal_moves if getattr(m, "kind", None) == "play"]
     check("engine: a land in hand surfaces a 'play' move", len(land_plays) >= 1)
     check("engine: HeuristicPlayer PLAYS the land, not pass",
@@ -1506,6 +1512,63 @@ def _engine_policy_checks():
           ep._targets_choice(d_perm) == [{"instanceId": 431}])
     check("EnginePolicy declines a target with no real slot (None)",
           ep.decide(Decision(kind="targets", options=[{"instanceId": 1}], seat=1, view=GameView(), req=None)) is None)
+
+    # (#3) COMBAT/TARGET no-op DIAGNOSTICS: an attackers/blockers decision that resolves to NO action shouldn't be
+    # a silent skip. _explain_decline distinguishes a genuine decline (INFO) from the engine WANTING to act but
+    # nothing mapping (WARNING = a real bridge bug) — mirroring _explain_pass on the actions path.
+    import logging as _lg
+
+    class _Rec(_lg.Handler):
+        def __init__(self): super().__init__(); self.records = []
+        def emit(self, r): self.records.append(r)
+
+    def _logs(fn):
+        rec = _Rec(); lg = _lg.getLogger("inthearena.mtga.engine_policy")
+        lg.addHandler(rec); prev = lg.level; lg.setLevel(_lg.DEBUG)
+        try:
+            fn()
+        finally:
+            lg.removeHandler(rec); lg.setLevel(prev)
+        return rec.records
+
+    r = _logs(lambda: ep._explain_decline(d_atk, move("attack", attackers=["ghost_999"])))
+    check("_explain_decline WARNS when the engine chose to attack but nothing mapped (real bug)",
+          any(x.levelno == _lg.WARNING and "attack" in x.getMessage().lower() for x in r))
+    r = _logs(lambda: ep._explain_decline(d_atk, move("pass")))
+    check("_explain_decline notes a genuine decline-to-attack at INFO (not a bug)",
+          any(x.levelno == _lg.INFO for x in r) and not any(x.levelno == _lg.WARNING for x in r))
+    r = _logs(lambda: ep._explain_decline(d_blk, move("block", blocks=[("crea_315", "atk_999")])))
+    check("_explain_decline WARNS when the engine chose to block but no legal pairing mapped (real bug)",
+          any(x.levelno == _lg.WARNING and "block" in x.getMessage().lower() for x in r))
+    r = _logs(lambda: ep._explain_decline(d_blk, move("pass")))
+    check("_explain_decline notes a genuine decline-to-block at INFO (not a bug)",
+          any(x.levelno == _lg.INFO for x in r) and not any(x.levelno == _lg.WARNING for x in r))
+    d_notgt = Decision(kind="targets", seat=1, view=v_tgt, req=None,
+                       options=[{"targetIdx": 1, "targets": [{"foo": 1}]}])   # a slot with no resolvable candidate
+    r = _logs(lambda: ep.decide(d_notgt))
+    check("decide logs (INFO) when a targets decision declines with slots present",
+          any(x.levelno == _lg.INFO and "target" in x.getMessage().lower() for x in r))
+
+    # (#2) Player.bound: a context manager that RESTORES the prior (game, seat) on exit — even on exception — so a
+    # hypothetical read (deleuze._value) no longer pokes the private _game/_seat by hand.
+    try:
+        from mtg.players import Player as _PL
+    except Exception:
+        _PL = None
+    if _PL is not None:
+        from types import SimpleNamespace as _NS2
+        p = _PL(); g1, g2 = _NS2(turn="alice"), _NS2(turn="bob")
+        p.bind(g1, "alice")
+        with p.bound(g2, "zz"):
+            inside = p.game is g2 and p.seat == "zz"
+        check("Player.bound binds inside the block and restores (game, seat) after",
+              inside and p.game is g1 and p.seat == "alice")
+        try:
+            with p.bound(g2, "zz"):
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        check("Player.bound restores even when the block raises", p.game is g1 and p.seat == "alice")
 
 
 def _execute_checks():

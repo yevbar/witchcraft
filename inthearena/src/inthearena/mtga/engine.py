@@ -44,6 +44,11 @@ _STEP = {
 }
 _PHASE_FALLBACK = {"Phase_Main1": "precombat_main", "Phase_Main2": "postcombat_main"}
 
+# The engine seat names the bridge assigns: OUR seat (`me`) and the opponent. Defined ONCE here and carried on
+# the built state as `_me` (read by engine_policy to bind its Player), so the name isn't a magic string that has
+# to be kept in sync across modules. Heads-up only — a third name would be needed to generalise to multiplayer.
+ME_SEAT, OPP_SEAT = "alice", "bob"
+
 # A generic pool to fill imagined hidden cards (valid engine identities) when no opponent_deck is given.
 _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "mountain", "swamp"]
 
@@ -91,10 +96,10 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     castable = castable or set()
     s = {k: set() for k in _RELATIONS}
     seats = view.seats() or [me]
-    name_of = {sid: ("alice" if sid == me else "bob") for sid in seats}
+    name_of = {sid: (ME_SEAT if sid == me else OPP_SEAT) for sid in seats}
     opp = next((x for x in seats if x != me), None)
     if opp is not None and opp not in name_of:
-        name_of[opp] = "bob"
+        name_of[opp] = OPP_SEAT
     # who an attacker controlled by each player is attacking (the OTHER player) — for the `attacks` combat fact
     defender_of = {nm: next((o for o in name_of.values() if o != nm), None) for nm in name_of.values()}
 
@@ -205,10 +210,11 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
         slug = _slug(cards.card_name(o.grpId))
         inst = f"{slug}_{iid}"
         s["instance_of"].add((inst, slug))
-        s["in_hand"].add((name_of.get(me, "alice"), inst))   # treat it as castable-from-hand for the §305 drop
+        s["in_hand"].add((name_of.get(me, ME_SEAT), inst))   # treat it as castable-from-hand for the §305 drop
         s["spell_type"].add((inst, "land"))
 
     s["_turn"] = view.turn.turnNumber or 0
+    s["_me"] = name_of.get(me, ME_SEAT)                     # OUR engine seat name — engine_policy binds its Player here
     s["_seed"] = seed
     s["_variant"] = view.variant                           # brawl / two-player, from the match's format
     # §305 EXPLICIT land drops: the bridge must surface "play a land" as an engine MOVE so it can ENACT it as an
@@ -216,6 +222,13 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     # land-first player (HeuristicPlayer/AggroPlayer all list Do.LANDS) sees no land to play and PASSES, stranding
     # the real land in hand into the end-of-turn discard. `Game.from_state` reads this flag off the state.
     s["_explicit_lands"] = True
+    # §117.1a INSTANT-SPEED priority: MTGA is the priority authority — it only issues us an actions decision when
+    # we ACTUALLY hold priority (incl. opponent-turn / combat windows). So always open the engine's instant-speed
+    # window here; without it `legal_moves` at a non-main step is just [pass] and a payable instant (counterspell,
+    # combat trick, removal) never surfaces — the engine declines reactive plays it's fully capable of. Instants
+    # are still gated by `can_afford` (we only feed auto-payable casts) and by spell_type's cast_permission, so
+    # this can't make a sorcery castable off-turn; it only un-hides the instants MTGA already offered us.
+    s["_instant_speed"] = True
     return s
 
 
