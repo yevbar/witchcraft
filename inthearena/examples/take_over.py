@@ -165,8 +165,9 @@ def _bootstrap_engine() -> bool:
 def _engine_player(name: str):
     """Resolve --engine-player to a python-mtg Player instance (lazy import — these only load with the engine on
     the repo-relative path). Returns None if the engine isn't importable, in which case EnginePolicy uses its own
-    default. deleuze is the bot under active development (started as a copy of heuristic); aggro is the
-    head-to-head winner; heuristic is the base; blind_aggro never blocks."""
+    default. deleuze is the bot under active development (started as a copy of heuristic); society_of_control is
+    the control bot (forked from deleuze); aggro is the head-to-head winner; heuristic is the base; blind_aggro
+    never blocks."""
     try:
         if name == "aggro":
             from mtg.aggro import AggroPlayer
@@ -177,6 +178,9 @@ def _engine_player(name: str):
         if name == "heuristic":
             from mtg.heuristic import HeuristicPlayer
             return HeuristicPlayer()
+        if name == "society_of_control":
+            from mtg.society_of_control import SocietyOfControlPlayer
+            return SocietyOfControlPlayer()
         from mtg.deleuze import DeleuzePlayer
         return DeleuzePlayer()
     except Exception:
@@ -386,11 +390,12 @@ def main(argv) -> int:
                          "over the synced board — the only bot that BLOCKS (run from the repo root so the engine "
                          "finds its datalog; falls back to blind_rage where the engine can't decide). blind_rage: "
                          "pure aggro, never blocks/targets — never stalls. aggro_arena: + a keepable-hand mulligan.")
-    ap.add_argument("--engine-player", default="deleuze", choices=("deleuze", "heuristic", "aggro", "blind_aggro"),
+    ap.add_argument("--engine-player", default="deleuze",
+                    choices=("deleuze", "society_of_control", "heuristic", "aggro", "blind_aggro"),
                     help="for --bot witchcraft: which engine Player decides. deleuze (default): the bot under "
-                         "active development (started as a copy of heuristic). heuristic: the base hand-built bot. "
-                         "aggro: the head-to-head winner (~68-32 vs heuristic) but blocks rarely — it's a racer. "
-                         "blind_aggro: never blocks.")
+                         "active development (started as a copy of heuristic). society_of_control: the control bot "
+                         "(forked from deleuze). heuristic: the base hand-built bot. aggro: the head-to-head winner "
+                         "(~68-32 vs heuristic) but blocks rarely — it's a racer. blind_aggro: never blocks.")
     ap.add_argument("--scale", type=float, default=1.0, help="image->click scale; use ~0.5 on a Retina display.")
     ap.add_argument("--max-steps", type=int, default=6, help="max navigation transitions before giving up.")
     ap.add_argument("--queue-timeout", type=float, default=120.0,
