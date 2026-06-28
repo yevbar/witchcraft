@@ -43,15 +43,19 @@ _HAND_X = (0.20, 0.78)     # …and within this central x-band (excludes the far
 _HAND_QUERY = "a Magic card in the player's hand at the bottom of the screen"
 _MIN_GAP = 40              # px: collapse near-coincident detections (Moondream double-hits) into one card
 
-# Name-OCR band (the hand's name banners): below this y-fraction, within this x-band. Wider on the right than
-# _HAND_X because a fully-exposed rightmost card's name sits out near x~0.80; the far-left avatar panel (x<0.20)
-# and the bottom-right action button (x>0.90) are excluded.
+# Name-OCR band (the hand's name banners): below this y-fraction, within this x-band. The LEFT edge reaches 0.14
+# so the reveal sweep can hover the LEFTMOST card of a wide (8-card) fan — its centre sits at x~0.16, left of the
+# old 0.20 cutoff, so the sweep started at the 2nd card. The far-left avatar panel (name x~0.07) is still excluded.
+# The right edge (0.84) sits just past a fully-exposed rightmost card (x~0.80) so the sweep doesn't overrun it
+# (which also flattens the arc) yet still clears the bottom-right action button (x>0.90).
 _NAME_Y = 0.84
 _LONE_CARD_Y = 0.90        # frac-h to grab a lone centred card: into its ART, BELOW the avatar/life badge it rests under
-_NAME_X = (0.20, 0.90)
+_NAME_X = (0.14, 0.84)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
-_FAN_ARC = 48              # px the hand fan bows down at its EDGES vs the centre (hover lower toward the edges)
+_FAN_ARC = 84              # px the hand fan bows down at its EDGES vs the centre (hover lower toward the edges).
+#                            A full 8-card fan dips ~85px: the rightmost card sits at y≈0.94 vs the centre ≈0.855,
+#                            so a shallow arc hovered ABOVE the edge card and never magnified it.
 # N-AWARE fan (for the no-anchor reveal sweep): MTGA centres the hand and SPREADS it to fill the hand area, so
 # more cards pack tighter. spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH/(N-1)). A FIXED step made an 8-card fan too
 # NARROW — the sweep started at the 2nd card and never reached the edges. Measured off a full 8-card hand: the

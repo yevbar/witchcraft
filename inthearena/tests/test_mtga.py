@@ -1062,22 +1062,25 @@ def _hand_checks():
     # name-OCR layer: read card names (Vision) and match a target despite OCR grit + duplicate lands. Stub the
     # OCR so the test is platform-independent (Vision is macOS-only). Coords are normalized (x_frac, y_frac).
     from inthearena.mtga import locate_named_cards, match_named_card, ocr
-    fake = [("Heroic Intervention", 0.38, 0.90), ("Shimmerwilds Growd", 0.45, 0.89),  # OCR'd 'Growth' as 'Growd'
+    fake = [("Plains", 0.16, 0.93),                         # LEFTMOST card of a wide 8-card fan -> KEPT (x>=0.14)
+            ("Heroic Intervention", 0.38, 0.90), ("Shimmerwilds Growd", 0.45, 0.89),  # OCR'd 'Growth' as 'Growd'
             ("(Collector's Vault", 0.58, 0.89),                                        # leading-paren grit
-            ("Spider-Man, Brooklyn Visionary", 0.17, 0.95),     # AVATAR panel (x-frac < 0.20) -> dropped
+            ("deleuze", 0.07, 0.95),                        # AVATAR panel name (x-frac < 0.14) -> dropped
             ("Next", 0.93, 0.88), ("You will need to discard", 0.78, 0.80)]            # UI -> dropped (x / y)
     orig = ocr.recognize_text
     ocr.recognize_text = lambda image: fake
     try:
         named = locate_named_cards(object(), rect)
-        check("locate_named_cards keeps only hand-band names (avatar/Next/UI dropped)",
-              [n for n, _, _ in named] == ["Heroic Intervention", "Shimmerwilds Growd", "(Collector's Vault"])
+        check("locate_named_cards keeps hand-band names incl. the LEFTMOST card; drops avatar/Next/UI",
+              [n for n, _, _ in named] == ["Plains", "Heroic Intervention", "Shimmerwilds Growd", "(Collector's Vault"])
         check("locate_named_cards returns screen coords left-to-right",
-              [x for _, x, _ in named] == sorted(x for _, x, _ in named) and named[0][1] == int(0.38 * 1920))
+              [x for _, x, _ in named] == sorted(x for _, x, _ in named) and named[0][1] == int(0.16 * 1920))
+        shim = next(t for t in named if "Shimmer" in t[0])
+        vault = next(t for t in named if "Vault" in t[0])
         check("match_named_card tolerates OCR grit ('Shimmerwilds Growth' ~ 'Growd')",
-              match_named_card("Shimmerwilds Growth", named) == named[1][1:])
+              match_named_card("Shimmerwilds Growth", named) == shim[1:])
         check("match_named_card matches across a stray prefix char (Collector's Vault)",
-              match_named_card("Collector's Vault", named) == named[2][1:])
+              match_named_card("Collector's Vault", named) == vault[1:])
         check("match_named_card returns None for an occluded/absent name (Command Tower)",
               match_named_card("Command Tower", named) is None)
         # substring guard: a short target must NOT perfect-match a longer card that merely contains it
