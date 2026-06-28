@@ -38,6 +38,7 @@
 .decl spell_type(spell: symbol, t: symbol)
 .decl mana_cost(spell: symbol, n: number)
 .decl mana_available(p: symbol, n: number)
+.decl cost_reducer(src: symbol, amount: number, filter: symbol)
 .decl mana_generic(spell: symbol, n: number)
 .decl mana_pip(spell: symbol, col: symbol, n: number)
 .decl mana_pool(p: symbol, col: symbol, n: number)
@@ -451,10 +452,19 @@ free_cast(P, S) :- pitch_cost(S, Col, "not_your_turn"), playable_source(P, S), i
 .decl can_afford(p: symbol, s: symbol)
 // §118.9 an alternative free cost is always affordable
 can_afford(P, S) :- free_cast(P, S).
-// §106/§202 colored payment exists
-can_afford(P, S) :- playable_source(P, S), has_colored_cost(S), colored_total(S, C), pool_total(P, M), M >= C, !pip_shortfall(P, S).
-// legacy flat-mana fallback when no colored cost is supplied
-can_afford(P, S) :- playable_source(P, S), !has_colored_cost(S), mana_cost(S, C), mana_available(P, M), M >= C.
+.decl spell_matches_filter(s: symbol, filter: symbol)
+spell_matches_filter(S, "any") :- cost_reducer(_, _, "any"), playable_source(_, S).
+spell_matches_filter(S, Col) :- cost_reducer(_, _, Col), spell_color(S, Col).
+spell_matches_filter(S, T) :- cost_reducer(_, _, T), spell_type(S, T).
+spell_matches_filter(S, "instant_or_sorcery") :- cost_reducer(_, _, "instant_or_sorcery"), spell_type(S, "instant").
+spell_matches_filter(S, "instant_or_sorcery") :- cost_reducer(_, _, "instant_or_sorcery"), spell_type(S, "sorcery").
+.decl cost_reduce_total(p: symbol, s: symbol, n: number)
+// §118.7 total generic reduction P gets casting S (0 when no reducer P controls matches)
+cost_reduce_total(P, S, Tot) :- playable_source(P, S), Tot = sum N : { cost_reducer(R, N, F), controls(P, R), spell_matches_filter(S, F) }.
+// §106/§202 colored payment exists (less the §118.7 static reduction; pip_shortfall keeps the colored floor)
+can_afford(P, S) :- playable_source(P, S), has_colored_cost(S), colored_total(S, C), cost_reduce_total(P, S, R), pool_total(P, M), M >= C - R, !pip_shortfall(P, S).
+// legacy flat-mana fallback when no colored cost is supplied (less the static reduction)
+can_afford(P, S) :- playable_source(P, S), !has_colored_cost(S), mana_cost(S, C), cost_reduce_total(P, S, R), mana_available(P, M), M >= C - R.
 .decl illegal_target(s: symbol, t: symbol)
 // §702.18
 illegal_target(S, T) :- targets(S, T), has_keyword(T, "shroud").
@@ -1199,4 +1209,4 @@ spell_damage(S, N, Kind) :- resolves_ability(S, Card, A), cast_using_teamwork(S)
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword cycling_card card_subtype card_color cant card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter static_protect attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_turned_face_up just_p1p1_placed just_drew draw_ord just_cycled won_flip copied_spell just_gained_life gained_life_this_turn ev_search_library committed_crime you_do_pair you_do_cost did_optional teamwork_cost cast_using_teamwork prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available cost_reducer mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword cycling_card card_subtype card_color cant card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter static_protect attached_to has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_turned_face_up just_p1p1_placed just_drew draw_ord just_cycled won_flip copied_spell just_gained_life gained_life_this_turn ev_search_library committed_crime you_do_pair you_do_cost did_optional teamwork_cost cast_using_teamwork prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl

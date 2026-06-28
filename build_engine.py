@@ -139,6 +139,10 @@ INPUTS = [
     ("spell_type", [("spell", "symbol"), ("t", "symbol")]),
     ("mana_cost", [("spell", "symbol"), ("n", "number")]),
     ("mana_available", [("p", "symbol"), ("n", "number")]),
+    # §118 STATIC cost reduction — a permanent that makes matching spells its controller casts cost {N} less
+    # (the Medallions, Goblin Electromancer, type cost-reducers). filter = a color / a card type / 'instant_or_
+    # sorcery' / 'any'; the reduction lowers the GENERIC portion of can_afford (pip_shortfall keeps the colored floor).
+    ("cost_reducer", [("src", "symbol"), ("amount", "number"), ("filter", "symbol")]),
     # §202/§106 COLORED mana. A spell's cost is generic + per-color pips; the player has a colored pool
     # (the driver stocks it from untapped lands' produced colors). A color absent from mana_pip costs 0.
     ("mana_generic", [("spell", "symbol"), ("n", "number")]),               # §202.1 generic portion
@@ -848,10 +852,24 @@ def _rules(p: Program) -> None:
                                "in_hand(P, O)", "O != S", "printed_color(O, Col)", "!active_player(P)"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
     p.rule("can_afford(P, S)", ["free_cast(P, S)"], note="§118.9 an alternative free cost is always affordable")
-    p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "pool_total(P, M)", "M >= C", "!pip_shortfall(P, S)"],
-           note="§106/§202 colored payment exists")
-    p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "mana_available(P, M)", "M >= C"],
-           note="legacy flat-mana fallback when no colored cost is supplied")
+    # §118.7 STATIC COST REDUCTION — a spell S matches a cost_reducer's filter F (a color via spell_color, a
+    # card type via spell_type, 'instant_or_sorcery', or 'any'); a controller's matching reducers STACK. The
+    # reduction lowers the cost in can_afford below — and because pip_shortfall still enforces the colored
+    # minimum independently, subtracting it from the total can't make a {R}{R} payable without two red.
+    p.decl("spell_matches_filter", [("s", "symbol"), ("filter", "symbol")])
+    p.rule('spell_matches_filter(S, "any")', ['cost_reducer(_, _, "any")', "playable_source(_, S)"])
+    p.rule("spell_matches_filter(S, Col)", ["cost_reducer(_, _, Col)", "spell_color(S, Col)"])
+    p.rule("spell_matches_filter(S, T)", ["cost_reducer(_, _, T)", "spell_type(S, T)"])
+    p.rule('spell_matches_filter(S, "instant_or_sorcery")', ['cost_reducer(_, _, "instant_or_sorcery")', 'spell_type(S, "instant")'])
+    p.rule('spell_matches_filter(S, "instant_or_sorcery")', ['cost_reducer(_, _, "instant_or_sorcery")', 'spell_type(S, "sorcery")'])
+    p.decl("cost_reduce_total", [("p", "symbol"), ("s", "symbol"), ("n", "number")])
+    p.rule("cost_reduce_total(P, S, Tot)", ["playable_source(P, S)",
+           "Tot = sum N : { cost_reducer(R, N, F), controls(P, R), spell_matches_filter(S, F) }"],
+           note="§118.7 total generic reduction P gets casting S (0 when no reducer P controls matches)")
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "cost_reduce_total(P, S, R)", "pool_total(P, M)", "M >= C - R", "!pip_shortfall(P, S)"],
+           note="§106/§202 colored payment exists (less the §118.7 static reduction; pip_shortfall keeps the colored floor)")
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "cost_reduce_total(P, S, R)", "mana_available(P, M)", "M >= C - R"],
+           note="legacy flat-mana fallback when no colored cost is supplied (less the static reduction)")
     p.decl("illegal_target", [("s", "symbol"), ("t", "symbol")])
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "shroud")'], note="§702.18")
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "hexproof")', "in_hand(P, S)", "controls(TC, T)", "P != TC"], note="§702.11b")

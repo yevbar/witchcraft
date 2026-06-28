@@ -91,6 +91,9 @@ def load_db():
             db.setdefault(a[0], {})["enters_tapped"] = a[1]  # cond ('-' = always; else 'unless_X' / 'if_X')
         elif rel == "teamwork":                              # §702.x TEAMWORK N (Marvel) — the optional additional
             db.setdefault(a[0], {})["teamwork"] = int(a[1])  # cost's total-power threshold N (driver offers the cost)
+        elif rel == "cost_modifier":                         # §118 static cost modification: (direction less/more,
+            db.setdefault(a[0], {}).setdefault("cost_modifiers", []).append(  # amount, filter, cond). The bridge
+                (a[1], a[2], a[3], a[4]))                    # wires the static 'spells you cast cost {N} less' family.
     _DB_CACHE.clear()                                    # keep only the latest signature's parse
     _DB_CACHE[key] = db
     return db

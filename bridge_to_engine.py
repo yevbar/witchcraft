@@ -733,6 +733,38 @@ _ENGINE_ANTHEM_SCOPE = set(_ANTHEM_SCOPE) | {"self"}
 _COLOR_NAME = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green"}
 _ANTHEM_TYPES = {"artifact", "enchantment", "land", "planeswalker", "creature"}
 
+# §118 STATIC cost reduction — 'red / creature / instant-and-sorcery / … spells you cast cost {N} less'. We wire
+# ONLY the faithful, engine-evaluable subset: a permanent that reduces the cost of OTHER matching spells its
+# controller casts (the Medallions, Goblin Electromancer, the type cost-reducers). Returns (amount, filter_slug)
+# for the engine's cost_reducer / spell_matches_filter, or None to abstain. ABSTAINS on: 'more' (a tax — a
+# different gate, makes spells dearer not castable), a non-'-' condition, an 'X'/variable amount, the 'self'
+# family (the card's OWN cost reduction — affinity/convoke, a different mechanism), 'activated_ability' (the
+# existing ability_cost_reduction path), a subtype filter (spell_type carries card TYPES, not subtypes), and
+# 'noncreature'/'of the chosen type' (a negation / a choice the engine can't evaluate).
+_COST_REDUCE_COLORS = {"white", "blue", "black", "red", "green"}
+_COST_REDUCE_TYPES = {"creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land"}
+
+
+def _cost_reducer(direction, amount, filt, cond):
+    if direction != "less" or str(cond) != "-":
+        return None
+    n = _int(amount)
+    if n is None or n < 1:
+        return None
+    s = str(filt)
+    if s == "spells_you_cast":                                # every spell its controller casts
+        return (n, "any")
+    if not s.endswith("_spells_you_cast"):                    # not the static 'spells YOU CAST' family -> abstain
+        return None
+    base = s[: -len("_spells_you_cast")]
+    if base in _COST_REDUCE_COLORS:                           # '<color> spells you cast' — the Medallions
+        return (n, base)
+    if base == "instant_and_sorcery":                         # Goblin Electromancer / Baral
+        return (n, "instant_or_sorcery")
+    if base in _COST_REDUCE_TYPES:                            # '<card type> spells you cast'
+        return (n, base)
+    return None                                               # subtype / noncreature / chosen-type -> abstain
+
 
 def _protection_colors(param: str) -> list:
     """The COLOURS named by a §702.16 protection quality slug — 'from_white' -> ['white'], 'from_black_and_
@@ -2714,6 +2746,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("teamwork_cost", (tid, int(tw)))                  # the driver OFFERS this cost at cast (default decline);
         #                                                       if paid it feeds cast_using_teamwork(tid) so the engine
         #                                                       derives the rider effects (cond was_cast_using_teamwork).
+    for (_dir, _amt, _filt, _cmcond) in f.get("cost_modifiers", ()):   # §118 static cost modification
+        _cr = _cost_reducer(_dir, _amt, _filt, _cmcond)        # the 'spells you cast cost {N} less' family ->
+        if _cr is not None:                                   # a cost_reducer the engine subtracts in can_afford
+            add("cost_reducer", (tid, _cr[0], _cr[1]))        # (this permanent, amount, color/type/'any' filter)
+        else:
+            dropped.append(("cost_modifier", (_dir, _amt, _filt)))  # 'self'/tax/variable/subtype -> faithful abstain
     etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
     if etap is not None:
         if etap == "-":                                       # unconditional -> the engine's repl_enters_tapped input
