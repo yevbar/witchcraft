@@ -1521,6 +1521,10 @@ def _board_checks():
         pt = BoardLocator(a, me=1).locate(77, view)         # our permanent -> lower band
         check("BoardLocator locates a permanent by name", pt == (int(0.43 * 1920), int(0.49 * 1080)))
         check("BoardLocator parks the cursor at rest before snapping (no hover-distortion)", bool(a.moves))
+        # the park spot must be OFF the central card columns (x≈0.28-0.72) — else it hovers/enlarges a creature
+        # (esp. an opponent attacker) and floods its name OCR. The hand's rest_point (0.5,...) would do exactly that.
+        check("BoardLocator parks in the left margin, off the card columns (not on a creature)",
+              boardmod.board_rest_point(rect)[0] < rect.w * 0.25 and a.moves[-1][1][0] < rect.w * 0.25)
         op = boardmod.player_point(rect, is_me=False)
         me = boardmod.player_point(rect, is_me=True)
         check("player_point: opponent avatar at TOP (the portrait, not the corner name), ours at the BOTTOM",

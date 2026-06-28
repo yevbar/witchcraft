@@ -22,7 +22,7 @@ import re
 from typing import Optional
 
 from . import cards, ocr
-from .hand import _norm_name, match_named_card, rest_point
+from .hand import _norm_name, match_named_card
 from .navigate import Rect
 
 _log = logging.getLogger(__name__)
@@ -43,6 +43,17 @@ _ROW_Y = {"mine": 0.55, "opp": 0.34}      # creature-row click height per side
 _ROW_CX = 0.47                            # the row centres here
 _SLOT_MAX = 0.15                          # widest per-creature spacing (tightens to fit when there are many)
 _ROW_SPAN = 0.62                          # the row stays within this normalized width
+
+# Where to PARK the cursor before a battlefield snapshot — the left MARGIN, well off the central card columns
+# (cards sit at x≈0.28-0.72). The hand's rest_point (0.5, 0.32) sits right ON the opponent creature row, so
+# parking there hovers/ENLARGES an attacker and floods its name OCR with rules text -> the creature can't be
+# located and a block clicks the wrong (far-left geometry) spot. This keeps the snapshot un-distorted.
+_BOARD_REST = (0.10, 0.48)
+
+
+def board_rest_point(rect: Rect) -> tuple:
+    """A neutral cursor spot for battlefield snapshots — off every card so nothing is hover-magnified."""
+    return rect.x + int(_BOARD_REST[0] * rect.w), rect.y + int(_BOARD_REST[1] * rect.h)
 
 # Where to click to TARGET a player (their AVATAR portrait, normalized to the window). NOT the name nameplate in
 # the corner — clicking the opponent's name ('Sparky', top-left) does NOT target them; the avatar is the round
@@ -155,7 +166,7 @@ class BoardLocator:
         # So try the name TWICE, settling LONGER on a miss, before resorting to badge/geometry placement.
         shot = named = None
         for attempt in range(2):
-            self._act.hover(*rest_point(rect))              # park the cursor away — nothing hover-distorted
+            self._act.hover(*board_rest_point(rect))        # park OFF the cards — nothing hover-magnified
             self._act.wait(self._settle if attempt == 0 else self._settle * 2 + 0.4)
             shot = self._act.screenshot()
             named = locate_named_permanents(shot, rect, y_band=band)
