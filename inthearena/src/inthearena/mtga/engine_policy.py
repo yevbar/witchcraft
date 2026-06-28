@@ -119,16 +119,30 @@ class EnginePolicy:
         return choice
 
     def _explain_pass(self, d) -> None:
-        """When we PASS an actions decision while MTGA listed casts, log why none were taken — the bridge can only
-        cast what MTGA will AUTO-TAP (`auto_payable`); a cast needing a MANUAL tap (off-colour, or mana from a
-        creature like a mana dork, that MTGA didn't auto-solve) is excluded and the click-only bridge couldn't pay
-        it anyway. Makes 'skipped to combat with cards in hand' self-explanatory in the log."""
+        """When we PASS an actions decision while MTGA listed casts, log WHY none were taken. Two distinct cases,
+        and the log MUST separate them — they point at opposite fixes:
+
+          * NOT auto-payable: the bridge can only cast what MTGA will AUTO-TAP (`auto_payable`); a cast needing a
+            MANUAL tap (off-colour, or mana from a creature like a mana dork, that MTGA didn't auto-solve) is
+            excluded from `castable`, so the engine never sees it and the click-only bridge couldn't pay it anyway.
+            This is a bridge LIMITATION, not an engine bug — expected.
+          * auto-payable but STILL passed: at least one offered cast WAS auto-payable (so it was fed to the engine
+            as `castable`/`free_cast`), yet the engine chose to pass over it. That is a real ENGINE/surfacing bug —
+            a payable creature should always beat passing (creature_choice >> floor). Flag it loudly so the next
+            occurrence is self-diagnosing instead of a silent skip.
+
+        Makes 'skipped to combat with cards in hand' self-explanatory in the log."""
         casts = [a for a in (d.options or []) if getattr(a, "actionType", None) == "ActionType_Cast"]
         if not casts:
             return
         from . import cards
+        payable = [a for a in casts if getattr(a, "auto_payable", False)]
         unpaid = [a for a in casts if not getattr(a, "auto_payable", False)]
-        if unpaid:
+        if payable:
+            _log.warning("  engine: PASSED with %d auto-payable cast(s) offered — this is an ENGINE bug, a payable "
+                         "spell should beat passing (check it surfaced as a cast move + scored above floor): %s",
+                         len(payable), [cards.label(a.grpId) for a in payable][:5])
+        elif unpaid:
             _log.info("  engine: passed with %d cast(s) offered — %d not auto-payable (need a manual tap MTGA "
                       "didn't auto-solve; the click bridge can't pay those): %s", len(casts), len(unpaid),
                       [cards.label(a.grpId) for a in unpaid][:5])

@@ -434,6 +434,47 @@ def _engine_checks():
         check("engine: deleuze still CASTS the creature when the 1-ply lookahead fails",
               getattr(boom.choose_move(gcr), "kind", None) == "cast")
 
+        # FULL BRIDGE PATH (the live scenario): a real actions Decision wrapping the creature hand, with the casts
+        # marked auto-payable (autoTapSolution present). EnginePolicy must surface them as castable, run deleuze,
+        # and return the Cast option — NOT Pass. This is the end-to-end guard for 'passed with creatures in hand':
+        # if this ever returns Pass, the bug is real (not a bridge limitation), because the casts ARE payable.
+        from inthearena.mtga.gre import Action as _ActD, Decision as _DecD
+        from inthearena.mtga.engine_policy import EnginePolicy as _EP
+        cast_opts = [_ActD(actionType="ActionType_Cast", instanceId=170,
+                           manaCost=[{"color": ["ManaColor_White"], "count": 1}],
+                           autoTapSolution={"autoTapActions": []}),
+                     _ActD(actionType="ActionType_Cast", instanceId=171,
+                           manaCost=[{"color": ["ManaColor_Generic"], "count": 3}],
+                           autoTapSolution={"autoTapActions": []}),
+                     _ActD(actionType="ActionType_Pass")]
+        d_live = _DecD(kind="actions", options=cast_opts, seat=1, view=twocrea, req=None)
+        live_choice = _EP(player=DeleuzePlayer()).decide(d_live)
+        check("bridge: deleuze CASTS an auto-payable creature via the full decide path (not Pass)",
+              getattr(live_choice, "actionType", None) == "ActionType_Cast")
+        check("bridge: deleuze curves out — casts the CHEAPER creature (170, mv2) first end-to-end",
+              getattr(live_choice, "instanceId", None) == 170)
+
+        # _explain_pass: a player that always PASSES while an auto-payable cast was offered is the real-bug signal,
+        # and must be flagged (WARNING). A pass with only UN-payable casts is an expected bridge limitation (INFO).
+        import logging as _logging
+        class _Recorder(_logging.Handler):
+            def __init__(self): super().__init__(); self.records = []
+            def emit(self, r): self.records.append(r)
+        class _AlwaysPass(DeleuzePlayer):
+            def choose_move(self, game):                    # pass the way deleuze does: a real SKIP move (not None,
+                from mtg.models import PriorityOption as _Do  # which would route through the 'engine unusable' branch)
+                self.bind(game)
+                return game.prioritize(_Do.SKIP)
+        rec = _Recorder()
+        _epl = _logging.getLogger("inthearena.mtga.engine_policy")
+        _epl.addHandler(rec); _prev = _epl.level; _epl.setLevel(_logging.DEBUG)
+        try:
+            _EP(player=_AlwaysPass()).decide(d_live)
+        finally:
+            _epl.removeHandler(rec); _epl.setLevel(_prev)
+        check("bridge: passing over an AUTO-PAYABLE cast is flagged as an engine bug (WARNING)",
+              any(r.levelno == _logging.WARNING and "auto-payable" in r.getMessage() for r in rec.records))
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
