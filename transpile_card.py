@@ -1861,6 +1861,17 @@ def _split_conjuncts(rest):
     return [p.strip() for p in out if p.strip()]
 
 
+def _with_cond(fact: str, cond: str) -> str:
+    """Set the §608 condition (8th) column of a `card_effect(...)` fact to `cond` IFF that column is the
+    placeholder '-' (a conjunct that already independently parsed the same trailing clause keeps its own).
+    Non-`card_effect` facts (card_ability, …) pass through untouched. Used to distribute a SHARED trailing
+    'as long as <cond>' clause across the conjuncts of an anthem (§611 continuous-condition scope)."""
+    m = re.match(r'^card_effect\((?P<a>"[^"]*", "[^"]*", \d+, (?:"[^"]*", ){4})"(?P<cond>[^"]*)"\)$', fact)
+    if not m or m.group("cond") != "-":
+        return fact
+    return f'card_effect({m.group("a")}"{cond}")'
+
+
 def _anthem_conjunct(unit, ctx):
     """'<subject> gets +N/+N[, <conjunct>]*[, and <conjunct>].' where each conjunct is a SECOND grounded
     static — a keyword grant ('has flying'), restriction ('can't block'), 'doesn't untap …', a type/
@@ -1879,7 +1890,24 @@ def _anthem_conjunct(unit, ctx):
     # carrying its own '.' (Equipment statics) is still ONE sentence and keeps grounding here.
     if len(_sentences(unit.raw)) > 1:
         return None
-    m = re.match(rf"^(?P<subj>{_SUBJ}) (?P<verb>gets?) (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", unit.raw, re.I)
+    raw = unit.raw
+    # §611 a SHARED trailing continuous condition ('… get +1/+0 and have trample AS LONG AS you gained life
+    # this turn' — SOI Infusion) scopes the WHOLE conjunction, not just the last conjunct. Lift it off the
+    # raw BEFORE splitting so each conjunct parses unconditional, then graft the one condition onto every
+    # emitted effect (the modify_pt head + each conjunct) — without it the leading P/T would mint an
+    # ALWAYS-ON anthem (Thornfist Striker's +1/+0) while only the trample carried the condition. STRICTLY
+    # guarded so the lift is faithful: a SINGLE sentence (no '. ' boundary — Elenda's two 'as long as'
+    # sentences stay separate), no '"' in the clause (a quoted granted ability carries its OWN 'as long as'
+    # — Giant's Amulet), and EXACTLY ONE trailing connective (no nested/second condition).
+    shared = None
+    if '"' not in raw and not re.search(r"\.\s+\S", raw):
+        mc = re.match(rf"^(?P<head>.+?) (?P<conn>{'|'.join(_PT_COND_CONN)}) (?P<cond>[^,]+?)\.?$", raw, re.I)
+        # require the head to retain the anthem shape AND no second connective in the cond (single condition).
+        if mc and not re.search(rf"\b(?:{'|'.join(_PT_COND_CONN)})\b", mc.group("cond"), re.I) \
+                and re.match(rf"^(?:{_SUBJ}) gets? [+-]\d+/[+-]\d+(?:,| and) ", mc.group("head"), re.I):
+            shared = ground.slug(mc.group("conn")) + "_" + ground.slug(mc.group("cond"))
+            raw = mc.group("head")
+    m = re.match(rf"^(?P<subj>{_SUBJ}) (?P<verb>gets?) (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", raw, re.I)
     if not m:
         return None
     if m.group("verb").lower() not in _PT_GET_VERB:        # §613 anthem verb anchor (see _static_pt)
@@ -1894,8 +1922,12 @@ def _anthem_conjunct(unit, ctx):
             return None
         extra += bo.facts
     cid, aid = ctx["id"], f"a{ctx.get('seq', 0)}"
+    cond = shared or "-"
     facts = [f'card_ability("{cid}", "{aid}", "static")',
-             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{_target_slug(subj)}", "-", "-")']
+             f'card_effect("{cid}", "{aid}", 0, "modify_pt", "{m.group("pt")}", "{_target_slug(subj)}", "-", "{cond}")']
+    if shared:
+        # graft the shared continuous condition onto every conjunct's card_effect cond column (the 8th field).
+        extra = [_with_cond(f, shared) for f in extra]
     return CardOut(cid, facts + extra, "static_pt")
 
 

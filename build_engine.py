@@ -254,6 +254,7 @@ INPUTS = [
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
     ("just_gained_life", [("p", "symbol")]),                     # §603 a player whose life just INCREASED — 'whenever you gain life'
+    ("gained_life_this_turn", [("p", "symbol")]),                # §611.2 a player who has gained life THIS TURN — SOI 'Infusion' continuous condition (turn-scoped, cleared at §514.2 cleanup)
     ("ev_search_library", [("p", "symbol")]),                    # §701.18 a player who just searched their library (Wan Shi Tong)
     ("committed_crime", [("p", "symbol")]),                       # §700.x a player who just committed a crime (driver-fed crime window)
     # §603.2c 'If you do' REFLEXIVE SEQUENCING — 'you may [DO X]. If you do, [Y]'. The bridge pairs the
@@ -627,6 +628,11 @@ def _rules(p: Program) -> None:
     p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"attached\")", "on_battlefield(S)", "attached_to(S, C)", "creature(C)"])
+    # §613 a SELF static P/T — the source buffs only ITSELF (SOI 'Infusion' statics: 'This creature gets
+    # +2/+0 as long as you gained life this turn'). The 'self' scope resolves to the source alone (C == S),
+    # while it's on the battlefield and is itself a creature. Reaches static_mod_power/_toughness/_grant_kw
+    # like any other anthem; conditional self-statics gate via the cond_met join in the ONE-WORLD section.
+    p.rule("anthem_creature(S, S)", ["static_src(S, \"self\")", "on_battlefield(S)", "creature(S)", "filter_ok(S, S)"])
     p.comment("static anthem P/T and keyword grants over the resolved creatures (id = source, so two sources")
     p.comment("buffing one creature stay distinct tuples and both sum / both grant).")
     p.decl("static_mod_power", [("source", "symbol"), ("c", "symbol"), ("dp", "number")])
@@ -1521,6 +1527,33 @@ def _emit_translate(p) -> None:
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "anthem_scope(Target, Scope)"])
+    # ----- §611.2 CONDITIONAL static abilities ('… AS LONG AS <cond>') — SOI 'Infusion' family. -----------
+    p.comment("ONE WORLD: §611.2 a CONDITIONAL static P/T or keyword grant ('This creature gets +2/+0 as long")
+    p.comment("as you gained life this turn' — SOI Infusion). Same shape as the unconditional static_pt/")
+    p.comment("static_grant rules, but the §608 condition column is NON-'-' and the static only applies while")
+    p.comment("cond_met(S, Cond) holds. cond_scope = the unfiltered board scopes PLUS 'self' (the source buffs")
+    p.comment("itself — the 'This creature gets …' shape). The bridge keeps these ENGINE-OWNED iff Cond is a")
+    p.comment("modeled cond_met head AND the scope/payload are expressible (bridge._MODELED_CONDS reads the")
+    p.comment("cond_met heads here), so a new cond_met rule is honored with no bridge edit.")
+    p.decl("cond_scope", [("target", "symbol"), ("scope", "symbol")])
+    p.rule("cond_scope(T, Sc)", ["anthem_scope(T, Sc)"])
+    p.facts(['cond_scope("self", "self")'])
+    p.comment("§611.2 cond_met(S, Cond) — the continuous conditions the engine can evaluate for a static whose")
+    p.comment("source is S. 'as_long_as_you_gained_life_this_turn' (SOI Infusion): the controller of S gained")
+    p.comment("life THIS TURN (a turn-scoped flag the driver feeds as gained_life_this_turn(P), set when a")
+    p.comment("player's life increases and cleared at §514.2 cleanup — the per-TURN analogue of the per-")
+    p.comment("resolution just_gained_life window the §603 'whenever you gain life' triggers read).")
+    p.decl("cond_met", [("source", "symbol"), ("cond", "symbol")])
+    p.rule('cond_met(S, "as_long_as_you_gained_life_this_turn")',
+           ["instance_of(S, _)", "controls(P, S)", "gained_life_this_turn(P)"])
+    p.rule("static_pt(S, Dp, Dt, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond)', 'Cond != "-"',
+            "pt_value(Amount, Dp, Dt)", "cond_scope(Target, Scope)", "cond_met(S, Cond)"])
+    p.rule("static_grant(S, Kw, Scope)",
+           ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
+            'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond)', 'Cond != "-"',
+            "engine_keyword(Kw)", "cond_scope(Target, Scope)", "cond_met(S, Cond)"])
     p.comment("ONE WORLD: §611.2 FILTERED static lords (subtype/type/color-restricted anthems: 'Other Goblins")
     p.comment("get +1/+1', 'Artifact creatures you control', 'White creatures have flying') -> static_pt/")
     p.comment("static_grant (with the BASE board scope) PLUS static_filter(fkind, fval), DERIVED from the card")

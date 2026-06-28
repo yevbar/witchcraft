@@ -585,6 +585,10 @@ def _adjust_life(state: dict, p: str, delta: int) -> int:
             delta = delta * (2 ** dbl) + plus
     if delta > 0:                                            # §603 p ACTUALLY gained life (post-replacement, post
         state.setdefault("_just_gained_life", set()).add((p,))  # 'can't gain') -> arm a 'whenever you gain life' window
+        # §611.2 also set the TURN-SCOPED flag (the engine input gained_life_this_turn) the SOI 'Infusion'
+        # continuous condition reads ('… as long as you gained life this turn'). Unlike the per-resolution
+        # just_gained_life window above, this persists for the rest of the turn (cleared at §514.2 cleanup).
+        state.setdefault("gained_life_this_turn", set()).add((p,))
     cur = next(v for (q, v) in state["life"] if q == p)
     _set_life(state, p, cur + delta)
     return cur + delta
@@ -4029,6 +4033,7 @@ def _end_of_turn(state: dict) -> None:
     state["_spend_any_color"] = set()                        # §106.6 'spend mana as though any color' is a per-turn grant
     state["_damage_redirect"] = {}                           # §616 a 'damage to you is dealt to <creature>' redirect this turn
     state["_crime_noted"] = set()                            # §700.x reset the per-(controller, source) crime dedup each turn
+    state["gained_life_this_turn"] = set()                   # §611.2 the SOI 'Infusion' 'gained life this turn' flag is turn-scoped
 
 
 def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | None:
