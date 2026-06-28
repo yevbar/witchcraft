@@ -119,17 +119,19 @@ class EnginePolicy:
         return choice
 
     def _explain_pass(self, d) -> None:
-        """When we PASS an actions decision while MTGA listed casts, log WHY none were taken. Two distinct cases,
-        and the log MUST separate them — they point at opposite fixes:
+        """When we PASS an actions decision while MTGA listed casts, log WHY none were taken. Three cases, and the
+        log MUST separate them — they point at different conclusions:
 
           * NOT auto-payable: the bridge can only cast what MTGA will AUTO-TAP (`auto_payable`); a cast needing a
             MANUAL tap (off-colour, or mana from a creature like a mana dork, that MTGA didn't auto-solve) is
             excluded from `castable`, so the engine never sees it and the click-only bridge couldn't pay it anyway.
             This is a bridge LIMITATION, not an engine bug — expected.
-          * auto-payable but STILL passed: at least one offered cast WAS auto-payable (so it was fed to the engine
-            as `castable`/`free_cast`), yet the engine chose to pass over it. That is a real ENGINE/surfacing bug —
-            a payable creature should always beat passing (creature_choice >> floor). Flag it loudly so the next
-            occurrence is self-diagnosing instead of a silent skip.
+          * auto-payable but all INSTANTS: holding a reactive instant (a counterspell, a combat trick) instead of
+            jamming it in your own main phase is CORRECT play, not a bug — a sorcery-speed planner like deleuze
+            deliberately keeps them. Note it at INFO, don't cry wolf.
+          * auto-payable NON-INSTANT (creature / sorcery / other permanent) and we still passed: that one should
+            beat passing (creature_choice / permanent_choice >> floor), so a pass is a real ENGINE/surfacing bug.
+            Flag it loudly (WARNING) so the next occurrence is self-diagnosing instead of a silent skip.
 
         Makes 'skipped to combat with cards in hand' self-explanatory in the log."""
         casts = [a for a in (d.options or []) if getattr(a, "actionType", None) == "ActionType_Cast"]
@@ -138,10 +140,19 @@ class EnginePolicy:
         from . import cards
         payable = [a for a in casts if getattr(a, "auto_payable", False)]
         unpaid = [a for a in casts if not getattr(a, "auto_payable", False)]
-        if payable:
-            _log.warning("  engine: PASSED with %d auto-payable cast(s) offered — this is an ENGINE bug, a payable "
-                         "spell should beat passing (check it surfaced as a cast move + scored above floor): %s",
-                         len(payable), [cards.label(a.grpId) for a in payable][:5])
+        # an instant is reactive — held on purpose; a creature/sorcery/permanent should have been deployed. The
+        # Action carries no cardTypes, so read them off the game object in the view (CardType_Instant -> instant).
+        def _is_instant(a):
+            o = d.view.objects.get(getattr(a, "instanceId", None)) if d.view else None
+            return bool(o) and "CardType_Instant" in (getattr(o, "cardTypes", None) or [])
+        deployable = [a for a in payable if not _is_instant(a)]
+        if deployable:
+            _log.warning("  engine: PASSED with %d auto-payable non-instant cast(s) offered — this is an ENGINE "
+                         "bug, a payable creature/permanent should beat passing (check it surfaced as a cast move "
+                         "+ scored above floor): %s", len(deployable), [cards.label(a.grpId) for a in deployable][:5])
+        elif payable:
+            _log.info("  engine: passed while holding %d auto-payable INSTANT(s) — reactive spells are kept on "
+                      "purpose, not a bug: %s", len(payable), [cards.label(a.grpId) for a in payable][:5])
         elif unpaid:
             _log.info("  engine: passed with %d cast(s) offered — %d not auto-payable (need a manual tap MTGA "
                       "didn't auto-solve; the click bridge can't pay those): %s", len(casts), len(unpaid),

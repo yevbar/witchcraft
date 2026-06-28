@@ -472,13 +472,39 @@ def _engine_checks():
             _EP(player=_AlwaysPass()).decide(d_live)
         finally:
             _epl.removeHandler(rec); _epl.setLevel(_prev)
-        check("bridge: passing over an AUTO-PAYABLE cast is flagged as an engine bug (WARNING)",
-              any(r.levelno == _logging.WARNING and "auto-payable" in r.getMessage() for r in rec.records))
+        check("bridge: passing over an AUTO-PAYABLE non-instant cast is flagged as an engine bug (WARNING)",
+              any(r.levelno == _logging.WARNING and "non-instant" in r.getMessage() for r in rec.records))
+
+        # ...but passing while only INSTANTS are payable is CORRECT (hold the counterspell/trick), NOT a bug — it
+        # must NOT warn (the blue-deck false positive the human's manual passes exposed). A view with an instant in
+        # hand: the Action carries no cardTypes, so _explain_pass reads them off the view object (CardType_Instant).
+        insthand = _apply({"type": "GameStateType_Full",
+                           "turnInfo": {"turnNumber": 3, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                           "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                           "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [220]},
+                                     {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                           "gameObjects": [{"instanceId": 220, "grpId": 102775, "zoneId": 10, "ownerSeatId": 1,
+                                            "controllerSeatId": 1, "cardTypes": ["CardType_Instant"]}]})  # Spell Pierce
+        d_inst = _DecD(kind="actions", view=insthand, seat=1, req=None, options=[
+            _ActD(actionType="ActionType_Cast", instanceId=220,
+                  manaCost=[{"color": ["ManaColor_Blue"], "count": 1}], autoTapSolution={"autoTapActions": []}),
+            _ActD(actionType="ActionType_Pass")])
+        rec2 = _Recorder()
+        _epl.addHandler(rec2); _epl.setLevel(_logging.DEBUG)
+        try:
+            _EP(player=_AlwaysPass()).decide(d_inst)
+        finally:
+            _epl.removeHandler(rec2); _epl.setLevel(_prev)
+        check("bridge: passing while holding an auto-payable INSTANT is NOT flagged as a bug (no WARNING)",
+              not any(r.levelno == _logging.WARNING for r in rec2.records)
+              and any(r.levelno == _logging.INFO and "INSTANT" in r.getMessage() for r in rec2.records))
 
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
-    # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
-    # makes `can_afford` fire so the engine surfaces (and can pick) that cast.
+    # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_grant` (an EDB
+    # input the engine DERIVES `free_cast` from), which makes `can_afford` fire so the engine surfaces that cast.
+    # NB: feed free_grant, NOT free_cast directly — free_cast is derived and the incremental driver's cross-call
+    # state makes a directly-fed derived value survive unreliably (the 'passed with a castable spell' bug).
     spellhand = _apply({"type": "GameStateType_Full",
                         "turnInfo": {"turnNumber": 3, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
                         "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
@@ -489,14 +515,40 @@ def _engine_checks():
                                          "power": {"value": 2}, "toughness": {"value": 2}}]})  # 105108 real creature
     st_no = build_state(spellhand, me=1, seed=0)
     st_yes = build_state(spellhand, me=1, seed=0, castable={170})
-    check("engine: castable= feeds free_cast for that hand spell (none without it)",
-          not st_no["free_cast"] and any(i.endswith("_170") for (_p, i) in st_yes["free_cast"]))
+    check("engine: castable= feeds free_grant for that hand spell (none without it)",
+          not st_no["free_grant"] and any(i.endswith("_170") for (_p, i) in st_yes["free_grant"]))
     if cards.available():
         has_cast = lambda gg: any(getattr(m, "kind", None) == "cast" for m in gg.legal_moves)
         check("engine: a payable hand spell (castable=) surfaces as a cast move",
               has_cast(to_game(spellhand, me=1, seed=0, castable={170})))
         check("engine: without the affordability hint the engine surfaces NO cast",
               not has_cast(to_game(spellhand, me=1, seed=0)))
+
+        # REGRESSION (the 'passed with a castable spell in hand' bug): the affordability hint must surface the cast
+        # DETERMINISTICALLY, even after other to_game calls have run in this same process. The incremental souffle
+        # driver keeps state across calls; the old feed (free_cast, a DERIVED relation) survived that state only by
+        # luck, so the 2nd+ decision of a turn could see the cast vanish and the bot passed with mana up. free_grant
+        # is a true EDB input, re-seeded every call, so the cast surfaces on every run regardless of history.
+        for land_in_hand in (True, False):
+            zones = [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1,
+                      "objectInstanceIds": [170] + ([200] if land_in_hand else [])},
+                     {"zoneId": 13, "type": "ZoneType_Battlefield"}]
+            objs = [{"instanceId": 170, "grpId": 105108, "zoneId": 10, "ownerSeatId": 1, "controllerSeatId": 1,
+                     "cardTypes": ["CardType_Creature"], "power": {"value": 2}, "toughness": {"value": 2}}]
+            if land_in_hand:
+                objs.append({"instanceId": 200, "grpId": 105174, "zoneId": 10, "ownerSeatId": 1,
+                             "controllerSeatId": 1, "cardTypes": ["CardType_Land"]})  # a Plains in hand
+            view = _apply({"type": "GameStateType_Full",
+                           "turnInfo": {"turnNumber": 3, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                           "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                           "zones": zones, "gameObjects": objs})
+            ok = True
+            for _ in range(4):
+                to_game(view, me=1, seed=0, castable={170}, playable=({200} if land_in_hand else set()))  # warm/pollute
+                if not has_cast(to_game(view, me=1, seed=0, castable={170},
+                                        playable=({200} if land_in_hand else set()))):
+                    ok = False
+            check(f"engine: castable creature surfaces deterministically across repeated calls (land_in_hand={land_in_hand})", ok)
 
     # format awareness: a Brawl gameInfo -> brawl variant (+ commander placed); default -> two-player
     brawl = _apply({"type": "GameStateType_Full",

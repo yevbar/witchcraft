@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander", "attacks", "spell_type", "free_cast", "mana_cost")
+              "command_zone", "is_commander", "attacks", "spell_type", "free_grant", "mana_cost")
 
 
 def _eng(token: str) -> str:
@@ -74,10 +74,13 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
 
     `castable` is the set of MTGA instanceIds in our hand that MTGA reports we can PAY for right now — they're
-    fed as `free_cast` so the engine's `can_afford` fires and it surfaces those casts. The engine has no mana
-    model for a determinized snapshot (mana is developed on phase ENTRY, which a static state skips) and no cost
-    facts for cards outside its corpus, so AFFORDABILITY is delegated to MTGA (the oracle); the engine still
-    decides WHICH affordable spell to cast. Without it the engine sees nothing castable and just passes.
+    fed as `free_grant` so the engine DERIVES `free_cast` -> `can_afford` and surfaces those casts. (We feed
+    `free_grant`, an EDB input, NOT `free_cast` directly: `free_cast` is a derived relation, and the incremental
+    souffle driver's cross-call state makes a directly-fed derived value survive unreliably — the 'passed with a
+    castable spell in hand' bug.) The engine has no mana model for a determinized snapshot (mana is developed on
+    phase ENTRY, which a static state skips) and no cost facts for cards outside its corpus, so AFFORDABILITY is
+    delegated to MTGA (the oracle); the engine still decides WHICH affordable spell to cast. Without it the engine
+    sees nothing castable and just passes.
 
     `playable` GATES land drops to MTGA's offered Play actions: a hand land NOT in `playable` is kept in hand but
     not surfaced as a §305 land play. The live GameView can lag a beat (a just-PLAYED land still shows in hand),
@@ -129,13 +132,19 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["printed_toughness"].add((inst, o.t))
         if zone == "hand":
             s["in_hand"].add((seat_name, inst))
-            if o.instanceId in castable:                       # MTGA says we can pay -> let the engine cast it
-                s["free_cast"].add((seat_name, inst))
+            if o.instanceId in castable:                       # MTGA says we can pay -> let the engine cast it.
+                # Feed `free_grant` (a SHIM_INPUT / EDB fact), NOT `free_cast`. `free_cast` is a DERIVED relation
+                # (engine_rules.dl: free_cast(P,S) :- free_grant(P,S), playable_source(P,S)); the incremental
+                # souffle driver carries state across calls, so a directly-fed derived value survives or gets
+                # cleared depending on engine history — nondeterministic, and the cause of 'passed with a castable
+                # creature in hand' (the cast vanished on the 2nd+ decision of a turn). free_grant is seeded as a
+                # true input every run, so the engine DERIVES free_cast -> can_afford -> can_cast deterministically.
+                s["free_grant"].add((seat_name, inst))
             if playable is not None and o.instanceId not in playable:
                 s["spell_type"].discard((inst, "land"))        # not an offered land drop (e.g. a stale, already-
                 #                                                played land still in the lagging view) -> hide it
             if costs and o.instanceId in costs:                # CMC from MTGA, for curve-out; affordability stays
-                s["mana_cost"].add((inst, costs[o.instanceId]))  # free_cast (no mana_available, so this can't gate)
+                s["mana_cost"].add((inst, costs[o.instanceId]))  # free_grant path (affordability already granted)
         elif zone == "library":
             s["in_library"].add((seat_name, inst))
         elif zone == "command":                            # the commander (Brawl/Commander) — public
@@ -214,7 +223,7 @@ def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, se
             castable: Optional[set] = None, playable: Optional[set] = None, costs: Optional[dict] = None):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
     log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
-    (fed as free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays to reality);
+    (fed as free_grant -> derived free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays);
     `costs` = {instanceId: mana value} (fed as mana_cost, for curve-out). See build_state."""
     from mtg.game import Game
     return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed,
