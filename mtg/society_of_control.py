@@ -72,6 +72,7 @@ class SocietyOfControlPlayer(Player):
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
             Do.SPELLS.prefer(self.burn_choice, floor=0.0),      # then KILL an opp creature with creature-target damage,
+            Do.SPELLS.prefer(self.mana_rock_choice, floor=0.0),  # then RAMP — mana rocks/dorks before other creatures,
             Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
             Do.SPELLS.prefer(self.permanent_choice, floor=0.0),  # then deploy other PERMANENTS (artifact/enchantment/PW),
             Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best remaining spell (instant/sorcery) if it beats passing,
@@ -213,6 +214,27 @@ class SocietyOfControlPlayer(Player):
         the pool of commander answers we could hold in reserve."""
         return {inst for (seat, inst) in game.state.get("in_hand", set())
                 if seat == self.seat and (d := self._creature_damage(game, inst)) is not None and d >= toughness}
+
+    def _taps_for_mana(self, game, card_id) -> bool:
+        """True if `card_id` is a MANA ROCK / DORK — has a repeatable {T} mana ability (an artifact OR a creature
+        that taps for mana). A one-shot 'sacrifice for mana' doesn't count (not a standing ramp source). Read from
+        `mana_ability` (slug-keyed: cost string), so it's empty — and this False — without card rules loaded."""
+        slug = next((s for (i, s) in game.state.get("instance_of", set()) if i == card_id), None)
+        if slug is None:
+            return False
+        return any(s == slug and "{T}" in str(c) and "sacrifice" not in str(c).lower()
+                   for (s, c) in game.state.get("mana_ability", set()))
+
+    def mana_rock_choice(self, game, move) -> float:
+        """Deploy MANA ROCKS / DORKS (artifacts or creatures that {T} for mana) BEFORE other creatures — ramp
+        first so the bigger threats and the commander come online sooner. Curves out cheaper-first (like
+        creature_choice); -inf for anything that isn't a tap-for-mana permanent, so the floor=0.0 gate skips it
+        and a mana dork (a creature) is cast HERE rather than via the later creature line."""
+        card = move.card
+        if getattr(move, "kind", None) != "cast" or card is None or not self._taps_for_mana(game, card.id):
+            return float("-inf")
+        mv = self._mana_value(game, card.id)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
 
     def creature_choice(self, game, move) -> float:
         """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
