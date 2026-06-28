@@ -593,6 +593,29 @@ def _engine_checks():
         check("brawl: a commander cast to the BATTLEFIELD stays is_commander (cross-frame grpId tracking)",
               any(i.endswith("_50") for (i,) in bs2["is_commander"])
               and not any(i.endswith("_50") for (_p, i) in bs2["command_zone"]))
+        # BRAWL COMMANDER CAST (the §903.6 runtime piece): the commander is cast FROM the command zone, so its
+        # affordability is fed there too (build_state) and a cast_commander move maps to MTGA's Cast option
+        # (_translate). With the commander offered as a payable Cast, the bridge must CAST it, not pass.
+        from inthearena.mtga.gre import Action as _ActB, Decision as _DecB
+        from inthearena.mtga.engine_policy import EnginePolicy as _EPB
+        from mtg.deleuze import DeleuzePlayer as _DZ
+        brawl2 = _apply({"type": "GameStateType_Full", "gameInfo": {"variant": "GameVariant_Brawl"},
+                         "turnInfo": {"turnNumber": 5, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                         "players": [{"controllerSeatId": 1, "lifeTotal": 25}, {"controllerSeatId": 2, "lifeTotal": 25}],
+                         "zones": [{"zoneId": 9, "type": "ZoneType_Command", "objectInstanceIds": [50]},
+                                   {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                         "gameObjects": [{"instanceId": 50, "grpId": 105108, "zoneId": 9, "ownerSeatId": 1,
+                                          "controllerSeatId": 1, "cardTypes": ["CardType_Creature"]}]})
+        gc = to_game(brawl2, me=1, seed=0, castable={50}, costs={50: 4})
+        check("brawl: a payable commander surfaces as a cast_commander move (affordability fed from command zone)",
+              any(getattr(m, "kind", None) == "cast_commander" for m in gc.legal_moves))
+        d_cmd = _DecB(kind="actions", seat=1, view=brawl2, req=None, options=[
+            _ActB(actionType="ActionType_Cast", instanceId=50,
+                  manaCost=[{"color": ["ManaColor_Red"], "count": 4}], autoTapSolution={"autoTapActions": []}),
+            _ActB(actionType="ActionType_Pass")])
+        cc = _EPB(player=_DZ()).decide(d_cmd)
+        check("brawl: the bridge CASTS the commander from the command zone (not Pass)",
+              getattr(cc, "actionType", None) == "ActionType_Cast" and getattr(cc, "instanceId", None) == 50)
     plain = _apply({"type": "GameStateType_Full",
                     "players": [{"controllerSeatId": 1, "lifeTotal": 20}]})
     check("format: no gameInfo -> defaults to 'two-player'", plain.variant == "two-player")

@@ -236,11 +236,11 @@ class EnginePolicy:
         if d.kind == "actions":
             if kind in (None, "pass", "skip"):
                 return next((a for a in d.options if a.actionType == "ActionType_Pass"), None)
-            if kind in ("play", "cast"):                     # land drop / spell — match by the encoded instanceId
-                inst = mtga_instance_id(getattr(getattr(move, "card", None), "id", None))
-                want = "ActionType_Play" if kind == "play" else "ActionType_Cast"
-                a = next((o for o in d.options if o.instanceId == inst and o.actionType == want), None)
-                return a if a is not None else _NOMAP
+            if kind in ("play", "cast", "cast_commander"):   # land drop / spell / §903.6 commander from the
+                inst = mtga_instance_id(getattr(getattr(move, "card", None), "id", None))  # command zone — all
+                want = "ActionType_Play" if kind == "play" else "ActionType_Cast"          # carry the encoded id;
+                a = next((o for o in d.options if o.instanceId == inst and o.actionType == want), None)  # MTGA
+                return a if a is not None else _NOMAP        # offers the commander as a normal Cast(instanceId)
             return _NOMAP                                 # activate / unknown — not bridged yet
         if d.kind == "attackers":
             if kind != "attack" or not getattr(move, "attackers", None):
