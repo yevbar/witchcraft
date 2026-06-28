@@ -337,6 +337,21 @@ def _face_down_actions(state: dict, ap: str) -> list[tuple]:
     return acts
 
 
+def _cycle_actions(state: dict, ap: str) -> list[tuple]:
+    """§702.29 CYCLING — for each card with cycling in ap's hand whose plain-mana cycling cost ap can afford,
+    a ('cycle', ap, card) action (pay the cost, discard the card, draw a card). Empty unless ap actually holds
+    a cycling card, so normal games are unaffected."""
+    avail = _avail_mana(state, ap)
+    acts: list[tuple] = []
+    for (p, card) in sorted(state.get("in_hand", set())):
+        if p != ap:
+            continue
+        cost = driver.cycling_cost(state, card)
+        if cost is not None and avail >= cost:
+            acts.append(("cycle", ap, card))
+    return acts
+
+
 def _priority_actions(state: dict, ap: str) -> list[tuple]:
     """The cast / commander / activated-ability actions ap may take with priority RIGHT NOW, surfaced
     straight from the engine's timing-aware predicates — `can_cast` (§117.1a: instants any priority window,
@@ -380,6 +395,7 @@ def legal_actions(state: dict) -> list[tuple]:
                 actions.append(("play", ap, land))
         actions.extend(_priority_actions(state, ap))
         actions.extend(_face_down_actions(state, ap))         # §702/§708 morph/disguise/foretell/turn-face-up
+        actions.extend(_cycle_actions(state, ap))             # §702.29 cycling — discard a hand card to draw
         actions.append(("pass",))
         return actions
     # §117.1a INSTANT-SPEED priority window (opt-in, mirroring _explicit_lands): outside the main phases the
@@ -559,6 +575,9 @@ def step(state: dict, action: tuple) -> dict:
                 driver._spend_ability_mana(s, ap, cost)
             driver.turn_face_up(s, card)
             driver._fire_turn_face_up_triggers(s)               # §603 'when ~ is turned face up' (Boltbender)
+        elif kind == "cycle":                                   # §702.29 cycling — pay cost, discard card, draw a card
+            _, ap, card = action
+            driver.cycle(s, card, ap)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
             _advance_one(s)

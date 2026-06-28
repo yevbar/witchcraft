@@ -863,6 +863,50 @@ def foretell(state: dict, card: str, ctrl: str) -> bool:
     return True
 
 
+def cycling_cost(state: dict, card: str) -> int | None:
+    """§702.29 the plain-mana cost to cycle `card` (the instance's real card carries cycling_card(slug, cost)),
+    or None if it isn't a cycling card. Resolved through instance_of like the other card-level reads."""
+    inst = {i: c for (i, c) in state.get("instance_of", set())}
+    slug = inst.get(card)
+    return next((n for (s, n) in state.get("cycling_card", set()) if s == slug), None)
+
+
+def cycle(state: dict, card: str, ctrl: str) -> bool:
+    """§702.29 CYCLING — a from-hand activated ability: '{cost}, Discard this card: Draw a card.' Pay the
+    cycling mana, discard the card from hand to the graveyard (§701.8 / _discard_zone), open the §603
+    just_cycled window so 'whenever you cycle a card' payoffs fire (Renewed Faith, Decree of Justice), then
+    draw a card off the true top (honoring the seeded library order, and firing the §603 draw watchers via
+    _draw). False if the card isn't in ctrl's hand or has no plain-mana cycling cost."""
+    if (ctrl, card) not in state.get("in_hand", set()):
+        return False
+    cost = cycling_cost(state, card)
+    if cost is None:
+        return False
+    if cost:
+        _spend_ability_mana(state, ctrl, cost)               # §702.29a pay the cycling mana cost
+    state["in_hand"].discard((ctrl, card))                   # §118 'Discard this card' is part of the cost
+    state.setdefault(_discard_zone(state, ctrl), set()).add((card,))
+    print(f"    {ctrl} cycles {card}")
+    _fire_cycle_triggers(state, ctrl)                        # §603 'whenever you cycle a card' payoffs
+    _draw(state, ctrl)                                       # §702.29a the effect: draw a card (fires draw triggers)
+    return True
+
+
+def _fire_cycle_triggers(state: dict, p: str) -> None:
+    """§603 fire 'whenever ~ cycles a card' triggers for p's just-completed cycle (mirrors _fire_draw_triggers):
+    open the driver-fed just_cycled window (-> ev_cycle), resolve the new pending, then clear. A re-entrancy
+    guard caps the chain so a pathological cycle->cycle loop can't run away."""
+    if state.get("_in_cycle_trigger", 0) >= 8:               # depth cap — natural cycle chains are short
+        return
+    state["_in_cycle_trigger"] = state.get("_in_cycle_trigger", 0) + 1
+    try:
+        state["just_cycled"] = {(p,)}
+        _apply_effects(state, *_pending_both(state))
+    finally:
+        state["just_cycled"] = set()
+        state["_in_cycle_trigger"] -= 1
+
+
 def _transform(state: dict, obj: str, ctrl: str) -> None:
     """§712 transform `obj` into its back face: flip instance_of(obj) to the back slug the bridge linked via
     transform_target, re-materialize its printed identity from the back's card_* facts (the engine then derives

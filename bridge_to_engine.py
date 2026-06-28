@@ -176,6 +176,12 @@ _EVENT = {
     "an_opponent_draws_a_card": "opp_draw",
     "an_opponent_draws_their_second_card_each_turn": "opp_draw_second",
     "a_player_draws_their_second_card_each_turn": "any_draw_second",
+    # §702.29 'whenever you cycle a card' (Renewed Faith, Decree of Justice, Dismantling Wave). CONTROLLER-
+    # scoped: the driver opens a just_cycled window (-> ev_cycle) when this player cycles a card from hand, and
+    # the engine fires the controller's you_cycle watchers. The parser already normalizes 'Whenever you cycle
+    # a card' to the slug "you_cycle". The any-player variant ("a_player_cycles_a_card", Astral Slide) is NOT
+    # mapped here — it would need an any-controller fires rule + cross-player tracking; faithful abstain.
+    "you_cycle": "you_cycle",
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class).
     # CONTROLLER-scoped: fires only when the source's controller gains life (distinct from 'a player gains
     # life'). The driver records the gaining player into just_gained_life whenever a player's life INCREASES
@@ -645,6 +651,26 @@ def _create_count_tag(amt) -> str | None:
     """A DYNAMIC create count slug -> a count TAG driver._dyn_count resolves live (or None to abstain). Only
     a 1-per / equal-to-the-number-of count maps (no dynamic multiplier on a token count — rare, unmodeled)."""
     return _CREATE_QTY.get(str(amt))
+
+
+def _cycling_cost_generic(param: str) -> int | None:
+    """§702.29 the total mana of a cycling cost, from the underscore-joined keyword_param slug the parser emits
+    (e.g. '2_w' -> 3, 'u' -> 1, '6_w_w' -> 8). A numeric token adds its value; a single WUBRG/C colour pip
+    counts 1 (the engine's colorless-abstraction mana model). Returns None to ABSTAIN on a non-mana cycling
+    cost (typecycling that searches, or a rider the driver can't pay as plain mana) so it stays unmodeled."""
+    if not param:
+        return None
+    total = 0
+    for tok in str(param).split("_"):
+        if not tok:
+            continue
+        if tok.isdigit():
+            total += int(tok)
+        elif len(tok) == 1 and tok.upper() in _COLORS:
+            total += 1                                           # a single colour pip = 1 generic (simplified)
+        else:
+            return None                                          # not a plain mana cost -> abstain
+    return total
 
 
 def _clean_token_spec(spec: str) -> bool:
@@ -2709,6 +2735,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_keyword", (facts, kw))
     for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
         add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
+        if kw == "cycling":                                  # §702.29 a from-hand activated ability: '{cost}, Discard
+            cyc = _cycling_cost_generic(param)               # this card: Draw a card.' Carry the plain mana total so
+            if cyc is not None:                              # the driver can offer + pay the cycle action; abstain on
+                add("cycling_card", (facts, cyc))            # a non-mana (type/searching) cost — that stays unmodeled.
+            else:
+                dropped.append(("cycling_cost", param))
         if kw == "protection":                               # §702.16 protection FROM a colour -> the engine's
             cols = _protection_colors(param)                 # protection_from input (illegal_target gates Col spells).
             if cols:                                         # The engine models the TARGETING half of protection; the

@@ -166,6 +166,7 @@ INPUTS = [
     ("card_power", [("card", "symbol"), ("n", "number")]),
     ("card_toughness", [("card", "symbol"), ("n", "number")]),
     ("card_keyword", [("card", "symbol"), ("kw", "symbol")]),
+    ("cycling_card", [("card", "symbol"), ("cost", "number")]),   # §702.29 a card with cycling, + its plain-mana cost (driver reads it to offer/pay the from-hand cycle action)
     ("card_subtype", [("card", "symbol"), ("st", "symbol")]),
     ("card_color", [("card", "symbol"), ("col", "symbol")]),
     # §509 static combat restrictions parsed as `cant(card, who, action)` — the SELF combat forms
@@ -249,6 +250,7 @@ INPUTS = [
     ("just_p1p1_placed", [("c", "symbol")]),                      # §603/§122 a creature one or more +1/+1 counters were just put on — counter-placement triggers
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
+    ("just_cycled", [("p", "symbol")]),                          # §702.29 a player who just cycled a card — cycling triggers
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
     ("just_gained_life", [("p", "symbol")]),                     # §603 a player whose life just INCREASED — 'whenever you gain life'
@@ -903,6 +905,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_p1p1_placed(C)", ["just_p1p1_placed(C)"])
     p.decl("ev_draw", [("p", "symbol")])                 # §603 'whenever a player draws a card' — driver-fed draw window
     p.rule("ev_draw(P)", ["just_drew(P)"])
+    p.decl("ev_cycle", [("p", "symbol")])                # §702.29 'whenever you cycle a card' — driver-fed cycle window
+    p.rule("ev_cycle(P)", ["just_cycled(P)"])
     p.decl("ev_won_flip", [("p", "symbol")])             # §705 'whenever you win a coin flip' — driver-fed flip window
     p.rule("ev_won_flip(P)", ["won_flip(P)"])
     p.decl("ev_copy", [("p", "symbol")])                 # §707 'whenever you copy a spell' — driver-fed copy window
@@ -999,6 +1003,10 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw")', "ev_draw(P)", "controls(Q, S)", "P != Q"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_draw_second")', "ev_draw(P)", "controls(Q, S)", "P != Q", "draw_ord(P, 2)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "any_draw_second")', "ev_draw(P)", "draw_ord(P, 2)"])
+    # §702.29 CYCLING trigger (driver-fed just_cycled window): 'whenever you cycle a card' (Renewed Faith,
+    # Decree of Justice, Dismantling Wave) — the controller cycled a card. The cycling ACTION itself ends in
+    # a draw, so the §603 you_draw watchers above also fire; this rule fires the dedicated cycle payoffs.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cycle")', "ev_cycle(P)", "controls(P, S)"])
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.
     p.rule("fires(A, S)", ['has_trigger(A, S, "won_coin_flip")', "ev_won_flip(P)", "controls(P, S)"])
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class) —
