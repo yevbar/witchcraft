@@ -264,6 +264,9 @@ class GameView:
     objects: dict = field(default_factory=dict)            # instanceId -> GameObject
     zones: dict = field(default_factory=dict)              # zoneId -> Zone (type / ownerSeatId metadata)
     game_info: Optional["GameInfo"] = None                 # the match's format/rules (variant, deck constraints)
+    commander_grps: set = field(default_factory=set)       # grpIds ever seen in a COMMAND zone — a commander stays
+    #   one after it's cast to the battlefield (where the per-snapshot command-zone marker is gone), so we track
+    #   its card id cross-frame to still recognise it as the commander on the board.
 
     def apply(self, gsm: GameStateMessage) -> None:
         if gsm.gameInfo:                                   # the format frame (GameStage_Start) — sticks for the match
@@ -284,6 +287,10 @@ class GameView:
             self.objects[o.instanceId] = o
         for gone in gsm.diffDeletedInstanceIds:
             self.objects.pop(gone, None)
+        for o in self.objects.values():                     # remember commanders by card id (survives cast to board)
+            z = self.zones.get(o.zoneId)
+            if z is not None and z.type == "ZoneType_Command" and o.grpId is not None:
+                self.commander_grps.add(o.grpId)
 
     # ── zone-accurate accessors ─────────────────────────────────────────────────────────────────────────
     def _seat_of(self, o: "GameObject") -> Optional[int]:

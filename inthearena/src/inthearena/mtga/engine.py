@@ -19,6 +19,7 @@ re-position the Game (the GameView is updated by the diff reader; this projects 
 
 from __future__ import annotations
 
+import functools
 import random
 from typing import Optional
 
@@ -72,9 +73,47 @@ def _slug(name: str) -> str:
     return ground.slug(name)
 
 
+@functools.lru_cache(maxsize=1)
+def _card_rules_db():
+    """(db, corpus) for loading a card's RULE facts (card_effect / card_ability / triggers / …) by oracle name —
+    parsed once and cached. None if the engine's card tooling isn't importable, in which case the synced state
+    stays board-only (rule-less) and rules-aware scorers degrade gracefully."""
+    try:
+        import importlib
+        import card_corpus
+        sim = importlib.import_module("sim")
+        return sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
+    except Exception:
+        return None
+
+
+def _merge_card_rules(s: dict, known: list) -> None:
+    """Merge each KNOWN card's RULE facts into the synced state `s`, so the engine reasons about what cards DO
+    (burn removal, ETB triggers, combat keywords, …) move-by-move — not just their board stats. `known` is a list
+    of (oracle_name, seat, instanceId) for the VISIBLE cards (our hand + both battlefields). Determinized hidden
+    cards stay rule-less — we don't know them. We feed card_facts' SLUG-keyed card rules but SKIP printed_control:
+    it's instance/zone-sensitive and build_state already owns it (battlefield only), so a hand card mustn't get a
+    controller. instance_of matches build_state's id, so it dedupes. Uncovered cards contribute no card_effect, so
+    rules-aware scorers stay correctly inert for them."""
+    loaded = _card_rules_db()
+    if loaded is None:
+        return
+    db, corpus = loaded
+    import bridge_to_engine as bridge
+    for name, seat, iid in known:
+        try:
+            facts, _dropped = bridge.card_facts(name, seat, f"{_slug(name)}_{iid}", db, corpus)
+        except Exception:
+            continue
+        for rel, rows in facts.items():
+            if rel == "printed_control":                   # zone-sensitive; build_state owns it (battlefield only)
+                continue
+            s.setdefault(rel, set()).update(rows)
+
+
 def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
                 castable: Optional[set] = None, playable: Optional[set] = None,
-                costs: Optional[dict] = None) -> dict:
+                costs: Optional[dict] = None, load_rules: bool = True) -> dict:
     """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
     zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
 
@@ -114,10 +153,14 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     pool = [_slug(n) for n in (opponent_deck or _DEFAULT_POOL)]
     hidden_n = [0]
 
+    commander_grps = getattr(view, "commander_grps", set()) or set()
+
     def place_visible(o: GameObject, zone: str, seat_name: str) -> None:
         slug = _slug(cards.card_name(o.grpId))
         inst = f"{slug}_{o.instanceId}"
         s["instance_of"].add((inst, slug))
+        if o.grpId in commander_grps:                      # a commander stays one ON THE BATTLEFIELD too (the
+            s["is_commander"].add((inst,))                 # command-zone branch below only catches it pre-cast)
         for ct in o.cardTypes:
             s["printed_type"].add((inst, _eng(ct)))
             # spell_type is a SHIM INPUT keyed per-instance (engine.dl SHIM_INPUTS), NOT derived from
@@ -176,6 +219,7 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
 
     # 1) place every VISIBLE object by its own zoneId (reliable per-object)
     placed = set()
+    known = []                                             # (oracle_name, seat, instanceId) for the rules merge
     _ZONE = {"ZoneType_Battlefield": "battlefield", "ZoneType_Hand": "hand", "ZoneType_Library": "library",
              "ZoneType_Command": "command"}
     for o in view.objects.values():
@@ -186,6 +230,7 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             continue
         place_visible(o, zone, name_of[seat])
         placed.add(o.instanceId)
+        known.append((cards.card_name(o.grpId), name_of[seat], o.instanceId))
 
     # 2) DETERMINIZE the hidden remainder: each hand/library lists its instance ids (incl. face-down ones we
     #    can't see); any id not placed above is an imagined card sampled from the pool — count-accurate.
@@ -213,6 +258,12 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
         s["in_hand"].add((name_of.get(me, ME_SEAT), inst))   # treat it as castable-from-hand for the §305 drop
         s["spell_type"].add((inst, "land"))
 
+    # RULES-AWARE SYNC: load each known card's effect/ability/trigger facts so the bot reasons about what cards
+    # DO (removal, ETB, keywords) when finding the next move — not just their board stats. Move-by-move: we
+    # re-sync every decision, so this never needs to predict the opponent, just understand the current cards.
+    if load_rules:
+        _merge_card_rules(s, known)
+
     s["_turn"] = view.turn.turnNumber or 0
     s["_me"] = name_of.get(me, ME_SEAT)                     # OUR engine seat name — engine_policy binds its Player here
     s["_seed"] = seed
@@ -233,14 +284,16 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
 
 
 def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
-            castable: Optional[set] = None, playable: Optional[set] = None, costs: Optional[dict] = None):
+            castable: Optional[set] = None, playable: Optional[set] = None, costs: Optional[dict] = None,
+            load_rules: bool = True):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
     log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
     (fed as free_grant -> derived free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays);
-    `costs` = {instanceId: mana value} (fed as mana_cost, for curve-out). See build_state."""
+    `costs` = {instanceId: mana value} (fed as mana_cost, for curve-out); `load_rules` loads known cards' effect/
+    ability facts so the engine reasons about what they DO (default on). See build_state."""
     from mtg.game import Game
     return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed,
-                                       castable=castable, playable=playable, costs=costs))
+                                       castable=castable, playable=playable, costs=costs, load_rules=load_rules))
 
 
 def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[list] = None, seed: int = 0):

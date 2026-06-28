@@ -523,6 +523,14 @@ def _engine_checks():
     st_yes = build_state(spellhand, me=1, seed=0, castable={170})
     check("engine: castable= feeds free_grant for that hand spell (none without it)",
           not st_no["free_grant"] and any(i.endswith("_170") for (_p, i) in st_yes["free_grant"]))
+    # RULES-AWARE SYNC: load_rules (default on) merges each KNOWN card's effect/ability facts, so the bot reasons
+    # about what cards DO move-by-move (removal/ETB/keywords), not just board stats; load_rules=False -> board-only
+    # (the old behavior). Self-gating: only asserts when the engine corpus loads and 105108 is covered.
+    st_rules = build_state(spellhand, me=1, seed=0, load_rules=True)
+    st_board = build_state(spellhand, me=1, seed=0, load_rules=False)
+    if st_rules.get("card_ability") or st_rules.get("card_effect"):
+        check("engine: load_rules merges the known card's rule facts (off -> board-only, none)",
+              not (st_board.get("card_ability") or st_board.get("card_effect")))
     if cards.available():
         has_cast = lambda gg: any(getattr(m, "kind", None) == "cast" for m in gg.legal_moves)
         check("engine: a payable hand spell (castable=) surfaces as a cast move",
@@ -569,6 +577,22 @@ def _engine_checks():
     if cards.available():
         check("format: command-zone card placed as the commander",
               len(bs["is_commander"]) == 1 and ("alice", next(iter(bs["is_commander"]))[0]) in bs["command_zone"])
+        # CROSS-FRAME: a commander stays the commander after it's CAST to the battlefield (its card id is tracked
+        # from the command zone), so the bot still recognises it on the board (e.g. society_of_control's reserve).
+        bf_cmd = _apply(
+            {"type": "GameStateType_Full", "gameInfo": {"variant": "GameVariant_Brawl"},
+             "players": [{"controllerSeatId": 1, "lifeTotal": 25}, {"controllerSeatId": 2, "lifeTotal": 25}],
+             "zones": [{"zoneId": 9, "type": "ZoneType_Command"}, {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+             "gameObjects": [{"instanceId": 50, "grpId": 105108, "zoneId": 9, "ownerSeatId": 2,
+                              "controllerSeatId": 2, "cardTypes": ["CardType_Creature"]}]},
+            {"type": "GameStateType_Diff",
+             "gameObjects": [{"instanceId": 50, "grpId": 105108, "zoneId": 13, "ownerSeatId": 2,
+                              "controllerSeatId": 2, "cardTypes": ["CardType_Creature"],
+                              "power": {"value": 3}, "toughness": {"value": 3}}]})
+        bs2 = build_state(bf_cmd, me=1, seed=0, load_rules=False)
+        check("brawl: a commander cast to the BATTLEFIELD stays is_commander (cross-frame grpId tracking)",
+              any(i.endswith("_50") for (i,) in bs2["is_commander"])
+              and not any(i.endswith("_50") for (_p, i) in bs2["command_zone"]))
     plain = _apply({"type": "GameStateType_Full",
                     "players": [{"controllerSeatId": 1, "lifeTotal": 20}]})
     check("format: no gameInfo -> defaults to 'two-player'", plain.variant == "two-player")
