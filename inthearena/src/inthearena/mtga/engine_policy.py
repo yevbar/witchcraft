@@ -114,7 +114,24 @@ class EnginePolicy:
         if choice is _NOMAP:
             _log.info("  engine: move didn't map to a %s option — taking the no-op (pass/decline)", d.kind)
             return self._noop(d)
+        if d.kind == "actions" and getattr(choice, "actionType", None) == "ActionType_Pass":
+            self._explain_pass(d)                            # surface WHY a castable-looking hand still passed
         return choice
+
+    def _explain_pass(self, d) -> None:
+        """When we PASS an actions decision while MTGA listed casts, log why none were taken — the bridge can only
+        cast what MTGA will AUTO-TAP (`auto_payable`); a cast needing a MANUAL tap (off-colour, or mana from a
+        creature like a mana dork, that MTGA didn't auto-solve) is excluded and the click-only bridge couldn't pay
+        it anyway. Makes 'skipped to combat with cards in hand' self-explanatory in the log."""
+        casts = [a for a in (d.options or []) if getattr(a, "actionType", None) == "ActionType_Cast"]
+        if not casts:
+            return
+        from . import cards
+        unpaid = [a for a in casts if not getattr(a, "auto_payable", False)]
+        if unpaid:
+            _log.info("  engine: passed with %d cast(s) offered — %d not auto-payable (need a manual tap MTGA "
+                      "didn't auto-solve; the click bridge can't pay those): %s", len(casts), len(unpaid),
+                      [cards.label(a.grpId) for a in unpaid][:5])
 
     @staticmethod
     def _noop(d):
