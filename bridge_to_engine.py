@@ -1570,6 +1570,46 @@ def _fold_dig_typed(effs: list, emit) -> set:
     return {look_i, rev_i, hand_i, rest_i}
 
 
+def _fold_dig_from_among(effs: list, emit) -> set:
+    """§701 the SELF-MILL typed dig 'Reveal the top N cards of your library. Put a <TYPE> card from among them
+    into your hand. Put the rest into your graveyard.' (Commune with the Gods, Gather the Pack, Grisly Salvage,
+    Scout the Borders, Satyr Wayfinder, Tracker's Instincts, Wakanda Forever!). The kept card rides as a SINGLE
+    `put_in_hand` clause whose EXTRA is the typed filter '<pred>_card_from_among_them' — distinct from
+    _fold_dig_typed (which keeps a card revealed by a SEPARATE reveal clause) and from _fold_zone_sort (which
+    keeps EVERY 'all <type> cards' match). Here exactly ONE matching card is kept; the REST (non-matches AND any
+    extra matches) go to the GRAVEYARD — a §701 self-mill, the put-in-graveyard verb's primary shape.
+
+    Faithful: the partition is forced by the revealed cards' printed identity (no hidden choice), and 'a <type>
+    card' keeps exactly one — zone_sort with a '#graveyard#1' cap keeps the canonical-first match (any match is
+    a legal §701 pick) and bins the rest to the graveyard. Emits one zone_sort effect; the existing applier moves
+    library->hand / library->graveyard with no engine change.
+
+    ABSTAIN (left to drop): a MULTI-pick keep ('a creature card AND/OR an enchantment card', 'up to three …',
+    'any number of …') — a different keep-count this single-card fold doesn't own — and any filter
+    _dig_typed_pred can't confirm from the surfaced identity. ABSTAIN-over-lossy."""
+    rev_i = next((i for i, (_s, v, a, t, _x, _c) in enumerate(effs)
+                  if v in ("reveal", "look") and "top_of_library" in str(t) and _int(a) is not None), None)
+    if rev_i is None:
+        return set()
+    n = _int(effs[rev_i][2])
+    # the kept-card clause: 'put_in_hand you <pred>_card_from_among_them' (the typed single keep).
+    hand_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                   if v == "put_in_hand" and str(t) == "you" and str(x).endswith("_from_among_them")), None)
+    if hand_i is None:
+        return set()
+    pred = _dig_typed_pred(str(effs[hand_i][4])[: -len("_from_among_them")])
+    if pred is None:
+        return set()                                             # a multi-pick / unconfirmable filter -> abstain
+    # the partition tail: 'put the rest into your graveyard' (controller's own self-mill).
+    rest_i = next((i for i, (_s, v, _a, t, x, _c) in enumerate(effs)
+                   if v == "put_in_graveyard" and str(t) == "you"
+                   and ("the_rest" in str(x) or "the_other" in str(x))), None)
+    if rest_i is None:
+        return set()
+    emit("zone_sort", n, f"{pred}#graveyard#1")                  # keep ONE match -> hand, the rest -> graveyard
+    return {rev_i, hand_i, rest_i}
+
+
 # §608 the anaphora a 'you may play/cast <it>' impulse rider uses for the just-exiled card(s), after peeling
 # a trailing 'without paying its mana cost' / 'this turn' rider (it doesn't change the impulse shape — an
 # impulse card is always castable for its normal cost or for free; either way it's cast from exile).
@@ -2824,8 +2864,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 the SINGLE-CARD TYPED DIG on a TRIGGERED ability (Augur of Bolas, Faerie Mechanist: 'look at
             # top N, reveal a <type> card, put it in hand, rest on bottom') -> one zone_sort with a 1-card cap.
             dt_skip = _fold_dig_typed(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §701 the SELF-MILL TYPED DIG on a TRIGGERED ability (Satyr Wayfinder, Tracker's Instincts: 'reveal
+            # top N, put a <type> card from among them in hand, the rest in your graveyard') -> one zone_sort.
+            dfa_skip = _fold_dig_from_among(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip or _idx in dt_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip or _idx in dt_skip or _idx in dfa_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):
@@ -2994,6 +3037,9 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §701 SINGLE-CARD TYPED DIG 'look at top N, reveal a <type> card, put it in hand, rest on bottom'
             # (Commune with Nature, Ancient Stirrings, Seek the Wilds) -> one zone_sort with a 1-card cap.
             dt_skip = _fold_dig_typed(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §701 SELF-MILL TYPED DIG 'reveal top N, put a <type> card from among them in hand, the rest in your
+            # graveyard' (Commune with the Gods, Gather the Pack, Grisly Salvage) -> one zone_sort, rest->graveyard.
+            dfa_skip = _fold_dig_from_among(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §608 IMPULSE: 'exile top N, you may play them this turn' -> one impulse_play effect.
             impulse_skip = _fold_impulse(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             # §702.34 FLASHBACK GRANT (cost = mana cost): Past in Flames / Recoup -> one grant_flashback effect.
@@ -3028,7 +3074,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # Goblins / Steamfloggery) -> one atomic roll_die spell_effect (the roll + its consumer fold).
             roll_skip = _fold_rolldie(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in dt_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in dt_skip or _idx in dfa_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue

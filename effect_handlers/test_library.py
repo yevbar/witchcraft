@@ -524,9 +524,72 @@ def _gy_to_lib_checks() -> None:
     check("gy_to_lib all: the instant stays in gy", ("i1",) in st["graveyard"])
 
 
+def _dig_from_among_checks() -> None:
+    """§701 SELF-MILL typed dig (Commune with the Gods / Gather the Pack): the bridge fold
+    `_fold_dig_from_among` recognizes 'reveal top N; put a <type> card from among them in hand; put the rest in
+    your graveyard' -> one zone_sort('<pred>#graveyard#1'), and the zone_sort applier moves library->hand /
+    library->graveyard conserving every card (no loss/duplication)."""
+    import bridge_to_engine as B
+
+    def fold(effs):
+        out = []
+        skip = B._fold_dig_from_among(list(effs), lambda e, n, t: out.append((e, n, t)))
+        return out, skip
+
+    # Commune with the Gods: reveal 5, put a creature-or-enchantment card in hand, the rest in graveyard.
+    effs = [(0, "reveal", "5", "top_of_library", "-", "-"),
+            (1, "put_in_hand", "-", "you", "a_creature_or_enchantment_card_from_among_them", "may"),
+            (2, "put_in_graveyard", "-", "you", "the_rest", "-")]
+    out, skip = fold(effs)
+    check("dig_from_among Commune -> zone_sort#graveyard#1",
+          out == [("zone_sort", 5, "type:creature|enchantment#graveyard#1")] and skip == {0, 1, 2})
+
+    # Satyr Wayfinder: reveal 4, put a land card in hand, the rest in graveyard (look-verb variant).
+    effs = [(0, "look", "4", "top_of_library", "-", "-"),
+            (1, "put_in_hand", "-", "you", "a_land_card_from_among_them", "-"),
+            (2, "put_in_graveyard", "-", "you", "the_rest", "-")]
+    out, _ = fold(effs)
+    check("dig_from_among Satyr (look) -> type:land#graveyard#1",
+          out == [("zone_sort", 4, "type:land#graveyard#1")])
+
+    # ABSTAIN: a MULTI-pick keep ('a creature card and/or an enchantment card') is a different keep-count.
+    effs = [(0, "reveal", "5", "top_of_library", "-", "-"),
+            (1, "put_in_hand", "-", "you", "a_creature_card_and_or_an_enchantment_card_from_among_them", "-"),
+            (2, "put_in_graveyard", "-", "you", "the_rest", "-")]
+    out, skip = fold(effs)
+    check("dig_from_among 'and/or' multi-pick abstains", out == [] and skip == set())
+
+    # ABSTAIN: an 'up to three' / 'any number of' keep is a different keep-count this single-card fold won't own.
+    effs = [(0, "reveal", "6", "top_of_library", "-", "-"),
+            (1, "put_in_hand", "-", "you", "up_to_three_enchantment_cards_from_among_them", "-"),
+            (2, "put_in_graveyard", "-", "you", "the_rest", "-")]
+    out, _ = fold(effs)
+    check("dig_from_among 'up to three' abstains", out == [])
+
+    # APPLY invariant: top-5 = [cr1,cr2,en1,n1,n2] (matches cr1,cr2,en1), bottom-3 untouched. cap1 keeps cr1;
+    # the rest of the top-5 (cr2,en1,n1,n2) -> graveyard; bottom-3 stay in library. No card lost/duplicated.
+    order = ["cr1", "cr2", "en1", "n1", "n2", "n3", "n4", "n5"]
+    st = _state(order, ptypes={("cr1", "creature"), ("cr2", "creature"), ("en1", "enchantment"),
+                               ("n1", "instant"), ("n2", "sorcery"), ("n3", "artifact"),
+                               ("n4", "land"), ("n5", "instant")})
+    st["printed_color"] = set()
+    st["printed_power"] = set()
+    st["revealed"] = set()
+    before = {c for c in order}
+    _fire(st, "zone_sort", 5, tgt="type:creature|enchantment#graveyard#1")
+    inlib = sorted(c for (p, c) in st["in_library"] if p == "alice")
+    inhand = sorted(c for (p, c) in st["in_hand"] if p == "alice")
+    gy = sorted(c for (c,) in st["graveyard"])
+    check("dig_from_among apply: keeps exactly 1 match (cr1) to hand", inhand == ["cr1"])
+    check("dig_from_among apply: rest of top-5 -> graveyard", set(gy) == {"cr2", "en1", "n1", "n2"})
+    check("dig_from_among apply: bottom-3 stay in library", set(inlib) == {"n3", "n4", "n5"})
+    check("dig_from_among apply: no card lost/duplicated", set(inlib) | set(inhand) | set(gy) == before)
+
+
 def run() -> None:
     _encode_checks()
     _apply_checks()
+    _dig_from_among_checks()
     passed = sum(1 for _, ok in CHECKS if ok)
     for name, ok in CHECKS:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
