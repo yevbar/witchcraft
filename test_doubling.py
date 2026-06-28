@@ -94,5 +94,66 @@ s = {"is_player": {("alice",)}, "life": {("alice", 20)}, "on_battlefield": set()
 driver._adjust_life(s, "alice", 3)
 check("no life replacement: gain 3 -> 23", _life(s, "alice") == 23)
 
+# --- §107.16 EFFECT-verb 'double' (one-shot at resolution): power / power+toughness / life -----------
+D = driver._THIS
+def _enc(tgt):
+    return effect_handlers.ENCODE["double"]("double", "-", tgt, "-")
+# encoder routing: self / target / life / abstains
+check("encode double self power", _enc("s_power_until_end_of_turn") == ("double_power", 0, "self"))
+check("encode double named-self power", _enc("casey_jones_s_power_until_end_of_turn") == ("double_power", 0, "self"))
+check("encode double self P/T", _enc("s_power_and_toughness_until_end_of_turn") == ("double_power", 0, "self_pt"))
+check("encode double target power", _enc("target_creature_s_power_until_end_of_turn") == ("double_power", 0, "target"))
+check("encode double target P/T", _enc("target_creature_s_power_and_toughness_until_end_of_turn") == ("double_power", 0, "target_pt"))
+check("encode double life", _enc("your_life_total") == ("double_life", 0, "you"))
+check("encode double target-player life", _enc("target_player_s_life_total") == ("double_life", 0, "you"))
+# ABSTAIN: ambiguous 'its_' back-reference (self on a creature, host on an attachment), equipped/enchanted host,
+# named-counter / each-kind / variable bases.
+check("abstain ambiguous its_ power", _enc("its_power_until_end_of_turn") is None)
+check("abstain ambiguous its_ P/T", _enc("its_power_and_toughness_until_end_of_turn") is None)
+check("abstain equipped-creature power", _enc("equipped_creature_s_power_until_end_of_turn") is None)
+check("abstain enchanted-creature counters", _enc("the_number_of_1_1_counters_on_enchanted_creature") is None)
+check("abstain target counters", _enc("the_number_of_1_1_counters_on_target_creature") is None)
+check("abstain each-kind counters", _enc("the_number_of_each_kind_of_counter_on_target_permanent") is None)
+check("abstain power x_times", _enc("target_creature_s_power_x_times") is None)
+check("abstain power of EACH creature", _enc("the_power_of_each_creature_you_control_until_end_of_turn") is None)
+
+def _board():
+    return {"is_player": {("alice",), ("bob",)}, "active_player": {("alice",)},
+            "life": {("alice", 20), ("bob", 20)},
+            "on_battlefield": {("bear",), ("ogre",), ("wolf",)},
+            "printed_control": {("alice", "bear"), ("alice", "ogre"), ("bob", "wolf")},
+            "printed_type": {("bear", "creature"), ("ogre", "creature"), ("wolf", "creature")},
+            "printed_power": {("bear", 2), ("ogre", 3), ("wolf", 5)},
+            "printed_toughness": {("bear", 2), ("ogre", 3), ("wolf", 5)}, "counter": set(), "in_hand": set()}
+def _pt(s):
+    o = driver.run(s, ["power", "eff_toughness"])
+    return {c: int(x) for (c, x) in o["power"]}, {c: int(x) for (c, x) in o["eff_toughness"]}
+
+# DOUBLE INVARIANT: power P -> 2P
+s = _board(); effect_handlers.APPLY["double_power"](D, s, "a1", 0, "self", "bear", "alice")
+p, t = _pt(s); check("double self power: bear 2 -> 4", p["bear"] == 4)
+# reads LIVE power (folds in +1/+1 counters): 2 + 3 counters = 5 -> 10
+s = _board(); s["counter"] = {("bear", "p1p1", 3)}
+effect_handlers.APPLY["double_power"](D, s, "a1", 0, "self", "bear", "alice")
+p, t = _pt(s); check("double reads live counters: bear (2+3)=5 -> 10", p["bear"] == 10)
+# self P/T: ogre 3/3 -> 6/6
+s = _board(); effect_handlers.APPLY["double_power"](D, s, "a1", 0, "self_pt", "ogre", "alice")
+p, t = _pt(s); check("double self P/T: ogre 3/3 -> 6/6", (p["ogre"], t["ogre"]) == (6, 6))
+# target power: picks the controller's strongest (ogre 3 -> 6), opponent's wolf untouched
+s = _board(); effect_handlers.APPLY["double_power"](D, s, "a1", 0, "target", "src", "alice")
+p, t = _pt(s); check("double target power: alice strongest ogre 3 -> 6", p["ogre"] == 6)
+check("double target leaves opponent's wolf untouched", p["wolf"] == 5)
+# non-creature source self -> legal no-op (an attachment/artifact source is never mis-doubled): power unchanged
+s = _board(); s["printed_type"].discard(("bear", "creature"))
+effect_handlers.APPLY["double_power"](D, s, "a1", 0, "self", "bear", "alice")
+p, t = _pt(s); check("double self on a non-creature source is a no-op (power stays 2)", p["bear"] == 2)
+# LIFE L -> 2L
+s = _board(); effect_handlers.APPLY["double_life"](D, s, "a1", 0, "you", "src", "alice")
+check("double life: alice 20 -> 40", _life(s, "alice") == 40)
+check("double life leaves opponent untouched", _life(s, "bob") == 20)
+# until_eot armed so the pump wears off at cleanup (§611.2)
+s = _board(); effect_handlers.APPLY["double_power"](D, s, "a1", 0, "self", "bear", "alice")
+check("double power arms an until_eot marker", bool(s.get("until_eot")))
+
 print(f"\n{_ok[1]}/{_ok[0]} checks passed")
 import sys; sys.exit(0 if _ok[1] == _ok[0] else 1)

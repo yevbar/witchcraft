@@ -194,6 +194,61 @@ def _apply_proliferate(D, state, a, n, tgt, src, ctrl):
 _DOUBLE_SELF = "the_number_of_1_1_counters_on"
 _DOUBLE_SCOPE = "the_number_of_1_1_counters_on_each_creature_you_control"
 
+# §107.16 doubling a CHARACTERISTIC quantity (a one-shot at resolution: read the current value, add the same
+# again). Distinct from §614 replacement doublers (Doubling Season etc. — those live on the driver._doubler /
+# _life_gain_mods machinery). We own only sub-cases whose base quantity the engine can READ at resolution AND
+# whose object is choice-free (the SOURCE / the controller) or a deterministic beneficial pick:
+#   • POWER until EOT          — 'double <this>'s power' (Devilish Valet, Tifa, Casey Jones, Overclocked
+#                                Electromancer, Two-Handed Axe): read the source's live power P, add a +P/+0
+#                                eff_mod_power until EOT (P doubles). 'target creature's power' (Bulk Up,
+#                                Neyith, Legion Leadership…) is ALWAYS a buff, so a single legal beneficial
+#                                pick (the controller's strongest creature) is faithful — no sign flip.
+#   • POWER AND TOUGHNESS EOT  — 'double <this>'s power and toughness' (Targ Nar, Reckless Amplimancer,
+#                                Grunn): double both via +P/+0 and +0/+T eff_mod until EOT.
+#   • A PLAYER'S LIFE TOTAL    — 'double your life total' (A Good Thing, Angelic Enforcer) / 'target player's'
+#                                (Beacon of Immortality, a beneficial gain -> the controller): set life to 2×
+#                                current via _adjust_life(delta = current).
+# ABSTAIN on: 'double the number of +1/+1 counters on TARGET/it/that/those/enchanted creature' (a chosen or
+# back-referenced object — the existing double_counters owns only self/scope); 'each KIND of counter' (not
+# +1/+1-only); doubling a creature's power 'X times' / 'the power of EACH creature' / 'team' (a board scope
+# the engine must enumerate); doubling unspent mana / time / growth counters; and any 'double and …' chain
+# whose base quantity is itself variable. A wrong object or an un-readable base is worse than a dropped clause.
+# A 'target creature['s] / the power[…] of target creature' object — the spell/ability picks a creature; doubling
+# power[/toughness] is always a buff, so the faithful single pick is the controller's strongest creature.
+_DOUBLE_PWR_TGT = ("target_creature_s_power_until_end_of_turn", "target_creature_s_power",
+                   "the_power_of_target_creature_until_end_of_turn",
+                   "the_power_of_target_creature_you_control_until_end_of_turn")
+_DOUBLE_PT_TGT = ("target_creature_s_power_and_toughness_until_end_of_turn",
+                  "the_power_and_toughness_of_target_creature_you_control_until_end_of_turn")
+_DOUBLE_LIFE = ("your_life_total", "target_player_s_life_total")
+
+
+# Object PREFIXES that mean a creature OTHER than the source (a target / a back-reference / a host) — those
+# don't resolve to `src`, so the self matchers must EXCLUDE them (they go to the target case or abstain).
+_NOT_SELF = ("target_creature_", "the_power_", "equipped_creature_", "enchanted_creature_")
+
+
+def _is_double_pwr_self(t: str) -> bool:
+    # 'this creature's / <name>'s power until end of turn' (Devilish Valet -> bare 's_power…'; Casey Jones ->
+    # 'casey_jones_s_power…'). The card name grounds INTO the slug as a possessive '…_s_power…'. Power-ONLY
+    # tail (NOT '…and_toughness…'). EXCLUDE non-source objects (target / host / back-reference). We DELIBERATELY
+    # abstain on the bare back-reference 'its_power…': the slug drops the subject, so 'its' means SELF on a
+    # creature ("whenever this creature attacks, double its power" — Overclocked Electromancer) but the
+    # EQUIPPED creature on an Equipment ("whenever equipped creature attacks, double its power" — Two-Handed
+    # Axe). The encoder can't tell which from the slug, so resolving it would mis-target half the cases.
+    if t.startswith(_NOT_SELF) or "and_toughness" in t:
+        return False
+    return t == "s_power_until_end_of_turn" or t.endswith("_s_power_until_end_of_turn")
+
+
+def _is_double_pt_self(t: str) -> bool:
+    # 'this creature's / <name>'s power and toughness' (Reckless Amplimancer, Targ Nar). EXCLUDE non-source
+    # objects (target / equipped / enchanted) and — like the power case — the ambiguous 'its_' back-reference
+    # (Grunn's 'double its power and toughness' is self, but on an attachment 'its' would be the host).
+    if t.startswith(_NOT_SELF):
+        return False
+    return t == "s_power_and_toughness_until_end_of_turn" or t.endswith("_s_power_and_toughness_until_end_of_turn")
+
 
 @encoder("double")
 def _encode_double(verb, amt, tgt, extra):
@@ -202,7 +257,17 @@ def _encode_double(verb, amt, tgt, extra):
         return ("double_counters", 0, "creatures_you_control")
     if t == _DOUBLE_SELF:
         return ("double_counters", 0, "self")
-    return None                                             # target / back-reference / each-kind -> abstain
+    if _is_double_pt_self(t):                                # double the source's power AND toughness until EOT
+        return ("double_power", 0, "self_pt")
+    if _is_double_pwr_self(t):                               # double the source's power until EOT
+        return ("double_power", 0, "self")
+    if t in _DOUBLE_PT_TGT:                                  # double a target creature's power AND toughness (buff)
+        return ("double_power", 0, "target_pt")
+    if t in _DOUBLE_PWR_TGT:                                 # double a target creature's power until EOT (a buff)
+        return ("double_power", 0, "target")
+    if t in _DOUBLE_LIFE:                                    # double a player's life (beneficial -> the controller)
+        return ("double_life", 0, "you")
+    return None                                             # target counters / back-reference / each-kind -> abstain
 
 
 @applier("double_counters")
@@ -218,6 +283,62 @@ def _apply_double_counters(D, state, a, n, tgt, src, ctrl):
         if cur.get(o, 0) > 0:
             D._bump_counter(state, o, "p1p1", cur[o]); doubled += 1
     print(f"    {a}: {ctrl} doubles +1/+1 counters on {tgt} ({doubled} creature(s) with counters)")
+
+
+@applier("double_power")
+def _apply_double_power(D, state, a, n, tgt, src, ctrl):
+    """§107.16 'double <creature>'s power [and toughness] until end of turn'. Read the creature's LIVE power
+    P (and toughness T) — which already folds in counters and other pumps via the §613 layers — and add a
+    continuous +P/+0 (and +0/+T) eff_mod that wears off at cleanup (§611.2). Adding the current value again
+    doubles it. The object is:
+      • 'self' / 'self_pt'     — the SOURCE permanent (choice-free).
+      • 'target' / 'target_pt' — a target creature; doubling P/T is unconditionally beneficial, so the single
+                                 faithful pick is the controller's strongest creature (no harmful sign flip).
+    The '…_pt' variants double toughness too. A creature with power 0 (or no readable stat) is a legal no-op."""
+    do_tough = tgt in ("self_pt", "target_pt")
+    out = D.run(state, ["controls", "creature", "power", "eff_toughness"])
+    creatures = {c for (c,) in out["creature"]}
+    powers = {c: int(x) for (c, x) in out["power"]}
+    tough = {c: int(x) for (c, x) in out["eff_toughness"]}
+    on_bf = {c for (c,) in state.get("on_battlefield", set())}
+
+    if tgt in ("target", "target_pt"):
+        mine = [c for (p, c) in out["controls"] if p == ctrl and c in creatures and c in on_bf]
+        if not mine:
+            print(f"    {a}: {ctrl} has no creature to double the power of")
+            return
+        greedy = max(mine, key=lambda c: powers.get(c, 0))
+        obj = D._choose(state, "target", sorted(mine), greedy)  # §601.2c the (beneficial) target choice
+    else:
+        obj = src
+        if obj not in creatures or obj not in on_bf:
+            print(f"    {a}: {src} isn't a creature on the battlefield — no doubling")
+            return
+
+    eid = f"{a}__dbl__{obj}"
+    dp = powers.get(obj, 0)
+    if dp:                                                   # +P/+0 (the live power added again)
+        state.setdefault("eff_mod_power", set()).add((eid, obj, dp))
+    dt = tough.get(obj, 0) if do_tough else 0
+    if dt:                                                   # +0/+T (the live toughness added again)
+        state.setdefault("eff_mod_toughness", set()).add((eid, obj, dt))
+    state.setdefault("until_eot", set()).add((eid,))         # §611.2 wears off at cleanup
+    what = "power and toughness" if do_tough else "power"
+    print(f"    {a}: {ctrl} doubles {obj}'s {what} until end of turn (+{dp}/+{dt})")
+
+
+@applier("double_life")
+def _apply_double_life(D, state, a, n, tgt, src, ctrl):
+    """§107.16 'double <player>'s life total'. Read the controller's CURRENT life L and gain L more (life ->
+    2L) via _adjust_life, so §614 life-gain doublers (Alhammarret's Archive) and life-gain triggers ride it
+    correctly. 'target player' resolves to the controller (doubling life is beneficial, so the only faithful
+    choice — never an opponent). Non-positive life (0 or below) doubles toward 0: _adjust_life(delta=L)
+    leaves it unchanged at <=0, which is correct (2× a non-positive total is no better)."""
+    cur = next((v for (p, v) in state.get("life", set()) if p == ctrl), None)
+    if cur is None:
+        return
+    after = D._adjust_life(state, ctrl, cur)                 # gain L -> total doubles to 2L
+    print(f"    {a}: {ctrl} doubles life total {cur} -> {after}")
 
 
 # ── earthbend (§701 keyword action) ───────────────────────────────────────────────────────────────────
