@@ -2709,6 +2709,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("repl_enters_with_counter", (tid, tid, _ek, _n))  # replacement input (engine derives counter + P/T)
         else:                                                 # a dynamic count ('X' / 'equal to …') or a kind the engine
             dropped.append(("enters_with_counters", (_kind, _amt)))  # can't apply to P/T -> faithful abstain
+    tw = f.get("teamwork")                                    # §702.x TEAMWORK N (Marvel) — the optional additional
+    if tw is not None:                                        # cost (tap creatures of total power N) gating the rider.
+        add("teamwork_cost", (tid, int(tw)))                  # the driver OFFERS this cost at cast (default decline);
+        #                                                       if paid it feeds cast_using_teamwork(tid) so the engine
+        #                                                       derives the rider effects (cond was_cast_using_teamwork).
     etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
     if etap is not None:
         if etap == "-":                                       # unconditional -> the engine's repl_enters_tapped input

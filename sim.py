@@ -89,6 +89,8 @@ def load_db():
             db.setdefault(a[0], {})["enters_with_counters"] = (a[1], a[2])  # counters of a kind — (kind, amount)
         elif rel == "card_enters_tapped":                    # §614 ETB replacement: this permanent enters tapped
             db.setdefault(a[0], {})["enters_tapped"] = a[1]  # cond ('-' = always; else 'unless_X' / 'if_X')
+        elif rel == "teamwork":                              # §702.x TEAMWORK N (Marvel) — the optional additional
+            db.setdefault(a[0], {})["teamwork"] = int(a[1])  # cost's total-power threshold N (driver offers the cost)
     _DB_CACHE.clear()                                    # keep only the latest signature's parse
     _DB_CACHE[key] = db
     return db

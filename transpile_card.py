@@ -561,6 +561,24 @@ def _peel_wrapper(sentence):
 _CLARIFICATION = re.compile(r"^This effect doesn't remove (?:~|it|[\w' -]+?)$", re.I)
 
 
+# §702.x TEAMWORK rider — Beast Mode templates the teamwork bonus MID-SENTENCE ('… Also put a +1/+1
+# counter on that creature if ~ was cast using teamwork.') rather than as a leading 'If ~ was cast using
+# teamwork, …' clause (Heroic Teamwork) or a trailing 'If …' SENTENCE (Repulsor Blast). The mid-sentence
+# trailing-'if' lets the effect leaf swallow the condition into the target slug. STRUCTURAL reorder only:
+# move the fixed game-defined condition phrase to the FRONT so the existing leading-'If <cond>, <effect>'
+# machinery grounds it cleanly (cond = 'was_cast_using_teamwork', the SAME slug the other riders produce).
+# No interpretation: the <effect> still routes through the hybrid leaf; a sentence without this exact
+# trailing condition is returned untouched.
+_TEAMWORK_RIDER = re.compile(r"^(?:Also,? )?(?P<eff>.+?) if (?P<cond>~ was cast using teamwork)$", re.I)
+
+
+def _teamwork_rider(sentence: str) -> str:
+    m = _TEAMWORK_RIDER.match(sentence)
+    if not m:
+        return sentence
+    return f"If {m.group('cond')}, {m.group('eff')}"
+
+
 _COMMA_LIST_SPLIT = re.compile(r",\s+(?=(?:put|reveal|draw|mill|discard|gain|lose|exile|destroy|create|"
                                r"tap|untap|sacrifice|return|scry|shuffle|search|counter|copy|prevent|"
                                r"regenerate|goad|detain|attach|cast|play|surveil|investigate|proliferate|"
@@ -594,6 +612,12 @@ def _parse_body(text: str):
             continue
         if _CLARIFICATION.match(sentence):           # non-executable §613 persistence reminder — carries
             continue                                 # no effect, so skip it (drop, never abstain on it)
+        sentence = _teamwork_rider(sentence)         # §702.x TEAMWORK rider — reorder a MID-SENTENCE
+        #            'Also <effect> if ~ was cast using teamwork' into the leading-'If <cond>, <effect>'
+        #            form the existing condition machinery grounds (Beast Mode). STRUCTURAL reorder of a
+        #            fixed game-defined condition phrase — no interpretation; the <effect> still routes
+        #            through the hybrid leaf, and the cond ('was_cast_using_teamwork') is the SAME slug the
+        #            trailing-'If …, <effect>' riders (Heroic Teamwork, Repulsor Blast) already produce.
         # ability-word prefix (§207.2c, no rules meaning) on an effect clause: 'Ferocious — <effect>'.
         # Strip it when the remainder parses AND the whole sentence either doesn't parse OR parses only
         # as a single (possibly swallowed) effect while the stripped body fans out into MORE effects —
@@ -1848,6 +1872,13 @@ def _anthem_conjunct(unit, ctx):
     _static_pt — the structural `±N/±N` delta JOINED to the grounded continuous-effect verb `get(s)`
     (_PT_GET_VERB). The regex EXTRACTS the subject NP, the P/T delta, and the conjunct rest; each
     conjunct is grounded by re-dispatch. Abstains unless the `get(s)` anchor grounds."""
+    # the anthem conjunct list is a SINGLE sentence ('<subj> gets +N/+N, has flying, and …'). A line that
+    # splits into a SECOND sentence (a one-shot rider — Beast Mode's teamwork counter, Butcher's Glee's
+    # 'Regenerate it.') is NOT a static anthem; the conjunct re-dispatch would wrongly fold the second
+    # sentence into this static. Fall through to _spell. _sentences() is quote-aware, so a quoted ability
+    # carrying its own '.' (Equipment statics) is still ONE sentence and keeps grounding here.
+    if len(_sentences(unit.raw)) > 1:
+        return None
     m = re.match(rf"^(?P<subj>{_SUBJ}) (?P<verb>gets?) (?P<pt>[+-]\d+/[+-]\d+)(?:,| and) (?P<rest>.+?)\.?$", unit.raw, re.I)
     if not m:
         return None

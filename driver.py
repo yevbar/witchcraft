@@ -3561,6 +3561,40 @@ def _cast_phase(state: dict, ap: str) -> None:
     _activate_loyalty(state, ap, players)                    # §606.3 — a planeswalker loyalty ability (sorcery speed)
 
 
+def _offer_teamwork(state: dict, ap: str, spell: str) -> None:
+    """§702.x TEAMWORK N (Marvel) — an OPTIONAL ADDITIONAL COST paid as the spell is cast: 'you may tap any
+    number of creatures you control with total power N or more'. If paid, it sets the cast_using_teamwork(spell)
+    window so the engine derives the spell's 'if this spell was cast using teamwork, <bonus>' rider effects
+    (the card_effect rows tagged cond 'was_cast_using_teamwork'); declined, only the MAIN effect resolves.
+
+    The SAME shape as _fire_you_do_costs (an optional cost gating a consequent), routed through the _choose
+    seam (key 'teamwork', DEFAULT decline) so a search/policy can choose to pay. The cost is payable only if
+    the caster controls UNTAPPED creatures whose total power reaches N; if so and the controller elects to pay,
+    tap a power-greedy minimal set (biggest first) to reach N and open the window. Untaxed declination (the
+    common line) leaves the rider inert exactly as before this feature."""
+    n = next((int(amt) for (sp, amt) in state.get("teamwork_cost", set()) if sp == spell), None)
+    if n is None:
+        return
+    powers = {c: int(p) for (c, p) in run(state, ["power"])["power"]}
+    tapped = state.get("tapped", set())
+    avail = sorted(((powers.get(c, 0), c) for c in _creatures_of(state, ap)
+                    if (c,) not in tapped and powers.get(c, 0) > 0), reverse=True)
+    if sum(p for p, _c in avail) < n:                        # can't reach the total-power threshold -> can't pay
+        return
+    if not _choose(state, "teamwork", (False, True), False):  # DEFAULT: decline (only the main effect resolves)
+        return
+    chosen, total = [], 0
+    for p, c in avail:                                       # tap a minimal big-first set reaching total power N
+        if total >= n:
+            break
+        chosen.append(c); total += p
+    for c in chosen:
+        _tap(state, c)
+    _fire_tap_triggers(state)                                # §603 'whenever ~ becomes tapped to pay a teamwork cost'
+    state.setdefault("cast_using_teamwork", set()).add((spell,))   # the window the rider's spell_* rules gate on
+    print(f"    {ap} pays {spell}'s teamwork {n} cost — taps {', '.join(chosen)} (total power {total}); the rider resolves")
+
+
 def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     """§601 -> §608 cast ONE spell sorcery-speed onto the real stack and resolve it (mode + cast triggers +
     response window + top-down resolution). The single-spell core of _cast_phase — reused by the env/search
@@ -3572,6 +3606,8 @@ def _cast_spell(state: dict, ap: str, spell: str, players: list) -> None:
     _leave_cast_zone(state, ap, spell)                       # §601 leave the source zone (hand / exile / graveyard)
     if escaping:
         _pay_escape_cost(state, ap, spell)                   # §702.166 additional cost: exile N other GY cards
+    _offer_teamwork(state, ap, spell)                        # §702.x TEAMWORK — optional additional cost (tap
+    #                                                          creatures of total power N); if paid, enables the rider
     _stack_push(state, spell, ap)
     _choose_mode(state, spell)                               # §601.2b — choose mode(s) if it's a modal spell
     prior = _note_cast(state, spell)                         # §608 count this spell; `prior` = storm count

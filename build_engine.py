@@ -265,6 +265,16 @@ INPUTS = [
     ("you_do_pair", [("cons", "symbol"), ("ante", "symbol")]),
     ("you_do_cost", [("ante", "symbol"), ("kind", "symbol"), ("amount", "number")]),
     ("did_optional", [("ante", "symbol")]),
+    # §702.x TEAMWORK (Marvel) — an OPTIONAL ADDITIONAL COST ('Teamwork N: as an additional cost to cast
+    # this spell, you may tap any number of creatures you control with total power N or more') that, if
+    # PAID, enables a 'if this spell was cast using teamwork, <bonus>' rider. teamwork_cost(spell, n) is the
+    # bridge-fed per-instance cost (from the teamwork(card,n) parse fact) the driver reads to OFFER the cost.
+    # cast_using_teamwork(spell) is the DRIVER-FED window — set iff the controller actually PAID the cost as
+    # the spell was cast (default: not paid -> the rider effects, tagged cond 'was_cast_using_teamwork',
+    # never derive; the faithful 'declined' line where only the MAIN effect resolves). Same shape as
+    # did_optional: an optional cost gating a consequent, but a SPELL-CAST window rather than a reflexive one.
+    ("teamwork_cost", [("spell", "symbol"), ("n", "number")]),
+    ("cast_using_teamwork", [("spell", "symbol")]),
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -1817,6 +1827,68 @@ def _emit_translate_triggered_target(p) -> None:
            ["resolves_ability(S, Card, A)",
             'card_effect(Card, A, _, "return_to_battlefield", _, Target, Extra, "-")',
             "reanimate_target(Target)", "reanimate_gate(Extra)", "reanimate_mode(Extra, Mode)"])
+
+    p.blank()
+    p.comment("§702.x TEAMWORK (Marvel) RIDER — 'if this spell was cast using teamwork, <bonus>'. The hybrid")
+    p.comment("tags the bonus effect with cond 'was_cast_using_teamwork' (e.g. Heroic Teamwork's draw, Beast")
+    p.comment("Mode's +1/+1 counter, Repulsor Blast's extra damage, Team Tactics' trample grant). It is the SAME")
+    p.comment("shape as the §603.2c 'If you do' machinery — an OPTIONAL ADDITIONAL COST (tap creatures of total")
+    p.comment("power N, paid AS THE SPELL IS CAST) gating a consequent — but the window is a SPELL CAST, not a")
+    p.comment("reflexive trigger. The driver OFFERS the cost (teamwork_cost) and, iff paid, feeds the")
+    p.comment("cast_using_teamwork(Spell) window (default: not paid -> the rider never derives, only the main")
+    p.comment("effect resolves — the faithful 'declined' line). These rules MIRROR the unconditional spell_*")
+    p.comment("rules above but match cond 'was_cast_using_teamwork' AND gate on cast_using_teamwork(S), so the")
+    p.comment("rider's spell_effect/_target/_scope/_damage/_put_counter derive ONLY when the cost was paid — the")
+    p.comment("driver's existing _run_spell_* paths then resolve them with no special-casing.")
+    TW = '"was_cast_using_teamwork"'
+    p.comment("rider player-scoped numeric effect (Heroic Teamwork: draw a card).")
+    p.rule("spell_effect(Spell, Eff, N, Scope)",
+           ["resolves_ability(Spell, Card, A)", "cast_using_teamwork(Spell)",
+            f'card_effect(Card, A, _, Verb, Amount, Target, _, {TW})',
+            "pscope_effect(Verb, Eff)", 'match("[0-9]+", Amount)', "N = to_number(Amount)",
+            "player_scope(Target, Scope)"])
+    p.comment("rider single-target put_counter (Beast Mode: +1/+1 counter on that creature).")
+    p.rule("spell_put_counter(S, Target, cat(Kind, cat(\":\", Amount)))",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "put_counter", Amount, Target, Extra, {TW})',
+            "counter_kind(Extra, Kind)", 'match("[1-9][0-9]*", Amount)'])
+    p.comment("rider single-target creature verbs / grant_keyword / counter / modify_pt (Team Tactics: grant).")
+    p.rule("spell_target(S, Verb, \"-\", Cls)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, Verb, _, Target, _, {TW})',
+            "zone_move_verb(Verb)", "target_class(Target, Cls)"])
+    p.rule("spell_target(S, \"grant\", Kw, Cls)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, {TW})',
+            "engine_keyword(Kw)", "target_class(Target, Cls)"])
+    p.rule("spell_target(S, \"counter\", Payload, Cls)",
+           ["spell_put_counter(S, Target, Payload)", "cast_using_teamwork(S)", "target_class(Target, Cls)"])
+    p.rule("spell_target(S, \"modify_pt\", Payload, Cls)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "modify_pt", Amount, Target, _, {TW})',
+            "pt_value(Amount, Dp, Dt)", "target_class(Target, Cls)",
+            'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+    p.comment("rider board-scope creature verbs / grant / counter / modify_pt.")
+    p.rule("spell_scope(S, Verb, \"-\", Scope)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, Verb, _, Target, _, {TW})',
+            "zone_move_verb(Verb)", "board_scope(Target, Scope)"])
+    p.rule("spell_scope(S, \"grant\", Kw, Scope)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, {TW})',
+            "engine_keyword(Kw)", "board_scope(Target, Scope)"])
+    p.rule("spell_scope(S, \"counter\", Payload, Scope)",
+           ["spell_put_counter(S, Target, Payload)", "cast_using_teamwork(S)", "board_scope(Target, Scope)"])
+    p.rule("spell_scope(S, \"modify_pt\", Payload, Scope)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "modify_pt", Amount, Target, _, {TW})',
+            "pt_value(Amount, Dp, Dt)", "board_scope(Target, Scope)",
+            'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+    p.comment("rider direct damage (Repulsor Blast: extra damage to that creature's controller).")
+    p.rule("spell_damage(S, N, Kind)",
+           ["resolves_ability(S, Card, A)", "cast_using_teamwork(S)",
+            f'card_effect(Card, A, _, "deal_damage", Amount, Target, _, {TW})',
+            'match("[0-9]+", Amount)', "N = to_number(Amount)", "damage_kind(Target, Kind)"])
 
 
 def build(with_tests: bool) -> str:
