@@ -57,7 +57,8 @@ class DeleuzePlayer(Player):
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
             Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
-            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best non-creature spell, only if it beats passing,
+            Do.SPELLS.prefer(self.permanent_choice, floor=0.0),  # then deploy other PERMANENTS (artifact/enchantment/PW),
+            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best remaining spell (instant/sorcery) if it beats passing,
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
@@ -79,6 +80,24 @@ class DeleuzePlayer(Player):
         metric (`develop_choice`) as the tiebreak between equal-cost creatures."""
         card = move.card
         if card is None or not card.has_type("creature"):
+            return float("-inf")
+        mv = self._mana_value(game, card.id)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self.develop_choice(game, move)
+
+    # the non-creature PERMANENT types deleuze deploys (creatures go through creature_choice; instants/sorceries
+    # are held). Lands are handled by Do.LANDS.
+    _PERMANENT_TYPES = ("artifact", "enchantment", "planeswalker", "battle")
+
+    def permanent_choice(self, game, move) -> float:
+        """Score a NON-creature PERMANENT (artifact / enchantment / planeswalker / battle); a creature (handled by
+        the earlier creature line) or a non-permanent (instant / sorcery) scores -inf. Placed after the creature
+        line, this DEPLOYS the board's other permanents even though `_value` can't score their effect (the engine
+        doesn't model uncovered card text) — `_CURVE_BASE` lifts them above the floor=0.0 gate that otherwise
+        drops them (casting a non-creature is a small _value LOSS — a spent card, no board power). Curves out
+        cheaper-first like creatures. Instants/sorceries are deliberately NOT deployed here — they stay in hand
+        for the develop line, which only fires them if they actually beat passing."""
+        card = move.card
+        if card is None or card.has_type("creature") or not any(card.has_type(t) for t in self._PERMANENT_TYPES):
             return float("-inf")
         mv = self._mana_value(game, card.id)
         return (self._CURVE_BASE - self.W_CURVE * mv) + self.develop_choice(game, move)

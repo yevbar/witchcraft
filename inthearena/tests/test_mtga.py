@@ -404,6 +404,21 @@ def _engine_checks():
         check("engine: deleuze casts the cheaper creature (mv 2 over mv 4)",
               dp._mana_value(gc, dp.choose_move(gc).card.id) == 2)
 
+        # PERMANENTS: with NO creature castable, deleuze deploys a non-creature permanent (enchantment/artifact)
+        # it would otherwise skip — _value can't score the effect so develop_choice is negative, but the eval
+        # shouldn't strand a deployable permanent in hand when there's nothing better to do.
+        ench = _apply({"type": "GameStateType_Full",
+                       "turnInfo": {"turnNumber": 5, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                       "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                       "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [180]},
+                                 {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                       "gameObjects": [{"instanceId": 180, "grpId": 105108, "zoneId": 10, "ownerSeatId": 1,
+                                        "controllerSeatId": 1, "cardTypes": ["CardType_Enchantment"]}]})
+        ge = to_game(ench, me=1, seed=0, castable={180}, costs={180: 1})
+        mvp = DeleuzePlayer().bind(ge, "alice").choose_move(ge)
+        check("engine: deleuze deploys a non-creature permanent (enchantment) when no creature is castable",
+              getattr(mvp, "kind", None) == "cast" and mvp.card.has_type("enchantment"))
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
