@@ -419,6 +419,21 @@ def _engine_checks():
         check("engine: deleuze deploys a non-creature permanent (enchantment) when no creature is castable",
               getattr(mvp, "kind", None) == "cast" and mvp.card.has_type("enchantment"))
 
+        # FAILED LOOKAHEAD must NOT veto a deploy: develop_choice returns -inf when env.step raises (uncovered /
+        # complex card resolution, e.g. lifegain + Deafening Silence). The curve already decided to deploy, so a
+        # -inf tiebreak must clamp to 0 — else -inf + curve = -inf -> the creature is skipped and the bot passes
+        # with mana up (the reported bug).
+        class _Boom(DeleuzePlayer):
+            def develop_choice(self, game, move):
+                return float("-inf")
+        gcr = to_game(twocrea, me=1, seed=0, castable={170, 171}, costs={170: 2, 171: 4})
+        boom = _Boom().bind(gcr, "alice")
+        cmove = next(m for m in gcr.legal_moves if getattr(m, "kind", None) == "cast")
+        check("engine: a -inf develop_choice does NOT veto the creature (curve value stands, finite)",
+              boom.creature_choice(gcr, cmove) > 0 and boom.creature_choice(gcr, cmove) != float("inf"))
+        check("engine: deleuze still CASTS the creature when the 1-ply lookahead fails",
+              getattr(boom.choose_move(gcr), "kind", None) == "cast")
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which

@@ -82,7 +82,7 @@ class DeleuzePlayer(Player):
         if card is None or not card.has_type("creature"):
             return float("-inf")
         mv = self._mana_value(game, card.id)
-        return (self._CURVE_BASE - self.W_CURVE * mv) + self.develop_choice(game, move)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
 
     # the non-creature PERMANENT types deleuze deploys (creatures go through creature_choice; instants/sorceries
     # are held). Lands are handled by Do.LANDS.
@@ -100,7 +100,16 @@ class DeleuzePlayer(Player):
         if card is None or card.has_type("creature") or not any(card.has_type(t) for t in self._PERMANENT_TYPES):
             return float("-inf")
         mv = self._mana_value(game, card.id)
-        return (self._CURVE_BASE - self.W_CURVE * mv) + self.develop_choice(game, move)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
+
+    def _develop_tiebreak(self, game, move) -> float:
+        """`develop_choice` used as the curve TIEBREAK — but a FAILED 1-ply lookahead (env.step raised, e.g. an
+        uncovered/complex card resolution on a board with triggers like lifegain or Deafening Silence) returns
+        -inf, and -inf would veto a deploy the curve already decided. Clamp it to 0 so the creature/permanent
+        still gets cast, just without the board-value ordering refinement (the original heuristic's value-gated
+        SPELLS line keeps the -inf there, where 'only act if it beats passing' is the intended behaviour)."""
+        dv = self.develop_choice(game, move)
+        return dv if dv != float("-inf") else 0.0
 
     def _mana_value(self, game, card_id) -> int:
         """The mana value (CMC) of `card_id` from the engine state — generic `mana_cost` plus the coloured
