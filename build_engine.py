@@ -632,6 +632,8 @@ def _rules(p: Program) -> None:
     p.rule("anthem_creature(S, C)", ["static_src(S, \"all_creatures\")", "on_battlefield(S)", "creature(C)", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures\")", "on_battlefield(S)", "creature(C)", "C != S", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"attached\")", "on_battlefield(S)", "attached_to(S, C)", "creature(C)"])
+    p.rule("anthem_creature(S, C)", ["static_src(S, \"attacking_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "attacks(C, _)"],
+           note="§613 'attacking creatures you control get +N/+N' (Iron Man) — combat-only; gated on attacks(C,_)")
     # §613 a SELF static P/T — the source buffs only ITSELF (SOI 'Infusion' statics: 'This creature gets
     # +2/+0 as long as you gained life this turn'). The 'self' scope resolves to the source alone (C == S),
     # while it's on the battlefield and is itself a creature. Reaches static_mod_power/_toughness/_grant_kw
@@ -1042,6 +1044,8 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_artifact_etb")', "ev_etb(O)", "O != S", 'has_type(O, "artifact")', "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_enchantment_etb")', "ev_etb(O)", "O != S", 'has_type(O, "enchantment")', "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_dragon_etb")', "ev_etb(O)", "O != S", 'subtype(O, "dragon")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_hero_etb")', "ev_etb(O)", "O != S", 'subtype(O, "hero")', "controls(P, O)", "controls(P, S)"],
+           note="§603 Marvel Hero subtype-ETB (Team Transmitter) — mirrors your_dragon_etb")
     # §603 'whenever you attack' — a creature you control attacks (controller-scoped; over-fires per attacker).
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_attack")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)"])
     # §505/§603 'at the beginning of your first (precombat) main phase'.
@@ -1186,6 +1190,8 @@ def _rules(p: Program) -> None:
            note="§510 'whenever equipped creature deals combat damage to a player' (Wand of Orcus, the Swords)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "enchanted_dies")', "ev_dies(O)", "attached_to(S, O)"],
            note="§704 'whenever enchanted creature dies' (Nurgle's Rot, Fool's Demise)")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "equipped_becomes_tapped")', "ev_tapped(O)", "attached_to(S, O)"],
+           note="§603 'whenever equipped creature becomes tapped' (Hawkeye's Bow)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).

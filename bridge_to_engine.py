@@ -26,6 +26,8 @@ from card_effects import _mana_production
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
 _EVENT = {
     "enters": "etb_self",
+    "enter": "etb_self",                                         # §603 plural self-ETB ('When ~ ENTER' on a
+    #                                                              plural-named permanent — The Immortal Weapons)
     "dies": "dies_self",
     "attacks": "attacks_self",
     "blocks": "blocks_self",
@@ -137,6 +139,11 @@ _EVENT = {
     "another_enchantment_you_control_enters": "your_enchantment_etb",
     "a_dragon_you_control_enters": "your_dragon_etb",
     "another_dragon_you_control_enters": "your_dragon_etb",
+    "a_hero_you_control_enters": "your_hero_etb",                 # §603 Marvel Hero subtype-ETB (Team Transmitter)
+    "another_hero_you_control_enters": "your_hero_etb",
+    # §603 'whenever equipped creature becomes tapped' (Hawkeye's Bow) — reuses ev_tapped + attached_to, the
+    # same attached-permanent family as equipped_attacks / enchanted_dies.
+    "equipped_creature_becomes_tapped": "equipped_becomes_tapped",
     # §603 'whenever you attack' — one or more creatures you control attack; the engine fires once per
     # attacking creature you control (an over-fire vs the once-per-combat reading, so kept conservative:
     # only the controller-scoped attacks join, NOT a board-wide 'a creature attacks').
@@ -893,6 +900,9 @@ _ANTHEM_EXTRA = {
     # multicolored (2+ colors)
     "multicolored_creatures_you_control": ("creatures_you_control", "multicolored", "-"),
     "other_multicolored_creatures_you_control": ("other_creatures_you_control", "multicolored", "-"),
+    # §613 'ATTACKING creatures you control get +N/+N' (Iron Man, Tony Stark) — a combat-only anthem; its own
+    # static_src scope (fkind None -> bridge emits static_pt(scope); the engine gates anthem_creature on attacks).
+    "attacking_creatures_you_control": ("attacking_creatures_you_control", None, None),
 }
 
 
