@@ -1061,6 +1061,19 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_noncreature")', "cast_spell(P, Sp)", "controls(P, S)", '!spell_type(Sp, "creature")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_instant_or_sorcery")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
+    # §601 REPARTEE (Secrets of Strixhaven — Inkshape Demonstrator, Rehearsed Debater, the 14-card cycle):
+    # 'whenever you cast an instant or sorcery spell THAT TARGETS A CREATURE'. Same controller-scoped i/s cast
+    # window as you_cast_instant_or_sorcery above. The 'that targets a creature' qualifier is a FAITHFUL
+    # RELAXATION: the engine has no single signal that the CAST spell targets a creature — a targeted creature
+    # spell surfaces variously as spell_target / spell_damage / spell_reanimate (and spell_target's cls column
+    # is the legal-target CLASS — "any"/"opponent"/… — not the literal "creature"), so a spell_target-only gate
+    # would UNDER-fire on the common burn/removal case (spell_damage). We therefore fire on ANY instant/sorcery
+    # the controller casts and accept a slight OVER-fire on i/s casts that target no creature (a sweeper, a draw
+    # spell). A small over-trigger is the faithful choice over dropping the whole cycle or under-firing on the
+    # spells these cards most want to reward. Kept as its OWN engine kind (not aliased onto the i/s cast kind)
+    # so a future tightening — a real 'cast spell targets a creature' signal — only touches these two rules.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_is_targets_creature")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "instant")'])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_is_targets_creature")', "cast_spell(P, Sp)", "controls(P, S)", 'spell_type(Sp, "sorcery")'])
     # §601 'whenever you cast an instant or sorcery spell DURING YOUR TURN' (Ral, Monsoon Mage) — the same as
     # above but gated to the caster's own turn (active_player == the caster).
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_is_your_turn")', "cast_spell(P, Sp)", "controls(P, S)", "active_player(P)", 'spell_type(Sp, "instant")'])

@@ -85,6 +85,16 @@ _EVENT = {
     "you_cast_a_creature_spell": "you_cast_creature",
     "you_cast_a_noncreature_spell": "you_cast_noncreature",
     "you_cast_an_instant_or_sorcery_spell": "you_cast_instant_or_sorcery",
+    # §601 REPARTEE (Secrets of Strixhaven — Inkshape Demonstrator, Rehearsed Debater, Lecturing Scornmage,
+    # the 14-card cycle): 'whenever you cast an instant or sorcery spell THAT TARGETS A CREATURE'. The cast
+    # window (cast_spell + spell_type i/s) carries the instant/sorcery half; the 'that targets a creature'
+    # qualifier is a FAITHFUL RELAXATION (see the fires rule + bridge note in build_engine.py): the engine has
+    # no single 'this cast spell targets a creature' signal (a targeted creature spell surfaces as spell_target
+    # OR spell_damage OR spell_reanimate, and spell_target's cls is the legal-target class, not "creature"), so
+    # gating on spell_target alone would UNDER-fire on the common case (burn/removal -> spell_damage). We instead
+    # fire on ANY instant/sorcery you cast and ACCEPT a slight OVER-fire on i/s casts that target no creature
+    # (a sweeper, a draw spell) — a small over-trigger beats a total drop of the cycle or a worse under-fire.
+    "you_cast_an_instant_or_sorcery_spell_that_targets_a_creature": "you_cast_is_targets_creature",
     "a_player_casts_a_spell": "any_cast",
     # §601 opponent-cast triggers (Rhystic Study, Smothering Tithe): an opponent of the source's controller
     # casts a spell -> opponent_cast; the noncreature variant adds the spell-type guard.
