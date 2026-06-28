@@ -206,11 +206,11 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
 
 # Live-cursor glide speed: travel time = distance / _GLIDE_SPEED (clamped) so every move runs at the same fast
 # pace whether it's a short menu hop or a cross-board reach; ~one frame per _GLIDE_STEP px keeps it smooth.
-_GLIDE_SPEED = 33750.0     # px/sec (doubled from 16875)
+_GLIDE_SPEED = 29700.0     # px/sec (12% slower than the prior 33750; travel time = dist/_GLIDE_SPEED, clamped)
 _GLIDE_STEP = 448.0        # px between frames (each pyautogui.moveTo costs ~13ms, so the glide is
 #                            FRAME-BOUND, not speed-bound; halving the frame count is what actually halves the time)
-_GLIDE_MIN = 0.02          # s: floor so a tiny move still eases
-_GLIDE_MAX = 0.043         # s: ceiling so a full-screen reach doesn't drag (halved to match the 2x speed)
+_GLIDE_MIN = 0.0227        # s: floor so a tiny move still eases (clamps scaled +12% to slow the whole curve evenly)
+_GLIDE_MAX = 0.0489        # s: ceiling so a full-screen reach doesn't drag
 
 
 def smooth_path(a: tuple, b: tuple, *, frames: int, rng: random.Random, curve: float = 0.18,
