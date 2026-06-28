@@ -1830,6 +1830,57 @@ def _you_do_cost(ante_eff) -> tuple | None:
     return None
 
 
+# §608 a SPELL's INTRA-ability 'you do' compound: ONE instant/sorcery ability whose effect[i] is an OPTIONAL
+# self-cost ('You MAY sacrifice an artifact or discard a card') and a LATER effect[j] is the consequent gated
+# on 'if you do' ('… draw two cards'). DISTINCT from the inter-ability you_do (two sibling abilities, §603.2c):
+# here both effects live in one spell ability, so the engine's fires()/did_optional pairing doesn't apply —
+# the bridge folds the pair into driver-only spell_you_do_cost/spell_you_do_effect rows the driver resolves on
+# resolution (offer the optional cost; if paid, run the consequent). Vision of Love is the motivating card.
+_SAC_FILTER = {"an_artifact": "artifact", "a_artifact": "artifact", "a_creature": "creature",
+               "a_land": "land", "a_permanent": "permanent", "an_enchantment": "enchantment"}
+
+
+def _spell_you_do_cost_spec(verb, tgt) -> str | None:
+    """The optional self-cost of a spell's 'you may … . If you do, …' as a '|'-joined list of payable
+    alternatives, each '<sacrifice|discard>:<filter>'. The OR-compound 'sacrifice an artifact or discard a
+    card' arrives glommed into the target slug ('an_artifact_or_discard_a_card'); split it back into the two
+    alternatives. A single 'sacrifice a <type>' / 'discard a card' is one alternative. Else None (abstain)."""
+    t = str(tgt)
+    if verb == "sacrifice":
+        m = re.match(r"^(.*?)_or_discard_a_card$", t)         # 'sacrifice <X> or discard a card' (the OR-compound)
+        if m and m.group(1) in _SAC_FILTER:
+            return f"sacrifice:{_SAC_FILTER[m.group(1)]}|discard:card"
+        if t in _SAC_FILTER:
+            return f"sacrifice:{_SAC_FILTER[t]}"              # a plain 'sacrifice a <type>'
+        return None
+    if verb == "discard" and t in ("a_card", "1_card", "card"):
+        return "discard:card"
+    return None
+
+
+def _fold_you_do_spell(effs):
+    """Pair a spell's optional self-cost effect ('may') with a LATER 'if you do' consequent (cond
+    'if_you_did'). Returns (cost_idx, cons_idx, cost_spec, draw_n) when the consequent is the tractable
+    self-DRAW shape (Vision of Love's 'draw two cards'); else None (both effects fall through and abstain —
+    a faithful drop, never an unconditional draw that ignored the unpaid cost)."""
+    cost_idx = next((i for i, (s, v, a, t, e, c) in enumerate(effs)
+                     if str(c) == "may" and _spell_you_do_cost_spec(v, t) is not None), None)
+    if cost_idx is None:
+        return None
+    cons_idx = next((j for j, (s, v, a, t, e, c) in enumerate(effs)
+                     if j > cost_idx and str(c) == "if_you_did"), None)
+    if cons_idx is None:
+        return None
+    _s, cv, ca, ct, _ce, _cc = effs[cons_idx]
+    if cv != "draw" or str(ct) not in ("you", "yourself", "-"):   # faithful subset: a self-draw consequent only
+        return None
+    n = _int(ca)
+    if n is None:
+        return None
+    spec = _spell_you_do_cost_spec(effs[cost_idx][1], effs[cost_idx][3])
+    return (cost_idx, cons_idx, spec, n)
+
+
 # §118.9 'cast a <filter> spell with mana value N or less from your <zone> without paying its mana cost'
 # (Kari Zev's Expertise from hand, Storm of Memories from the graveyard). Parse the zone / type filter / MV
 # cap from the target slug into a cast_free payload the driver resolves (pick a matching card, cast it free).
@@ -3313,8 +3364,18 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §706 DIE ROLL that feeds the next clause ('Roll a d6. Create that many tokens' — Box of Free-Range
             # Goblins / Steamfloggery) -> one atomic roll_die spell_effect (the roll + its consumer fold).
             roll_skip = _fold_rolldie(effs, lambda e, n, t: add("spell_effect", (tid, e, n, t)))
+            # §608 INTRA-ability 'you may <self-cost>. If you do, draw N' (Vision of Love) -> driver-only
+            # spell_you_do_cost/spell_you_do_effect (the driver offers the cost; if paid, draws). Folding the
+            # consequent out of the row loop prevents an UNCONDITIONAL draw that ignored the unpaid cost.
+            you_do_skip = set()
+            _yds = _fold_you_do_spell(effs)
+            if _yds is not None:
+                _ci, _ji, _spec, _dn = _yds
+                add("spell_you_do_cost", (tid, _spec))
+                add("spell_you_do_effect", (tid, "draw", _dn))
+                you_do_skip = {_ci, _ji}
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in dt_skip or _idx in dfa_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip:
+                if _idx in search_skip or _idx in name_skip or _idx in dig_skip or _idx in zs_skip or _idx in dt_skip or _idx in dfa_skip or _idx in impulse_skip or _idx in fb_skip or _idx in steal_skip or _idx in flip_skip or _idx in gyr_skip or _idx in wheel_skip or _idx in valakut_skip or _idx in s2gy_skip or _idx in s2fd_skip or _idx in rp_skip or _idx in fin_skip or _idx in veil_skip or _idx in ta_skip or _idx in roll_skip or _idx in you_do_skip:
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue

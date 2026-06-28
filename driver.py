@@ -2893,7 +2893,49 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
     _run_spell_damage(state, spell, tctrl)                    # §120 direct damage (Lightning Bolt, Shock, ...)
     _run_spell_riders(state, spell, ctrl)                     # §607.2 'that creature(' s controller)' riders (teamwork)
+    _run_spell_you_do(state, spell, ctrl)                     # §608 'you may <cost>. If you do, draw N' (Vision of Love)
     _run_spell_reanimate(state, spell, ctrl)                  # §701 reanimation (Resurrection, Zombify, ...)
+
+
+def _run_spell_you_do(state: dict, spell: str, ctrl: str) -> None:
+    """§608 a SPELL's intra-ability 'You may <self-cost>. If you do, <consequent>' (Vision of Love: 'You may
+    sacrifice an artifact or discard a card. If you do, draw two cards'). The bridge folds the pair into
+    spell_you_do_cost(spell, '<kind>:<filter>|…') — the OR-alternatives — and spell_you_do_effect(spell,
+    'draw', N). Here we OFFER the optional cost: gather the affordable alternatives, route the pay-or-decline
+    through _choose (DEFAULT = pay — unlike the §603.2c triggered you_do, a SPELL was cast specifically for its
+    consequent, so the card-positive line is to pay; a policy/search may still decline), pay the first
+    affordable alternative, then run the consequent. An unpayable cost is a faithful no-op (no consequent)."""
+    specs = [s for (sp, s) in state.get("spell_you_do_cost", set()) if sp == spell]
+    effs = [(v, int(n)) for (sp, v, n) in state.get("spell_you_do_effect", set()) if sp == spell]
+    if not specs or not effs:
+        return
+    payable = []
+    for opt in specs[0].split("|"):
+        kind, filt = opt.split(":")
+        if kind == "sacrifice" and _sac_candidates(state, ctrl, filt):
+            payable.append(("sacrifice", filt))
+        elif kind == "discard" and any(p == ctrl for (p, _c) in state.get("in_hand", set())):
+            payable.append(("discard", filt))
+    if not payable:
+        print(f"      {spell}: optional cost unpayable -> 'if you do' consequent does not happen")
+        return
+    if not _choose(state, "spell_you_do", (False, True), True):
+        print(f"      {spell}: declined the optional cost -> no consequent")
+        return
+    kind, filt = payable[0]
+    if kind == "sacrifice":
+        cands = _sac_candidates(state, ctrl, filt)
+        _sacrifice(state, _choose(state, "sacrifice", cands, _sac_default(state, cands, None)))
+    else:                                                     # discard a card
+        hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
+        card = _choose(state, "discard", hand, hand[0])
+        state["in_hand"].discard((ctrl, card))
+        state.setdefault(_discard_zone(state, ctrl), set()).add((card,))
+    print(f"      {spell}: paid the optional cost ({kind} a {filt}) -> 'if you do' consequent resolves")
+    for (v, n) in effs:
+        if v == "draw":
+            for _ in range(n):
+                _draw(state, ctrl)
 
 
 def _run_spell_dyn(state: dict, spell: str, ctrl: str) -> None:
