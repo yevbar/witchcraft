@@ -84,8 +84,12 @@ class EnginePolicy:
                          if getattr(a, "actionType", None) == "ActionType_Play"
                          and getattr(a, "instanceId", None) is not None}
                         if d.kind == "actions" else None)
+            # MANA VALUE (CMC) of each offered cast, so a curve-out player (deleuze) can deploy cheaper first.
+            costs = {a.instanceId: a.mana_value for a in (d.options or [])
+                     if getattr(a, "actionType", None) == "ActionType_Cast"
+                     and getattr(a, "instanceId", None) is not None and a.manaCost}
             game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed,
-                           castable=castable, playable=playable)
+                           castable=castable, playable=playable, costs=costs)
             move = self._player.bind(game, "alice").choose_move(game)
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
                       getattr(move, "kind", move),

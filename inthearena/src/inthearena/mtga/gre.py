@@ -133,6 +133,12 @@ class Action(_M):
         engine-less policy can't cheaply tell, and a conservative one should skip it (and only it)."""
         return (not self.manaCost) or (self.autoTapSolution is not None)
 
+    @property
+    def mana_value(self) -> int:
+        """The card's mana value (CMC): the total of every mana-symbol count in `manaCost` (generic + coloured).
+        e.g. {Generic:3}+{Red:2} -> 5. Used to curve out (deploy cheaper spells first)."""
+        return sum(mc.count for mc in self.manaCost)
+
 
 class DamageRecipient(_M):
     type: Optional[str] = None

@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander", "attacks", "spell_type", "free_cast")
+              "command_zone", "is_commander", "attacks", "spell_type", "free_cast", "mana_cost")
 
 
 def _eng(token: str) -> str:
@@ -68,7 +68,8 @@ def _slug(name: str) -> str:
 
 
 def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
-                castable: Optional[set] = None, playable: Optional[set] = None) -> dict:
+                castable: Optional[set] = None, playable: Optional[set] = None,
+                costs: Optional[dict] = None) -> dict:
     """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
     zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
 
@@ -133,6 +134,8 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             if playable is not None and o.instanceId not in playable:
                 s["spell_type"].discard((inst, "land"))        # not an offered land drop (e.g. a stale, already-
                 #                                                played land still in the lagging view) -> hide it
+            if costs and o.instanceId in costs:                # CMC from MTGA, for curve-out; affordability stays
+                s["mana_cost"].add((inst, costs[o.instanceId]))  # free_cast (no mana_available, so this can't gate)
         elif zone == "library":
             s["in_library"].add((seat_name, inst))
         elif zone == "command":                            # the commander (Brawl/Commander) — public
@@ -208,14 +211,14 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
 
 
 def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
-            castable: Optional[set] = None, playable: Optional[set] = None):
+            castable: Optional[set] = None, playable: Optional[set] = None, costs: Optional[dict] = None):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
     log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
-    (fed as free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays to reality). See
-    build_state."""
+    (fed as free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays to reality);
+    `costs` = {instanceId: mana value} (fed as mana_cost, for curve-out). See build_state."""
     from mtg.game import Game
     return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed,
-                                       castable=castable, playable=playable))
+                                       castable=castable, playable=playable, costs=costs))
 
 
 def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[list] = None, seed: int = 0):

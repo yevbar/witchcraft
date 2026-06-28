@@ -45,6 +45,12 @@ class DeleuzePlayer(Player):
     W_CRACKBACK = 1.5       # penalty weight on a lethal-looking crackback
     W_TRADE = 1.5           # value weight on winning / losing a creature in combat
 
+    # curve-out: among castable creatures, deploy the CHEAPER ones first. W_CURVE (>> the develop_choice spread)
+    # makes mana value the primary sort and the board metric the tiebreak; _CURVE_BASE keeps every castable
+    # creature above the floor=0.0 gate so it still gets cast (a real mana value never exceeds _CURVE_BASE).
+    W_CURVE = 1.0
+    _CURVE_BASE = 20.0
+
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         return game.prioritize(
@@ -67,14 +73,23 @@ class DeleuzePlayer(Player):
         return 0.0 if move.card.is_basic else 1.0
 
     def creature_choice(self, game, move) -> float:
-        """Score a CREATURE spell by how much it improves the board (same 1-ply metric as `develop_choice`); a
-        NON-creature spell scores -inf so it never wins this category. Placed before the general SPELLS line in
-        `choose_move`, this casts creatures BEFORE other spell types — deploy the board first, then fill in with
-        non-creatures only when no creature is castable."""
+        """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
+        the general SPELLS line in `choose_move`, this casts creatures BEFORE other spell types. Among creatures
+        it CURVES OUT — prefers the CHEAPER mana value first (a 1-drop before a 4-drop), with the 1-ply board
+        metric (`develop_choice`) as the tiebreak between equal-cost creatures."""
         card = move.card
         if card is None or not card.has_type("creature"):
             return float("-inf")
-        return self.develop_choice(game, move)
+        mv = self._mana_value(game, card.id)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self.develop_choice(game, move)
+
+    def _mana_value(self, game, card_id) -> int:
+        """The mana value (CMC) of `card_id` from the engine state — generic `mana_cost` plus the coloured
+        `mana_pip` counts. (In the inthearena bridge `mana_cost` is fed as the total CMC from MTGA and there's no
+        `mana_pip`, so this still sums to the right value; 0 when the cost is unknown.)"""
+        st = game.state
+        return (sum(n for (s, n) in st.get("mana_cost", set()) if s == card_id)
+                + sum(n for (s, _c, n) in st.get("mana_pip", set()) if s == card_id))
 
     def resolve_choice(self, game, move) -> float:
         """Resolve a TARGETED effect at the OPPONENT (Do.RESOLVE_TRIGGER). The engine enumerates one cast/

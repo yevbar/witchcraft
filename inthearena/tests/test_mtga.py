@@ -375,6 +375,35 @@ def _engine_checks():
     check("engine: a land MTGA offers from EXILE is surfaced as a play (impulse-draw not ignored)",
           len(play535) >= 1 and str(play535[0].card.id).endswith("_535"))
 
+    # CURVE-OUT: costs= feeds mana_cost (the CMC), so a curve player (deleuze) deploys the CHEAPER creature first.
+    # Two creatures in hand, both payable; one cheaper (inst 170 mv2) than the other (inst 171 mv4).
+    twocrea = _apply({"type": "GameStateType_Full",
+                      "turnInfo": {"turnNumber": 5, "phase": "Phase_Main1", "step": "Step_Main", "activePlayer": 1},
+                      "players": [{"controllerSeatId": 1, "lifeTotal": 20}, {"controllerSeatId": 2, "lifeTotal": 20}],
+                      "zones": [{"zoneId": 10, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [170, 171]},
+                                {"zoneId": 13, "type": "ZoneType_Battlefield"}],
+                      "gameObjects": [{"instanceId": 170, "grpId": 105108, "zoneId": 10, "ownerSeatId": 1,
+                                       "controllerSeatId": 1, "cardTypes": ["CardType_Creature"],
+                                       "power": {"value": 2}, "toughness": {"value": 2}},
+                                      {"instanceId": 171, "grpId": 105108, "zoneId": 10, "ownerSeatId": 1,
+                                       "controllerSeatId": 1, "cardTypes": ["CardType_Creature"],
+                                       "power": {"value": 2}, "toughness": {"value": 2}}]})
+    stc = build_state(twocrea, me=1, seed=0, castable={170, 171}, costs={170: 2, 171: 4})
+    check("engine: costs= feeds mana_cost(inst, cmc)",
+          any(i.endswith("_170") and n == 2 for (i, n) in stc["mana_cost"])
+          and any(i.endswith("_171") and n == 4 for (i, n) in stc["mana_cost"]))
+    if cards.available():
+        from mtg.deleuze import DeleuzePlayer
+        gc = to_game(twocrea, me=1, seed=0, castable={170, 171}, costs={170: 2, 171: 4})
+        dp = DeleuzePlayer().bind(gc, "alice")
+        crea = {m.card.id: m for m in gc.legal_moves if getattr(m, "kind", None) == "cast"}
+        cheap = next(m for cid, m in crea.items() if cid.endswith("_170"))
+        pricey = next(m for cid, m in crea.items() if cid.endswith("_171"))
+        check("engine: deleuze scores the CHEAPER creature higher (curve-out)",
+              dp.creature_choice(gc, cheap) > dp.creature_choice(gc, pricey))
+        check("engine: deleuze casts the cheaper creature (mv 2 over mv 4)",
+              dp._mana_value(gc, dp.choose_move(gc).card.id) == 2)
+
     # AFFORDABILITY: the engine has no mana model for a static snapshot (mana is developed on phase entry, which a
     # snapshot skips) and no cost facts for uncovered cards, so it surfaces NO casts on its own. MTGA is the
     # affordability oracle: a hand spell it reports payable is passed via `castable=` and fed `free_cast`, which
@@ -1577,6 +1606,10 @@ def run():
             _Act(actionType="ActionType_Pass")])
         check("Action.auto_payable False when MTGA gave no autoTapSolution", afford.options[0].auto_payable is False)
         check("Action.auto_payable True when MTGA supplied an autoTapSolution", afford.options[1].auto_payable is True)
+        mvcost = _Act(actionType="ActionType_Cast", instanceId=9, manaCost=[
+            {"color": ["ManaColor_Generic"], "count": 3}, {"color": ["ManaColor_Red"], "count": 2}])
+        check("Action.mana_value sums manaCost counts (CMC = 3+2 = 5)", mvcost.mana_value == 5)
+        check("Action.mana_value is 0 for a free/no-cost action", _Act(actionType="ActionType_Pass").mana_value == 0)
         check("aggro skips the un-auto-payable cast and casts the auto-payable one",
               pol.decide(afford).instanceId == 301)
 
