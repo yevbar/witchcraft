@@ -42,8 +42,23 @@ def run() -> None:
     check("read_cards on an all-blank/comment file -> []", mtg.read_cards(empty) == [])
     os.unlink(empty)
 
+    # read_arena_cards: Arena copy/paste export — section headers skipped, ' (SET) N' tag stripped, counts
+    # expanded, DFC name kept whole, commander included.
+    arena = _write("Commander\n1 Krenko, Mob Boss (2X2) 158\n\nDeck\n3 Mountain (SOS) 279\n"
+                   "1 Lightning Bolt (DMU) 137\n1 Glassworks // Shattered Yard (DSK) 137\n")
+    deck = mtg.read_arena_cards(arena)
+    check("read_arena_cards expands counts (3x Mountain)", deck.count("Mountain") == 3)
+    check("read_arena_cards strips the ' (SET) N' printing tag", "Lightning Bolt" in deck)
+    check("read_arena_cards keeps a DFC 'A // B' name whole", "Glassworks // Shattered Yard" in deck)
+    check("read_arena_cards includes the commander, skips section headers",
+          "Krenko, Mob Boss" in deck and "Deck" not in deck and "Commander" not in deck)
+    check("read_arena_cards total = sum of counts (1+3+1+1)", len(deck) == 6)
+    os.unlink(arena)
+
     # exported at the package top level
     check("mtg.read_cards is exported", hasattr(mtg, "read_cards") and "read_cards" in mtg.__all__)
+    check("mtg.read_arena_cards is exported",
+          hasattr(mtg, "read_arena_cards") and "read_arena_cards" in mtg.__all__)
     check("mtg.find_best_deck is exported", hasattr(mtg, "find_best_deck") and "find_best_deck" in mtg.__all__)
 
     # find_best_deck: NO-OP for now (returns None), tolerant of being called with or without a pool
