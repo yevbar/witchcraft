@@ -1134,6 +1134,7 @@ def _rules(p: Program) -> None:
     # cast_nc_ord = ordinal among P's NONCREATURE spells (for 'first noncreature spell each turn').
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_first")', "cast_spell(P, _)", "controls(P, S)", "cast_ord(P, 1)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_second")', "cast_spell(P, _)", "controls(P, S)", "cast_ord(P, 2)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_cast_third")', "cast_spell(P, _)", "controls(P, S)", "cast_ord(P, 3)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_cast_first")', "cast_spell(P, _)", "controls(Q, S)", "P != Q", "cast_ord(P, 1)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "opp_cast_second")', "cast_spell(P, _)", "controls(Q, S)", "P != Q", "cast_ord(P, 2)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "any_cast_first")', "cast_spell(P, _)", "cast_ord(P, 1)"])

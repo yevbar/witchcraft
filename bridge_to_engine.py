@@ -112,6 +112,7 @@ _EVENT = {
     "a_player_casts_their_first_spell_each_turn": "any_cast_first",
     "you_cast_your_first_spell_each_turn": "you_cast_first",
     "you_cast_your_second_spell_each_turn": "you_cast_second",
+    "you_cast_your_third_spell_each_turn": "you_cast_third",
     "you_cast_your_first_noncreature_spell_each_turn": "you_cast_first_noncreature",
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
     "the_beginning_of_the_end_step": "any_end_step",
@@ -3198,6 +3199,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # The bridge only feeds the parse facts; it stops emitting these rows. Abstain bookkeeping
                     # (dropped) is preserved exactly so the abstain corpus is unchanged.
                     if verb in ("return_to_hand", "exile") and extra in ("from_graveyard", "from_exile", "from_library", "from_hand"):
+                        # §701 a triggered GRAVEYARD-REGROWTH ('return target instant or sorcery card from your
+                        # graveyard to your hand' — The Immortal Weapons' ETB) routes to the regrowth encoder,
+                        # the SAME faithful handler the spell path uses (Sorceress's Schemes). Any other non-
+                        # battlefield zone move still abstains (datalog abstains on it too).
+                        rr = _resolved_effect(verb, amt, tgt, extra)
+                        if rr is not None:
+                            add("trigger_effect", (a, rr[0], rr[1], rr[2])); emitted = True; continue
                         dropped.append(("effect", verb))     # non-battlefield zone move — datalog abstains too
                         continue
                     scope = _scope(tgt)
@@ -3273,6 +3281,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _animation_pt(amt) is not None:
                         emitted = True
                         continue
+                if verb == "becomes" and str(tgt) in ("self", "it") and str(extra) == "prepared":
+                    # the PREPARE mechanic (Emeritus cycle — a creature // spell MDFC): '~ becomes prepared'.
+                    # We track the `prepared` STATE on the source (the driver's become_prepared applier sets it,
+                    # mirroring monstrous/initiative). The reminder-text payoff 'while prepared you may cast a
+                    # copy of its spell' is NOT realized — the back-face spell isn't plumbed onto this card
+                    # object — so the optional copy-cast is a documented MDFC gap, never a wrong resolution.
+                    add("trigger_effect", (a, "become_prepared", 0, "-"))
+                    emitted = True
+                    continue
                 if verb == "switch_pt":                       # §613 layer 7d switch P/T (self or a target creature)
                     # ONE WORLD: the engine DERIVES both cases in datalog (translate.dl): a self/it switch ->
                     # trigger_effect('switchpt', 0, '-'); a single 'target creature' -> trigger_target(
