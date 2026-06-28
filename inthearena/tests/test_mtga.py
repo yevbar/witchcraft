@@ -342,6 +342,12 @@ def _engine_checks():
     # in hand on our precombat main.)
     check("engine: state carries _explicit_lands + spell_type(…, 'land')",
           st.get("_explicit_lands") is True and any(t == "land" for (_i, t) in st.get("spell_type", set())))
+    # §117.1a instant-speed window is always opened (MTGA is the priority authority — it only hands us an actions
+    # decision when we truly hold priority). Lets our-turn instants (combat tricks / instant removal) surface at
+    # non-main steps; without it legal_moves at a non-main step is just [pass]. (Opp-turn reactive priority is a
+    # separate, deeper engine change — env fills the window for the ACTIVE player only.)
+    check("engine: state carries _instant_speed (instants can surface in non-main windows)",
+          st.get("_instant_speed") is True)
     land_plays = [m for m in g.legal_moves if getattr(m, "kind", None) == "play"]
     check("engine: a land in hand surfaces a 'play' move", len(land_plays) >= 1)
     check("engine: HeuristicPlayer PLAYS the land, not pass",

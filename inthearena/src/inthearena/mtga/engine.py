@@ -222,6 +222,13 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     # land-first player (HeuristicPlayer/AggroPlayer all list Do.LANDS) sees no land to play and PASSES, stranding
     # the real land in hand into the end-of-turn discard. `Game.from_state` reads this flag off the state.
     s["_explicit_lands"] = True
+    # §117.1a INSTANT-SPEED priority: MTGA is the priority authority — it only issues us an actions decision when
+    # we ACTUALLY hold priority (incl. opponent-turn / combat windows). So always open the engine's instant-speed
+    # window here; without it `legal_moves` at a non-main step is just [pass] and a payable instant (counterspell,
+    # combat trick, removal) never surfaces — the engine declines reactive plays it's fully capable of. Instants
+    # are still gated by `can_afford` (we only feed auto-payable casts) and by spell_type's cast_permission, so
+    # this can't make a sorcery castable off-turn; it only un-hides the instants MTGA already offered us.
+    s["_instant_speed"] = True
     return s
 
 
