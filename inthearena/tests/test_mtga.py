@@ -1587,6 +1587,26 @@ def _board_checks():
         check("BoardLocator P/T-anchored: newer creature is right of the robber (order preserved)",
               other is not None and other[0] > robber[0])
 
+        # PARTIAL badges: during a block only SOME P/T badges read (e.g. 3 of 4) and names don't — the row is
+        # FIT from the legible badges (tightest gap = spacing) and missing positions extrapolated, so every
+        # creature (incl. the one whose badge was illegible) lands on its OWN card, not a between-cards gap.
+        boardmod.ocr.recognize_text = lambda image: [                    # 3 badges read, the leftmost creature's missing
+            ("1/2", 0.472, 0.377), ("1/2", 0.575, 0.372), ("2/2", 0.673, 0.372)]
+        boardmod.cards.label = lambda g: "ZZZ Illegible"                 # force the P/T path (no name match)
+        opp4 = _apply({"type": "GameStateType_Full",
+                       "zones": [{"zoneId": 23, "type": "ZoneType_Battlefield", "ownerSeatId": 2}],
+                       "gameObjects": [{"instanceId": i, "grpId": 1, "zoneId": 23, "controllerSeatId": 2,
+                                        "cardTypes": ["CardType_Creature"]} for i in (700, 701, 702, 703)]})
+        bl4 = BoardLocator(DryRunActuator(rect=rect, image=object()), me=1)
+        pts = [bl4.locate(i, opp4) for i in (700, 701, 702, 703)]        # ranks 0..3, left -> right
+        gaps = [pts[k + 1][0] - pts[k][0] for k in range(3)]
+        check("BoardLocator P/T fit: all 4 creatures placed (incl. the one with the illegible badge)",
+              all(p is not None for p in pts))
+        check("BoardLocator P/T fit: positions are monotonic L->R with roughly uniform spacing",
+              gaps[0] > 0 and max(gaps) - min(gaps) < 0.03 * rect.w)
+        check("BoardLocator P/T fit: the missing-badge leftmost creature is LEFT of the first legible badge (0.472)",
+              pts[0][0] < int(0.472 * rect.w))
+
         # SETTLE-RETRY: right after attackers are declared the board animates and the attacker's name OCRs
         # garbled for a beat -> miss; the locator re-reads after a longer settle and finds it BY NAME (the
         # reliable anchor) instead of falling to wrong fixed geometry.
