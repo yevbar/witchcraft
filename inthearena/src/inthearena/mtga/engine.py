@@ -155,6 +155,14 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
         elif zone == "command":                            # the commander (Brawl/Commander) — public
             s["command_zone"].add((seat_name, inst))
             s["is_commander"].add((inst,))
+            # §903.6 the commander is cast FROM the command zone, not hand — so its affordability must be fed
+            # here too (the hand branch above won't see it). `can_cast_commander` probes can_afford against a
+            # tax-bumped cost, which fires off free_cast (derived from this free_grant). Without it a Brawl
+            # commander MTGA offers as castable never surfaces and the bot passes its commander every turn.
+            if o.instanceId in castable:
+                s["free_grant"].add((seat_name, inst))
+            if costs and o.instanceId in costs:
+                s["mana_cost"].add((inst, costs[o.instanceId]))
         else:                                              # battlefield
             s["on_battlefield"].add((inst,))
             s["printed_control"].add((seat_name, inst))
