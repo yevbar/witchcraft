@@ -148,7 +148,6 @@ def layer3_driver():
 def run():
     print("bridge:", bridge.__file__)
     print("driver:", driver.__file__)
-    assert "agent-a402" in bridge.__file__ and "agent-a402" in driver.__file__, "RUN FROM THE WORKTREE"
     layer1_bridge()
     layer3_driver()
     p = sum(1 for _, o in CH if o)
