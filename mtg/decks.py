@@ -61,6 +61,29 @@ def load_deck(path: str) -> list[str]:
         return parse_deck(f.read())
 
 
+def read_cards(path: str) -> list[str]:
+    """Read a card POOL from a text file of newline-separated card names — the format the inthearena collection
+    scraper writes (and `pool.txt` uses): one human-readable oracle name per line, NO counts. Returns the
+    DISTINCT names in first-seen order: a pool is the SET of cards available to build with, so duplicates
+    collapse (unlike `parse_deck`, where a repeated line means another copy in a 60-card list). Blank lines and
+    `#`/`//` comments are skipped. The names are the oracle names the engine resolves directly — feed the result
+    to `mtg.deckbuilding.find_best_deck`.
+
+        pool = mtg.read_cards("pool.txt")          # -> ['A.I.M. Bot', 'Aang, the Last Airbender', ...]
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("//"):
+                continue
+            if line not in seen:
+                seen.add(line)
+                out.append(line)
+    return out
+
+
 def bundled_decks() -> list[str]:
     """Names of the deck lists shipped with the package (pass any to `load_deck`)."""
     if not os.path.isdir(_DECKS_DIR):

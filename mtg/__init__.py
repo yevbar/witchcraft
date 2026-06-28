@@ -34,7 +34,8 @@ from .players import Player, RandomPlayer, GreedyPlayer, play           # noqa: 
 from .information import InformationPlayer                              # noqa: E402
 from .forge import play_forge, forge_available, forge_status           # noqa: E402  (lazy JVM tooling inside)
 from .benchmark import benchmark, benchmark_vs_forge                    # noqa: E402
-from .decks import load_deck, parse_deck, bundled_decks                 # noqa: E402
+from .decks import load_deck, parse_deck, bundled_decks, read_cards     # noqa: E402
+from .deckbuilding import find_best_deck                                # noqa: E402
 from .rebel import ReBeLPlayer, heuristic_value                        # noqa: E402
 from .cards import cards, CardCorpus                                    # noqa: E402  (lazy — see module)
 
@@ -42,7 +43,7 @@ __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
            "Player", "RandomPlayer", "GreedyPlayer", "InformationPlayer", "play",
            "ReBeLPlayer", "heuristic_value", "cards", "CardCorpus",
            "play_forge", "forge_available", "forge_status", "benchmark", "benchmark_vs_forge",
-           "load_deck", "parse_deck", "bundled_decks",
+           "load_deck", "parse_deck", "bundled_decks", "read_cards", "find_best_deck",
            "new_game", "self_play", "demo", "engine_available", "__version__"]
 __version__ = "0.1.0"
 
