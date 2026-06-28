@@ -1316,6 +1316,18 @@ def _hand_checks():
     check("_reveal_positions bows the hover y down toward the edges (arc)",
           rys[0] > min(rys) and rys[-1] > min(rys))
 
+    # N-AWARE no-anchor fan: a full 8-card hand spreads wide (centres ~0.18-0.82w), so the sweep must reach the
+    # leftmost and rightmost cards — a fixed step left an 8-fan too narrow (started at the 2nd card, missed the
+    # edges). Centred, and the span scales with N (more cards pack tighter).
+    f8 = [p[0] for p in _reveal_positions(rect, 8, [], None)]
+    check("_reveal_positions n=8 fan reaches the LEFTMOST card (<0.22w), not the 2nd",
+          min(f8) < 0.22 * rect.w)
+    check("_reveal_positions n=8 fan reaches the RIGHTMOST card (>0.78w)", max(f8) > 0.78 * rect.w)
+    check("_reveal_positions fan is centred on the hand", abs((min(f8) + max(f8)) / 2 - rect.w / 2) < 0.02 * rect.w)
+    f4 = [p[0] for p in _reveal_positions(rect, 4, [], None)]
+    check("_reveal_positions span scales with N (8 cards span wider than 4)",
+          (max(f8) - min(f8)) > (max(f4) - min(f4)))
+
     # a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (often not a clean 'Plains'); the wanted
     # name must still match it (as a word), or the reveal skips a real land and grabs something else.
     from inthearena.mtga.hand import _name_matches

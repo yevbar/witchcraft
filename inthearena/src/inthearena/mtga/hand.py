@@ -52,6 +52,12 @@ _NAME_X = (0.20, 0.90)
 _NAME_MATCH = 0.62         # min fuzzy ratio to accept an OCR'd name as the target card
 _FAN_SPACING = 128         # px between adjacent hand slots, used only when a single anchor is available
 _FAN_ARC = 48              # px the hand fan bows down at its EDGES vs the centre (hover lower toward the edges)
+# N-AWARE fan (for the no-anchor reveal sweep): MTGA centres the hand and SPREADS it to fill the hand area, so
+# more cards pack tighter. spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH/(N-1)). A FIXED step made an 8-card fan too
+# NARROW — the sweep started at the 2nd card and never reached the edges. Measured off a full 8-card hand: the
+# card centres span ~0.18-0.82 of the window (≈1200px), i.e. ~170px apart for 8.
+_FAN_STEP_MAX = 178        # px: the widest per-card step (a small hand, cards barely overlapping)
+_FAN_FULL_WIDTH = 1200     # px: the full-hand span of card CENTRES (cards tighten to fit within this)
 _REVEAL_Y = 0.45           # name-band floor while a hovered card is MAGNIFIED — it lifts its banner well UP, so
 #                            this must reach much higher than the resting hand band (0.84). near_x keeps a
 #                            battlefield card of the same name (also in this band) from matching.
@@ -509,8 +515,9 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
         # occluded cards still get hovered.
         slots = max(n, 1)
         cx = rect.x + rect.w / 2.0
-        span = (slots - 1) * _FAN_SPACING
-        xs = [int(cx - span / 2 + k * _FAN_SPACING) for k in range(slots)]
+        spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, slots - 1))   # N-aware: fill the hand area, pack tighter when full
+        span = (slots - 1) * spacing
+        xs = [int(cx - span / 2 + k * spacing) for k in range(slots)]
     span = sorted(xs)
     return [(sx, _bowed_y(sx, span, top_y)) for sx in xs]
 
