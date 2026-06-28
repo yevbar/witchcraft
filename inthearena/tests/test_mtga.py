@@ -1567,6 +1567,21 @@ def _board_checks():
               robber is not None and int(0.476 * rect.w) - 0.06 * rect.w < robber[0] < int(0.476 * rect.w))
         check("BoardLocator P/T-anchored: newer creature is right of the robber (order preserved)",
               other is not None and other[0] > robber[0])
+
+        # SETTLE-RETRY: right after attackers are declared the board animates and the attacker's name OCRs
+        # garbled for a beat -> miss; the locator re-reads after a longer settle and finds it BY NAME (the
+        # reliable anchor) instead of falling to wrong fixed geometry.
+        reads = [[("Tin Stret Cdt", 0.43, 0.28)],                         # attempt 0: garbled -> no match
+                 [("Tin Street Cadet", 0.43, 0.28)]]                      # attempt 1 (settled): clean -> match
+        boardmod.ocr.recognize_text = lambda image: reads.pop(0) if reads else [("Tin Street Cadet", 0.43, 0.28)]
+        boardmod.cards.label = lambda g: "Tin Street Cadet"
+        atk = _apply({"type": "GameStateType_Full",
+                      "zones": [{"zoneId": 23, "type": "ZoneType_Battlefield", "ownerSeatId": 2}],
+                      "gameObjects": [{"instanceId": 900, "grpId": 1, "zoneId": 23, "controllerSeatId": 2,
+                                       "cardTypes": ["CardType_Creature"]}]})
+        hit = BoardLocator(DryRunActuator(rect=rect, image=object()), me=1).locate(900, atk)
+        check("BoardLocator settle-retries the NAME (garbled first read) instead of mis-placing by geometry",
+              hit == (int(0.43 * rect.w), int(0.28 * rect.h)))
     finally:
         boardmod.ocr.recognize_text, boardmod.cards.label = o_ocr, o_label
 

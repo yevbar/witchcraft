@@ -149,19 +149,24 @@ class BoardLocator:
         rect = self._act.window_rect()
         if rect is None:
             return None
-        self._act.hover(*rest_point(rect))                  # park the cursor away — nothing hover-distorted
-        self._act.wait(self._settle)
-        shot = self._act.screenshot()
         band = self._band(o)
-        named = locate_named_permanents(shot, rect, y_band=band)
-        hit = match_named_card(name, named)
-        if hit is not None:
-            _log.info("  board: %r located at (%d, %d)", name, hit[0], hit[1])
-            return hit
-        # Name not legible (during declare-blockers/targeting the OCR floods with the enlarged card's rules text,
-        # and short names often don't read). Place the creature by its RANK in the side's row (new permanents
-        # append on the RIGHT), anchored on the actual rendered cards via their P/T badges; fixed geometry is the
-        # last resort if the badges can't be aligned.
+        # The NAME is the most reliable anchor when it's legible — but right after attackers are declared the
+        # board is still ANIMATING (the attacker slides forward / highlights), which garbles its OCR for a beat.
+        # So try the name TWICE, settling LONGER on a miss, before resorting to badge/geometry placement.
+        shot = named = None
+        for attempt in range(2):
+            self._act.hover(*rest_point(rect))              # park the cursor away — nothing hover-distorted
+            self._act.wait(self._settle if attempt == 0 else self._settle * 2 + 0.4)
+            shot = self._act.screenshot()
+            named = locate_named_permanents(shot, rect, y_band=band)
+            hit = match_named_card(name, named)
+            if hit is not None:
+                _log.info("  board: %r located at (%d, %d)%s", name, hit[0], hit[1],
+                          " (after settle)" if attempt else "")
+                return hit
+        # Name still not legible (the enlarged-card rules text can flood the OCR; short names often don't read).
+        # Place the creature by its RANK in the side's row (new permanents append on the RIGHT), anchored on the
+        # actual rendered cards via their P/T badges; fixed geometry is the last resort if badges can't be aligned.
         i, ids = self._rank(instance_id, view)
         pos = self._pt_anchored_point(instance_id, view, rect, shot, band)
         how = "P/T-anchored"
