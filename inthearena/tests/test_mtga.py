@@ -523,6 +523,14 @@ def _engine_checks():
     st_yes = build_state(spellhand, me=1, seed=0, castable={170})
     check("engine: castable= feeds free_grant for that hand spell (none without it)",
           not st_no["free_grant"] and any(i.endswith("_170") for (_p, i) in st_yes["free_grant"]))
+    # RULES-AWARE SYNC: load_rules (default on) merges each KNOWN card's effect/ability facts, so the bot reasons
+    # about what cards DO move-by-move (removal/ETB/keywords), not just board stats; load_rules=False -> board-only
+    # (the old behavior). Self-gating: only asserts when the engine corpus loads and 105108 is covered.
+    st_rules = build_state(spellhand, me=1, seed=0, load_rules=True)
+    st_board = build_state(spellhand, me=1, seed=0, load_rules=False)
+    if st_rules.get("card_ability") or st_rules.get("card_effect"):
+        check("engine: load_rules merges the known card's rule facts (off -> board-only, none)",
+              not (st_board.get("card_ability") or st_board.get("card_effect")))
     if cards.available():
         has_cast = lambda gg: any(getattr(m, "kind", None) == "cast" for m in gg.legal_moves)
         check("engine: a payable hand spell (castable=) surfaces as a cast move",
