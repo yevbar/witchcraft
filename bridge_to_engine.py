@@ -3318,6 +3318,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if str(tgt) in ("that_creature", "that_creature_s_controller"):
+                    # §607.2 a 'that creature(' s controller)' RIDER referencing the spell's MAIN target (Team
+                    # Tactics' trample, Repulsor Blast's 2-to-controller — both gated 'if cast using teamwork').
+                    # The fresh-target model can't bind the anaphor, so emit a spell_rider the driver resolves
+                    # against its remembered pick (_run_spell_riders). Faithful subset: grant an engine keyword
+                    # to that creature, or deal a numeric amount to its controller; cond '-' or teamwork.
+                    rcond = "teamwork" if _cond == "was_cast_using_teamwork" else ("-" if _cond == "-" else None)
+                    if rcond is not None and verb == "grant_keyword" and str(tgt) == "that_creature" \
+                            and str(extra) in _ENGINE_KEYWORDS:
+                        add("spell_rider", (tid, "grant_keyword", str(extra), "that_creature", rcond)); continue
+                    if rcond is not None and verb == "deal_damage" and str(tgt) == "that_creature_s_controller" \
+                            and _int(amt) is not None:
+                        add("spell_rider", (tid, "deal_damage", str(_int(amt)), "that_creature_controller", rcond)); continue
+                    dropped.append(("scope", tgt)); continue  # any other anaphoric rider abstains (unchanged)
                 if verb == "becomes" and str(extra) in _COLOR_NAME.values() and _target_class(tgt) is not None:
                     # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps)
                     # -> a becomes_color spell_effect the driver resolves (pick a creature, set eff_set_color).

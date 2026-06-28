@@ -1299,6 +1299,8 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
     # triggers exactly once per (controller, source). Beneficial verbs (a pump/grant on your own creature)
     # have owner_of[tgt] == ctrl and are correctly skipped; a buff aimed at an opponent's creature IS a crime.
     _note_crime(state, ctrl, owner_of.get(tgt), a)
+    state.setdefault("_spell_pick", {})[a] = tgt              # §607.2 remember the chosen target so a 'that
+    #                                                          creature' rider (Team Tactics) can reference it.
     if verb == "modify_pt":
         dp, dt = (int(x) for x in payload.split("/"))
         eid = f"{a}__pt__{tgt}"
@@ -2890,6 +2892,7 @@ def _run_spell_effects(state: dict, spell: str, ctrl: str, tctrl: str | None = N
     _run_spell_targets(state, spell, tctrl)                   # §115 single-target creature effects (Murder, ...)
     _run_spell_scope(state, spell, ctrl)                      # board-scope creature effects (Overrun, Wrath, ...)
     _run_spell_damage(state, spell, tctrl)                    # §120 direct damage (Lightning Bolt, Shock, ...)
+    _run_spell_riders(state, spell, ctrl)                     # §607.2 'that creature(' s controller)' riders (teamwork)
     _run_spell_reanimate(state, spell, ctrl)                  # §701 reanimation (Resurrection, Zombify, ...)
 
 
@@ -3116,6 +3119,35 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
         _apply_damage(state, spell, int(n), kind, ctrl)
 
 
+def _run_spell_riders(state: dict, spell: str, ctrl: str) -> None:
+    """§607.2 a spell's 'that creature' / 'that creature's controller' RIDER — an effect whose target is the
+    creature the spell's MAIN effect already chose (stored in _spell_pick). The bridge emits these as
+    spell_rider(spell, verb, payload, target_ref, cond) for the forms whose anaphoric target the fresh-target
+    model can't bind; we resolve them against the remembered pick. Currently the TEAMWORK riders — Team
+    Tactics ('that creature gains trample') and Repulsor Blast ('deals 2 to that creature's controller') —
+    cond 'teamwork' applies ONLY if the spell was cast using teamwork; cond '-' always applies. No remembered
+    pick (the main effect found no target / fizzled) -> the rider has nothing to reference and is skipped."""
+    riders = [r for r in state.get("spell_rider", set()) if r[0] == spell]
+    if not riders:
+        return
+    pick = state.get("_spell_pick", {}).get(spell)
+    if pick is None:                                          # the main effect chose no creature -> rider no-ops
+        return
+    teamwork = (spell,) in state.get("cast_using_teamwork", set())
+    owner_of = {o: p for (p, o) in state.get("printed_control", set())}
+    for (_s, verb, payload, ref, cond) in sorted(riders):
+        if cond == "teamwork" and not teamwork:               # the rider's 'if cast using teamwork' gate
+            continue
+        if str(ref) == "that_creature":                       # the rider hits the same creature
+            v = "grant" if str(verb) == "grant_keyword" else str(verb)   # _apply_target_verb's keyword arm is 'grant'
+            _apply_target_verb(state, spell, "spell", v, str(payload), pick, ctrl, set(), owner_of)
+        elif str(ref) == "that_creature_controller":          # …or its controller (a player)
+            p = owner_of.get(pick)
+            if p is not None and str(verb) == "deal_damage":  # 'deals N to that creature's controller'
+                print(f"      {spell}: {p} (that creature's controller) takes {payload} -> "
+                      f"{_adjust_life(state, p, -int(payload))} life")
+
+
 def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None:
     """§120 resolve one direct-damage effect whose target the engine can't choose. A creature target ->
     lethality (n >= final toughness, unless indestructible, destroys it); a player -> life loss; 'any
@@ -3179,6 +3211,8 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
         if tgt is None:
             print(f"      {label} has no creature to damage")
         else:
+            state.setdefault("_spell_pick", {})[label] = tgt   # §607.2 remember the damaged creature for a
+            #                                                    'that creature('s controller)' rider (Repulsor Blast)
             _note_crime(state, ctrl, owner_of.get(tgt), label)  # §700.x crime iff the damaged creature is an opponent's
             if tough.get(tgt, 1) <= n:
                 kill(tgt)
