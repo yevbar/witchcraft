@@ -94,6 +94,42 @@ def run() -> None:
     check("only commander-answer is held even with another creature killable (reserve wins)",
           _burn(g, "b1") == float("-inf"))
 
+    # FORCED-WIN TAKE-OVER: a lethal line this turn is taken over any positional play.
+    def _burn_to_face(opp_life, dmg=3, mana=5):
+        # both players keep a library so a non-lethal sim doesn't auto-advance into a spurious deck-out loss
+        lib = {(pl, f"{pl}_lib{i}") for pl in ("alice", "bob") for i in range(20)}
+        st = {
+            "is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", opp_life)},
+            "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+            "in_hand": {("alice", "bolt_1")}, "in_library": lib,
+            "instance_of": {("bolt_1", "lightning_bolt")} | {(c, "forest") for (_p, c) in lib},
+            "card_ability": {("lightning_bolt", "a0", "spell")},
+            "card_effect": {("lightning_bolt", "a0", 0, "deal_damage", str(dmg), "any_target", "-", "-")},
+            "spell_type": {("bolt_1", "instant")}, "free_grant": {("alice", "bolt_1")},
+            "mana_available": {("alice", mana)},
+        }
+        g = Game.from_state(st); p = SocietyOfControlPlayer(); p.bind(g, "alice")
+        return g, p
+
+    g, p = _burn_to_face(2)                                       # 3-damage bolt, opponent at 2 -> lethal
+    check("is_win_forceable True when a lethal burn is available", p.is_win_forceable(g) is True)
+    win = p.force_win(g)
+    check("force_win returns the lethal cast move", getattr(win, "kind", None) == "cast")
+    check("choose_move TAKES the forced win (not a positional play)",
+          getattr(p.choose_move(g), "kind", None) == "cast")
+
+    g, p = _burn_to_face(5)                                       # 3-damage bolt, opponent at 5 -> NOT lethal
+    check("is_win_forceable False when no lethal line exists", p.is_win_forceable(g) is False)
+    check("force_win returns None when not lethal", p.force_win(g) is None)
+
+    g, p = _burn_to_face(40, mana=0)                              # out of reach -> the cheap gate skips the scan
+    check("force_win None (and gate skips) when the opponent is out of reach", p.force_win(g) is None)
+
+    # choose_x placeholder: lethal preferred when affordable, else max affordable
+    _, p = _burn_to_face(2)
+    check("choose_x picks the lethal value when affordable", p.choose_x(g, lethal=4, affordable=6) == 4)
+    check("choose_x falls back to max affordable when lethal is out of reach", p.choose_x(g, lethal=9, affordable=6) == 6)
+
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)
 

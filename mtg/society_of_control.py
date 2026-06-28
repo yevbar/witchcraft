@@ -59,8 +59,15 @@ class SocietyOfControlPlayer(Player):
     # biggest threat is answered first; >0 clears the floor=0.0 gate (it only fires on an actual kill).
     _BURN_BASE = 1.0
 
+    # forced-win gate slack: extra headroom on the cheap reach estimate so we never skip the (expensive) win scan
+    # when a real kill is on the table — only when nobody is plausibly in range.
+    _WIN_SLACK = 2
+
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
+        win = self.force_win(game)               # TAKE OVER: if a win is forceable THIS turn, close the game —
+        if win is not None:                      # a lethal line beats any positional heuristic (on our turn OR,
+            return win                           # at instant speed, on the opponent's: the commander 'mousetrap')
         return game.prioritize(
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
@@ -73,6 +80,68 @@ class SocietyOfControlPlayer(Player):
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
             Do.SKIP,                                            # else pass.
         )
+
+    # ---- forced-win take-over (close the game when lethal is available) --------------------------
+
+    def is_win_forceable(self, game) -> bool:
+        """True if a WIN is available THIS turn — a move whose resolution drops an opponent to 0 with us still
+        alive, on OUR turn or, at instant speed, on the OPPONENT's (the commander 'mousetrap': sink unspent mana
+        into its {X}: deal X ability for lethal). Just detects that a lethal move EXISTS now; `force_win` returns
+        the move and `choose_move` takes it — move-by-move, re-checked after each step (so we never have to
+        predict the opponent's replies, only react to the board in front of us)."""
+        return self.force_win(game) is not None
+
+    def force_win(self, game) -> "Move | None":
+        """The next Move of a lethal line available this turn, or None. TAKE OVER from the positional heuristic to
+        close the game. v1 = the first legal CAST/ACTIVATE/COMBAT move whose 1-ply resolution wins (lethal burn, a
+        lethal X 'mousetrap' activation — the engine auto-pays the max affordable X, so a killing activation reads
+        as a win here). Lands/pass can't win in one step and are skipped (cheap). A multi-card kill lands move-by-
+        move: each decision we re-detect, so the line is taken as it becomes lethal."""
+        # cheap gate: only bother simulating when the opponent is actually within reach this turn (avoids a full
+        # env.step scan every decision when there's obviously no kill).
+        if not self._lethal_plausible(game):
+            return None
+        for m in game.legal_moves:
+            if getattr(m, "kind", None) in (None, "pass", "skip", "play", "land"):
+                continue                                       # these never win on their own resolution
+            if self._wins_now(game, m):
+                return m
+        return None
+
+    def _lethal_plausible(self, game) -> bool:
+        """Cheap upper-bound gate for the win scan: is an opponent low enough that THIS turn's burst could plausibly
+        kill them? Bound = our untapped board power (a swing) + available mana (a proxy for X-burn / the mousetrap)
+        + a small slack. Conservative on the high side so we never gate out a real kill, but skips the expensive
+        simulation when nobody is in range."""
+        st = game.state
+        mana = max((m for (p, m) in st.get("mana_available", set()) if p == self.seat), default=0)
+        swing = sum(c.power for c in self.creatures if not c.tapped)
+        reach = mana + swing + self._WIN_SLACK
+        return any(v <= reach for p, v in game.life().items() if p != self.seat)
+
+    def _wins_now(self, game, move) -> bool:
+        """Does resolving `move` win immediately — every opponent to 0 (or the game over in our favour) with us
+        still alive? Simulated 1-ply via env.step (which auto-advances through resolution); False if the step can't
+        resolve (e.g. it needs a follow-up choice the lookahead can't supply)."""
+        try:
+            child = Game.from_state(env.step(game.state, move.raw))
+        except Exception:
+            return False
+        if child.is_game_over():
+            return child.winner() == self.seat
+        life = child.life()
+        return life.get(self.seat, 1) > 0 and any(v <= 0 for p, v in life.items() if p != self.seat)
+
+    def choose_x(self, game, *, lethal: int | None = None, affordable: int | None = None) -> int:
+        """PLACEHOLDER for the 'choose value for X' decision (the commander mousetrap's {X}: deal X). Pick X to be
+        exactly lethal when we know it, else the max affordable. NOTE: the engine ALREADY greedily pays the max
+        affordable X by default (driver._choose 'x_value'), so a self-play kill works without this — it's the hook
+        for once we drive X explicitly. TODO(inthearena): the live 'choose value for X' slider isn't a parsed GRE
+        Req yet, so the bridge can't enact it — next step is to STOP the bot on that screen, screenshot it, model
+        its Req, and wire an executor (set the slider to `choose_x`'s value, confirm)."""
+        if lethal is not None and (affordable is None or lethal <= affordable):
+            return lethal
+        return affordable or 0
 
     # ---- choices (score ONE move; game.prioritize picks the max in each category) ----------------
 
