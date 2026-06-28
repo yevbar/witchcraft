@@ -1373,6 +1373,11 @@ def _apply_target_verb(state: dict, a: str, kind: str, verb: str, payload: str, 
         # the engine combat AND env._legal_block_pairs). Turn-scoped: end-of-turn cleanup clears the relation.
         state.setdefault("cant_be_blocked", set()).add((tgt,))
         print(f"    {kind} {a}: {tgt} can't be blocked this turn")
+    elif verb == "cant_block":                               # §509.1b 'target creature can't block' (Spider-Man,
+        # Web-Spinner) — add the specific creature to _cant_block, which declare_blockers excludes from the
+        # legal blockers (it already drops any (b,) in _cant_block). Turn-scoped: cleared at end of turn.
+        state.setdefault("_cant_block", set()).add((tgt,))
+        print(f"    {kind} {a}: {tgt} can't block this turn")
 
 
 # perm[_own]_<token> class -> the printed types a candidate permanent must match (ANY of), or a special

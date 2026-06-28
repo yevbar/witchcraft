@@ -141,6 +141,11 @@ _EVENT = {
     "another_dragon_you_control_enters": "your_dragon_etb",
     "a_hero_you_control_enters": "your_hero_etb",                 # §603 Marvel Hero subtype-ETB (Team Transmitter)
     "another_hero_you_control_enters": "your_hero_etb",
+    # §603 'another VILLAIN and/or ARTIFACT you control enters' (HYDRA Assault Robot) — a Villain-subtype OR
+    # artifact-type union ETB (the engine fires on either via two rules).
+    "another_villain_and_or_artifact_you_control_enters": "your_villain_or_artifact_etb",
+    "a_villain_you_control_enters": "your_villain_etb",
+    "another_villain_you_control_enters": "your_villain_etb",
     # §603 'whenever equipped creature becomes tapped' (Hawkeye's Bow) — reuses ev_tapped + attached_to, the
     # same attached-permanent family as equipped_attacks / enchanted_dies.
     "equipped_creature_becomes_tapped": "equipped_becomes_tapped",
@@ -951,7 +956,11 @@ def _anthem_target(tgt: str, corpus: dict):
 
 # §613/§701 creature-scoped verbs: a board scope (self/your-creatures/all) the engine resolves, OR a
 # single 'target creature' the driver targets. Shared by triggered abilities and instant/sorcery spells.
-_CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand")
+_CREATURE_VERBS = ("modify_pt", "grant_keyword", "destroy", "exile", "tap", "untap", "return_to_hand",
+                   "cant_be_blocked", "cant_block")          # §509.1b TARGET combat restrictions (the Spider-Men):
+#                                                              the driver's _apply_target_verb writes cant_be_blocked
+#                                                              (tgt) / adds tgt to _cant_block. (Self/'it' forms still
+#                                                              fall to the self-only encoders — _target_class is None.)
 
 # §701.10 GRAVEYARD-HATE: 'exile [target] card from a graveyard' -> the exile_gy effect (effect_handlers.
 # library._apply_exile_gy), carrying a TYPE FILTER. We resolve ONLY the OWNER-UNRESTRICTED, MANDATORY,
@@ -3124,7 +3133,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # concrete creatures, NOT a player-target amount. Single 'target creature' abstains
                 # (needs a choice); only self / creatures_you_control / all_creatures apply.
                 if verb in ("modify_pt", "grant_keyword", "destroy",
-                            "exile", "tap", "untap", "return_to_hand"):
+                            "exile", "tap", "untap", "return_to_hand",
+                            "cant_be_blocked", "cant_block"):        # §509.1b TARGET combat restrictions
+                    #                                                  (the Spider-Men) — trigger_target is now
+                    #                                                  datalog-derived via single_verb; the bridge
+                    #                                                  leaves them to datalog (was the self-only
+                    #                                                  encoder dropping the target form here).
                     # ONE WORLD: the CREATURE-SCOPED P/T pump / keyword grant / §701 zone moves over a board
                     # scope (self / creatures_you_control / all_creatures) — trigger_effect_pt / _grant /
                     # _destroy / _exile / _tap / _untap / _return — and the SINGLE-TARGET modify_pt

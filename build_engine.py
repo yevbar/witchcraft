@@ -1046,6 +1046,10 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_dragon_etb")', "ev_etb(O)", "O != S", 'subtype(O, "dragon")', "controls(P, O)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_hero_etb")', "ev_etb(O)", "O != S", 'subtype(O, "hero")', "controls(P, O)", "controls(P, S)"],
            note="§603 Marvel Hero subtype-ETB (Team Transmitter) — mirrors your_dragon_etb")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_villain_etb")', "ev_etb(O)", "O != S", 'subtype(O, "villain")', "controls(P, O)", "controls(P, S)"])
+    # §603 'another villain and/or artifact you control enters' (HYDRA Assault Robot) — Villain OR artifact (union).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_villain_or_artifact_etb")', "ev_etb(O)", "O != S", 'subtype(O, "villain")', "controls(P, O)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_villain_or_artifact_etb")', "ev_etb(O)", "O != S", 'has_type(O, "artifact")', "controls(P, O)", "controls(P, S)"])
     # §603 'whenever you attack' — a creature you control attacks (controller-scoped; over-fires per attacker).
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_attack")', "ev_attacks(O)", "controls(P, O)", "controls(P, S)"])
     # §505/§603 'at the beginning of your first (precombat) main phase'.
@@ -1646,7 +1650,10 @@ def _emit_translate_triggered_target(p) -> None:
     p.decl("single_verb", [("verb", "symbol"), ("ev", "symbol")])
     p.facts(['single_verb("tap", "tap")', 'single_verb("untap", "untap")',
              'single_verb("destroy", "destroy")', 'single_verb("exile", "exile")',
-             'single_verb("return_to_hand", "return_to_hand")'])
+             'single_verb("return_to_hand", "return_to_hand")',
+             # §509.1b TARGET combat restrictions (the Spider-Men) — the driver's _apply_target_verb writes
+             # cant_be_blocked(tgt) / adds tgt to _cant_block; honored by the engine combat + declare_blockers.
+             'single_verb("cant_be_blocked", "cant_be_blocked")', 'single_verb("cant_block", "cant_block")'])
     p.comment("a non-battlefield-zone bounce/exile (from graveyard/exile/library/hand) is a DIFFERENT action")
     p.comment("than the battlefield zone move this single-target model applies — the bridge abstained on it.")
     p.decl("nonbf_zone", [("extra", "symbol")])
@@ -1812,7 +1819,9 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —")
     p.comment("destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).")
     p.decl("zone_move_verb", [("verb", "symbol")])
-    p.facts([f'zone_move_verb("{v}")' for v in ("destroy", "exile", "tap", "untap", "return_to_hand")])
+    p.facts([f'zone_move_verb("{v}")' for v in ("destroy", "exile", "tap", "untap", "return_to_hand",
+             "cant_be_blocked", "cant_block")])    # §509.1b TARGET combat restrictions (the Spider-Men) — same
+    #                  (verb, '-') target-class derivation; the driver's _apply_target_verb honors them.
 
     p.comment("an instance's spell put_counter clause -> the 'p1p1:N'/'m1m1:N' payload (was bridge._counter_payload):")
     p.comment("a P/T counter kind (extra column) + a POSITIVE integer amount. The amount is matched as a")
