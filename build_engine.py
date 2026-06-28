@@ -256,6 +256,15 @@ INPUTS = [
     ("just_gained_life", [("p", "symbol")]),                     # §603 a player whose life just INCREASED — 'whenever you gain life'
     ("ev_search_library", [("p", "symbol")]),                    # §701.18 a player who just searched their library (Wan Shi Tong)
     ("committed_crime", [("p", "symbol")]),                       # §700.x a player who just committed a crime (driver-fed crime window)
+    # §603.2c 'If you do' REFLEXIVE SEQUENCING — 'you may [DO X]. If you do, [Y]'. The bridge pairs the
+    # consequent ability instance to its antecedent (you_do_pair) and records the antecedent's optional cost
+    # (you_do_cost). did_optional(ante_IA) is the DRIVER-FED window: set iff the controller actually TOOK the
+    # optional cost X of antecedent ability instance ante_IA this resolution (default: not taken -> consequent
+    # never fires, the faithful 'declined' line). The consequent's trigger phrase is rewritten to 'you_did' so
+    # all the existing trigger_*/pending_* derivation applies; fires() gates it on did_optional below.
+    ("you_do_pair", [("cons", "symbol"), ("ante", "symbol")]),
+    ("you_do_cost", [("ante", "symbol"), ("kind", "symbol"), ("amount", "number")]),
+    ("did_optional", [("ante", "symbol")]),
     ("prevent_all_combat", [("marker", "symbol")]),               # §615 Fog — all combat damage this turn prevented
     # §614/§615 REPLACEMENT effects — cards reference these constantly; the engine provides the framework.
     ("repl_prevent_damage", [("e", "symbol"), ("src", "symbol"), ("tgt", "symbol")]),       # §615 prevent
@@ -306,6 +315,7 @@ EXPECT_DECLS = [
     ("expect_illegal_block", [("b", "symbol"), ("a", "symbol")]),
     ("expect_no_loss", [("p", "symbol")]),
     ("expect_fires", [("a", "symbol"), ("s", "symbol")]),
+    ("expect_no_fire", [("a", "symbol"), ("s", "symbol")]),   # §603.2c a trigger that must STAY silent (you_did gate)
     ("expect_controls", [("p", "symbol"), ("c", "symbol")]),
     ("expect_type", [("c", "symbol"), ("t", "symbol")]),
     ("expect_color", [("c", "symbol"), ("col", "symbol")]),
@@ -335,6 +345,7 @@ CHECKS = [
     ("illegal_block", "expect_illegal_block(B, A)", "miss", "illegal_block(B, A)"),
     ("no_loss", "expect_no_loss(P)", "hit", "loses_game(P)"),
     ("fires", "expect_fires(A, S)", "miss", "fires(A, S)"),
+    ("no_fire", "expect_no_fire(A, S)", "hit", "fires(A, S)"),
     ("controls", "expect_controls(P, C)", "miss", "controls(P, C)"),
     ("ctype", "expect_type(C, T)", "miss", "has_type(C, T)"),
     ("color", "expect_color(C, Col)", "miss", "color(C, Col)"),
@@ -413,6 +424,26 @@ SCENARIOS = [
     'has_trigger("t3", "altar", "sacrificed_self")', 'trigger_effect("t3", "draw", 1, "controller")',
     'controls("alice", "altar")', 'sacrificed("altar")', 'phased_out("mist")', 'countered("bolt2")',
     'expect_fires("t3", "altar")', 'expect_lookback("sacrificed_self")', 'expect_lookback("dies_self")',
+    # §603.2c 'If you do' SEQUENCING — two reflexive 'you_did' consequents sharing the same SHAPE; the only
+    # difference is whether the antecedent's optional cost was taken (the did_optional window). yd_take's
+    # antecedent cost WAS paid -> it fires; yd_skip's was NOT -> it must stay silent. This is the Y-gated-on-X
+    # invariant at the engine layer (the driver supplies did_optional iff the controller actually paid X).
+    'has_trigger("yd_take", "relic", "you_did")', 'you_do_pair("yd_take", "relic_ante")', 'did_optional("relic_ante")',
+    'trigger_effect("yd_take", "draw", 1, "controller")', 'expect_fires("yd_take", "relic")',
+    'has_trigger("yd_skip", "idol", "you_did")', 'you_do_pair("yd_skip", "idol_ante")',
+    'trigger_effect("yd_skip", "draw", 1, "controller")',  # no did_optional("idol_ante") -> must NOT fire
+    'expect_no_fire("yd_skip", "idol")',
+    # §603.2c END-TO-END through the CARD-PARSE-FACT path: a consequent ability fed as card_ability +
+    # ability_trigger("you_did") + card_effect (exactly what the bridge emits) must derive its effect (Y)
+    # through the SAME translate rules every triggered ability uses — here 'destroy all_creatures' -> the
+    # board-scope trigger_effect_destroy -> pending_destroy — once did_optional gates it on. This proves the
+    # rewrite reuses the existing consequent-resolution machinery (no bespoke per-verb you_did handling).
+    'instance_of("wipe", "wipecard")', 'on_battlefield("wipe")', 'printed_type("wipe", "creature")', 'printed_control("alice", "wipe")',
+    'card_ability("wipecard", "wcons", "triggered")', 'ability_trigger("wipecard", "wcons", "you_did")',
+    'card_effect("wipecard", "wcons", 0, "destroy", "-", "all_creatures", "-", "-")',
+    'you_do_pair("wipe_wcons", "wipe_wante")', 'did_optional("wipe_wante")',
+    'on_battlefield("doomed")', 'printed_type("doomed", "creature")', 'printed_control("bob", "doomed")',
+    'expect_fires("wipe_wcons", "wipe")', 'expect_pending_destroy("wipe_wcons", "doomed")',
     # §613.4 layer 7b SET + 7c modify — clay is printed 1/1, set to 4/4, then a +1/+1 counter -> power 5.
     'on_battlefield("clay")', 'printed_type("clay", "creature")', 'printed_power("clay", 1)', 'printed_toughness("clay", 1)',
     'eff_set_power("forge", "clay", 4, 1)', 'eff_set_toughness("forge", "clay", 4, 1)', 'counter("clay", "p1p1", 1)', 'printed_control("alice", "clay")',
@@ -1119,6 +1150,13 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "phased_out_self")', "ev_phase_out(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "countered_self")', "ev_countered(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "player_loses_game")', "ev_loses_game(_)"], note="§603.9")
+    p.comment("§603.2c 'If you do' REFLEXIVE consequent — the 'you_did' ability fires iff the controller TOOK")
+    p.comment("the optional cost of its paired antecedent (the driver-fed did_optional window). The consequent's")
+    p.comment("source S is its own instance; you_do_pair links it to the antecedent instance the window keys on.")
+    p.comment("Default (cost declined): no did_optional row -> the consequent never fires (the faithful line —")
+    p.comment("Y resolves ONLY when X is actually taken). The consequent's effects (Y) already derive their")
+    p.comment("trigger_*/pending_* rows from event_map('you_did',_), so a fires() here surfaces them unchanged.")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_did")', "you_do_pair(A, Ante)", "did_optional(Ante)"], note="§603.2c")
     p.comment("§603.10 'look back in time' events, INTERPRETED from rules.txt by build_lookback.")
     p.comment("Each engine trigger-event key bridges to its §603.10 phrase; the key is a look-back")
     p.comment("trigger iff the rules say that phrase looks back (so the table is rules-driven, not asserted).")
@@ -1304,6 +1342,10 @@ def _emit_translate(p) -> None:
     p.comment("relations itself. event_map = the §603 trigger-phrase -> engine-event table (was bridge._EVENT).")
     p.decl("event_map", [("phrase", "symbol"), ("event", "symbol")])
     p.facts([f'event_map("{ph}", "{ev}")' for ph, ev in sorted(_b._EVENT.items())])
+    p.comment("§603.2c the synthetic 'you_did' phrase the bridge rewrites a tractable 'If you do' consequent's")
+    p.comment("trigger to — mapping it here lets ALL the trigger_*/pending_* derivation fire for the consequent's")
+    p.comment("effects (Y); fires() then gates the consequent on did_optional(antecedent) (the X-was-taken window).")
+    p.facts(['event_map("you_did", "you_did")'])
     p.comment("pscope_effect = a player-scoped effect verb -> the engine effect name (was bridge._EFFECT slice).")
     p.decl("pscope_effect", [("verb", "symbol"), ("eff", "symbol")])
     p.facts([f'pscope_effect("{v}", "{e}")' for v, e in sorted(_PSCOPE_EFFECT.items())])

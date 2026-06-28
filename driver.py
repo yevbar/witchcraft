@@ -237,6 +237,98 @@ def _fire_counter_placed_triggers(state: dict) -> None:
         _apply_effects(state, new, new_dyn)                  # placement re-arms _just_p1p1_placed for the next round
     state["just_p1p1_placed"] = set()
     state.pop("_just_p1p1_placed", None)                     # cap hit -> drop any residual so it can't leak forward
+def _fire_you_do_costs(state: dict) -> None:
+    """§603.2c 'If you do' SEQUENCING — for each FIRED antecedent ability that carries an optional cost
+    (you_do_cost), OFFER the cost through the _choose seam (key 'you_do_<kind>', DEFAULT = decline — the
+    faithful common line, leaving the consequent inert exactly as before this feature). Iff the controller
+    elects to pay AND can afford it, PAY the cost, open the did_optional(ante_IA) window so the engine fires
+    the paired 'you_did' consequent (the SAME reflexive-window pattern as just_tapped / just_gained_life),
+    apply the NEW pending the window produces (the consequent Y), then CLOSE the window. The consequent
+    resolves through the shared effect path — its targets/scope come from the engine exactly like any trigger.
+
+    Mirrors _fire_lifegain_triggers: read the ANTECEDENT abilities that fired this checkpoint, diff the pending
+    so only the consequent's NEW effects are applied. Costs the driver can model: pay {N} mana / sacrifice a
+    creature / exile this / discard a card / pay N life. An unaffordable or declined cost is a faithful no-op."""
+    costs = {a: (k, int(n)) for (a, k, n) in state.get("you_do_cost", set())}
+    if not costs:
+        return
+    fired = {a for (a, _s) in run(state, ["fires"])["fires"] if a in costs}   # antecedent IAs that fired now
+    for ante in sorted(fired):
+        kind, amt = costs[ante]
+        # ante IA == f'{src}_{aid}'; recover its source instance (the LONGEST controlled-instance prefix of the
+        # IA, since aid may itself contain '_') and that instance's controller.
+        src = max((c for (_p, c) in state.get("printed_control", set()) if ante.startswith(f"{c}_")),
+                  key=len, default=None)
+        ctrl = next((p for (p, c) in state.get("printed_control", set()) if c == src), None) if src else None
+        if ctrl is None:
+            continue
+        if not _pay_optional_cost(state, src, kind, amt, ctrl, dry_run=True):
+            continue                                          # can't afford / nothing to pay with -> can't take it
+        if not _choose(state, f"you_do_{kind}", (False, True), False):
+            continue                                          # DEFAULT: decline (consequent stays inert)
+        if not _pay_optional_cost(state, src, kind, amt, ctrl, dry_run=False):
+            continue
+        before, before_dyn = _pending_both(state)             # open the reflexive window for THIS antecedent only
+        state.setdefault("did_optional", set()).add((ante,))
+        now, now_dyn = _pending_both(state)
+        new, new_dyn = now - before, now_dyn - before_dyn
+        state["did_optional"].discard((ante,))                # CLOSE before applying (consequent shouldn't re-fire)
+        print(f"    §603.2c {ctrl} takes the optional {kind} cost of {ante} -> its 'if you do' consequent resolves")
+        _apply_effects(state, new, new_dyn)
+
+
+def _pay_optional_cost(state: dict, src: str, kind: str, amt: int, ctrl: str, dry_run: bool) -> bool:
+    """Pay (or test affordability of) an 'If you do' antecedent's optional cost. Returns True if the cost is
+    payable (and, when not dry_run, was paid). `src` is the antecedent ability's source permanent instance."""
+    if kind == "pay":                                         # §118 generic mana
+        _refresh_mana_pool(state, ctrl)
+        avail = next((m for (q, m) in state.get("mana_available", set()) if q == ctrl), 0)
+        if avail < amt:
+            return False
+        if not dry_run:
+            _spend_ability_mana(state, ctrl, amt)
+        return True
+    if kind == "pay_life":                                    # §119 pay N life (amt 0 = a variable cost — skip)
+        if amt <= 0:
+            return False
+        if next((l for (p, l) in state.get("life", set()) if p == ctrl), 0) <= amt:
+            return False                                      # don't pay yourself to 0 or below for an optional perk
+        if not dry_run:
+            _adjust_life(state, ctrl, -amt)
+        return True
+    if kind == "exile_self":                                 # 'you may exile this' — the source leaves for exile
+        if (src,) not in state.get("on_battlefield", set()) and (src,) not in state.get("graveyard", set()):
+            return False
+        if not dry_run:
+            for z in ("on_battlefield", "graveyard"):
+                state.get(z, set()).discard((src,))
+            state.setdefault("exile", set()).add((src,))
+        return True
+    if kind == "sacrifice":                                  # 'you may sacrifice a creature'
+        cands = _sac_candidates(state, ctrl, "creature", src)
+        if not cands:
+            return False
+        if not dry_run:
+            for _ in range(max(1, amt)):
+                cands = _sac_candidates(state, ctrl, "creature", src)
+                if not cands:
+                    break
+                _sacrifice(state, _choose(state, "sacrifice", cands, _sac_default(state, cands, src)))
+        return True
+    if kind == "discard":                                   # 'you may discard a card'
+        hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
+        if not hand:
+            return False
+        if not dry_run:
+            for _ in range(max(1, amt)):
+                hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
+                if not hand:
+                    break
+                card = _choose(state, "discard", hand, hand[0])
+                state["in_hand"].discard((ctrl, card))
+                state.setdefault(_discard_zone(state, ctrl), set()).add((card,))
+        return True
+    return False
 
 
 # --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
@@ -3417,6 +3509,7 @@ def _resolve_stack(state: dict, ap: str, players: list) -> None:
         _resolve_top(state)                                  # all passed -> resolve the top object
         _fire_lifegain_triggers(state)                       # §603 'whenever you gain life' for any gain this resolution
         _fire_counter_placed_triggers(state)                 # §603/§122 '+1/+1 counter(s) put on ~' for any counters this resolution
+        _fire_you_do_costs(state)                            # §603.2c 'If you do' — offer any fired antecedent's optional cost
     state["has_priority"] = set()
 
 
@@ -3906,6 +3999,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
             _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
             _fire_lifegain_triggers(state)           # §603 'whenever you gain life' for any gain this step (combat lifelink, effects)
             _fire_counter_placed_triggers(state)     # §603/§122 '+1/+1 counter(s) put on ~' for any counters this step (effects)
+            _fire_you_do_costs(state)                # §603.2c 'If you do' — offer any fired antecedent's optional cost
             if step == "end":                        # §513 'at the beginning of your next end step' deliveries
                 _deliver_necro(state, ap)            # §601 Necropotence: exiled cards come to hand at end step
                 _return_stolen(state, ap)            # §608 Mnemonic Betrayal: stolen cards return to graveyards

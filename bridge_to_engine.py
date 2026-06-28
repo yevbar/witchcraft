@@ -1719,6 +1719,56 @@ def _fold_optional_pay(effs: list, emit) -> set:
     return skip
 
 
+# §603.2c 'If you do' SEQUENCING — the 'you may [DO X]. If you do, [Y]' reflexive trigger. The parser splits
+# the clause into TWO sibling abilities: the antecedent ability <pref>_0 carrying the optional action X (its
+# last effect's cond/extra column is 'may'), and a SEPARATE consequent ability <pref>_1 whose trigger phrase
+# is the synthetic 'you_do' and whose effects are Y. Today the consequent DROPS at the unmapped 'you_do'
+# event gate (its effects sit inert in card_effect). This is the SAME shape _fold_optional_pay already models
+# (an optional cost gating a consequent) — only here the two halves live in separate abilities.
+#
+# FAITHFUL MODEL (Y resolves ONLY when X is actually taken): when X is an OPTIONAL COST the engine can model
+# (pay mana / sacrifice / exile self / discard / pay life), the bridge (a) rewrites the consequent's trigger
+# phrase 'you_do' -> 'you_did' (an event_map'd event, so ALL the existing consequent-resolution rules —
+# trigger_target / trigger_effect / pending_* — derive for it exactly as for any other triggered ability),
+# (b) emits you_do_pair(cons_IA, ante_IA) so the engine's fires() rule gates the consequent on did_optional(
+# ante_IA), and (c) emits you_do_cost(ante_IA, kind, amount) so the driver OFFERS the optional cost (default:
+# decline — the consequent stays inert, exactly today's behaviour) and, iff the controller pays, fires the
+# did_optional window that lets Y resolve. Anything that ISN'T a clean optional cost — an unmodelled ACTION
+# antecedent ('if you cast', 'create a token', 'forage', a mandatory sacrifice with no 'may'), a multi-step
+# 'if you do … then if you do' chain, or a non-X_0/X_1 sibling pairing — ABSTAINS (the consequent keeps
+# dropping at the you_do gate, recorded as the honest gap tag ('you_do', <reason>)).
+_YOU_DO_COST = {"pay", "sacrifice", "exile", "discard"}     # antecedent verbs that ARE a modelable optional cost
+
+
+def _you_do_cost(ante_eff) -> tuple | None:
+    """The antecedent ability's optional cost as (kind, amount) iff it is a clean, engine-modelable optional
+    cost ('you MAY pay/sacrifice/exile/discard …'); else None (abstain). The 'may' lives in the effect's cond
+    (last) column. 'pay' must be a parseable mana value; 'pay X_life' is a life cost; sacrifice/exile/discard
+    carry their count (default 1)."""
+    if ante_eff is None:
+        return None
+    _seq, verb, amt, tgt, extra, cond = ante_eff
+    may = "may" in str(cond) or "may" in str(extra)
+    if not may or verb not in _YOU_DO_COST:
+        return None
+    if verb == "pay":
+        if str(amt) == "x_life" or "life" in str(amt):
+            n = _life_cost(amt) if "life" in str(amt) and amt != "x_life" else None
+            return ("pay_life", n if n is not None else 0)   # 0 = a variable/X life cost the driver sizes
+        cost = _pact_cost(amt)
+        return ("pay", cost) if cost is not None else None   # a non-mana 'pay' (pay X, pay an unparseable cost)
+    if verb == "exile":
+        # only the self-exile shape ('you may exile it/~') is a clean, sourced cost; exiling OTHER objects is
+        # itself a targeted action (and often the WHOLE effect), not a payment — abstain on it.
+        if str(tgt) not in ("it", "self", "him", "her", "this", "itself"):
+            return None
+        return ("exile_self", 1)
+    if verb in ("sacrifice", "discard"):
+        n = _int(amt)
+        return (verb, n if n is not None else 1)             # 'a creature'/'a card' -> count 1
+    return None
+
+
 # §118.9 'cast a <filter> spell with mana value N or less from your <zone> without paying its mana cost'
 # (Kari Zev's Expertise from hand, Storm of Memories from the graveyard). Parse the zone / type filter / MV
 # cap from the target slug into a cast_free payload the driver resolves (pick a matching card, cast it free).
@@ -2693,6 +2743,31 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if _ab.get("kind") == "triggered" and not _ab.get("effects") and _EVENT.get(_ab.get("trigger")):
                 modal_trigger_aid = _aid
                 break
+    # §603.2c 'If you do' SEQUENCING — pre-pair each tractable 'you_do' consequent ability with its antecedent
+    # (the X_0/X_1 SIBLING the parser split it from) whose last effect is a modelable OPTIONAL COST. Maps the
+    # consequent aid -> (ante_aid, (cost_kind, cost_amount)); used in BOTH the parse-fact loop (rewrite the
+    # consequent's trigger 'you_do' -> 'you_did' + emit the pairing/cost facts) and the driver-fold loop
+    # (consume the you_do trigger so it isn't dropped). Anything not a clean optional-cost X stays unpaired and
+    # keeps dropping at the you_do gate (faithful abstain). The dropped-event accounting records the reason.
+    _abil_items = list((f.get("abilities") or {}).items())
+    you_do_pairs: dict = {}                                    # cons_aid -> (ante_aid, (kind, amount))
+    you_do_drops: dict = {}                                    # cons_aid -> abstain reason (for the gap tag)
+    for _i, (_cid, _cab) in enumerate(_abil_items):
+        if _cab.get("trigger") != "you_do":
+            continue
+        if _i == 0:                                            # no preceding ability to be the antecedent
+            you_do_drops[_cid] = "no_antecedent"; continue
+        _pref = _cid.rsplit("_", 1)[0]                         # 'a1_1' -> 'a1'; the antecedent is the '_0' sibling
+        _ante_id, _ante_ab = _abil_items[_i - 1]
+        if not (_cid.endswith("_1") and _ante_id == f"{_pref}_0"):
+            you_do_drops[_cid] = "non_sibling_antecedent"; continue   # not the clean X_0/X_1 split — abstain
+        _ante_effs = _norm_self(_ante_ab.get("effects", []), self_aliases)
+        _cost = _you_do_cost(_ante_effs[-1] if _ante_effs else None)
+        if _cost is None:
+            you_do_drops[_cid] = "antecedent_not_optional_cost"; continue   # an action/mandatory antecedent — abstain
+        if len(_cab.get("effects", [])) > 1 and any("if_you" in str(_e[5]) for _e in _cab.get("effects", [])):
+            you_do_drops[_cid] = "chained_if_you_do"; continue # a multi-step 'if you do … then if you do' — abstain
+        you_do_pairs[_cid] = (_ante_id, _cost)
     for aid, ab in (f.get("abilities") or {}).items():        # card_ability/card_effect — that would MERGE every mode
         if aid in modal_modes:                               # into the flat spell_* relations (a mode-choice leak).
             continue                                         # modes resolve ONLY via the mode-gated spell_effect_mode
@@ -2705,7 +2780,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if d is not None:
                 add("loyalty_ability", (facts, aid, d))
         if ab.get("trigger"):
-            add("ability_trigger", (facts, aid, ab["trigger"]))
+            if aid in you_do_pairs:                            # §603.2c a tractable 'If you do' consequent: rewrite the
+                ante_aid, (ckind, camt) = you_do_pairs[aid]    # synthetic 'you_do' phrase -> the event_map'd 'you_did'
+                add("ability_trigger", (facts, aid, "you_did"))   # so the consequent's effects derive their trigger_* /
+                cons_ia, ante_ia = f"{tid}_{aid}", f"{tid}_{ante_aid}"   # pending_* rows like any other triggered ability,
+                add("you_do_pair", (cons_ia, ante_ia))         # and the engine fires() gates it on did_optional(ante_IA).
+                add("you_do_cost", (ante_ia, ckind, int(camt)))   # the driver OFFERS this optional cost (default decline).
+            else:
+                add("ability_trigger", (facts, aid, ab["trigger"]))
         wheel = _wheel_of(ab.get("effects", []))                # §103.2 the wheel's DRAW is owned by the wheel
         wheel_draw_seq = ab["effects"][wheel[1]][0] if wheel else None   # effect (atomic) — skip its card_effect
         for (seq, verb, amt, tgt, extra, cond) in ab.get("effects", []):
@@ -2868,6 +2950,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         dropped.append(("effect", verb))
                         continue
                     add("class_level_effect", (tid, lvl, r[0], r[1], r[2]))
+                continue
+            if str(ab.get("trigger")) == "you_do":
+                # §603.2c the 'If you do' consequent. A tractable pair was already rewritten to 'you_did' in the
+                # parse-fact loop (its effects resolve engine-side, gated on did_optional) — consume it here so
+                # it isn't double-dropped. An UNtractable one abstains with the honest reason (action/mandatory/
+                # chained antecedent, or a non-sibling split) so the gap analysis stays accurate.
+                if aid in you_do_pairs:
+                    continue
+                dropped.append(("you_do", you_do_drops.get(aid, "unpaired")))
                 continue
             event = _EVENT.get(ab.get("trigger"))
             if event is None:
