@@ -3181,7 +3181,8 @@ def _run_spell_riders(state: dict, spell: str, ctrl: str) -> None:
         if cond == "teamwork" and not teamwork:               # the rider's 'if cast using teamwork' gate
             continue
         if str(ref) == "that_creature":                       # the rider hits the same creature
-            v = "grant" if str(verb) == "grant_keyword" else str(verb)   # _apply_target_verb's keyword arm is 'grant'
+            # _apply_target_verb's keyword arm is 'grant'; its counter arm is 'counter' (payload 'm1m1:N').
+            v = {"grant_keyword": "grant", "put_counter": "counter"}.get(str(verb), str(verb))
             _apply_target_verb(state, spell, "spell", v, str(payload), pick, ctrl, set(), owner_of)
         elif str(ref) == "that_creature_controller":          # …or its controller (a player)
             p = owner_of.get(pick)

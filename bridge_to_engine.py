@@ -3392,6 +3392,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if rcond is not None and verb == "deal_damage" and str(tgt) == "that_creature_s_controller" \
                             and _int(amt) is not None:
                         add("spell_rider", (tid, "deal_damage", str(_int(amt)), "that_creature_controller", rcond)); continue
+                    if rcond is not None and verb == "put_counter" and str(tgt) == "that_creature" \
+                            and _counter_payload(amt, extra) is not None:
+                        # §122 'Put a -1/-1 counter on that creature' (Puncture Bolt's rider on the just-damaged
+                        # target) — a persistent +1/+1 / -1/-1 counter on the spell's remembered pick.
+                        add("spell_rider", (tid, "put_counter", _counter_payload(amt, extra), "that_creature", rcond)); continue
                     dropped.append(("scope", tgt)); continue  # any other anaphoric rider abstains (unchanged)
                 if verb == "becomes" and str(extra) in _COLOR_NAME.values() and _target_class(tgt) is not None:
                     # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps)
