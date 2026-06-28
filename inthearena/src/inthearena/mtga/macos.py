@@ -166,6 +166,7 @@ def double_click_quartz(x: int, y: int, *, hold: float = 0.0, gap: float = 0.015
 
 
 _NX_LMOUSEDOWN, _NX_LMOUSEUP, _NX_MOUSEMOVED, _NX_VER = 1, 2, 5, 2
+_NX_SCROLLWHEELMOVED = 22                                  # NX event type (IOLLEvent.h); 11 is NX_KEYUP, not scroll
 
 
 def _iohid_open():
@@ -236,6 +237,67 @@ def click_iohid(x: int, y: int, *, hold: float = 0.10) -> dict:
     md.pressure = 0
     out["up"] = iokit.IOHIDPostEvent(connect, _NX_LMOUSEUP, loc, ctypes.byref(md), _NX_VER, 0, 0) & 0xFFFFFFFF
     return out
+
+
+def scroll(x: int, y: int, lines: int) -> dict:
+    """Post a real NX scroll-wheel event at (x, y) via IOHIDPostEvent — the SAME raw-HID path MTGA honours for
+    movement (it ignores plain CGEvent/pyautogui input, see PyAutoGuiActuator). The pointer is first moved to
+    (x, y) so the client applies the scroll over that spot. `lines` is the wheel delta: POSITIVE scrolls UP,
+    NEGATIVE scrolls DOWN (so -N pages a collection toward the bottom). Returns IOKit status codes
+    ({'open':0,'scroll':0} = accepted); if MTGA still doesn't move, no new cards appear and the caller stops."""
+    import ctypes
+    import time
+    iokit, connect, IOGPoint, _MD, rc = _iohid_open()
+    out = {"open": rc}
+    if connect is None:
+        return out
+
+    class NXScrollData(ctypes.Structure):                  # the scrollWheel arm of NXEventData (+ padding)
+        _fields_ = [("deltaAxis1", ctypes.c_int16), ("deltaAxis2", ctypes.c_int16), ("deltaAxis3", ctypes.c_int16),
+                    ("reserved1", ctypes.c_int16),
+                    ("fixedDeltaAxis1", ctypes.c_int32), ("fixedDeltaAxis2", ctypes.c_int32),
+                    ("fixedDeltaAxis3", ctypes.c_int32),
+                    ("pointDeltaAxis1", ctypes.c_int32), ("pointDeltaAxis2", ctypes.c_int32),
+                    ("pointDeltaAxis3", ctypes.c_int32),
+                    ("pad", ctypes.c_uint8 * 80)]          # over-allocate to cover the full union
+
+    loc = IOGPoint(int(x), int(y))
+    md = _MD()
+    iokit.IOHIDPostEvent(connect, _NX_MOUSEMOVED, loc, ctypes.byref(md), _NX_VER, 0, 0)   # pointer here first
+    time.sleep(0.03)
+    sd = NXScrollData()
+    sd.deltaAxis1 = int(lines)
+    sd.pointDeltaAxis1 = int(lines) * 10                   # point-delta mirrors the line-delta for trackpad-style
+    out["scroll"] = iokit.IOHIDPostEvent(connect, _NX_SCROLLWHEELMOVED, loc, ctypes.byref(sd),
+                                         _NX_VER, 0, 0) & 0xFFFFFFFF
+    return out
+
+
+def drag_scroll(x: int, y_from: int, y_to: int, *, steps: int = 14, settle: float = 0.012,
+                hold: float = 0.06) -> dict:
+    """Scroll a Unity ScrollRect (the collection grid) by DRAGGING its content: press at (x, y_from), glide to
+    (x, y_to) while held, release. Uses the input path MTGA honours — IOHIDPostEvent for the MOTION (so the
+    client's pointer actually tracks the drag) + pyautogui for the button down/up (a bare CGEvent press no-ops;
+    after an IOHID move it registers, the same recipe clicks use). Drag UP (y_from > y_to) to scroll DOWN. The
+    grid follows the pointer ~1:1, so the drag span sets the scroll distance. Best-effort; returns status."""
+    import time
+    try:
+        import pyautogui
+    except Exception as e:                                  # pragma: no cover - desktop only
+        return {"err": f"pyautogui: {e}"}
+    activate_app_applescript("MTGA") or activate_app_applescript("Arena")
+    time.sleep(0.15)
+    iohid_move(int(x), int(y_from))
+    time.sleep(0.05)
+    pyautogui.mouseDown(int(x), int(y_from), button="left")
+    time.sleep(hold)
+    for i in range(1, steps + 1):
+        yi = int(y_from + (y_to - y_from) * i / steps)      # IOHID-move through the drag so the client tracks it
+        iohid_move(int(x), yi)
+        time.sleep(settle)
+    time.sleep(hold)
+    pyautogui.mouseUp(int(x), int(y_to), button="left")
+    return {"from": y_from, "to": y_to}
 
 
 def activate_app(pid: int) -> bool:
