@@ -153,10 +153,14 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
     pool = [_slug(n) for n in (opponent_deck or _DEFAULT_POOL)]
     hidden_n = [0]
 
+    commander_grps = getattr(view, "commander_grps", set()) or set()
+
     def place_visible(o: GameObject, zone: str, seat_name: str) -> None:
         slug = _slug(cards.card_name(o.grpId))
         inst = f"{slug}_{o.instanceId}"
         s["instance_of"].add((inst, slug))
+        if o.grpId in commander_grps:                      # a commander stays one ON THE BATTLEFIELD too (the
+            s["is_commander"].add((inst,))                 # command-zone branch below only catches it pre-cast)
         for ct in o.cardTypes:
             s["printed_type"].add((inst, _eng(ct)))
             # spell_type is a SHIM INPUT keyed per-instance (engine.dl SHIM_INPUTS), NOT derived from

@@ -24,7 +24,7 @@ def check(name: str, cond: bool) -> None:
 
 def _game(*, hand, effects, creatures):
     """A minimal engine state: `hand` = [(inst, slug)], `effects` = {slug: (amount, scope)} deal_damage facts,
-    `creatures` = [(power, toughness, controller)] on the battlefield."""
+    `creatures` = [(power, toughness, controller)] or [(power, toughness, controller, is_commander)] battlefield."""
     st = {
         "is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
         "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
@@ -33,9 +33,10 @@ def _game(*, hand, effects, creatures):
         "card_ability": {(s, "a0", "spell") for s in effects},
         "card_effect": {(s, "a0", 0, "deal_damage", str(a), scope, "-", "-") for s, (a, scope) in effects.items()},
         "on_battlefield": set(), "printed_control": set(), "printed_type": set(),
-        "printed_power": set(), "printed_toughness": set(),
+        "printed_power": set(), "printed_toughness": set(), "is_commander": set(),
     }
-    for n, (p, t, ctrl) in enumerate(creatures):
+    for n, spec in enumerate(creatures):
+        p, t, ctrl = spec[:3]
         cid = f"c{n}"
         st["instance_of"] |= {(cid, "grizzly_bears")}
         st["on_battlefield"] |= {(cid,)}
@@ -43,6 +44,8 @@ def _game(*, hand, effects, creatures):
         st["printed_type"] |= {(cid, "creature")}
         st["printed_power"] |= {(cid, p)}
         st["printed_toughness"] |= {(cid, t)}
+        if len(spec) > 3 and spec[3]:
+            st["is_commander"] |= {(cid,)}
     return Game.from_state(st)
 
 
@@ -75,6 +78,20 @@ def run() -> None:
 
     g = _game(hand=[("b1", "bombard")], effects={}, creatures=[(2, 2, "bob")])
     check("burn_choice is inert when card rules aren't loaded (no card_effect -> -inf)",
+          _burn(g, "b1") == float("-inf"))
+
+    # COMMANDER RESERVE: hold the only commander-answer; spend it only with a backup in hand.
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True)])  # commander, only answer
+    check("burn_choice reserves our ONLY commander-answer (don't spend the last one)", _burn(g, "b1") == float("-inf"))
+
+    g = _game(hand=[("b1", "bombard"), ("b2", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True)])
+    check("burn_choice kills the commander when a BACKUP answer is in hand", _burn(g, "b1") == 1.0 + 3)
+
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(5, 5, "bob", True), (2, 2, "bob")])
+    check("commander un-killable by this spell -> reserve rule off, kills the 2/2", _burn(g, "b1") == 1.0 + 2)
+
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True), (2, 2, "bob")])
+    check("only commander-answer is held even with another creature killable (reserve wins)",
           _burn(g, "b1") == float("-inf"))
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")

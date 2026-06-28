@@ -109,7 +109,11 @@ class SocietyOfControlPlayer(Player):
         otherwise, so the floor=0.0 gate skips it (no lethal target -> hold it; a face-burn 'any target' spell ->
         handled by the resolve line). Lethality is `damage >= toughness` (ignores marked damage / deathtouch /
         indestructible — a heuristic). Active wherever card rules are loaded (engine self-play now; the live
-        bridge once the card's coverage loads). (Picking WHICH creature at resolution is the resolve-line job.)"""
+        bridge once the card's coverage loads). (Picking WHICH creature at resolution is the resolve-line job.)
+
+        COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold it unless a SECOND commander-
+        killing burn card is in hand — a commander recasts from the command zone, so we always keep one answer
+        in reserve for its next appearance rather than spending our last on it now."""
         if getattr(move, "kind", None) != "cast" or move.card is None:
             return float("-inf")
         dmg = self._creature_damage(game, move.card.id)
@@ -118,7 +122,28 @@ class SocietyOfControlPlayer(Player):
         killable = [c.power for o in self.opponents for c in o.creatures if c.toughness <= dmg]
         if not killable:
             return float("-inf")                       # no opponent creature it would kill -> don't fire it
+        # COMMANDER RESERVE: if this spell could kill the opponent's commander, HOLD it unless we have ANOTHER
+        # burn card in hand that could also kill it — a commander returns to the command zone and gets recast, so
+        # we always keep at least one answer for its next appearance instead of spending our last one now.
+        cmd = self._opp_commander(game)
+        if cmd is not None and cmd.toughness <= dmg:
+            backups = self._commander_answers_in_hand(game, cmd.toughness) - {move.card.id}
+            if not backups:
+                return float("-inf")                   # our only commander-answer -> reserve it
         return self._BURN_BASE + max(killable)         # cast it; weight by the BIGGEST threat it can remove
+
+    def _opp_commander(self, game):
+        """The opponent's COMMANDER as a battlefield creature (is_commander + opponent-controlled), or None. A
+        commander stays a commander on the board (the bridge tracks its card id across the cast from the command
+        zone), so this catches the case where we could burn it down."""
+        cmd = game.state.get("is_commander", set())
+        return next((c for o in self.opponents for c in o.creatures if (c.id,) in cmd), None)
+
+    def _commander_answers_in_hand(self, game, toughness) -> set:
+        """Instance ids of OUR hand cards that are creature-target burn able to kill a creature of `toughness` —
+        the pool of commander answers we could hold in reserve."""
+        return {inst for (seat, inst) in game.state.get("in_hand", set())
+                if seat == self.seat and (d := self._creature_damage(game, inst)) is not None and d >= toughness}
 
     def creature_choice(self, game, move) -> float:
         """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
