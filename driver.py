@@ -211,6 +211,34 @@ def _fire_lifegain_triggers(state: dict) -> None:
     state.pop("_just_gained_life", None)                     # cap hit -> drop any residual so it can't leak forward
 
 
+def _fire_counter_placed_triggers(state: dict) -> None:
+    """§603/§122 fire '+1/+1 COUNTER-PLACEMENT' triggers (Lonis, Sharktocrab, Knighted Myr, Fathom Mage, Shalai
+    and Hallar, Simic Ascendancy, …) for the creatures one or more +1/+1 counters were just put on. _bump_counter
+    arms _just_p1p1_placed with each such creature (gated to the +1/+1 kind, n > 0, NOT the §614.13 enters-with
+    path). This opens the driver-fed just_p1p1_placed window, applies the NEW pending the window produces (DIFF
+    vs. the standing pending so unrelated triggers aren't re-applied), then CLOSES the window before applying —
+    the same lesson as _fire_lifegain_triggers: a counter-placement trigger that ITSELF places +1/+1 counters
+    (Generous Pup, Enduring Scalelord, Botanical Brawler, Hardened Bonds) re-arms the accumulator via
+    _bump_counter, which a LATER drain-loop round picks up rather than re-firing this same pending. The loop is
+    ROUND-CAPPED so a self-re-arming chain can't run away (the RE-FIRE GUARD). Called at SAFE checkpoints (after
+    a resolving stack object / each step), never mid-_bump_counter. The engine scopes each watcher (SELF =
+    the creature is the source; YOUR-CREATURE = the source's controller controls it)."""
+    if not state.get("_just_p1p1_placed"):
+        return
+    rounds = 0
+    while state.get("_just_p1p1_placed") and rounds < 16:    # ROUND CAP — counter-placement chains are short
+        rounds += 1
+        placed = state.pop("_just_p1p1_placed")              # the creatures counters landed on this round
+        before, before_dyn = _pending_both(state)
+        state["just_p1p1_placed"] = placed
+        now, now_dyn = _pending_both(state)
+        new, new_dyn = now - before, now_dyn - before_dyn
+        state["just_p1p1_placed"] = set()                    # CLOSE the window before applying — a nested counter
+        _apply_effects(state, new, new_dyn)                  # placement re-arms _just_p1p1_placed for the next round
+    state["just_p1p1_placed"] = set()
+    state.pop("_just_p1p1_placed", None)                     # cap hit -> drop any residual so it can't leak forward
+
+
 # --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
 # hardcoded here — so adding a variant to the rules interpretation is enough; the shim follows. ---
 def _variant_life(variant: str) -> int:
@@ -866,7 +894,7 @@ def _transform(state: dict, obj: str, ctrl: str) -> None:
     state["just_entered"].discard((obj,))
 
 
-def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
+def _bump_counter(state: dict, obj: str, kind: str, n: int, placed_event: bool = True) -> None:
     if n > 0 and kind == "p1p1":                              # §614 counter doublers (Doubling Season / Primal Vigor)
         owner = next((p for (p, c) in state.get("printed_control", set()) if c == obj), None)
         if owner:
@@ -874,6 +902,14 @@ def _bump_counter(state: dict, obj: str, kind: str, n: int) -> None:
     cur = next((c for (o, k, c) in state.get("counter", set()) if o == obj and k == kind), 0)
     state.setdefault("counter", set()).discard((obj, kind, cur))
     state["counter"].add((obj, kind, cur + n))
+    # §603/§122 arm the '+1/+1 counter(s) put on ~' window for the counter-placement triggers (Lonis,
+    # Sharktocrab, Shalai and Hallar, …). GATED to the +1/+1 kind with n > 0 (caution (b): only +1/+1
+    # counters; a removal / -1/-1 / loyalty bump must NOT fire it). KEYED BY THE CREATURE so 'one or more'
+    # fires exactly ONCE even if several counters land at once (caution (a): the set dedupes per placement).
+    # placed_event=False suppresses the signal for §614.13 'enters the battlefield WITH counters' — those are
+    # a REPLACEMENT as the permanent enters, not a 'counter is put on' event, so they don't trigger (caution).
+    if placed_event and kind == "p1p1" and n > 0:
+        state.setdefault("_just_p1p1_placed", set()).add((obj,))
 
 
 def _discard_zone(state: dict, p: str) -> str:
@@ -3274,7 +3310,9 @@ def _resolve_top(state: dict) -> None:
             state.setdefault("tapped", set()).add((top,)); print(f"      {top} enters tapped")
         for (c, k, n) in sorted(out["enters_with_counter"]):
             if c == top:
-                _bump_counter(state, top, k, int(n)); print(f"      {top} enters with {n} {k} counter")
+                # §614.13 'enters the battlefield WITH counters' is a REPLACEMENT as it enters, NOT a 'counter
+                # is put on' event — placed_event=False so it doesn't fire a counter-placement trigger.
+                _bump_counter(state, top, k, int(n), placed_event=False); print(f"      {top} enters with {n} {k} counter")
         # §603.2a — the permanent's own enters ability triggers AS it enters. Re-assert it as the resolving
         # object (ev_etb only holds while resolving) with the permanent now on the battlefield so
         # 'creatures you control' scopes include it; _apply_effects applies both player- and creature-scoped
@@ -3334,6 +3372,7 @@ def _resolve_stack(state: dict, ap: str, players: list) -> None:
             continue                                         # a response was added; re-open priority on the new top
         _resolve_top(state)                                  # all passed -> resolve the top object
         _fire_lifegain_triggers(state)                       # §603 'whenever you gain life' for any gain this resolution
+        _fire_counter_placed_triggers(state)                 # §603/§122 '+1/+1 counter(s) put on ~' for any counters this resolution
     state["has_priority"] = set()
 
 
@@ -3822,6 +3861,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
                 _cast_phase(state, ap)
             _fire_tap_triggers(state)                # §603 'becomes tapped' for any taps this step (combat, effects)
             _fire_lifegain_triggers(state)           # §603 'whenever you gain life' for any gain this step (combat lifelink, effects)
+            _fire_counter_placed_triggers(state)     # §603/§122 '+1/+1 counter(s) put on ~' for any counters this step (effects)
             if step == "end":                        # §513 'at the beginning of your next end step' deliveries
                 _deliver_necro(state, ap)            # §601 Necropotence: exiled cards come to hand at end step
                 _return_stolen(state, ap)            # §608 Mnemonic Betrayal: stolen cards return to graveyards

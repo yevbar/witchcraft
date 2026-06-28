@@ -199,6 +199,24 @@ _EVENT = {
     # self-scoped, derived as the union in the engine (one event key, two fires rules).
     "enters_or_attacks": "self_enters_or_attacks",
     "enters_or_dies": "self_enters_or_dies",
+    # §603/§122 '+1/+1 COUNTER-PLACEMENT' triggers (Lonis, Sharktocrab, Knighted Myr, Fathom Mage, Shalai and
+    # Hallar, Simic Ascendancy, …). The driver feeds just_p1p1_placed(C) ONCE per creature per placement event
+    # at the _bump_counter chokepoint (gated to the +1/+1 kind, n>0) and fires the window at a safe checkpoint
+    # — the same open-window/diff-pending/close pattern as becomes_tapped / you_gain_life. 'one or more' vs
+    # 'a' is cosmetic at the fire layer (the window is keyed by the creature, so it fires exactly ONCE even if
+    # several counters land at once). Two faithful scopes:
+    #   SELF ('… are put on ~ / on this creature / on <name>') — the source itself got the counter(s).
+    "one_or_more_1_1_counters_are_put_on": "self_p1p1_placed",
+    "a_1_1_counter_is_put_on": "self_p1p1_placed",
+    #   YOUR-CREATURE ('… are put on a creature you control') — any creature the source's controller controls.
+    "one_or_more_1_1_counters_are_put_on_a_creature_you_control": "your_creature_p1p1_placed",
+    "a_1_1_counter_is_put_on_a_creature_you_control": "your_creature_p1p1_placed",
+    # DELIBERATELY ABSTAINED (faithful-or-abstain — NOT an oversight): non-+1/+1 counters ('the Nth plan/hour/
+    # loyalty counter', 'one or more COUNTERS' of any kind — caution (b), the signal is gated to the +1/+1
+    # kind); '… on a PERMANENT you control' (the scope is permanent, not creature — no engine join); '…
+    # ANOTHER creature you control' (needs an O != S exclusion we don't emit); type-filtered scopes ('Humans',
+    # 'non-Hydra'); 'for the first time each turn' (a once-per-turn rider the engine can't gate); and '… on a
+    # creature' with no controller scope (board-wide — no signal scope). These stay dropped as ('event', …).
     # §717 (Rooms) 'when you unlock this door' — the door you CAST unlocks as the Room enters the
     # battlefield, so the unlock trigger fires on ETB. (A door unlocked LATER by paying its cost is a
     # separate action we don't model; the cast-the-front-half case — the common one — is faithful.)

@@ -246,6 +246,7 @@ INPUTS = [
     ("just_entered", [("o", "symbol")]),                          # §305 a played land entered the bf (no stack) — landfall
     ("just_tapped", [("o", "symbol")]),                           # §603 a permanent the driver just tapped — 'becomes tapped'
     ("just_turned_face_up", [("o", "symbol")]),                   # §708.5 a permanent the driver just turned face up — 'is turned face up'
+    ("just_p1p1_placed", [("c", "symbol")]),                      # §603/§122 a creature one or more +1/+1 counters were just put on — counter-placement triggers
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
@@ -898,6 +899,8 @@ def _rules(p: Program) -> None:
     p.rule("ev_tapped(O)", ["just_tapped(O)"])
     p.decl("ev_turned_face_up", [("o", "symbol")])       # §708.5 'when ~ is turned face up' — driver-fed reveal window
     p.rule("ev_turned_face_up(O)", ["just_turned_face_up(O)"])
+    p.decl("ev_p1p1_placed", [("c", "symbol")])          # §603/§122 '+1/+1 counter(s) put on ~' — driver-fed counter window
+    p.rule("ev_p1p1_placed(C)", ["just_p1p1_placed(C)"])
     p.decl("ev_draw", [("p", "symbol")])                 # §603 'whenever a player draws a card' — driver-fed draw window
     p.rule("ev_draw(P)", ["just_drew(P)"])
     p.decl("ev_won_flip", [("p", "symbol")])             # §705 'whenever you win a coin flip' — driver-fed flip window
@@ -982,6 +985,14 @@ def _rules(p: Program) -> None:
     p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_tapped")', "ev_tapped(S)"])
     # §603/§708.5 'when this permanent is turned face up' (Boltbender) — the SOURCE itself was just turned face up.
     p.rule("fires(A, S)", ['has_trigger(A, S, "turned_face_up")', "ev_turned_face_up(S)"])
+    # §603/§122 '+1/+1 COUNTER-PLACEMENT' triggers. The driver feeds just_p1p1_placed(C) ONCE per creature per
+    # placement event (the _bump_counter chokepoint, gated to the +1/+1 kind), so a SET-valued ev_p1p1_placed
+    # fires each watcher exactly once even if several counters land at once ('one or more' == 'a' at this layer).
+    #   SELF ('… are put on ~ / on <name>') — the SOURCE itself got the counter(s) (Lonis, Sharktocrab, Fathom Mage).
+    p.rule("fires(A, S)", ['has_trigger(A, S, "self_p1p1_placed")', "ev_p1p1_placed(S)"])
+    #   YOUR-CREATURE ('… are put on a creature you control') — a creature C the source's controller P controls
+    #   got the counter(s) (Shalai and Hallar, Simic Ascendancy, The Powerful Dragon). Mirrors your_creature_etb.
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_p1p1_placed")', "ev_p1p1_placed(C)", "creature(C)", "controls(P, C)", "controls(P, S)"])
     # §603 DRAW triggers (driver-fed just_drew + per-(player,turn) draw ordinal). 'you draw' = the controller
     # drew; 'opponent draws their Nth card each turn' = another player drew, gated on draw_ord.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_draw")', "ev_draw(P)", "controls(P, S)"])
