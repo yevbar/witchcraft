@@ -23,6 +23,7 @@ takes the engine's hand-tuned default at every sub-choice, which is a complete, 
 from __future__ import annotations
 
 import random
+from contextlib import contextmanager
 
 import driver
 from .game import Game
@@ -112,6 +113,22 @@ class Player:
         self._game = game
         self._seat = seat if seat is not None else game.turn
         return self
+
+    @contextmanager
+    def bound(self, game: "Game", seat: str | None = None):
+        """Temporarily bind to (`game`, `seat`) for the duration of a `with` block, then RESTORE the prior
+        binding — for a hypothetical read (e.g. scoring a child state) that mustn't disturb the player's live
+        binding. Safer than save/poke/restore on the private `_game`/`_seat` attrs by hand: the restore is
+        guaranteed even on exception, and it survives any future change to the bind contract.
+
+            with self.bound(child, seat):
+                value = self._read_board()        # self.creatures/.opponent point at `child` here"""
+        saved = (self._game, self._seat)
+        self.bind(game, seat)
+        try:
+            yield self
+        finally:
+            self._game, self._seat = saved
 
     # ---- "my" side of the bound game (seat-scoped views) -----------------------------------------
 
