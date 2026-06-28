@@ -4428,7 +4428,10 @@ class _ToEffect(Transformer):
         m = re.match(r"^copy (.+)$", src.strip(), re.I)
         if not m:
             return None
-        rest = m.group(1)
+        rest = m.group(1).replace(" and/or ", " or ")    # §700 'copy any number of target instant AND/OR sorcery
+        #                                                  spells' (Display of Power): 'and/or' == the inclusive
+        #                                                  'or' the _TGT target form already grounds. Copy-local,
+        #                                                  faithful — the '/' otherwise fails the strict _DB_TGT.
         # §707.2 copy-MODIFICATION rider: 'copy <obj>, except <the copy is …>' (Spark Double, Storm of
         # Saruman, the 'except it's a token / isn't legendary / is a 5/5' family). Split the rider OFF so the
         # object is the clean _TGT and the modification rides `extra` (faithful — the stated difference is
