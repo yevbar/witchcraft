@@ -144,7 +144,15 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
         box = _wait_locate(actuator, element, rect, locator, timeout=confirm_timeout, poll=poll, rng=rng)
         if box is None:
             return False                                   # never rendered (still loading?) — don't blind-click
-        target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
+        if element.frac is not None:
+            # FIXED-POSITION button (an explicit frac): the frac is AUTHORITATIVE for WHERE to click; vision only
+            # gated TIMING (is it rendered yet?). Several bottom-right buttons stack in the same coarse quadrant —
+            # the big action button (~0.87h) and the 'Pass Turn' fast-forward SKIP just below it — and vision can
+            # return the skip; clicking the frac instead never lands on the wrong one (a skip = a missed combat).
+            anchor = resolve(element, rect)
+            target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
+        else:
+            target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
     else:                                                  # FALLBACK: coarse anchor estimate
         anchor = resolve(element, rect)
         target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
@@ -196,6 +204,47 @@ def jittered_segments(a: tuple, b: tuple, *, steps: int, total_duration: float, 
     return [(pt, total_duration * w / total) for pt, w in zip(pts, weights)]
 
 
+# Live-cursor glide speed: travel time = distance / _GLIDE_SPEED (clamped) so every move runs at the same fast
+# pace whether it's a short menu hop or a cross-board reach; ~one frame per _GLIDE_STEP px keeps it smooth.
+_GLIDE_SPEED = 29700.0     # px/sec (12% slower than the prior 33750; travel time = dist/_GLIDE_SPEED, clamped)
+_GLIDE_STEP = 448.0        # px between frames (each pyautogui.moveTo costs ~13ms, so the glide is
+#                            FRAME-BOUND, not speed-bound; halving the frame count is what actually halves the time)
+_GLIDE_MIN = 0.0227        # s: floor so a tiny move still eases (clamps scaled +12% to slow the whole curve evenly)
+_GLIDE_MAX = 0.0489        # s: ceiling so a full-screen reach doesn't drag
+
+
+def smooth_path(a: tuple, b: tuple, *, frames: int, rng: random.Random, curve: float = 0.18,
+                wobble: float = 1.0) -> list:
+    """A DENSE list of points along a gentle cubic-Bézier arc a->b, for FINE, evenly-timed cursor stepping —
+    the smooth alternative to `jittered_segments`' few human-jittery waypoints (which, played one-pyautogui-call-
+    per-segment, stutter). `t` is eased by smoothstep so the motion accelerates out of a and decelerates into b
+    (natural, not robotic) while the per-frame TIME stays even; a tiny `wobble` tapers to 0 at the ends; the last
+    point is exactly b. Pass curve=wobble=0 for a dead-straight glide."""
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / length, dx / length                     # unit perpendicular
+    side = rng.uniform(-1.0, 1.0) * curve * length         # one arc to a random side
+    o1, o2 = side * rng.uniform(0.6, 1.0), side * rng.uniform(0.6, 1.0)
+    c1 = (ax + dx / 3.0 + nx * o1, ay + dy / 3.0 + ny * o1)
+    c2 = (ax + 2.0 * dx / 3.0 + nx * o2, ay + 2.0 * dy / 3.0 + ny * o2)
+    n = max(2, int(frames))
+    out = []
+    for i in range(1, n + 1):
+        u = i / n
+        t = u * u * (3.0 - 2.0 * u)                         # smoothstep ease-in-out (even time -> eased speed)
+        v = 1.0 - t
+        cx = v * v * v * ax + 3 * v * v * t * c1[0] + 3 * v * t * t * c2[0] + t * t * t * bx
+        cy = v * v * v * ay + 3 * v * v * t * c1[1] + 3 * v * t * t * c2[1] + t * t * t * by
+        if i < n and wobble:
+            off = rng.uniform(-wobble, wobble) * math.sin(math.pi * t)
+            cx, cy = cx + nx * off, cy + ny * off
+        out.append((round(cx), round(cy)))
+    out[-1] = (bx, by)                                     # land exactly on target
+    return out
+
+
 class Actuator(Protocol):
     """Performs physical interactions. `window_rect()` locates the client, `position()` reads the cursor,
     `screenshot()` grabs the screen (for a vision locator), `move_and_click(x, y)` travels the cursor from where
@@ -213,11 +262,22 @@ class Actuator(Protocol):
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         ...
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing."""
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
+        """Move so the client REGISTERS the cursor (focus app + IOHID motion), without pressing. `curve`/`wobble`
+        override the glide's arc/tremor — pass 0 for a STRAIGHT, steady approach (e.g. dropping onto a card so
+        the path doesn't circle it or sweep its neighbours)."""
         ...
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
+        """Press at the current cursor. `hold` = button-down duration (a QUICK tap vs a deliberate press; a long
+        hold reads to MTGA as a grab-to-drag), `settle` = pause after the IOHID move before pressing. None = the
+        actuator's defaults (tuned for menu buttons)."""
+        ...
+
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        """`clicks` fast presses at the current cursor (focus + IOHID move ONCE, then the presses back-to-back),
+        each carrying the clickState field. clicks=1 = a single click; clicks=2 = a real double-click."""
         ...
 
     def wait(self, seconds: float) -> None:
@@ -242,15 +302,16 @@ class DryRunActuator:
 
     rect: Rect = field(default_factory=lambda: Rect(0, 0, 1920, 1080))
     pos: Optional[tuple] = None
-    steps: int = 6                                         # sub-segments per move (the granularity of the glide)
-    jitter: float = 0.4                                    # ± fraction of speed variation across segments
-    wobble: float = 6.0                                    # ± px of per-point tremor on top of the curve
+    steps: int = 9                                         # sub-segments per move (more = a smoother spline)
+    jitter: float = 0.2                                    # ± fraction of speed variation across segments (low = smooth)
+    wobble: float = 2.5                                    # ± px of per-point tremor on top of the curve (low = less jittery)
     curve: float = 0.18                                    # arc bow as a fraction of the move distance
-    duration: float = 0.2                                  # default total travel time (faster cursor)
+    duration: float = 0.13                                 # default total travel time (~50% faster than 0.2)
     seed: Optional[int] = None
     image: object = None                                   # what screenshot() returns (a fake/real screen image)
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
+    click_args: list = field(default_factory=list)         # (hold, settle) requested per click (None = default)
     waits: list = field(default_factory=list)              # pauses taken (seconds)
 
     def __post_init__(self):
@@ -270,23 +331,34 @@ class DryRunActuator:
     def wait(self, seconds: float) -> None:
         self.waits.append(seconds)
 
-    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+    def move(self, x: int, y: int, *, duration: Optional[float] = None,
+             curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         total = self.duration if duration is None else duration
         for pt, dur in jittered_segments(self.pos, (x, y), steps=self.steps, total_duration=total,
-                                         jitter=self.jitter, rng=self._rng, wobble=self.wobble,
-                                         curve=self.curve):
+                                         jitter=self.jitter, rng=self._rng,
+                                         wobble=self.wobble if wobble is None else wobble,
+                                         curve=self.curve if curve is None else curve):
             self.moves.append((self.pos, pt, round(dur, 4)))   # one wobbled, speed-jittered sub-segment
             self.pos = pt
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
         self.clicks.append(self.pos)
+        self.click_args.append((hold, settle))
+
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        for i in range(max(1, clicks)):
+            self.clicks.append(self.pos)
+            self.click_args.append((hold, None))
+            if gap and i < clicks - 1:
+                self.waits.append(gap)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
         self.click()
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        self.move(x, y, duration=duration)   # (live actuator also focuses + IOHID-moves so the client registers it)
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
+        self.move(x, y, duration=duration, curve=curve, wobble=wobble)   # (live actuator also focuses + IOHID-moves)
 
 
 class PyAutoGuiActuator:
@@ -295,22 +367,22 @@ class PyAutoGuiActuator:
     precision. The cursor TRAVELS to a target over `duration` along an easing tween (a line with human-like
     speed) before clicking — never a teleported click. pyautogui is imported lazily."""
 
-    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.2, steps: int = 6,
-                 jitter: float = 0.4, wobble: float = 6.0, curve: float = 0.18, tween=None,
+    def __init__(self, rect: Optional[Rect] = None, *, duration: float = 0.13, frames: int = 2,
+                 wobble: float = 1.0, curve: float = 0.18, tween=None,
                  seed: Optional[int] = None, no_click: bool = False, capture=None, click_backend=None,
                  focus_app: Optional[str] = None, hid_move: bool = False):
         import pyautogui                                    # lazy: only when actually driving the client
         self._pg = pyautogui
+        self._pause = pyautogui.PAUSE                       # the per-call sleep (default 0.1s); kept for CLICKS
         if rect is None:
             w, h = pyautogui.size()
             rect = Rect(0, 0, int(w), int(h))
         self._rect = rect
         self._duration = duration
-        self._steps = steps
-        self._jitter = jitter
+        self._frames = frames                              # dense sub-steps per move -> a smooth glide
         self._wobble = wobble
         self._curve = curve
-        self._tween = tween or getattr(pyautogui, "easeInOutQuad", None)
+        self._tween = tween
         self._rng = random.Random(seed)
         self._no_click = no_click                          # move the cursor but never press (safe verification)
         self._capture = capture                            # optional region grabber (e.g. just the MTGA window)
@@ -333,31 +405,49 @@ class PyAutoGuiActuator:
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)
 
-    def move(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
-        total = self._duration if duration is None else duration
+    def move(self, x: int, y: int, *, duration: Optional[float] = None,
+             curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         cur = self._pg.position()
-        # travel a->b as wobbled, speed-jittered sub-segments so the real cursor neither runs dead straight
-        # nor moves at a constant speed
-        for (px, py), dur in jittered_segments((cur[0], cur[1]), (x, y), steps=self._steps,
-                                               total_duration=total, jitter=self._jitter, rng=self._rng,
-                                               wobble=self._wobble, curve=self._curve):
-            if self._tween is not None:
-                self._pg.moveTo(px, py, duration=dur, tween=self._tween)
-            else:
-                self._pg.moveTo(px, py, duration=dur)
+        dist = math.hypot(x - cur[0], y - cur[1])
+        # CONSTANT SPEED, not constant time: travel time scales with distance (a fixed duration made long
+        # in-game moves crawl while short menu hops were snappy). Frames scale with distance too (~one per
+        # _GLIDE_STEP px) so the per-frame hop stays smooth at any length.
+        total = duration if duration is not None else max(_GLIDE_MIN, min(_GLIDE_MAX, dist / _GLIDE_SPEED))
+        frames = max(2, min(self._frames, int(dist / _GLIDE_STEP) + 1))
+        pts = smooth_path((cur[0], cur[1]), (x, y), frames=frames, rng=self._rng,
+                          curve=self._curve if curve is None else curve,
+                          wobble=self._wobble if wobble is None else wobble)
+        # Play it on a TIME-ACCURATE clock: sleep only the slack to the next frame's deadline, so the whole
+        # move lands in ~`total` regardless of moveTo cost / sleep granularity (fixed per-frame sleeps inflated
+        # the real time ~2x). Each frame is an instant move (PAUSE 0); PAUSE is RESTORED for the clicks after.
+        self._pg.PAUSE = 0
+        try:
+            start = time.perf_counter()
+            n = len(pts)
+            for i, (px, py) in enumerate(pts):
+                self._pg.moveTo(px, py)
+                slack = (start + total * (i + 1) / n) - time.perf_counter()
+                if slack > 0:
+                    time.sleep(slack)
+        finally:
+            self._pg.PAUSE = self._pause                    # restore for clicks/position (their dwell matters)
 
-    def hover(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
+    def hover(self, x: int, y: int, *, duration: Optional[float] = None,
+              curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
         """Move the cursor to (x, y) so the CLIENT registers it (e.g. a hand card magnifies): focus the app
         (AppleScript) + human glide + a real IOHIDPostEvent motion — the same recipe as click() minus the press
-        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers)."""
+        (pyautogui only WARPS the cursor; MTGA tracks the IOHID pointer, so a bare move never registers).
+        `curve`/`wobble`=0 give a straight, steady approach (don't circle/sweep a card you're dropping onto)."""
         self._focus()                                      # AppleScript: bring Arena frontmost
-        self.move(x, y, duration=duration)                 # human-like glide (the visible OS cursor)
+        self.move(x, y, duration=duration, curve=curve, wobble=wobble)   # human-like glide (the visible OS cursor)
         if self._hid_move:
             try:
                 from .macos import iohid_move
                 iohid_move(x, y)                           # real motion -> the client's pointer tracks here
-            except Exception:
-                pass
+            except Exception as e:
+                # WITHOUT the IOHID motion this degrades to a bare warp, which MTGA ignores — the card won't
+                # magnify and the later click misses. Surface it: this is the hard-to-diagnose "nothing happened".
+                _log.debug("hover: IOHID move failed (%s: %s) — cursor only warped, client may not register", type(e).__name__, e)
 
     def _focus(self) -> None:
         """Bring the target app frontmost (AppleScript). MTGA ignores clicks sent to a backgrounded window."""
@@ -369,7 +459,7 @@ class PyAutoGuiActuator:
         except Exception:
             pass
 
-    def click(self) -> None:
+    def click(self, *, hold: Optional[float] = None, settle: Optional[float] = None) -> None:
         if self._no_click:                                 # move-only mode: skip the press
             return
         self._focus()                                      # 1) focus Arena — clicks to a background window are dropped
@@ -380,16 +470,48 @@ class PyAutoGuiActuator:
             try:
                 from .macos import iohid_move
                 iohid_move(x, y)
-            except Exception:
-                pass
-            self.wait(0.10)
+            except Exception as e:
+                _log.debug("click: IOHID move failed (%s: %s) — pressing at the warped (stale) pointer", type(e).__name__, e)
+            self.wait(0.10 if settle is None else settle)
         if self._click_backend is not None:                # optional alternate backend (e.g. Quartz-to-pid)
             self._click_backend(x, y)
             return
-        # 3) pyautogui press with a human-ish hold (an instantaneous down+up is often dropped by Unity clients)
+        # 3) pyautogui press. Default hold is a human-ish dwell (an instantaneous down+up is often dropped by
+        #    Unity menu buttons); callers playing a CARD pass a short `hold` so MTGA reads a quick TAP-to-play and
+        #    not a deliberate grab-to-drag (which picks the card up and drops it back instead of placing it).
         self._pg.mouseDown(x, y, button="left")
-        self.wait(self._rng.uniform(0.06, 0.14))
+        self.wait(self._rng.uniform(0.06, 0.14) if hold is None else hold)
         self._pg.mouseUp(x, y, button="left")
+
+    def double_click(self, *, hold: float = 0.0, gap: float = 0.015, clicks: int = 2) -> None:
+        # Focus + IOHID move ONCE so MTGA's pointer is on the card, then `clicks` presses carrying the clickState
+        # field (1, 2, …). clicks=1 is a single click — the right gesture to PLAY a card: the press lands it, and
+        # there's no second tap to hit the reflowed neighbour once the card leaves the fan. clicks=2 is a true
+        # double-click. pyautogui doesn't set clickState, so use the Quartz path; fall back to pyautogui taps.
+        if self._no_click:
+            return
+        self._focus()
+        x, y = self._pg.position()
+        if self._hid_move:
+            try:
+                from .macos import iohid_move
+                iohid_move(x, y)                           # one real motion so MTGA's pointer is on the card
+            except Exception as e:
+                _log.debug("double_click: IOHID move failed (%s: %s)", type(e).__name__, e)
+            self.wait(0.05)                                # brief settle BEFORE the press(es)
+        try:
+            from .macos import double_click_quartz
+            double_click_quartz(int(x), int(y), hold=hold, gap=gap, clicks=clicks)   # clickState 1..clicks
+            return
+        except Exception as e:
+            _log.debug("double_click: Quartz path failed (%s: %s) — falling back to pyautogui taps", type(e).__name__, e)
+        for i in range(max(1, clicks)):
+            self._pg.mouseDown(x, y, button="left")
+            if hold:
+                self.wait(hold)
+            self._pg.mouseUp(x, y, button="left")
+            if gap and i < clicks - 1:
+                self.wait(gap)
 
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
@@ -416,6 +538,11 @@ _HOME = ViewElement("Home", ScreenAnchor.TOP_LEFT, radius=40)
 _RECENTLY_PLAYED_TAB = ViewElement("Recently Played", ScreenAnchor.TOP_RIGHT, radius=40)
 _QUEUE_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36, query="orange Play button")
 _HOME_PLAY = ViewElement("Play", ScreenAnchor.BOTTOM_RIGHT, radius=36)
+
+# After a match, MTGA shows Victory/Defeat ('Click to Continue') then maybe reward/progression screens, each
+# dismissed by a bottom-right click ('Continue' / 'Next' / 'Proceed'), before the Play menu returns. This is the
+# spot to click to advance them — bottom-right, clear of the top-right 'View Battlefield' and the centre prompt.
+_POSTGAME_ADVANCE = ViewElement("continue", ScreenAnchor.BOTTOM_RIGHT, radius=40, frac=(0.90, 0.93))
 
 # The in-game mulligan screen: Keep / Mulligan buttons sit side by side at bottom-center (not a corner), so
 # they carry explicit window fractions for the coarse fallback (vision locates them precisely).
@@ -478,7 +605,22 @@ def advance_play_menu(actuator: Actuator, rect: Rect, rng: random.Random, *,
             interact(actuator, _RECENTLY_PLAYED_TAB, rect, rng, locator=locator, confirm_timeout=switch_timeout)
             actuator.wait(0.8)
     _log.info("play menu: queueing a game (clicking Play)")
-    return interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    clicked = interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    if not clicked or locator is None:
+        return clicked
+    # VERIFY the queue actually started — MTGA occasionally DROPS the press (the cursor's on the button and it
+    # reports a click, but Arena doesn't register it). The orange Play button disappears once matchmaking begins;
+    # if it's still up after a beat, the click didn't take, so click again — parking the cursor OFF it first so the
+    # re-click is a fresh IOHID move+press (an in-place re-tap can be dropped the same way).
+    for attempt in range(3):
+        actuator.wait(1.5)
+        if _wait_locate(actuator, _QUEUE_PLAY, rect, locator, timeout=0.6, poll=0.5, rng=rng) is None:
+            _log.info("play menu: queue started (the Play button is gone)")
+            return True
+        _log.info("play menu: Play still showing — the click didn't take, clicking again (%d/3)", attempt + 1)
+        actuator.hover(rect.x + rect.w // 2, rect.y + rect.h // 2)
+        interact(actuator, _QUEUE_PLAY, rect, rng, locator=locator)
+    return True
 
 
 def advance_home(actuator: Actuator, rect: Rect, rng: random.Random, *,
@@ -611,3 +753,47 @@ def take_over(actuator: Actuator, view_provider: Callable[[], Optional[Recognize
     nav = Navigator(actuator, view_provider, poll=poll, change_timeout=change_timeout,
                     rng=rng or random.Random(), locator=locator, recover_home=recover_home)
     return nav.navigate_to_game(max_steps=max_steps)
+
+
+def play_button_visible(actuator: Actuator, locator: "Optional[ElementLocator]") -> bool:
+    """Is the orange Play button currently on screen in the bottom-right (i.e. we're back on the Play menu)? Needs
+    a vision `locator`; without one we can't tell, so returns False."""
+    if locator is None:
+        return False
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    box = _locate(actuator, _QUEUE_PLAY, locator)
+    return box is not None and _in_anchor_region(box, _QUEUE_PLAY, rect)
+
+
+def click_through_postgame(actuator: Actuator, *, done: "Optional[Callable[[], bool]]" = None,
+                           locator: "Optional[ElementLocator]" = None, rng: Optional[random.Random] = None,
+                           max_clicks: int = 20, settle: float = 1.8) -> bool:
+    """Clear the post-game screens after a match. MTGA shows Victory/Defeat then possibly reward / progression
+    screens before the Play menu returns; each advances on a bottom-right click ('Click to Continue' / 'Next').
+    Click the bottom-right repeatedly — the intermittent reward screens are exactly why this RETRIES rather than
+    clicking once — until `done()` says we've left the post-game (or `max_clicks` is spent). Returns `done()`.
+
+    `done` is the stop predicate. Prefer a LOG-based one (e.g. `lambda: not match_completed(log)`): it's
+    authoritative — the post-game state clears only when the menu actually loads. The default falls back to
+    VISION (the orange Play button visible in the bottom-right), which is flakier: the Victory screen's orange
+    glow can read as a Play button and stop the loop before it ever clicks. With neither a `done` nor a `locator`
+    it can't tell when to stop, so it best-effort clicks `max_clicks` times.
+
+    IMPORTANT: it checks `done()` only AFTER each click, never before — when called we're known to be on a
+    post-game screen, so it always clicks at least once (this is what fixes 'detected Play, did nothing')."""
+    rng = rng or random.Random()
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    is_done = done or (lambda: play_button_visible(actuator, locator))
+    for i in range(max(1, max_clicks)):
+        x, y = target_point(_POSTGAME_ADVANCE, rect, rng)
+        _log.info("  post-game: clicking the bottom-right to advance (%d/%d) at (%s, %s)", i + 1, max_clicks, x, y)
+        actuator.move_and_click(x, y)
+        actuator.wait(settle)
+        if is_done():
+            _log.info("  post-game: back at the menu — done clicking through (%d click(s))", i + 1)
+            return True
+    return is_done()

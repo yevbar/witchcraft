@@ -1,25 +1,15 @@
-"""mtg.heuristic — a small, purposeful rule+greedy MTG bot.
+"""mtg.deleuze — a hand-built MTG heuristic bot, the iteration surface for new rules.
 
-`HeuristicPlayer` beats `RandomPlayer` by doing the obvious right things a random
-agent won't:
-
-  * Develop every turn — play a land if one is in hand, then deploy the most
-    impactful affordable spell (1-ply greedy on a board-evaluation value).
-  * Attack with intent — alpha-strike when it's safe, push lethal when it's
-    there, and hold creatures back only when an unanswered swing would kill us.
-    (Pure value-greedy can't do this: `env.step` stops combat at the blocker
-    decision *before* damage, so the attacker never "sees" the damage it deals.)
-  * Block to matter — prevent lethal, then trade up; never chump for free.
-
-`choose_move` is a single declarative `game.prioritize(...)` — try a land, else the best spell, else the
-best attack, else the best block, else pass — where each category carries a `preference` (a
-`(game, move) -> float` scorer). `prioritize` picks the max-scoring move in the first non-empty category, so
-the *order of the arguments is the strategy* and the per-move scorers (`attack_choice` /
-`block_choice` / `develop_choice`, over the leaf eval `_value`) are the *metrics*.
+`DeleuzePlayer` STARTS as an exact copy of `HeuristicPlayer` (mtg.heuristic) — develop, attack with intent,
+block to matter — and is the canvas to grow its own rules/heuristics on, independently of the base heuristic.
+Everything lives here in one file so the whole strategy is visible and editable: `choose_move` declares the
+strategy as one prioritized list of scored preferences, and the `*_choice` methods (over the leaf eval `_value`)
+are the metrics. `prioritize` picks the max-scoring move in the first non-empty category, so the *order of the
+arguments is the strategy* and the per-move scorers are the *knobs*.
 
     from mtg import benchmark
-    from mtg.heuristic import HeuristicPlayer
-    benchmark(HeuristicPlayer(), games=50)        # -> {'win_rate': ..., ...}
+    from mtg.deleuze import DeleuzePlayer
+    benchmark(DeleuzePlayer(), games=50)        # -> {'win_rate': ..., ...}
 """
 from __future__ import annotations
 
@@ -30,11 +20,12 @@ from .models import Move, PriorityOption as Do
 from .players import Player
 
 
-class HeuristicPlayer(Player):
-    """A hand-built MTG heuristic: develop, attack with intent, block to matter. `choose_move` declares the
-    strategy as one prioritized list of scored preferences; the `*_choice` methods are the metrics."""
+class DeleuzePlayer(Player):
+    """A hand-built MTG heuristic, started as a copy of `HeuristicPlayer`: develop, attack with intent, block to
+    matter. `choose_move` declares the strategy as one prioritized list of scored preferences; the `*_choice`
+    methods are the metrics. This is the player to evolve as new rules are added."""
 
-    name = "heuristic"
+    name = "deleuze"
 
     # choose_move scores land plays (Do.LANDS / land_choice), so it needs the §305 land drop surfaced as a
     # move — the harness reads this and builds the Game with explicit_lands (else lands auto-develop and the
@@ -54,12 +45,20 @@ class HeuristicPlayer(Player):
     W_CRACKBACK = 1.5       # penalty weight on a lethal-looking crackback
     W_TRADE = 1.5           # value weight on winning / losing a creature in combat
 
+    # curve-out: among castable creatures, deploy the CHEAPER ones first. W_CURVE (>> the develop_choice spread)
+    # makes mana value the primary sort and the board metric the tiebreak; _CURVE_BASE keeps every castable
+    # creature above the floor=0.0 gate so it still gets cast (a real mana value never exceeds _CURVE_BASE).
+    W_CURVE = 1.0
+    _CURVE_BASE = 20.0
+
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
         return game.prioritize(
             Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
-            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best spell, only if it beats passing,
+            Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
+            Do.SPELLS.prefer(self.permanent_choice, floor=0.0),  # then deploy other PERMANENTS (artifact/enchantment/PW),
+            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best remaining spell (instant/sorcery) if it beats passing,
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
@@ -73,6 +72,52 @@ class HeuristicPlayer(Player):
         spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
+
+    def creature_choice(self, game, move) -> float:
+        """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
+        the general SPELLS line in `choose_move`, this casts creatures BEFORE other spell types. Among creatures
+        it CURVES OUT — prefers the CHEAPER mana value first (a 1-drop before a 4-drop), with the 1-ply board
+        metric (`develop_choice`) as the tiebreak between equal-cost creatures."""
+        card = move.card
+        if card is None or not card.has_type("creature"):
+            return float("-inf")
+        mv = self._mana_value(game, card.id)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
+
+    # the non-creature PERMANENT types deleuze deploys (creatures go through creature_choice; instants/sorceries
+    # are held). Lands are handled by Do.LANDS.
+    _PERMANENT_TYPES = ("artifact", "enchantment", "planeswalker", "battle")
+
+    def permanent_choice(self, game, move) -> float:
+        """Score a NON-creature PERMANENT (artifact / enchantment / planeswalker / battle); a creature (handled by
+        the earlier creature line) or a non-permanent (instant / sorcery) scores -inf. Placed after the creature
+        line, this DEPLOYS the board's other permanents even though `_value` can't score their effect (the engine
+        doesn't model uncovered card text) — `_CURVE_BASE` lifts them above the floor=0.0 gate that otherwise
+        drops them (casting a non-creature is a small _value LOSS — a spent card, no board power). Curves out
+        cheaper-first like creatures. Instants/sorceries are deliberately NOT deployed here — they stay in hand
+        for the develop line, which only fires them if they actually beat passing."""
+        card = move.card
+        if card is None or card.has_type("creature") or not any(card.has_type(t) for t in self._PERMANENT_TYPES):
+            return float("-inf")
+        mv = self._mana_value(game, card.id)
+        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
+
+    def _develop_tiebreak(self, game, move) -> float:
+        """`develop_choice` used as the curve TIEBREAK — but a FAILED 1-ply lookahead (env.step raised, e.g. an
+        uncovered/complex card resolution on a board with triggers like lifegain or Deafening Silence) returns
+        -inf, and -inf would veto a deploy the curve already decided. Clamp it to 0 so the creature/permanent
+        still gets cast, just without the board-value ordering refinement (the original heuristic's value-gated
+        SPELLS line keeps the -inf there, where 'only act if it beats passing' is the intended behaviour)."""
+        dv = self.develop_choice(game, move)
+        return dv if dv != float("-inf") else 0.0
+
+    def _mana_value(self, game, card_id) -> int:
+        """The mana value (CMC) of `card_id` from the engine state — generic `mana_cost` plus the coloured
+        `mana_pip` counts. (In the inthearena bridge `mana_cost` is fed as the total CMC from MTGA and there's no
+        `mana_pip`, so this still sums to the right value; 0 when the cost is unknown.)"""
+        st = game.state
+        return (sum(n for (s, n) in st.get("mana_cost", set()) if s == card_id)
+                + sum(n for (s, _c, n) in st.get("mana_pip", set()) if s == card_id))
 
     def resolve_choice(self, game, move) -> float:
         """Resolve a TARGETED effect at the OPPONENT (Do.RESOLVE_TRIGGER). The engine enumerates one cast/

@@ -36,12 +36,23 @@ class AggroPolicy:
     def decide(self, d: Decision):
         return getattr(self, f"_on_{d.kind}", self._on_default)(d)
 
-    # priority: land > spell > activate > pass (the whole aggro strategy, one ranking)
+    # priority: land > spell > pass. (Like `mtg.aggro.AggroPlayer`, aggro does NOT proactively ACTIVATE
+    # abilities — it just develops and attacks; mana abilities auto-resolve as part of paying a cost.)
     def _on_actions(self, d: Decision) -> Optional[Action]:
-        for kind in (_PLAY, _CAST, _ACTIVATE):
-            move = next((a for a in d.options if a.actionType == kind), None)
-            if move is not None:
-                return move
+        # A land drop first (always free). Then a spell MTGA can AUTO-PAY for (`auto_payable`): MTGA lists
+        # unpayable casts too (a 3-mana spell with 2 available, e.g. Angel of Vitality), and the click-only
+        # bridge can't tap mana itself, so it would jam on it instead of casting what it can (Lifecreed Duo).
+        # Conservative, engine-less filter — a spell payable only via a tap SEQUENCE is legal but needs the
+        # rules-engine legal-move search (EnginePolicy) to confirm, not an Arena UI hint.
+        land = next((a for a in d.options if a.actionType == _PLAY), None)
+        if land is not None:
+            return land
+        cast = next((a for a in d.options if a.actionType == _CAST and a.auto_payable), None)
+        if cast is not None:
+            return cast
+        # Nothing left to develop -> PASS. The executor's advance button reads 'To Combat' in a main phase, so
+        # passing here is exactly "proceed to combat" — we don't get stuck on an ability we don't care about
+        # (e.g. sacrificing a Mind Stone). (Phase is on d.view.phase if a policy wants to branch on it.)
         return next((a for a in d.options if a.actionType == _PASS), None)
 
     # attack with EVERY qualified attacker, each at the opponent (first legal player recipient)
@@ -57,6 +68,9 @@ class AggroPolicy:
     def _on_blockers(self, d: Decision) -> list:
         return []                                            # pure aggro: never block
 
+    def _on_assign_damage(self, d: Decision) -> str:
+        return "done"                                        # accept MTGA's suggested combat-damage order
+
     def _on_mulligan(self, d: Decision) -> str:
         return "keep"                                        # always accept the opening hand
 
@@ -65,6 +79,42 @@ class AggroPolicy:
 
     def _on_default(self, d: Decision):
         return d.options[0] if d.options else None
+
+
+class ArenaAggroPolicy(AggroPolicy):
+    """`aggro_arena` — aggro tuned to beat Arena's built-in practice bot. Same relentless develop-and-attack core
+    (the out-of-the-box bot folds to a clean curve), with the one own-goal removed: a basic keepable-hand
+    mulligan instead of blind keep. Further tuning levers (as we play games): cast ORDER (curve out / highest-
+    impact first, vs the current first-legal pick), and SELECTIVE blocking to not die while racing."""
+
+    name = "aggro_arena"
+
+    def _on_mulligan(self, d: Decision) -> str:
+        # Keep a workable opener; only ship the unkeepable extremes (no lands, or flooded). London mulligan
+        # always shows 7, so count lands in hand. If the view doesn't have the hand yet, keep (don't churn).
+        hand = d.view.hand(d.seat) if d.seat is not None else []
+        lands = sum(1 for o in hand if "CardType_Land" in (o.cardTypes or []))
+        if not hand:
+            return "keep"
+        return "keep" if 1 <= lands <= 5 else "mulligan"
+
+
+class BlindRagePolicy(AggroPolicy):
+    """`blind_rage` — pure blind aggro that never engages a decision needing board targeting. Keep, develop,
+    swing with EVERYTHING; declare NO blocks (just pass when blocks come around) and decline any target. So it
+    never stalls on an unwired interaction — every decision resolves to a hand click, 'All Attack', or the
+    advance button. For decks where racing without ever blocking actually works (no targeted spells needed)."""
+
+    name = "blind_rage"
+
+    # _on_mulligan -> 'keep', _on_actions (land>cast>activate>pass), _on_attackers (all), _on_blockers ([])
+    # are inherited from AggroPolicy — already exactly blind aggro. Only the targeting paths change:
+
+    def _on_targets(self, d: Decision):
+        return None                                          # never target — pass (deck has no targeted spells)
+
+    def _on_default(self, d: Decision):
+        return None                                          # anything unmapped: decline/pass, don't risk it
 
 
 def describe(d: Decision, choice) -> str:
@@ -83,7 +133,13 @@ def describe(d: Decision, choice) -> str:
             return "no attack"
         return "attack: " + ", ".join(by_instance(a["attackerInstanceId"]) for a in choice)
     if d.kind == "blockers":
-        return "no blocks"
+        if not choice:
+            return "no blocks"
+        return "block: " + ", ".join(
+            f"{by_instance(c['blockerInstanceId'])}->{by_instance(c['attackerInstanceId'])}"
+            for c in choice if isinstance(c, dict))
+    if d.kind == "assign_damage":
+        return "assign damage (accept default order)"
     if d.kind == "mulligan":
         return f"mulligan -> {choice}"
     if d.kind == "targets":

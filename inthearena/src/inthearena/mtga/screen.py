@@ -99,6 +99,21 @@ def in_game(path: str = DEFAULT_LOG) -> bool:
     return latest_view(path) is RecognizedViews.GAMEPLAY
 
 
+def match_completed(path: str = DEFAULT_LOG) -> bool:
+    """True iff the most recent match has ENDED and the client hasn't returned to a recognized menu yet — i.e.
+    we're sitting on the post-game Victory/Defeat + rewards overlays. (The match-room state goes MatchCompleted at
+    game end; both that and the post-game reward screens leave `latest_view` None, but unlike a random unmapped
+    menu this should be cleared by clicking THROUGH to the Play button, not by clicking the Home tab.) A
+    recognized menu SceneChange after completion clears it; a new game 'playing' clears it too."""
+    completed = False
+    for kind, val in iter_view_events(path):
+        if kind == "game":
+            completed = val == "completed"
+        elif from_scene_name(val) is not None:             # back on a recognized menu scene -> no longer post-game
+            completed = False
+    return completed
+
+
 class ViewRecognizer(Protocol):
     """A small, locally-runnable image model (or template matcher) that names the on-screen view from a
     screenshot. Implement `recognize`; return a `RecognizedView`, or None if unsure."""

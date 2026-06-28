@@ -79,6 +79,12 @@ class GameObject(_M):
     isCopy: bool = False
     damage: int = 0
     parentId: Optional[int] = None
+    attackState: Optional[str] = None                      # 'AttackState_Attacking'/'_Declared' while in combat
+    blockState: Optional[str] = None                       # 'BlockState_Declared' once it's blocking
+
+    @property
+    def is_attacking(self) -> bool:
+        return self.attackState in ("AttackState_Attacking", "AttackState_Declared")
 
     @property
     def p(self) -> Optional[int]:
@@ -107,12 +113,31 @@ class ManaComponent(_M):
 
 
 class Action(_M):
-    """One available action from an ActionsAvailableReq (a land/spell/ability/pass the player may take)."""
+    """One available action from an ActionsAvailableReq (a land/spell/ability/pass the player may take). MTGA
+    lists a spell here even when you CAN'T currently pay for it; `autoTapSolution` carries a concrete way to tap
+    for the cost. See `auto_payable` — note it's SUFFICIENT, not necessary, for affordability."""
     actionType: Optional[str] = None
     grpId: Optional[int] = None
     instanceId: Optional[int] = None
     abilityGrpId: Optional[int] = None
     manaCost: list[ManaComponent] = []
+    autoTapSolution: Optional[dict] = None                 # MTGA's simple tap-for-the-cost plan, when it found one
+
+    @property
+    def auto_payable(self) -> bool:
+        """True if this needs no mana, or MTGA already surfaced a simple tap plan (`autoTapSolution`) for it — a
+        SUFFICIENT but NOT necessary affordability test. MTGA's auto-tapper only covers straightforward land/rock
+        taps; it does NOT surface mana produced by a SEQUENCE of taps/abilities (a creature's mana ability, a
+        ritual, a multi-step activation), which can still be a legal, playable line. Those need a tree search over
+        the rules (the witchcraft engine) to discover. So absence of a solution ≠ unplayable — it just means an
+        engine-less policy can't cheaply tell, and a conservative one should skip it (and only it)."""
+        return (not self.manaCost) or (self.autoTapSolution is not None)
+
+    @property
+    def mana_value(self) -> int:
+        """The card's mana value (CMC): the total of every mana-symbol count in `manaCost` (generic + coloured).
+        e.g. {Generic:3}+{Red:2} -> 5. Used to curve out (deploy cheaper spells first)."""
+        return sum(mc.count for mc in self.manaCost)
 
 
 class DamageRecipient(_M):
@@ -141,6 +166,12 @@ class DeclareBlockersReq(_M):
 
 class SelectTargetsReq(_M):
     targets: list[dict] = []                                # target shape is intricate; kept loose for now
+
+
+class AssignDamageReq(_M):
+    """Order/assign combat damage among an attacker's multiple blockers (or vice versa). MTGA pre-suggests an
+    order and offers 'Auto Allocate Damage'; we just accept the default and confirm, so contents stay loose."""
+    damageAssignments: list[dict] = []
 
 
 class MulliganReq(_M):
@@ -188,6 +219,7 @@ class GreMessage(_M):
     declareAttackersReq: Optional[DeclareAttackersReq] = None
     declareBlockersReq: Optional[DeclareBlockersReq] = None
     selectTargetsReq: Optional[SelectTargetsReq] = None
+    assignDamageReq: Optional[AssignDamageReq] = None
     mulliganReq: Optional[MulliganReq] = None
 
 
@@ -318,6 +350,7 @@ _DECISIONS = {
     "attackers": ("declareAttackersReq", "qualifiedAttackers"),
     "blockers": ("declareBlockersReq", "blockers"),
     "targets": ("selectTargetsReq", "targets"),
+    "assign_damage": ("assignDamageReq", None),            # order damage among multiple blockers — accept default
     "mulligan": ("mulliganReq", None),
 }
 _TYPE_TO_KIND = {
@@ -325,6 +358,7 @@ _TYPE_TO_KIND = {
     "GREMessageType_DeclareAttackersReq": "attackers",
     "GREMessageType_DeclareBlockersReq": "blockers",
     "GREMessageType_SelectTargetsReq": "targets",
+    "GREMessageType_AssignDamageReq": "assign_damage",
     "GREMessageType_MulliganReq": "mulligan",
 }
 

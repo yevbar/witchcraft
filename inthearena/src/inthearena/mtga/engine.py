@@ -50,7 +50,7 @@ _DEFAULT_POOL = ["grizzly_bears", "hill_giant", "plains", "forest", "island", "m
 _RELATIONS = ("is_player", "life", "active_player", "current_step", "in_hand", "in_library",
               "printed_control", "on_battlefield", "instance_of", "printed_type", "printed_subtype",
               "has_supertype", "printed_color", "printed_power", "printed_toughness", "tapped",
-              "command_zone", "is_commander")
+              "command_zone", "is_commander", "attacks", "spell_type", "free_grant", "mana_cost")
 
 
 def _eng(token: str) -> str:
@@ -67,16 +67,36 @@ def _slug(name: str) -> str:
     return ground.slug(name)
 
 
-def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0) -> dict:
+def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
+                castable: Optional[set] = None, playable: Optional[set] = None,
+                costs: Optional[dict] = None) -> dict:
     """Build an mtg engine STATE dict from `view`, as seen by seat `me`: visible objects fed directly, hidden
-    zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill."""
+    zones determinized (seeded). `opponent_deck` is a list of imagined card names/slugs for the fill.
+
+    `castable` is the set of MTGA instanceIds in our hand that MTGA reports we can PAY for right now — they're
+    fed as `free_grant` so the engine DERIVES `free_cast` -> `can_afford` and surfaces those casts. (We feed
+    `free_grant`, an EDB input, NOT `free_cast` directly: `free_cast` is a derived relation, and the incremental
+    souffle driver's cross-call state makes a directly-fed derived value survive unreliably — the 'passed with a
+    castable spell in hand' bug.) The engine has no mana model for a determinized snapshot (mana is developed on
+    phase ENTRY, which a static state skips) and no cost facts for cards outside its corpus, so AFFORDABILITY is
+    delegated to MTGA (the oracle); the engine still decides WHICH affordable spell to cast. Without it the engine
+    sees nothing castable and just passes.
+
+    `playable` GATES land drops to MTGA's offered Play actions: a hand land NOT in `playable` is kept in hand but
+    not surfaced as a §305 land play. The live GameView can lag a beat (a just-PLAYED land still shows in hand),
+    and the engine's Do.LANDS leads, so without this gate it re-picks the stale land every actions decision, the
+    move doesn't map, and the bot passes the whole turn instead of casting. `playable=None` = don't gate (offer
+    all hand lands — the default for tests / `suggest`); pass MTGA's Play instanceIds to gate to reality."""
     rng = random.Random(seed)
+    castable = castable or set()
     s = {k: set() for k in _RELATIONS}
     seats = view.seats() or [me]
     name_of = {sid: ("alice" if sid == me else "bob") for sid in seats}
     opp = next((x for x in seats if x != me), None)
     if opp is not None and opp not in name_of:
         name_of[opp] = "bob"
+    # who an attacker controlled by each player is attacking (the OTHER player) — for the `attacks` combat fact
+    defender_of = {nm: next((o for o in name_of.values() if o != nm), None) for nm in name_of.values()}
 
     for sid in seats:
         s["is_player"].add((name_of[sid],))
@@ -95,6 +115,11 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
         s["instance_of"].add((inst, slug))
         for ct in o.cardTypes:
             s["printed_type"].add((inst, _eng(ct)))
+            # spell_type is a SHIM INPUT keyed per-instance (engine.dl SHIM_INPUTS), NOT derived from
+            # printed_type. _playable_lands gates on spell_type(inst, "land") and can_cast on spell_type(inst,
+            # "instant"/"sorcery"/…) — so without feeding it the engine sees NO playable lands and NO castable
+            # spells for a determinized card, and a land-first player just passes. Fed from the GRE card types.
+            s["spell_type"].add((inst, _eng(ct)))
         for st in o.subtypes:
             s["printed_subtype"].add((inst, _eng(st)))
         for sup in o.superTypes:
@@ -107,6 +132,19 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["printed_toughness"].add((inst, o.t))
         if zone == "hand":
             s["in_hand"].add((seat_name, inst))
+            if o.instanceId in castable:                       # MTGA says we can pay -> let the engine cast it.
+                # Feed `free_grant` (a SHIM_INPUT / EDB fact), NOT `free_cast`. `free_cast` is a DERIVED relation
+                # (engine_rules.dl: free_cast(P,S) :- free_grant(P,S), playable_source(P,S)); the incremental
+                # souffle driver carries state across calls, so a directly-fed derived value survives or gets
+                # cleared depending on engine history — nondeterministic, and the cause of 'passed with a castable
+                # creature in hand' (the cast vanished on the 2nd+ decision of a turn). free_grant is seeded as a
+                # true input every run, so the engine DERIVES free_cast -> can_afford -> can_cast deterministically.
+                s["free_grant"].add((seat_name, inst))
+            if playable is not None and o.instanceId not in playable:
+                s["spell_type"].discard((inst, "land"))        # not an offered land drop (e.g. a stale, already-
+                #                                                played land still in the lagging view) -> hide it
+            if costs and o.instanceId in costs:                # CMC from MTGA, for curve-out; affordability stays
+                s["mana_cost"].add((inst, costs[o.instanceId]))  # free_grant path (affordability already granted)
         elif zone == "library":
             s["in_library"].add((seat_name, inst))
         elif zone == "command":                            # the commander (Brawl/Commander) — public
@@ -117,6 +155,12 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             s["printed_control"].add((seat_name, inst))
             if o.isTapped:
                 s["tapped"].add((inst,))
+            if o.is_attacking and defender_of.get(seat_name):
+                # COMBAT: an attacking creature attacks the DEFENDING player (the other seat). Feeding this
+                # `attacks(attacker, defender)` fact is what lets the engine enumerate real blocks at
+                # declare-blockers — without it the engine sees combat with no attackers and offers only 'no
+                # blocks'. (Player target only; attacks on planeswalkers aren't modelled here.)
+                s["attacks"].add((inst, defender_of[seat_name]))
 
     def place_hidden(seat_name: str, zone: str) -> None:
         slug = rng.choice(pool)
@@ -149,27 +193,55 @@ def build_state(view: GameView, me: int, *, opponent_deck: Optional[list] = None
             if iid not in placed:
                 place_hidden(nm, zone)
 
+    # 3) PLAYABLE-FROM-ANYWHERE: MTGA's Play options are the ground truth of which lands we can play THIS turn —
+    #    and they're not always in hand. Recent sets exile a card and let you play it ('impulse draw' / adventure
+    #    / plot), so a Plains MTGA offers as a Play can sit in ZoneType_Exile (which the engine doesn't model).
+    #    Surface every offered land as a playable hand land so the engine doesn't ignore it. (ActionType_Play is
+    #    always a land drop; `playable` is None when ungated.)
+    for iid in (playable or ()):
+        o = view.objects.get(iid)
+        if o is None or not cards.card_name(o.grpId):
+            continue
+        slug = _slug(cards.card_name(o.grpId))
+        inst = f"{slug}_{iid}"
+        s["instance_of"].add((inst, slug))
+        s["in_hand"].add((name_of.get(me, "alice"), inst))   # treat it as castable-from-hand for the §305 drop
+        s["spell_type"].add((inst, "land"))
+
     s["_turn"] = view.turn.turnNumber or 0
     s["_seed"] = seed
     s["_variant"] = view.variant                           # brawl / two-player, from the match's format
+    # §305 EXPLICIT land drops: the bridge must surface "play a land" as an engine MOVE so it can ENACT it as an
+    # MTGA click — without this the engine auto-develops lands in its own model and never offers the move, so a
+    # land-first player (HeuristicPlayer/AggroPlayer all list Do.LANDS) sees no land to play and PASSES, stranding
+    # the real land in hand into the end-of-turn discard. `Game.from_state` reads this flag off the state.
+    s["_explicit_lands"] = True
     return s
 
 
-def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0):
+def to_game(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0,
+            castable: Optional[set] = None, playable: Optional[set] = None, costs: Optional[dict] = None):
     """An `mtg.Game` positioned at `view`'s board (visible info fed; hidden info determinized). Re-call as the
-    log advances to re-derive the Game from the updated view."""
+    log advances to re-derive the Game from the updated view. `castable` = MTGA instanceIds we can pay for now
+    (fed as free_grant -> derived free_cast); `playable` = MTGA's offered land-drop instanceIds (gates §305 plays);
+    `costs` = {instanceId: mana value} (fed as mana_cost, for curve-out). See build_state."""
     from mtg.game import Game
-    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed))
+    return Game.from_state(build_state(view, me, opponent_deck=opponent_deck, seed=seed,
+                                       castable=castable, playable=playable, costs=costs))
 
 
-def suggest(view: GameView, me: int, *, opponent_deck: Optional[list] = None, seed: int = 0):
-    """Translate `view` into the `mtg` engine and report what it would do for the LOCAL player (mapped to
-    'alice'): the engine's suggested move (its AggroPlayer's pick), the legal-move menu, and a small state
-    summary. Returns a dict, or None if the `mtg` engine isn't importable (inthearena stays usable without it)
+def suggest(view: GameView, me: int, *, player=None, opponent_deck: Optional[list] = None, seed: int = 0):
+    """Translate `view` into the `mtg` engine and report what a WITCHCRAFT player would do for the LOCAL player
+    (mapped to 'alice'): the engine's suggested move, the legal-move menu, and a small state summary. `player` is
+    any `mtg` Player instance (default: `BlindAggroPlayer` — develop, cast, swing, never block); pass another to
+    drive with a different bot. Returns a dict, or None if the `mtg` engine isn't importable (inthearena stays
+    usable without it — and the engine loads its datalog by a path relative to the repo root, so run from there)
     or the state can't be translated. NOTE: the engine only models a fraction of real cards today, so for an
     unmodeled board the suggestion will often be just 'pass' — this is the seam to build coverage against."""
     try:
-        from mtg.aggro import AggroPlayer
+        if player is None:
+            from mtg.aggro import AggroPlayer            # default engine bot (beats HeuristicPlayer head-to-head)
+            player = AggroPlayer()
     except Exception:
         return None
     try:
@@ -179,7 +251,7 @@ def suggest(view: GameView, me: int, *, opponent_deck: Optional[list] = None, se
     legal = [game.describe_move(m) for m in game.legal_moves]
     suggested = None
     try:
-        move = AggroPlayer().bind(game, "alice").choose_move(game)
+        move = player.bind(game, "alice").choose_move(game)
         suggested = game.describe_move(move)
     except Exception:
         suggested = None
