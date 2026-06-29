@@ -3703,6 +3703,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):    # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "put_counter" and str(_cond).startswith("moved_from_"):
+                    # §122 MOVE a counter — 'move a counter from <src> onto <dst>' grounds as a put_counter on
+                    # the dst with cond moved_from_<src> (Nesting Grounds). Resolve as a RELOCATION (the driver
+                    # removes a counter from a <src> the controller controls and adds it to a <dst>); 'any' kind
+                    # = any counter present, else the named kind. -> a move_counter activated_ability slot.
+                    src_class = str(_cond)[len("moved_from_"):]
+                    add("activated_ability", (a, tid, paid[0], taps, "move_counter", 0, f"{extra}|{src_class}|{tgt}"))
+                    emitted = True; continue
                 if verb == "grant_keyword" and str(extra) == "haste" and "mana_is_spent_on_a_creature" in str(_cond):
                     # §106 a 'haste-mana' rider on a mana ability: 'Add {R}{R}. If that mana is spent on a
                     # creature spell, it gains haste' (Arena of Glory). Flag the source — the driver grants
