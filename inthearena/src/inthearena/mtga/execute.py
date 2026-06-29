@@ -38,6 +38,18 @@ _log = logging.getLogger("inthearena.mtga.execute")
 # sentinel and `_do_actions` presses the keys. Shared so the policy and the executor agree on one object.
 TAP_MANA = object()
 
+# A "choose_x" choice sentinel: set the {X} value to the MAXIMUM affordable (society_of_control.choose_x's
+# always-maximize policy — a maxed kill survives a last-minute life gain). EnginePolicy.decide returns this for a
+# NumericInputType_ChooseX prompt and `_do_choose_x` drives the on-screen +/Pay widget to its cap.
+CHOOSE_X_MAX = object()
+
+# 'Select a value for X' widget (the row: [-5] [-] [Pay / X=N] [+] [+5]). Fractions of the window, measured off a
+# live 1920x1080 frame — LIVE-CALIBRATE if the click lands off. To MAXIMIZE we spam '+5' past the affordable cap
+# (the widget clamps), then click the central 'Pay X=N' button, which both sets and confirms.
+_X_PLUS5 = (0.979, 0.722)
+_X_PAY = (0.881, 0.722)
+_X_PLUS5_CLICKS = 12          # +5 x12 = up to X≈60; overshoots any realistic floating mana, clamped at the cap
+
 # Bottom-right context buttons. The generic advance button's LABEL changes with the step (Pass / Resolve / Done /
 # Next); one element covers those. BUT the declare-attackers step shows TWO buttons stacked there — 'All Attack'
 # (lower) and 'No Attacks' (above it) — both inside the bottom-right anchor region, so a generic query could grab
@@ -127,6 +139,27 @@ class GameExecutor:
         # Order combat damage among multiple blockers. MTGA pre-suggests an order ('Auto Allocate Damage' is on),
         # so accept the default: click the centre-bottom 'Done' button.
         return self._advance("assign damage: accept default order", _DONE)
+
+    def _do_choose_x(self, decision, choice) -> ExecResult:
+        # 'Select a value for X' (NumericInputType_ChooseX). Policy: MAXIMIZE — drive the on-screen widget
+        # ([-5] [-] [Pay/X=N] [+] [+5]) to its affordable cap by spamming '+5' (the widget clamps at what you
+        # can pay), then click the central 'Pay X=N' button, which sets AND confirms. Maxing guards a kill from
+        # a last-minute life gain (society_of_control.choose_x). `choice` is the CHOOSE_X_MAX sentinel.
+        rect = self._act.window_rect()
+        if rect is None:
+            return ExecResult(False, "no window rect")
+
+        def at(frac):
+            return rect.x + int(frac[0] * rect.w), rect.y + int(frac[1] * rect.h)
+
+        px, py = at(_X_PLUS5)
+        for _ in range(_X_PLUS5_CLICKS):                  # +5 past the cap -> the widget clamps to max affordable
+            self._act.hover(px, py)
+            self._act.click()
+        cx, cy = at(_X_PAY)
+        self._act.hover(cx, cy)
+        self._act.click()                                 # 'Pay X=N' both sets and confirms
+        return ExecResult(True, f"chose X = max ({_X_PLUS5_CLICKS}x +5, then Pay)")
 
     def _do_actions(self, decision, choice) -> ExecResult:
         # choice is a gre.Action (or None), the TAP_MANA sentinel, or a Pass. Pass -> advance; tap all mana ->

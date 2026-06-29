@@ -113,6 +113,9 @@ class EnginePolicy:
             return "keep"                                    # keep the opener; engine-driven mulligan is TBD
         if d.kind == "assign_damage":
             return "done"                                    # accept MTGA's suggested combat-damage order
+        if d.kind == "choose_x":                             # 'Select a value for X' -> always MAXIMIZE
+            from .execute import CHOOSE_X_MAX                 # (society_of_control.choose_x: a maxed kill survives
+            return CHOOSE_X_MAX                              #  a last-minute life gain; the mousetrap pays max)
         move = self._engine_move(d)
         if move is None:
             return self._noop(d)                             # engine unusable -> pass/decline (no blind play)

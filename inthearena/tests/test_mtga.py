@@ -1595,6 +1595,19 @@ def _engine_policy_checks():
     check("engine 'tap_mana' -> the TAP_MANA hotkey sentinel (not a GRE Play/Cast/Pass option)",
           ep._translate(d_act, move("tap_mana")) is TAP_MANA)
 
+    # choose_x: a NumericInputType_ChooseX prompt parses to a 'choose_x' Decision, and the policy MAXIMIZES it.
+    from inthearena.mtga.execute import CHOOSE_X_MAX
+    from inthearena.mtga.gre import GameView as _GV, GreMessage, update
+    mx = GreMessage.model_validate({"type": "GREMessageType_NumericInputReq", "systemSeatIds": [1],
+                                    "numericInputReq": {"maxValue": 2147483647, "stepSize": 1, "sourceId": 9,
+                                                        "numericInputType": "NumericInputType_ChooseX"}})
+    dec_cx = update(_GV(), mx)
+    check("gre: NumericInputReq(ChooseX) -> a 'choose_x' Decision carrying the req",
+          dec_cx is not None and dec_cx.kind == "choose_x"
+          and getattr(dec_cx.req, "numericInputType", None) == "NumericInputType_ChooseX")
+    check("EnginePolicy.decide maximizes X (choose_x -> CHOOSE_X_MAX sentinel)",
+          ep.decide(dec_cx) is CHOOSE_X_MAX)
+
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
     d_atk = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
@@ -1746,6 +1759,16 @@ def _execute_checks():
     r_tap = GameExecutor(a_tap, locator=AdvLoc()).execute(dec_actions, TAP_MANA)
     check("execute: TAP_MANA -> presses the q,q hotkey (no click), done",
           r_tap.done and a_tap.keys == ["q", "q"] and a_tap.clicks == [])
+
+    # choose_x ('Select a value for X'): MAXIMIZE — spam the '+5' button (right of the widget) past the cap, then
+    # click the central 'Pay X=N' (left of +5), which sets AND confirms. 12 +5 + 1 Pay = 13 clicks.
+    from inthearena.mtga.execute import CHOOSE_X_MAX, _X_PLUS5_CLICKS
+    dec_x = Decision(kind="choose_x", options=[], seat=1, view=GameView(), req=None)
+    a_x = DryRunActuator(rect=rect)
+    r_x = GameExecutor(a_x).execute(dec_x, CHOOSE_X_MAX)
+    check("execute: choose_x -> spams +5 then clicks Pay to maximize X",
+          r_x.done and len(a_x.clicks) == _X_PLUS5_CLICKS + 1
+          and a_x.clicks[-1][0] < a_x.clicks[0][0])      # final 'Pay' click is LEFT of the '+5' clicks
 
     # cast routes to the HAND (play_hand_card); with an empty view there's no card to identify -> shadow, no click
     cast = Action(actionType="ActionType_Cast", instanceId=51)
