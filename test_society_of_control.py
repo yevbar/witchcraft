@@ -178,10 +178,15 @@ def run() -> None:
     g, p = _burn_to_face(40, mana=0)                              # out of reach -> the cheap gate skips the scan
     check("force_win None (and gate skips) when the opponent is out of reach", p.force_win(g) is None)
 
-    # choose_x placeholder: lethal preferred when affordable, else max affordable
+    # choose_x ALWAYS maximizes (never shave to exactly lethal — a last-minute life gain could survive an
+    # exact-lethal X; max-X overshoots that buffer). The commander 'mousetrap' X is the motivating case.
     _, p = _burn_to_face(2)
-    check("choose_x picks the lethal value when affordable", p.choose_x(g, lethal=4, affordable=6) == 4)
-    check("choose_x falls back to max affordable when lethal is out of reach", p.choose_x(g, lethal=9, affordable=6) == 6)
+    check("choose_x maximizes: pays max affordable even when a SMALLER X is already lethal",
+          p.choose_x(g, lethal=4, affordable=6) == 6)
+    check("choose_x maximizes: pays max affordable when lethal is out of reach too",
+          p.choose_x(g, lethal=9, affordable=6) == 6)
+    check("choose_x falls back to the lethal floor only when affordable is unknown",
+          p.choose_x(g, lethal=5, affordable=None) == 5)
 
     # MANA ROCKS / DORKS deployed before other creatures (ramp first).
     def _ramp_game():

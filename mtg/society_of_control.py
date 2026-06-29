@@ -172,15 +172,18 @@ class SocietyOfControlPlayer(Player):
         return life.get(self.seat, 1) > 0 and any(v <= 0 for p, v in life.items() if p != self.seat)
 
     def choose_x(self, game, *, lethal: int | None = None, affordable: int | None = None) -> int:
-        """PLACEHOLDER for the 'choose value for X' decision (the commander mousetrap's {X}: deal X). Pick X to be
-        exactly lethal when we know it, else the max affordable. NOTE: the engine ALREADY greedily pays the max
-        affordable X by default (driver._choose 'x_value'), so a self-play kill works without this — it's the hook
-        for once we drive X explicitly. TODO(inthearena): the live 'choose value for X' slider isn't a parsed GRE
-        Req yet, so the bridge can't enact it — next step is to STOP the bot on that screen, screenshot it, model
-        its Req, and wire an executor (set the slider to `choose_x`'s value, confirm)."""
-        if lethal is not None and (affordable is None or lethal <= affordable):
-            return lethal
-        return affordable or 0
+        """Pick the value for an {X} that DAMAGES A PLAYER — above all the commander 'mousetrap' (Electro's
+        leaves-the-battlefield 'pay {X}: deal X damage to target player', fired when the commander is killed).
+        ALWAYS MAXIMIZE: pay the most we can afford; NEVER shave to exactly lethal. Shaving to exact lethal lets a
+        last-minute life gain (a lifelink trigger, an instant) lift the opponent back above the threshold and keep
+        the game going — max-X overshoots that buffer, and since a killing X ends the game there's no mana worth
+        saving. `lethal` is kept only as a floor for the rare case the affordable amount is unknown.
+
+        NOTE: the engine ALREADY pays max-affordable X by default (driver._choose 'x_value' -> (avail-fixed)//xk,
+        which society's `decide` passes through), so self-play already maximizes; this just makes the policy
+        explicit. The LIVE bridge still needs a ChooseX executor (set the slider to this value, confirm) — that
+        GRE Req isn't parsed/enacted yet, so a live mousetrap's X is still chosen by hand."""
+        return affordable if affordable is not None else (lethal or 0)
 
     def decide(self, view, key, options, default):
         """Steer engine sub-choices (routed through `driver._choose`). The one override: an OPTIONAL SACRIFICE
