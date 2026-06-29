@@ -3430,6 +3430,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps)
                     # -> a becomes_color spell_effect the driver resolves (pick a creature, set eff_set_color).
                     add("spell_effect", (tid, "becomes_color", 0, f"{extra}|{_target_class(tgt)}")); continue
+                if verb == "add_type" and str(extra) == "all_basic_land_types":
+                    # §305.7 'lands you control gain all basic land types until end of turn' (Energybending) —
+                    # each of the controller's lands taps for ANY color this turn. The driver marks them
+                    # (gain_all_land_types) so the mana model treats them as any-color; cleared at §514.2 cleanup.
+                    add("spell_effect", (tid, "gain_all_land_types", 0, str(tgt))); continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
                     # emit a bare search_select that would pull a card out of the library with nowhere to put

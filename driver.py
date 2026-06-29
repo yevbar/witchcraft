@@ -1915,8 +1915,12 @@ def _source_units(state: dict, ap: str):
 
     lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
                    and (ap, c) in ctrl and (c,) not in tapped)
+    all_color = state.get("_all_colors_lands", set())         # §305.7 'gain all basic land types' (Energybending)
     for c in lands:                                           # §106 a land taps for one mana of a color it makes
-        cols = sorted(col for (s, col) in produces if s == c)
+        if (c,) in all_color:                                 # all basic land types -> taps for ANY color this turn
+            cols = ["white", "blue", "black", "red", "green"]
+        else:
+            cols = sorted(col for (s, col) in produces if s == c)
         # a DUAL/any-color land (Underground Sea, City of Brass) is FLEXIBLE: a frozenset wildcard the pool
         # aims at the hand's demand (§106.6 the player picks the color). A basic makes its single color.
         unit = frozenset(cols) if len(cols) > 1 else (cols[0] if cols else "colorless")
@@ -4235,6 +4239,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
         state["free_grant"] = set()                             # §118.9 the impulse 'play without paying' grant expires with may_play
         state["_extra_combats"] = {}; state["_skip_step"] = set()  # §505/§506 + §500.7 turn-structure flags are per-turn
+        state["_all_colors_lands"] = set()                      # §305.7 'gain all basic land types until eot' expires
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
