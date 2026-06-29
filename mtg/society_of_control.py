@@ -21,7 +21,7 @@ import env
 from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
-from .predicates import creature_damage, is_creature, is_creature_damage, is_mana_rock, is_permanent
+from .predicates import anything, creature_damage, is_creature, is_creature_damage, is_mana_rock, is_permanent
 
 
 class SocietyOfControlPlayer(Player):
@@ -67,20 +67,31 @@ class SocietyOfControlPlayer(Player):
 
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
+
         win = self.force_win(game)               # TAKE OVER: if a win is forceable THIS turn, close the game —
         if win is not None:                      # a lethal line beats any positional heuristic (on our turn OR,
             return win                           # at instant speed, on the opponent's: the commander 'mousetrap')
+
         return game.prioritize(
+            # Game actions
             Do.LANDS.prefer(self.land_choice),                                   # play a land (non-basics first),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # aim a player-target spell at their face,
+
+            # Playing spells
             Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
             Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
             Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then CREATURES (curve out),
             Do.SPELLS.matching(is_permanent).prefer(self.curve_choice, floor=0.0),        # then other PERMANENTS,
-            Do.SPELLS.prefer(self.develop_choice, floor=0.0),                    # else the best remaining spell if it beats passing,
+            Do.SPELLS.matching(anything).prefer(self.develop_choice, floor=0.0),          # else ANY remaining spell if it beats passing,
+
+            # Activating abilities
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
+
+            # Combat related
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
+
+            # Pass
             Do.SKIP,                                            # else pass.
         )
 

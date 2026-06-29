@@ -86,6 +86,12 @@ def run() -> None:
     floored = Do.SPELLS.matching(P.is_mana_rock).prefer(lambda gg, m: 0.0, floor=0.0)
     check("a matched move below the floor is skipped", floored.pick(g, pr) is None)
 
+    # anything() is the explicit catch-all: matches every move, including a card-less pass
+    check("anything True for any card move", P.anything(g, rock) is True)
+    check("anything True even for a card-less pass", P.anything(g, NS(kind="pass", card=None)) is True)
+    catch_all = Do.SPELLS.matching(P.anything).prefer(lambda gg, m: 1.0)
+    check("matching(anything) is equivalent to an un-narrowed line", catch_all.pick(g, pr) is rock)
+
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)
 
