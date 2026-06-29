@@ -56,20 +56,31 @@ def _old_bridge_printed(c: dict, f: dict, tid: str) -> dict:
 
 def _engine_join(bf: dict, tid: str) -> dict:
     """The translate.dl rule semantics (instance_of join over card_*, +engine_keyword guard for keywords)
-    applied to the NEW bridge's card_* facts — the printed_* the engine derives, computed in Python."""
+    applied to the NEW bridge's card_* facts — the printed_* the engine derives, computed in Python.
+
+    The join is on the SLUG tid is instance_of (printed_X(I,T) :- instance_of(I,C), card_X(C,T)) — NOT every
+    card_* row. For a double-faced card the bridge emits the BACK face's card_* under the back-face slug too
+    (for after it transforms); tid is instance_of only the FRONT slug, so those back rows must not join here —
+    else this Python shortcut over-includes the back face and disagrees with the real engine (front-face only)."""
+    slug = next((c for (i, c) in bf.get("instance_of", set()) if i == tid), None)
     e = {k: set() for k in _IDENTITY_RELS}
     for (_s, t) in bf.get("card_type", set()):
-        e["printed_type"].add((tid, t))
+        if _s == slug:
+            e["printed_type"].add((tid, t))
     for (_s, x) in bf.get("card_subtype", set()):
-        e["printed_subtype"].add((tid, x))
+        if _s == slug:
+            e["printed_subtype"].add((tid, x))
     for (_s, x) in bf.get("card_color", set()):
-        e["printed_color"].add((tid, x))
+        if _s == slug:
+            e["printed_color"].add((tid, x))
     for (_s, x) in bf.get("card_power", set()):
-        e["printed_power"].add((tid, x))
+        if _s == slug:
+            e["printed_power"].add((tid, x))
     for (_s, x) in bf.get("card_toughness", set()):
-        e["printed_toughness"].add((tid, x))
+        if _s == slug:
+            e["printed_toughness"].add((tid, x))
     for (_s, kw) in bf.get("card_keyword", set()):
-        if kw in bridge._ENGINE_KEYWORDS:                    # the engine_keyword(Kw) guard
+        if _s == slug and kw in bridge._ENGINE_KEYWORDS:     # the engine_keyword(Kw) guard
             e["printed_keyword"].add((tid, kw))
     return e
 
@@ -177,10 +188,14 @@ def run() -> None:
     check("...and resolves the derived effect -> pending(lose_life, 2, each_opponent)",
           ("x_a0", "lose_life", "2", "each_opponent", "x", "alice") in eng["pending"])
 
-    # an UNsupported effect abstains (no mistranslation) — Gravedigger's ETB return_to_hand
-    f, dropped = facts("Gravedigger")
+    # an UNsupported effect abstains (no mistranslation). Hunted Wumpus' ETB ('each other player may put a
+    # creature onto the battlefield') is a political/symmetric effect the bridge doesn't model — it's recorded in
+    # `dropped` and emits NO trigger_effect, never a wrong one. (A coverage SNAPSHOT: if that effect ever gains a
+    # fold, swap in another still-unsupported card. Gravedigger used to live here until its graveyard return_to_hand
+    # became supported as a `regrowth` trigger_effect.)
+    f, dropped = facts("Hunted Wumpus")
     check("unsupported effect abstains, not mistranslated",
-          ("effect", "return_to_hand") in dropped and not f.get("trigger_effect"))
+          ("effect", "return_to_battlefield") in dropped and not f.get("trigger_effect"))
 
     # end-to-end: a real card's interpreted trigger fires when the datalog resolves a game
     buf = io.StringIO()
