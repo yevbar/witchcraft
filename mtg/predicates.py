@@ -78,6 +78,25 @@ def is_mana_rock(game, move) -> bool:
                for (s, cost) in game.state.get("mana_ability", set()))
 
 
+def is_cost_reducer(game, move) -> bool:
+    """A permanent that makes the spells you cast cost LESS (Ruby Medallion, The Fire Crystal, Goblin
+    Electromancer) — effectively RAMP: it stretches your mana every turn, so a curve-out deploys it EARLY, like a
+    mana rock. From the `cost_modifier(slug, "less", …)` fact, so False when card rules aren't loaded. Objective:
+    a cost reducer cheapens spells in any deck."""
+    slug = _slug(game, move)
+    if slug is None:
+        return False
+    return any(len(r) > 1 and r[0] == slug and r[1] == "less"
+               for r in game.state.get("cost_modifier", set()))
+
+
+def is_ramp(game, move) -> bool:
+    """RAMP — anything that ACCELERATES your mana: a standing mana SOURCE (`is_mana_rock` — a rock/dork) OR a
+    cost REDUCER (`is_cost_reducer` — a medallion / 'spells cost less'). Both stretch your mana, so a curve-out
+    treats them the same and deploys them at the same early tier."""
+    return is_mana_rock(game, move) or is_cost_reducer(game, move)
+
+
 def is_draw_ability(game, move) -> bool:
     """An ACTIVATED ability that DRAWS a card — `move` activates a source one of whose abilities has a `draw`
     effect (read from `card_effect`, so False when card rules aren't loaded). Objective: drawing is drawing in any

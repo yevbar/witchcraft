@@ -24,7 +24,7 @@ from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
 from .predicates import (anything, creature_damage, is_cantrip, is_commander_cast, is_creature,
-                         is_creature_damage, is_draw_ability, is_mana_rock, is_permanent)
+                         is_creature_damage, is_draw_ability, is_permanent, is_ramp)
 
 
 class SocietyOfControlPlayer(Player):
@@ -99,7 +99,7 @@ class SocietyOfControlPlayer(Player):
             Do.SPELLS.matching(is_cantrip).prefer(self.free_cantrip_choice, floor=0.0),   # FREE one-drop cantrips first (commander refunds the cast),
             Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat with burn — incl generic any-target burn (only if it kills),
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # else aim a player-target spell at their face (kill a creature takes precedence),
-            Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
+            Do.SPELLS.matching(is_ramp).prefer(self.curve_choice, floor=0.0),             # RAMP — rocks/dorks AND cost-reducers (Ruby Medallion / Fire Crystal) first,
             Do.SPELLS.matching(is_commander_cast).prefer(self.curve_choice, floor=0.0),   # then the COMMANDER (Brawl) before any creature,
             Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then other CREATURES (curve out),
             Do.SPELLS.matching(is_permanent).prefer(self.curve_choice, floor=0.0),        # then other PERMANENTS,

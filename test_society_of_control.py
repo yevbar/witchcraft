@@ -11,7 +11,8 @@ from types import SimpleNamespace as NS
 
 from mtg.game import Game
 from mtg.models import PriorityOption as Do
-from mtg.predicates import is_cantrip, is_commander_cast, is_creature, is_draw_ability, is_mana_rock
+from mtg.predicates import (is_cantrip, is_commander_cast, is_cost_reducer, is_creature, is_draw_ability,
+                            is_mana_rock, is_ramp)
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -193,15 +194,18 @@ def run() -> None:
         st = {
             "is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
             "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
-            "in_hand": {("alice", x) for x in ("rock", "bear", "dork", "bolt")},
+            "in_hand": {("alice", x) for x in ("rock", "bear", "dork", "bolt", "medallion")},
             "instance_of": {("rock", "mind_stone"), ("bear", "grizzly_bears"),
-                            ("dork", "llanowar_elves"), ("bolt", "lightning_bolt")},
+                            ("dork", "llanowar_elves"), ("bolt", "lightning_bolt"),
+                            ("medallion", "ruby_medallion")},
             "mana_ability": {("mind_stone", "{T}"), ("llanowar_elves", "{T}"),
                              ("chromatic_star", "{1}, {T}, Sacrifice ~")},
-            "spell_type": {("rock", "artifact"), ("bear", "creature"), ("dork", "creature"), ("bolt", "instant")},
+            "cost_modifier": {("ruby_medallion", "less", "1", "red_spells_you_cast", "-")},  # a cost-reducer = ramp
+            "spell_type": {("rock", "artifact"), ("bear", "creature"), ("dork", "creature"),
+                           ("bolt", "instant"), ("medallion", "artifact")},
             "card_ability": {(s, "a0", "spell") for s in ("mind_stone", "grizzly_bears", "llanowar_elves")},
-            "free_grant": {("alice", x) for x in ("rock", "bear", "dork", "bolt")},
-            "mana_cost": {("rock", 2), ("bear", 2), ("dork", 1), ("bolt", 1)},
+            "free_grant": {("alice", x) for x in ("rock", "bear", "dork", "bolt", "medallion")},
+            "mana_cost": {("rock", 2), ("bear", 2), ("dork", 1), ("bolt", 1), ("medallion", 2)},
         }
         g = Game.from_state(st); p = SocietyOfControlPlayer(); p.bind(g, "alice")
         return g, p
@@ -213,6 +217,13 @@ def run() -> None:
     check("is_mana_rock True for a mana DORK (a creature that taps for mana)", is_mana_rock(g, mc("dork")) is True)
     check("is_mana_rock False for a plain creature", is_mana_rock(g, mc("bear")) is False)
     check("is_mana_rock False for a non-permanent spell", is_mana_rock(g, mc("bolt")) is False)
+    # COST-REDUCERS (Ruby Medallion / The Fire Crystal — 'spells cost less') count as RAMP too: is_mana_rock is
+    # False for them (they don't tap for mana), but is_cost_reducer + is_ramp are True, so the RAMP line deploys
+    # them early like a rock.
+    check("is_cost_reducer True for a 'spells cost less' permanent (Ruby Medallion)", is_cost_reducer(g, mc("medallion")) is True)
+    check("is_cost_reducer False for a mana rock / plain creature", not is_cost_reducer(g, mc("rock")) and not is_cost_reducer(g, mc("bear")))
+    check("is_ramp covers BOTH a mana rock and a cost-reducer", is_ramp(g, mc("rock")) and is_ramp(g, mc("medallion")))
+    check("is_ramp False for a plain creature / non-permanent", not is_ramp(g, mc("bear")) and not is_ramp(g, mc("bolt")))
     check("curve_choice scores a matched mana source (above the floor=0.0 gate)", p.curve_choice(g, mc("rock")) > 0)
     check("choose_move deploys a mana source BEFORE the plain creature",
           getattr(getattr(p.choose_move(g), "card", None), "id", None) in ("rock", "dork"))
