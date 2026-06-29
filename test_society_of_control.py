@@ -395,6 +395,10 @@ def run() -> None:
     check("optional sac: DECLINE when too few creatures to spare one (2 < 3)", sac(2) is False)
     check("optional sac: DECLINE with no creatures", sac(0) is False)
     check("optional sac: only OUR creatures count (opponent's board doesn't license it)", sac(4, "bob") is False)
+    # the SELF-sacrifice seam (Rotisserie 'sacrifice it; if you do, exile X, play them') uses the same rule
+    sac_self = lambda n: sp.decide(_creatures_view(n), "you_do_sacrifice_self", (False, True), False)
+    check("self-sacrifice seam: ACCEPT when the board can spare it (3)", sac_self(3) is True)
+    check("self-sacrifice seam: DECLINE when too thin (2)", sac_self(2) is False)
     check("decide leaves other sub-choices at the engine default", sp.decide(_creatures_view(3), "mode", ("a", "b"), "a") == "a")
     check("decide with no seat bound -> safe decline", SocietyOfControlPlayer().decide(_creatures_view(5), "you_do_sacrifice", (False, True), False) is False)
 

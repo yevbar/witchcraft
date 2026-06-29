@@ -275,6 +275,7 @@ def _fire_you_do_costs(state: dict) -> None:
         state["did_optional"].discard((ante,))                # CLOSE before applying (consequent shouldn't re-fire)
         print(f"    §603.2c {ctrl} takes the optional {kind} cost of {ante} -> its 'if you do' consequent resolves")
         _apply_effects(state, new, new_dyn)
+        state.pop("_you_did_counts", None)                    # consequent applied -> drop the captured-counter slot
 
 
 def _pay_optional_cost(state: dict, src: str, kind: str, amt: int, ctrl: str, dry_run: bool) -> bool:
@@ -303,6 +304,15 @@ def _pay_optional_cost(state: dict, src: str, kind: str, amt: int, ctrl: str, dr
             for z in ("on_battlefield", "graveyard"):
                 state.get(z, set()).discard((src,))
             state.setdefault("exile", set()).add((src,))
+        return True
+    if kind == "sacrifice_self":                            # 'you may sacrifice ~' — the SOURCE itself (Rotisserie)
+        if (src,) not in state.get("on_battlefield", set()):
+            return False
+        if not dry_run:
+            # CAPTURE the source's counter counts BEFORE it leaves, so a consequent sized 'X = counters on it'
+            # (Rotisserie: 'exile X = the number of skewer counters on it') can read them once the source is gone.
+            state["_you_did_counts"] = {k: c for (o, k, c) in state.get("counter", set()) if o == src}
+            _sacrifice(state, src)
         return True
     if kind == "sacrifice":                                  # 'you may sacrifice a creature'
         cands = _sac_candidates(state, ctrl, "creature", src)
@@ -379,6 +389,9 @@ def clear_cache() -> None:
     _CACHE.clear()
     _EVALS[0] = 0
     _EVICTIONS[0] = 0
+    engine_inproc.reset()                                 # drop the in-process delta carry-over too, so an
+    if os.environ.get("MTG_INCREMENTAL"):                 # INDEPENDENT scenario isn't diffed against a stale
+        engine_incremental.reset()                        # baseline (clear_cache is the scenario-isolation seam)
 
 
 def cache_stats() -> dict:
