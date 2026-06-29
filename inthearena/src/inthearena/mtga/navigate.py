@@ -135,6 +135,7 @@ _LABEL_WORDS = {
     "Done": ("done",),
     "Keep": ("keep",),
     "Mulligan": ("mulligan",),
+    "Decline": ("decline",),               # the optional-trigger 'Decline / Take Action' pair (e.g. Rotisserie)
 }
 _OCR_GATE_TIMEOUT = 6.0    # how long to try the cheap OCR confirm before falling back to the vision model
 

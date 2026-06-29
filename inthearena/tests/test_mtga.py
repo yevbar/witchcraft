@@ -1505,6 +1505,26 @@ def _hand_checks():
     check("_reveal_positions span scales with N (8 cards span wider than 4)",
           (max(f8) - min(f8)) > (max(f4) - min(f4)))
 
+    # N-AWARE hover y: a fuller hand sits LOWER on screen, so the whole sweep drops (not just the edges) — else
+    # the cursor 'inches over the tops' of a 7-8 card hand and never magnifies. The centre y (least arc) of an
+    # 8-card sweep is LOWER (larger) than a 3-card one; a small hand is unchanged.
+    from inthearena.mtga.hand import _n_drop
+    ry8 = [p[1] for p in _reveal_positions(rect, 8, [], None)]
+    ry3 = [p[1] for p in _reveal_positions(rect, 3, [], None)]
+    check("_reveal_positions drops the hover y for a fuller hand (8-card sweep lower than 3-card; small hand unchanged)",
+          min(ry8) > min(ry3) and _n_drop(3) == 0 and _n_drop(8) > 0)
+
+    # TARGET-PROXIMITY sweep order: the bridge knows the target's slot, so the reveal visits its side FIRST — a
+    # RIGHTMOST target is found in the first hover or two, not after crawling through every card to its left (which
+    # nearly timed out live). _expected_x ranks slots L->R; sorting positions toward the target puts its side first.
+    from inthearena.mtga.hand import _expected_x
+    xr, xl = _expected_x(rect, 7, 8), _expected_x(rect, 0, 8)
+    check("_expected_x: rightmost slot is right-of-centre, leftmost left-of-centre, ordered",
+          xr > rect.w / 2 and xl < rect.w / 2 and xr > xl)
+    ordered = sorted([(300, 900), (1600, 900)], key=lambda p: abs(p[0] - _expected_x(rect, 7, 8)))
+    check("reveal order: a rightmost target hovers the RIGHT position first (no left-to-right crawl)",
+          ordered[0][0] == 1600)
+
     # a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (often not a clean 'Plains'); the wanted
     # name must still match it (as a word), or the reveal skips a real land and grabs something else.
     from inthearena.mtga.hand import _name_matches
@@ -1797,6 +1817,30 @@ def _execute_checks():
     check("execute: choose_x -> spams +5 then clicks Pay to maximize X",
           r_x.done and len(a_x.clicks) == _X_PLUS5_CLICKS + 1
           and a_x.clicks[-1][0] < a_x.clicks[0][0])      # final 'Pay' click is LEFT of the '+5' clicks
+
+    # OPTIONAL trigger 'Decline / Take Action' (Rotisserie 'you may sacrifice it'): passing over a menu with an
+    # ActionType_Activate clicks the DECLINE button (upper, ~0.93w/0.82h), NOT the generic advance that sits
+    # between the two stacked buttons and misses (the bot stalled to timeout on this). DECLINE == the bot's pass.
+    from inthearena.mtga import ocr as _ocr_d
+    _ord = _ocr_d.recognize_text
+    try:
+        _ocr_d.recognize_text = lambda image: [("Decline", 0.93, 0.82), ("Take Action", 0.93, 0.88)]
+        dec_opt = Decision(kind="actions", seat=1, view=GameView(), req=None,
+                           options=[Action(actionType="ActionType_Activate", instanceId=555),
+                                    Action(actionType="ActionType_Pass")])
+        a_d = DryRunActuator(rect=rect, image=object())
+        r_d = GameExecutor(a_d).execute(dec_opt, Action(actionType="ActionType_Pass"))
+        bx, by = (a_d.clicks[-1] if a_d.clicks else (0, 0))
+        check("execute: optional Decline/Take-Action prompt -> clicks DECLINE (upper-right ~0.93w/0.82h), not the advance",
+              r_d.done and bx > 0.90 * rect.w and 0.78 * rect.h < by < 0.87 * rect.h)
+        # no 'Decline' on screen -> a normal pass is unaffected (clicks the generic advance, lower than Decline)
+        _ocr_d.recognize_text = lambda image: []
+        a_n = DryRunActuator(rect=rect, image=object())
+        GameExecutor(a_n).execute(dec_opt, Action(actionType="ActionType_Pass"))
+        check("execute: a plain pass (no Decline prompt) still uses the generic advance, not the Decline spot",
+              bool(a_n.clicks) and a_n.clicks[-1][1] > 0.85 * rect.h)
+    finally:
+        _ocr_d.recognize_text = _ord
 
     # cast routes to the HAND (play_hand_card); with an empty view there's no card to identify -> shadow, no click
     cast = Action(actionType="ActionType_Cast", instanceId=51)
