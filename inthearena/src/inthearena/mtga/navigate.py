@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import math
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
@@ -83,18 +84,99 @@ def _point_in_box(box: Rect, rng: random.Random, inset: float = 0.25) -> tuple:
             rng.randint(box.y + my, box.y + box.h - my))
 
 
+def _element_region(element: ViewElement, *, mx: float, my: float) -> tuple:
+    """A normalized (left, top, right, bottom) crop of the window bracketing where `element` is expected —
+    centered on its frac/anchor with ±`mx`/`my` margins, clamped to [0, 1]. Cropping the screenshot to this
+    before vision/OCR runs them on a small slice (a corner / a band) instead of the whole window."""
+    fx, fy = element.frac or _ANCHOR_FRAC.get(element.anchor, (0.5, 0.5))
+    return (max(0.0, fx - mx), max(0.0, fy - my), min(1.0, fx + mx), min(1.0, fy + my))
+
+
 def _locate(actuator, element: ViewElement, locator) -> Optional[Rect]:
     """Ask the vision `locator` where `element` is on screen (its bounding box), or None if no locator / not
-    found — in which case callers fall back to the coarse anchor estimate."""
+    found — in which case callers fall back to the coarse anchor estimate. Crops the screenshot to the element's
+    expected region first (far fewer pixels = faster vision); if the cropped pass MISSES, retries the full frame
+    so cropping never costs a detection (the full-frame model stays the final fallback)."""
     if locator is None:
         return None
     image = actuator.screenshot()
     if image is None:
         return None
-    try:
-        return locator.locate(image, element.query or f"{element.name} button")
-    except Exception:
+    query = element.query or f"{element.name} button"
+    region = _element_region(element, mx=0.22, my=0.16)
+
+    def _try(reg):
+        try:
+            return locator.locate(image, query, region=reg)
+        except TypeError:                                  # a locator without region support — full frame only
+            return locator.locate(image, query) if reg is None else None
+        except Exception:
+            return None
+
+    box = _try(region)
+    if box is None and region is not None:
+        _log.info("  vision: cropped locate missed %r — retrying the full frame", query)
+        box = _try(None)
+    return box
+
+
+# OCR timing-gate: the label words whose presence in a FIXED button's corner confirms it's rendered, so a cheap
+# Vision-OCR read can replace a multi-second vision-model pass just to time the click. The generic advance button's
+# label tracks the step (Pass / Resolve / To Combat / …), so ANY action-bar word counts as "the bar is up".
+_ADVANCE_WORDS = ("pass", "resolve", "done", "next", "combat", "attack", "block", "cast", "play", "skip",
+                  "mulligan", "keep", "confirm", "submit", "ok")
+# Only elements listed here are OCR-gateable — those with a TEXT label OCR can read. A label-less control (the
+# 'x' close button) would never satisfy the gate, so it skips straight to the vision model (no wasted polling).
+_LABEL_WORDS = {
+    "advance": _ADVANCE_WORDS,
+    "All Attack": ("all attack", "attack"),
+    "No Attacks": ("no attack",),
+    "No Blocks": ("no block",),
+    "Done": ("done",),
+    "Keep": ("keep",),
+    "Mulligan": ("mulligan",),
+}
+_OCR_GATE_TIMEOUT = 6.0    # how long to try the cheap OCR confirm before falling back to the vision model
+
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", s.lower())
+
+
+def _ocr_region_text(actuator, element: ViewElement) -> Optional[str]:
+    """OCR just `element`'s corner of the screen and return the joined text (normalized), or None if it CAN'T OCR
+    here (no/!crop-able screenshot). An empty string '' means OCR ran but read nothing (button not rendered yet) —
+    distinct from None so the gate keeps polling on '' but bails to the vision model on None. ~0.1s on a small
+    crop, vs a multi-second model pass."""
+    from . import ocr
+    image = actuator.screenshot()
+    if image is None:
         return None
+    try:
+        iw, ih = image.size
+        l, t, r, b = _element_region(element, mx=0.14, my=0.08)
+        crop = image.crop((int(l * iw), int(t * ih), int(r * iw), int(b * ih)))
+    except Exception:                                      # not a croppable image (e.g. a test stub) -> can't OCR
+        return None
+    return _norm_text(" ".join(text for (text, _x, _y) in ocr.recognize_text(crop)))
+
+
+def _ocr_gate(actuator, element: ViewElement, *, timeout: float, poll: float) -> bool:
+    """Cheap TIMING confirm for a FIXED-position button: OCR its corner and check its label is on screen, instead
+    of running the vision model. True once confirmed within `timeout`; False -> the caller falls back to vision.
+    Bails immediately if OCR can't read here at all (None); keeps polling while it reads nothing yet ('')."""
+    labels = _LABEL_WORDS.get(element.name, _ADVANCE_WORDS)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        text = _ocr_region_text(actuator, element)
+        if text is None:
+            return False                                   # can't OCR here -> straight to the vision fallback
+        if any(lbl in text for lbl in labels):
+            _log.info("  %s: confirmed on screen via OCR [fast path] — clicking the fixed position", element.name)
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        actuator.wait(poll)
 
 
 def _in_anchor_region(box: Rect, element: ViewElement, rect: Rect) -> bool:
@@ -140,22 +222,41 @@ def interact(actuator: "Actuator", element: ViewElement, rect: Rect, rng: random
     Either way: if the cursor is already within the element, wait a beat and click in place (no move); else glide
     (wobbled, speed-jittered) to a jittered point within it, then click. Returns True if it clicked, False if a
     located element never became visible within the timeout (so the caller can retry rather than misclick)."""
-    if locator is not None:                                # VISION: only act once the button is clearly there
+    # FIXED-POSITION button (an explicit frac): the frac is AUTHORITATIVE for WHERE to click; the only thing that
+    # needs confirming is TIMING (is it rendered yet?). For a button with a readable LABEL, a cheap corner-OCR
+    # read does that ~10x faster than the vision model — and several bottom-right buttons stack in the same coarse
+    # quadrant (the big action button and the 'Pass Turn' fast-forward SKIP just below it), but we click the frac
+    # regardless, so we never land on the wrong one. The vision model is the FALLBACK when OCR can't confirm (or
+    # isn't available, e.g. off-macOS); a label-less frac button (the 'x' close) skips OCR and uses vision directly.
+    if locator is not None and element.frac is not None:
+        from . import ocr
+        gated = False
+        if element.name in _LABEL_WORDS and ocr.available():
+            gated = _ocr_gate(actuator, element, timeout=min(confirm_timeout, _OCR_GATE_TIMEOUT), poll=poll)
+        if not gated:
+            _log.info("  %s: gating via the vision model [slow path]", element.name)
+            box = _wait_locate(actuator, element, rect, locator, timeout=confirm_timeout, poll=poll, rng=rng)
+            if box is None:
+                return False                               # never rendered (still loading?) — don't blind-click
+        return _click_element(actuator, element, target_point(element, rect, rng), rng,
+                              in_region=lambda p: _within_bounds(p, resolve(element, rect), element))
+
+    if locator is not None:                                # VISION-POSITIONED (no frac): the model says WHERE
         box = _wait_locate(actuator, element, rect, locator, timeout=confirm_timeout, poll=poll, rng=rng)
         if box is None:
-            return False                                   # never rendered (still loading?) — don't blind-click
-        if element.frac is not None:
-            # FIXED-POSITION button (an explicit frac): the frac is AUTHORITATIVE for WHERE to click; vision only
-            # gated TIMING (is it rendered yet?). Several bottom-right buttons stack in the same coarse quadrant —
-            # the big action button (~0.87h) and the 'Pass Turn' fast-forward SKIP just below it — and vision can
-            # return the skip; clicking the frac instead never lands on the wrong one (a skip = a missed combat).
-            anchor = resolve(element, rect)
-            target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
-        else:
-            target, in_region = _point_in_box(box, rng), (lambda p: _within_box(p, box))
-    else:                                                  # FALLBACK: coarse anchor estimate
-        anchor = resolve(element, rect)
-        target, in_region = target_point(element, rect, rng), (lambda p: _within_bounds(p, anchor, element))
+            return False
+        return _click_element(actuator, element, _point_in_box(box, rng), rng,
+                              in_region=lambda p: _within_box(p, box))
+
+    # FALLBACK: no locator -> coarse anchor estimate
+    anchor = resolve(element, rect)
+    return _click_element(actuator, element, target_point(element, rect, rng), rng,
+                          in_region=lambda p: _within_bounds(p, anchor, element))
+
+
+def _click_element(actuator, element: ViewElement, target: tuple, rng: random.Random, *, in_region) -> bool:
+    """Click `element` at `target` — in place if the cursor is already within it (a human beat, then press), else
+    glide there and click. Returns True (it clicked)."""
     pos = actuator.position()
     if pos is not None and in_region(pos):
         _log.info("  clicking %s (cursor already on it)", element.name)

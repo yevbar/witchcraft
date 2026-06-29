@@ -84,8 +84,18 @@ def locate_hand_cards(image, rect: Rect, locator) -> list:
     if locator is None or image is None:
         _log.info("  hand: no locator/image to detect cards")
         return []
-    _log.info("  hand: running vision to find the cards (~10s — leave the cursor alone)…")
-    boxes = locator.locate_all(image, _HAND_QUERY)
+    _log.info("  hand: running vision to find the cards (cropped to the hand band — leave the cursor alone)…")
+    # Crop to the hand band (bottom of the window, central x) before the vision pass — the cards live there, so
+    # the model runs on a fraction of the pixels. Margins above _HAND_BAND / around _HAND_X so a slightly-lifted
+    # card isn't clipped. locate_all maps detections back through the crop offset; falls back to the full frame.
+    region = (max(0.0, _HAND_X[0] - 0.05), 0.60, min(1.0, _HAND_X[1] + 0.05), 1.0)
+    try:
+        boxes = locator.locate_all(image, _HAND_QUERY, region=region)
+        if not boxes:
+            _log.info("  hand: cropped vision found no cards — retrying the full frame")
+            boxes = locator.locate_all(image, _HAND_QUERY)
+    except TypeError:                                       # a locator without region support
+        boxes = locator.locate_all(image, _HAND_QUERY)
     pts, dropped = [], []
     for b in boxes:
         cx, cy = b.x + b.w // 2, b.y + b.h // 2
