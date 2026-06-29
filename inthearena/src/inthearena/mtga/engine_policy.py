@@ -236,6 +236,9 @@ class EnginePolicy:
         if d.kind == "actions":
             if kind in (None, "pass", "skip"):
                 return next((a for a in d.options if a.actionType == "ActionType_Pass"), None)
+            if kind == "tap_mana":                           # §106.4 tap ALL mana — MTGA's 'q' hotkey, not a GRE option
+                from .execute import TAP_MANA
+                return TAP_MANA
             if kind in ("play", "cast", "cast_commander"):   # land drop / spell / §903.6 commander from the
                 inst = mtga_instance_id(getattr(getattr(move, "card", None), "id", None))  # command zone — all
                 want = "ActionType_Play" if kind == "play" else "ActionType_Cast"          # carry the encoded id;

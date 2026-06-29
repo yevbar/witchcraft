@@ -113,6 +113,9 @@ class SocietyOfControlPlayer(Player):
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
 
+            # Bank mana
+            Do.TAP_MANA.matching(self._should_bank_mana).prefer(self.bank_mana_choice),  # tap all sources to FLOAT leftover mana under a commander (mono-red ramp),
+
             # Pass
             Do.SKIP,                                            # else pass.
         )
@@ -138,7 +141,7 @@ class SocietyOfControlPlayer(Player):
         if not self._lethal_plausible(game):
             return None
         for m in game.legal_moves:
-            if getattr(m, "kind", None) in (None, "pass", "skip", "play", "land"):
+            if getattr(m, "kind", None) in (None, "pass", "skip", "play", "land", "tap_mana"):
                 continue                                       # these never win on their own resolution
             if self._wins_now(game, m):
                 return m
@@ -260,6 +263,30 @@ class SocietyOfControlPlayer(Player):
         False without card rules / without such a commander in play."""
         return any(self._slug_refunds_cast(game, self._slug_of(game, i), move)
                    for i in self._my_commander_insts(game))
+
+    # banking leftover mana is a flat 'yes' once the gate (_should_bank_mana) holds — there's only ever one
+    # tap-all move per window, so the score just needs to be positive; the WHEN lives in the gate.
+    _BANK_MANA_VALUE = 1.0
+
+    def _should_bank_mana(self, game, move) -> bool:
+        """Do.TAP_MANA gate — bank leftover mana only in a COMMANDER game with our commander on the
+        battlefield. Faithful + deck-independent: it does NOT special-case Electro. Floating costs nothing
+        within a turn (a cast spends floating first; otherwise it empties at the next step), and a retain-mana
+        commander ('you don't lose unspent red mana') turns the bank into RAMP across turns. Inert outside a
+        commander variant and before the commander lands, so it never perturbs a normal game."""
+        return self._commander_variant(game) and bool(self._my_commander_insts(game))
+
+    def _commander_variant(self, game) -> bool:
+        """True in a variant where a commander is applicable (§903 Commander / Brawl) — read from the game's
+        variant OR from a commander designation in state, so it holds however the game was constructed."""
+        return (getattr(game, "variant", "default") in ("commander", "brawl")
+                or bool(game.state.get("is_commander", set())))
+
+    def bank_mana_choice(self, game, move) -> float:
+        """Score the Do.TAP_MANA 'tap all sources' move — a flat positive once `_should_bank_mana` gates it in.
+        Placed LAST before SKIP, so it only fires when nothing else wants the mana this main phase: cast and
+        attack first, then bank the rest (which a retain-mana commander carries to the next turn)."""
+        return self._BANK_MANA_VALUE
 
     def _my_command_zone(self, game) -> list:
         """The instance ids of OUR command zone (§408) — commanders not currently in play. [] off a commander game."""

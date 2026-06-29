@@ -1561,6 +1561,11 @@ def _engine_policy_checks():
     check("engine 'pass' -> the MTGA Pass action", ep._translate(d_act, move("pass")) is opts[2])
     check("engine move with an unknown instanceId -> _NOMAP (decide then passes)",
           ep._translate(d_act, move("cast", "ghost_999")) is _NOMAP)
+    # Do.TAP_MANA (bank mana under a retain-mana commander) -> the client's 'tap all mana' hotkey, not a GRE
+    # action: _translate returns the TAP_MANA sentinel the executor presses q,q for.
+    from inthearena.mtga.execute import TAP_MANA
+    check("engine 'tap_mana' -> the TAP_MANA hotkey sentinel (not a GRE Play/Cast/Pass option)",
+          ep._translate(d_act, move("tap_mana")) is TAP_MANA)
 
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
@@ -1704,6 +1709,15 @@ def _execute_checks():
     a3b = DryRunActuator(rect=rect, image=object())
     r3b = GameExecutor(a3b, locator=AdvLoc()).execute(dec_atk, [{"attackerInstanceId": 11}])  # a SUBSET
     check("execute: partial attack -> not wired (caller shadows)", r3b.done is False and a3b.clicks == [])
+
+    # Do.TAP_MANA: the engine's 'tap all mana' move is enacted via MTGA's 'q' hotkey pressed twice (the client's
+    # own 'tap all mana sources' convenience), NOT a board click or a GRE option. EnginePolicy._translate returns
+    # the TAP_MANA sentinel; the executor presses q,q.
+    from inthearena.mtga.execute import TAP_MANA
+    a_tap = DryRunActuator(rect=rect, image=object())
+    r_tap = GameExecutor(a_tap, locator=AdvLoc()).execute(dec_actions, TAP_MANA)
+    check("execute: TAP_MANA -> presses the q,q hotkey (no click), done",
+          r_tap.done and a_tap.keys == ["q", "q"] and a_tap.clicks == [])
 
     # cast routes to the HAND (play_hand_card); with an empty view there's no card to identify -> shadow, no click
     cast = Action(actionType="ActionType_Cast", instanceId=51)

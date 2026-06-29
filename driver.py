@@ -2317,6 +2317,30 @@ def _refresh_mana_pool(state: dict, ap: str) -> None:
     state["mana_available"] = {(p, m) for (p, m) in state.get("mana_available", set()) if p != ap} | {(ap, total)}
 
 
+def _tap_all_for_mana(state: dict, ap: str) -> None:
+    """§106.4 — tap EVERY untapped mana source ap controls that taps for mana and FLOAT all of it into the
+    pool, so it persists across steps per the retain rules (`_empty_mana_pool`) instead of being recomputed
+    each phase. Under a 'you don't lose unspent mana' commander (Electro: unspent red mana) this is RAMP —
+    the bank carries to the next turn. No-op when ap has no untapped tapping source. A source that does NOT
+    tap to make mana is left untouched (its potential keeps being recomputed each refresh), so only mana
+    that was genuinely tapped is banked — never double-counted."""
+    units = list(_source_units(state, ap))
+    tappers = {sid for (sid, _u, _cg, taps) in units if taps}
+    if not tappers:
+        return
+    tapped = state.setdefault("tapped", set())
+    nontappers = {(sid,) for (sid, _u, _cg, taps) in units if not taps}
+    tapped |= nontappers                                       # hide non-tapping sources from _resolve_pool
+    resolved = _resolve_pool(state, ap)                        # tapper mana + existing floating, concrete colors
+    tapped -= nontappers                                       # restore — those keep being recomputed, not banked
+    if resolved is None:
+        return
+    by_color, _total = resolved
+    tapped |= {(sid,) for sid in tappers}                      # actually tap the sources whose mana we float
+    _set_floating(state, ap, by_color)                        # the whole pool is now real, retainable floating mana
+    _refresh_mana_pool(state, ap)                              # any untapped non-tapping source still adds on top
+
+
 def _sacrifice_source(state: dict, sid: str) -> None:
     """§118.3/§605 — a one-shot fast-mana source (Lotus Petal, Black Lotus) pays by being SACRIFICED, not
     tapped: move it off the battlefield to its owner's graveyard. (These cards carry no 'when sacrificed'
