@@ -21,6 +21,7 @@ import env
 from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
+from .predicates import creature_damage, is_creature, is_creature_damage, is_mana_rock, is_permanent
 
 
 class SocietyOfControlPlayer(Player):
@@ -49,9 +50,10 @@ class SocietyOfControlPlayer(Player):
     W_CRACKBACK = 1.5       # penalty weight on a lethal-looking crackback
     W_TRADE = 1.5           # value weight on winning / losing a creature in combat
 
-    # curve-out: among castable creatures, deploy the CHEAPER ones first. W_CURVE (>> the develop_choice spread)
-    # makes mana value the primary sort and the board metric the tiebreak; _CURVE_BASE keeps every castable
-    # creature above the floor=0.0 gate so it still gets cast (a real mana value never exceeds _CURVE_BASE).
+    # curve-out (curve_choice): among the cards a matched line deploys, play the CHEAPER ones first. W_CURVE
+    # (>> the develop_choice spread) makes mana value the primary sort and the board metric the tiebreak;
+    # _CURVE_BASE keeps every matched card above the floor=0.0 gate so it still gets cast (a real mana value
+    # never exceeds _CURVE_BASE).
     W_CURVE = 1.0
     _CURVE_BASE = 20.0
 
@@ -69,12 +71,13 @@ class SocietyOfControlPlayer(Player):
         if win is not None:                      # a lethal line beats any positional heuristic (on our turn OR,
             return win                           # at instant speed, on the opponent's: the commander 'mousetrap')
         return game.prioritize(
-            Do.LANDS.prefer(self.land_choice),                  # play a land (non-basics first),
-            Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),  # then aim a player-targeting spell at their face,
-            Do.SPELLS.prefer(self.burn_choice, floor=0.0),      # then KILL an opp creature with creature-target damage,
-            Do.SPELLS.prefer(self.creature_choice, floor=0.0),  # then CREATURES — develop the board before other spells,
-            Do.SPELLS.prefer(self.permanent_choice, floor=0.0),  # then deploy other PERMANENTS (artifact/enchantment/PW),
-            Do.SPELLS.prefer(self.develop_choice, floor=0.0),   # else the best remaining spell (instant/sorcery) if it beats passing,
+            Do.LANDS.prefer(self.land_choice),                                   # play a land (non-basics first),
+            Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # aim a player-target spell at their face,
+            Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
+            Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
+            Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then CREATURES (curve out),
+            Do.SPELLS.matching(is_permanent).prefer(self.curve_choice, floor=0.0),        # then other PERMANENTS,
+            Do.SPELLS.prefer(self.develop_choice, floor=0.0),                    # else the best remaining spell if it beats passing,
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
             Do.BLOCKS.prefer(self.block_choice),                # else the best block assignment,
@@ -151,49 +154,23 @@ class SocietyOfControlPlayer(Player):
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
 
-    def _creature_damage(self, game, card_id) -> int | None:
-        """The most damage a CREATURE-TARGETING (not face) `deal_damage` effect of `card_id` deals, or None if it
-        has no such effect (or a variable amount). Read from `card_effect` (slug-keyed: verb/amount/scope). A
-        scope that can hit a PLAYER ('any_target', 'target_creature_or_player') is FACE burn — handled by the
-        resolve line — so it's excluded here; only 'target_creature' / '…creature_or_planeswalker' / the like
-        count. `card_effect` is empty in contexts that don't load card rules (the live bridge today), so this
-        returns None there and `burn_choice` stays cleanly inert until the card's coverage loads."""
-        slug = next((s for (i, s) in game.state.get("instance_of", set()) if i == card_id), None)
-        if slug is None:
-            return None
-        best = None
-        for row in game.state.get("card_effect", set()):
-            c, _aid, _seq, verb, amount, scope = row[0], row[1], row[2], row[3], row[4], row[5]
-            if c != slug or verb != "deal_damage" or "creature" not in scope or "player" in scope or "any" in scope:
-                continue
-            if str(amount).isdigit():
-                best = max(best or 0, int(amount))
-        return best
-
     def burn_choice(self, game, move) -> float:
-        """Cast a CREATURE-TARGETING damage spell (strictly target creature, NOT 'any target') ONLY when it WOULD
-        KILL an opponent creature — removal that answers a threat, never fired for its own sake. A damage spell
-        picks its target at RESOLUTION, so this cast-time choice fires when SOME opponent creature is within the
-        spell's damage (its toughness <= the damage dealt), scoring by the biggest such threat removed; -inf
-        otherwise, so the floor=0.0 gate skips it (no lethal target -> hold it; a face-burn 'any target' spell ->
-        handled by the resolve line). Lethality is `damage >= toughness` (ignores marked damage / deathtouch /
-        indestructible — a heuristic). Active wherever card rules are loaded (engine self-play now; the live
-        bridge once the card's coverage loads). (Picking WHICH creature at resolution is the resolve-line job.)
+        """Score a creature-targeting damage spell by the THREAT IT REMOVES — but only when it WOULD KILL an
+        opponent creature (else -inf, so the floor=0.0 gate holds it). A damage spell picks its target at
+        RESOLUTION, so this fires when SOME opponent creature is within the spell's damage (toughness <= damage);
+        weight by the biggest such threat. Lethality is `damage >= toughness` (ignores marked damage / deathtouch
+        / indestructible — a heuristic). The 'is this creature-target damage at all' gate is the LINE's
+        `.matching(is_creature_damage)`; this is the board judgement.
 
         COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold it unless a SECOND commander-
-        killing burn card is in hand — a commander recasts from the command zone, so we always keep one answer
-        in reserve for its next appearance rather than spending our last on it now."""
-        if getattr(move, "kind", None) != "cast" or move.card is None:
-            return float("-inf")
-        dmg = self._creature_damage(game, move.card.id)
-        if dmg is None:
-            return float("-inf")                       # not a creature-target damage spell (or it's face burn)
+        killing burn card is in hand — a commander recasts from the command zone, so keep one answer in reserve
+        for its next appearance rather than spending the last on it now."""
+        dmg = creature_damage(game, move)
+        if dmg is None:                                # (the matcher already gates this; belt-and-suspenders
+            return float("-inf")                       #  so burn_choice is also safe to score standalone)
         killable = [c.power for o in self.opponents for c in o.creatures if c.toughness <= dmg]
         if not killable:
             return float("-inf")                       # no opponent creature it would kill -> don't fire it
-        # COMMANDER RESERVE: if this spell could kill the opponent's commander, HOLD it unless we have ANOTHER
-        # burn card in hand that could also kill it — a commander returns to the command zone and gets recast, so
-        # we always keep at least one answer for its next appearance instead of spending our last one now.
         cmd = self._opp_commander(game)
         if cmd is not None and cmd.toughness <= dmg:
             backups = self._commander_answers_in_hand(game, cmd.toughness) - {move.card.id}
@@ -212,35 +189,15 @@ class SocietyOfControlPlayer(Player):
         """Instance ids of OUR hand cards that are creature-target burn able to kill a creature of `toughness` —
         the pool of commander answers we could hold in reserve."""
         return {inst for (seat, inst) in game.state.get("in_hand", set())
-                if seat == self.seat and (d := self._creature_damage(game, inst)) is not None and d >= toughness}
+                if seat == self.seat and (d := creature_damage(game, inst)) is not None and d >= toughness}
 
-    def creature_choice(self, game, move) -> float:
-        """Score a CREATURE spell; a NON-creature spell scores -inf so it never wins this category. Placed before
-        the general SPELLS line in `choose_move`, this casts creatures BEFORE other spell types. Among creatures
-        it CURVES OUT — prefers the CHEAPER mana value first (a 1-drop before a 4-drop), with the 1-ply board
-        metric (`develop_choice`) as the tiebreak between equal-cost creatures."""
-        card = move.card
-        if card is None or not card.has_type("creature"):
-            return float("-inf")
-        mv = self._mana_value(game, card.id)
-        return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
-
-    # the non-creature PERMANENT types this bot deploys (creatures go through creature_choice; instants/sorceries
-    # are held). Lands are handled by Do.LANDS.
-    _PERMANENT_TYPES = ("artifact", "enchantment", "planeswalker", "battle")
-
-    def permanent_choice(self, game, move) -> float:
-        """Score a NON-creature PERMANENT (artifact / enchantment / planeswalker / battle); a creature (handled by
-        the earlier creature line) or a non-permanent (instant / sorcery) scores -inf. Placed after the creature
-        line, this DEPLOYS the board's other permanents even though `_value` can't score their effect (the engine
-        doesn't model uncovered card text) — `_CURVE_BASE` lifts them above the floor=0.0 gate that otherwise
-        drops them (casting a non-creature is a small _value LOSS — a spent card, no board power). Curves out
-        cheaper-first like creatures. Instants/sorceries are deliberately NOT deployed here — they stay in hand
-        for the develop line, which only fires them if they actually beat passing."""
-        card = move.card
-        if card is None or card.has_type("creature") or not any(card.has_type(t) for t in self._PERMANENT_TYPES):
-            return float("-inf")
-        mv = self._mana_value(game, card.id)
+    def curve_choice(self, game, move) -> float:
+        """CURVE OUT — among the cards a line MATCHES (mana rocks, creatures, other permanents), deploy the
+        CHEAPER one first: mana value is the primary sort, the 1-ply board metric (`develop_choice`) the
+        equal-cost tiebreak. `_CURVE_BASE` keeps every match above the floor=0.0 gate (a real mana value never
+        reaches it), so a matched card is always deployed — the LINE's `.matching(...)` decides WHICH cards this
+        applies to, this just orders them. (Shared by the mana-rock / creature / permanent lines.)"""
+        mv = self._mana_value(game, move.card.id)
         return (self._CURVE_BASE - self.W_CURVE * mv) + self._develop_tiebreak(game, move)
 
     def _develop_tiebreak(self, game, move) -> float:

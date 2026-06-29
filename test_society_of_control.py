@@ -10,6 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace as NS
 
 from mtg.game import Game
+from mtg.predicates import is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -129,6 +130,35 @@ def run() -> None:
     _, p = _burn_to_face(2)
     check("choose_x picks the lethal value when affordable", p.choose_x(g, lethal=4, affordable=6) == 4)
     check("choose_x falls back to max affordable when lethal is out of reach", p.choose_x(g, lethal=9, affordable=6) == 6)
+
+    # MANA ROCKS / DORKS deployed before other creatures (ramp first).
+    def _ramp_game():
+        st = {
+            "is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+            "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+            "in_hand": {("alice", x) for x in ("rock", "bear", "dork", "bolt")},
+            "instance_of": {("rock", "mind_stone"), ("bear", "grizzly_bears"),
+                            ("dork", "llanowar_elves"), ("bolt", "lightning_bolt")},
+            "mana_ability": {("mind_stone", "{T}"), ("llanowar_elves", "{T}"),
+                             ("chromatic_star", "{1}, {T}, Sacrifice ~")},
+            "spell_type": {("rock", "artifact"), ("bear", "creature"), ("dork", "creature"), ("bolt", "instant")},
+            "card_ability": {(s, "a0", "spell") for s in ("mind_stone", "grizzly_bears", "llanowar_elves")},
+            "free_grant": {("alice", x) for x in ("rock", "bear", "dork", "bolt")},
+            "mana_cost": {("rock", 2), ("bear", 2), ("dork", 1), ("bolt", 1)},
+        }
+        g = Game.from_state(st); p = SocietyOfControlPlayer(); p.bind(g, "alice")
+        return g, p
+    g, p = _ramp_game()
+    def mc(c): return NS(kind="cast", card=NS(id=c), choices={})
+    # is_mana_rock is the OBJECTIVE matcher the ramp line keys on (Do.SPELLS.matching(is_mana_rock)); it's true
+    # of a tap-for-mana ROCK or DORK, false of a plain creature or a non-permanent — deck-independent.
+    check("is_mana_rock True for a mana ROCK (Mind Stone artifact)", is_mana_rock(g, mc("rock")) is True)
+    check("is_mana_rock True for a mana DORK (a creature that taps for mana)", is_mana_rock(g, mc("dork")) is True)
+    check("is_mana_rock False for a plain creature", is_mana_rock(g, mc("bear")) is False)
+    check("is_mana_rock False for a non-permanent spell", is_mana_rock(g, mc("bolt")) is False)
+    check("curve_choice scores a matched mana source (above the floor=0.0 gate)", p.curve_choice(g, mc("rock")) > 0)
+    check("choose_move deploys a mana source BEFORE the plain creature",
+          getattr(getattr(p.choose_move(g), "card", None), "id", None) in ("rock", "dork"))
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)
