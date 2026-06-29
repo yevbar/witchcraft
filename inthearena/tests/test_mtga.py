@@ -1512,6 +1512,34 @@ def _hand_checks():
     check("_name_matches: a clean 'Plains' matches", _name_matches("plains", "Plains"))
     check("_name_matches: a non-land name does NOT match 'plains'", not _name_matches("plains", "Lifecreed Duo"))
 
+    # ALT-COST 'Choose One' cast modal (Warp etc.): always take the NORMAL cast = the card copy LEFT of the
+    # 'Cast With <X>' label. Detected by that label; a no-modal screen is a no-op so ordinary casts are untouched.
+    from inthearena.mtga import cards as _cards, hand as _handmod, ocr as _ocr
+    from inthearena.mtga.hand import resolve_cast_mode_modal
+    _orec = _ocr.recognize_text
+    try:
+        # modal up: 'Cast With Warp' label at xf 0.59; the same card shown at 0.40 (normal) and 0.59 (warp)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [
+            ("Choose One", 0.50, 0.07), ("Cast With Warp", 0.59, 0.17),
+            ("Weftstalker Ardent", 0.40, 0.27), ("Weftstalker Ardent", 0.59, 0.27)]
+        acm = DryRunActuator(rect=rect, image=object())
+        hit = resolve_cast_mode_modal(acm, "Weftstalker Ardent", settle=0)
+        check("cast-mode: alt-cost modal -> clicks the NORMAL (left) option, not 'Cast With Warp'",
+              hit and len(acm.clicks) == 1 and 740 <= acm.clicks[0][0] <= 800)
+        # no 'Cast With' on screen -> no-op (a plain cast must be unaffected)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [("Lightning Bolt", 0.50, 0.90)]
+        acm2 = DryRunActuator(rect=rect, image=object())
+        none = resolve_cast_mode_modal(acm2, "Lightning Bolt", settle=0)
+        check("cast-mode: no alt-cost modal -> no-op (False, no click)", none is False and acm2.clicks == [])
+        # name unreadable -> mirror the labelled card across the modal centre (0.59 -> ~0.41w)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [("Cast With Warp", 0.59, 0.17)]
+        acm3 = DryRunActuator(rect=rect, image=object())
+        hit3 = resolve_cast_mode_modal(acm3, None, settle=0)
+        check("cast-mode: name unreadable -> mirrors to the normal option (~0.41w)",
+              hit3 and len(acm3.clicks) == 1 and 760 <= acm3.clicks[0][0] <= 820)
+    finally:
+        _ocr.recognize_text = _handmod.ocr.recognize_text = _orec
+
 
 def _vision_crop_checks():
     """MoondreamLocator's `region` crop (the #2 speedup) must map detections back to the SAME absolute click

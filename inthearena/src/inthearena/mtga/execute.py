@@ -178,8 +178,17 @@ class GameExecutor:
             ok = play_land(self._act, self._locator, decision.view, decision.seat, decision.options, choice.instanceId)
             return ExecResult(ok, f"play land (object {choice.instanceId})")
         if at == "ActionType_Cast":
-            from .hand import play_hand_card
+            from . import cards
+            from .hand import play_hand_card, resolve_cast_mode_modal
             ok = play_hand_card(self._act, self._locator, decision.view, decision.seat, choice.instanceId)
+            if ok:
+                # A card with an ALTERNATIVE COST (Warp etc.) pops a 'Choose One' cast-mode modal on click, so the
+                # cast doesn't register until we pick. Take the NORMAL cast (see resolve_cast_mode_modal). No-op
+                # (returns False) for a plain card, so ordinary casts are unaffected.
+                o = decision.view.objects.get(choice.instanceId) if decision.view else None
+                name = cards.label(o.grpId) if o else None
+                if resolve_cast_mode_modal(self._act, name):
+                    return ExecResult(True, f"cast (object {choice.instanceId}) — chose the NORMAL cast mode")
             return ExecResult(ok, f"cast (object {choice.instanceId})")
         return ExecResult(False, f"{at} not wired (activated abilities etc.)")
 
