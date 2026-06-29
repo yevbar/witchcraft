@@ -3850,7 +3850,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # Otherwise (unmodeled condition, attached/filtered scope) it abstains. A modeled+expressible
                 # conditional static is engine-OWNED (datalog derives static_pt/static_grant) -> no drop, no emit.
                 if cond and cond != "-":
-                    payload_ok = (_parse_pt(amt) is not None) if verb == "modify_pt" else (amt in _ENGINE_KEYWORDS)
+                    payload_ok = (_parse_pt(amt) is not None) if verb == "modify_pt" else (extra in _ENGINE_KEYWORDS)  # keyword in EXTRA
                     if str(cond) in _MODELED_CONDS and str(tgt) in _ENGINE_ANTHEM_SCOPE and payload_ok:
                         continue                                 # engine conditional static rule owns it
                     dropped.append(("static", verb))

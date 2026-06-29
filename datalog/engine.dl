@@ -947,8 +947,9 @@ cond_scope("self", "self").
 // resolution just_gained_life window the §603 'whenever you gain life' triggers read).
 .decl cond_met(source: symbol, cond: symbol)
 cond_met(S, "as_long_as_you_gained_life_this_turn") :- instance_of(S, _), controls(P, S), gained_life_this_turn(P).
+cond_met(S, "during_your_turn") :- instance_of(S, _), controls(P, S), active_player(P).
 static_pt(S, Dp, Dt, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond), Cond != "-", pt_value(Amount, Dp, Dt), cond_scope(Target, Scope), cond_met(S, Cond).
-static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond), Cond != "-", engine_keyword(Kw), cond_scope(Target, Scope), cond_met(S, Cond).
+static_grant(S, Kw, Scope) :- instance_of(S, Card), card_ability(Card, A, "static"), card_effect(Card, A, _, "grant_keyword", _, Target, Kw, Cond), Cond != "-", engine_keyword(Kw), cond_scope(Target, Scope), cond_met(S, Cond).
 // ONE WORLD: §611.2 FILTERED static lords (subtype/type/color-restricted anthems: 'Other Goblins
 // get +1/+1', 'Artifact creatures you control', 'White creatures have flying') -> static_pt/
 // static_grant (with the BASE board scope) PLUS static_filter(fkind, fval), DERIVED from the card
