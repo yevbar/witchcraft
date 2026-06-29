@@ -1485,6 +1485,53 @@ def _hand_checks():
     check("_name_matches: a non-land name does NOT match 'plains'", not _name_matches("plains", "Lifecreed Duo"))
 
 
+def _vision_crop_checks():
+    """MoondreamLocator's `region` crop (the #2 speedup) must map detections back to the SAME absolute click
+    coords as the full frame — a crop-offset bug would click the wrong place. A model that always reports the
+    centre half of whatever image it's handed lets us verify the offset + scale math directly."""
+    from PIL import Image
+
+    from inthearena.mtga import MoondreamLocator
+
+    class CentreModel:                                       # reports the centre-half box of the image it's given
+        def detect(self, image, query):
+            return {"objects": [{"x_min": 0.25, "y_min": 0.25, "x_max": 0.75, "y_max": 0.75}]}
+
+        def point(self, image, query):
+            return {"points": [{"x": 0.5, "y": 0.5}]}
+
+    img = Image.new("RGB", (100, 100))
+    loc = MoondreamLocator(model=CentreModel(), scale=1.0, origin=(0, 0))
+
+    def centre(box):
+        return (box.x + box.w // 2, box.y + box.h // 2)
+
+    full = loc.locate(img, "q")                              # centre of the whole frame -> (50, 50)
+    check("vision crop: full frame centres at (50,50)", centre(full) == (50, 50))
+    tl = loc.locate(img, "q", region=(0.0, 0.0, 0.5, 0.5))   # top-left quadrant -> its centre ~ (25, 25)
+    check("vision crop: top-left region maps into that quadrant", abs(centre(tl)[0] - 25) <= 2 and abs(centre(tl)[1] - 25) <= 2)
+    br = loc.locate(img, "q", region=(0.5, 0.5, 1.0, 1.0))   # bottom-right quadrant -> its centre ~ (75, 75)
+    check("vision crop: bottom-right region maps into that quadrant", abs(centre(br)[0] - 75) <= 2 and abs(centre(br)[1] - 75) <= 2)
+
+    # scale + origin must apply AFTER the crop offset (image px -> click coords)
+    loc2 = MoondreamLocator(model=CentreModel(), scale=0.5, origin=(1000, 2000))
+    br2 = loc2.locate(img, "q", region=(0.5, 0.5, 1.0, 1.0))  # 75px -> origin + 75*0.5
+    check("vision crop: scale+origin applied after the crop offset",
+          abs(centre(br2)[0] - (1000 + 37)) <= 2 and abs(centre(br2)[1] - (2000 + 37)) <= 2)
+
+    # the detect-miss -> point fallback honours the crop offset too
+    class PointModel:
+        def detect(self, image, query):
+            return {"objects": []}
+
+        def point(self, image, query):
+            return {"points": [{"x": 0.5, "y": 0.5}]}
+
+    loc3 = MoondreamLocator(model=PointModel(), scale=1.0, origin=(0, 0))
+    pbr = loc3.locate(img, "q", region=(0.5, 0.5, 1.0, 1.0))  # point centre of the bottom-right crop -> ~ (75, 75)
+    check("vision crop: point fallback honours the crop offset", abs(centre(pbr)[0] - 75) <= 2 and abs(centre(pbr)[1] - 75) <= 2)
+
+
 def _engine_policy_checks():
     """EnginePolicy translates a witchcraft engine move back to the MTGA option by the encoded instanceId, and
     takes the safe NO-OP (no blind fallback) when it can't. Move objects are duck-typed (SimpleNamespace) so the
@@ -1960,6 +2007,7 @@ def run():
     _live_checks()
     _navigate_checks()
     _hand_checks()
+    _vision_crop_checks()
     _engine_policy_checks()
     _execute_checks()
     _board_checks()

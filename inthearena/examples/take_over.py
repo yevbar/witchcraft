@@ -228,6 +228,7 @@ def _make_handle(execu, pol, log_path):
         # Execute, then CONFIRM against the GRE log that the action registered — if the click was dropped (MTGA
         # occasionally swallows a press; or the screen locked), the log stays silent, so RE-CLICK. This replaces
         # reading the screen to decide whether to retry. A genuine shadow (done=False) needs no confirm.
+        t0 = time.monotonic()                               # time each action so the per-turn cost is visible
         res = None
         confirmed = False
         for attempt in range(_ACTION_TRIES):
@@ -240,12 +241,13 @@ def _make_handle(execu, pol, log_path):
                 break
             if attempt + 1 < _ACTION_TRIES:
                 print(f"    -> no GRE response — the click didn't register, clicking again ({attempt + 1}/{_ACTION_TRIES})")
+        dt = time.monotonic() - t0
         if not res.done:
-            print(f"    -> shadowed: {res.note}")
+            print(f"    -> shadowed ({dt:.1f}s): {res.note}")
         elif confirmed:
-            print(f"    -> executed{f' (after {attempt + 1} clicks)' if attempt else ''}: {res.note}")
+            print(f"    -> executed{f' (after {attempt + 1} clicks)' if attempt else ''} in {dt:.1f}s: {res.note}")
         else:
-            print(f"    -> executed but UNCONFIRMED (no GRE response after {_ACTION_TRIES} clicks): {res.note}")
+            print(f"    -> executed but UNCONFIRMED (no GRE response after {_ACTION_TRIES} clicks, {dt:.1f}s): {res.note}")
 
     return handle
 

@@ -32,6 +32,16 @@ def _vision_classes():
     return objc.lookUpClass("VNImageRequestHandler"), objc.lookUpClass("VNRecognizeTextRequest")
 
 
+def available() -> bool:
+    """True if macOS Vision OCR can be used here. Lets a caller take a cheap OCR fast-path only where it works
+    (macOS) and otherwise go straight to its fallback, instead of polling OCR-empty until a timeout."""
+    try:
+        _vision_classes()
+        return True
+    except Exception:
+        return False
+
+
 def recognize_text(image) -> list:
     """OCR a PIL `image`. Returns [(text, x_frac, y_frac)] — each recognized line's text and its NORMALIZED
     top-left-origin center (0..1). Returns [] if Vision is unavailable (non-macOS) or nothing is read."""
