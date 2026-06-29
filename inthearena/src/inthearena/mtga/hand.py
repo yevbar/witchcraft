@@ -73,6 +73,77 @@ def _n_drop(n: int) -> int:
     """Extra downward hover (px) for a wider hand (see _FAN_N_DROP): _FAN_N_DROP px per card past _FAN_N_BASE,
     0 for a small hand. Added to the fan's centre-y so a full (7-8 card) hand is hovered ON the cards, not above."""
     return _FAN_N_DROP * max(0, int(n) - _FAN_N_BASE)
+
+
+# ── per-game hand-fan calibration: the SINGLE SOURCE OF TRUTH for WHERE a slot is ─────────────────────────
+# Every CONFIRMED identification (mulligan OCR, a card legible at rest, a sweep reveal) contributes a
+# (n, slot, x_frac, y_frac) sample here. We fit the fan's CENTRE and a spacing SCALE (a correction to the
+# nominal fan) by least squares — so a later search predicts a slot's x WITHOUT re-sweeping, and it TRANSFERS
+# across hand sizes (the fan re-flows on every play/draw — a raw pixel would go stale, but the geometry doesn't).
+# Window-relative fracs (resolution-independent). Keyed by match id, reset per game.
+_FAN_CALIB: dict = {}
+
+
+def _calib_key(view) -> str:
+    gi = getattr(view, "game_info", None)
+    return (getattr(gi, "matchID", None) or "default") if gi is not None else "default"
+
+
+def _nominal_spacing_frac(n: int, w: int) -> float:
+    """The nominal per-slot spacing as a window FRACTION (the fan formula's step, capped) — the basis the
+    calibration SCALE corrects."""
+    return min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, n - 1)) / max(1, w)
+
+
+def record_card_position(view, rect, n: int, slot: int, x: int, y: int) -> None:
+    """Log a CONFIRMED identification — card read at `slot` of an `n`-card hand, on screen at (x, y) — into the
+    per-game fan calibration. Every identification feeds this one store (mulligan OCR, legible-at-rest, sweep
+    reveal), so later searches predict a slot's position instead of re-discovering the hand each time."""
+    if rect is None or n < 1 or not (0 <= slot < n):
+        return
+    s = _FAN_CALIB.setdefault(_calib_key(view), [])
+    s.append((n, slot, (x - rect.x) / (rect.w or 1), (y - rect.y) / (rect.h or 1)))
+    if len(s) > 80:                                        # bound it (a game yields plenty); keep the most recent
+        del s[:-80]
+
+
+def predict_card_position(view, rect, n: int, slot: int):
+    """Predict on-screen (x, y) of `slot` in an `n`-card hand from the per-game calibration, or None when there
+    aren't enough samples to fit. X comes from a least-squares fit of (centre + scale * nominal_spacing) over all
+    samples — so it transfers across hand sizes; Y uses the (reliable) nominal arc + N-drop."""
+    s = _FAN_CALIB.get(_calib_key(view))
+    if not s or len(s) < 2 or rect is None or n < 1 or not (0 <= slot < n):
+        return None
+    us = [(ss - (sn - 1) / 2.0) * _nominal_spacing_frac(sn, rect.w) for (sn, ss, _x, _y) in s]
+    xs = [sx for (_n, _s, sx, _y) in s]
+    m = len(us); su = sum(us); sx = sum(xs); suu = sum(u * u for u in us); sux = sum(u * v for u, v in zip(us, xs))
+    denom = m * suu - su * su
+    if abs(denom) < 1e-12:                                 # all samples at one slot/offset — can't fit a slope
+        return None
+    scale = (m * sux - su * sx) / denom
+    center = (sx - scale * su) / m
+    xf = center + scale * (slot - (n - 1) / 2.0) * _nominal_spacing_frac(n, rect.w)
+    half = max(1.0, (n - 1) / 2.0)                         # Y: nominal arc (edges sit lower) + the N-aware drop
+    arc = _FAN_ARC * ((slot - (n - 1) / 2.0) / half) ** 2
+    y = rect.y + int(0.855 * rect.h) + int(arc) + _n_drop(n)
+    return rect.x + int(xf * rect.w), y
+
+
+def reset_hand_calib(view=None) -> None:
+    """Drop the calibration — for one game (`view`) or all (None). Call at game start so a new match doesn't
+    inherit the previous fan."""
+    if view is None:
+        _FAN_CALIB.clear()
+    else:
+        _FAN_CALIB.pop(_calib_key(view), None)
+
+
+def _record_anchors(view, seat, screen, named, rect) -> None:
+    """Feed every legible, uniquely-named card in `named` into the per-game calibration (via `_name_anchors`,
+    which maps a legible name to its slot + position). Shared by the legible-at-rest read, the calibration
+    confirm, and each sweep reveal — so every identification, however it happened, refines the SAME store."""
+    for (slot, x, y) in _name_anchors(view, seat, screen, named):
+        record_card_position(view, rect, len(screen), slot, x, y)
 _REVEAL_Y = 0.45           # name-band floor while a hovered card is MAGNIFIED — it lifts its banner well UP, so
 #                            this must reach much higher than the resting hand band (0.84). near_x keeps a
 #                            battlefield card of the same name (also in this band) from matching.
@@ -698,6 +769,8 @@ def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, re
                       label, len(named) - len(kept), dropped)
         named = kept
 
+    _record_anchors(view, seat, screen, named, rect)       # feed every legible card into the calibration (source of truth)
+
     # 1) a wanted card legible at rest?
     hit = _land_hit(named, want)
     if hit is not None:
@@ -764,6 +837,29 @@ def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, re
             play_card(actuator, (mx, y0 + int(_FAN_ARC * 0.4)))
             return True
 
+    max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack
+
+    # 2b) CALIBRATION FAST-PATH (the source of truth): predict each wanted card's slot from the per-game fan
+    # calibration and CONFIRM it with a SINGLE hover — found in one hover instead of a sweep. Only fires once the
+    # calibration has enough samples (it accumulates from every prior identification this game); on no-prediction
+    # or no-confirm it falls straight through to the sweep, so it never misclicks.
+    for inst in sorted(set(want.values()), key=lambda i: screen.index(i) if i in screen else 0):
+        if inst not in screen:
+            continue
+        pt = predict_card_position(view, rect, len(screen), screen.index(inst))
+        if pt is None:
+            break                                          # not enough calibration yet -> sweep
+        actuator.hover(*pt)
+        actuator.wait(max(settle, _REVEAL_DWELL))
+        seen = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+        _record_anchors(view, seat, screen, seen, rect)    # whatever we just read also refines the store
+        chit = _land_hit(seen, want, near_x=pt[0], max_dist=max_dist)
+        if chit is not None:
+            _log.info("  %s: calibration predicted the slot at %s — confirmed in ONE hover, playing", label, pt)
+            play_card(actuator, (chit[0], pt[1]))
+            return True
+        _log.info("  %s: calibration prediction at %s didn't confirm — falling back to the sweep", label, pt)
+
     # 3) hover-reveal — for a non-land occluded target (or a hand too occluded to anchor). Sweep LEFT-TO-RIGHT,
     # magnifying each occluded card to read it, and click the FIRST that matches (near_x ties it to the cursor).
     anchors = _name_anchors(view, seat, screen, named)
@@ -781,12 +877,12 @@ def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, re
     wanted_xs = [_expected_x(rect, screen.index(i), len(screen)) for i in set(want.values()) if i in screen]
     if wanted_xs:
         positions = sorted(positions, key=lambda p: min(abs(p[0] - wx) for wx in wanted_xs))
-    max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack
     _log.info("  %s: not legible at rest — hover-revealing %d position(s) nearest the target first", label, len(positions))
     for x, y in positions:
         actuator.hover(x, y)
         actuator.wait(max(settle, _REVEAL_DWELL))          # let the magnify finish before reading
         named2 = locate_named_cards(actuator.screenshot(), rect, y_floor=_REVEAL_Y)
+        _record_anchors(view, seat, screen, named2, rect)  # #1: every sweep reveal also feeds the calibration
         _log.info("  %s: hover x=%d revealed %s", label, x, [t[0] for t in named2])   # diagnostic
         hit = _land_hit(named2, want, near_x=x, max_dist=max_dist)
         if hit is not None:

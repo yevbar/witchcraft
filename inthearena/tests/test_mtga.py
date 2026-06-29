@@ -1113,7 +1113,8 @@ def _navigate_checks():
 def _hand_checks():
     """Locate hand cards from a snapshot (bottom band + central x, de-duped, left-to-right) and the play gesture."""
     from inthearena.mtga import (DryRunActuator, Rect, locate_hand_cards, play_card, rest_point,
-                                 snapshot_hand, sweep_hand)
+                                 reset_hand_calib, snapshot_hand, sweep_hand)
+    reset_hand_calib()                 # the per-game fan calibration is module-level — isolate this test section
     rect = Rect(0, 0, 1920, 1080)
 
     class HandLoc:
@@ -1524,6 +1525,31 @@ def _hand_checks():
     ordered = sorted([(300, 900), (1600, 900)], key=lambda p: abs(p[0] - _expected_x(rect, 7, 8)))
     check("reveal order: a rightmost target hovers the RIGHT position first (no left-to-right crawl)",
           ordered[0][0] == 1600)
+
+    # PER-GAME FAN CALIBRATION (the single source of truth): identifications accumulate (slot, N, x) samples;
+    # predict_card_position fits the fan's centre + a spacing SCALE so a later slot is predicted WITHOUT a sweep,
+    # and it TRANSFERS across hand sizes (the geometry, not a stale pixel).
+    from types import SimpleNamespace as _NSc
+    import inthearena.mtga.hand as _hcal
+    from inthearena.mtga.hand import predict_card_position, record_card_position, reset_hand_calib
+    vcal = _NSc(game_info=None)                              # -> the 'default' calibration key
+    nsf = _hcal._nominal_spacing_frac(7, rect.w)
+    real = 1.2 * nsf                                         # a REAL fan 1.2x wider than the nominal, centred at 0.5
+    def _realx(k): return int(rect.x + (0.5 + (k - 3) * real) * rect.w)
+    reset_hand_calib()
+    record_card_position(vcal, rect, 7, 1, _realx(1), int(0.9 * rect.h))
+    check("calibration: <2 samples -> no prediction (falls back to the sweep)",
+          predict_card_position(vcal, rect, 7, 6) is None)
+    for k in (0, 2, 4):                                      # identify three cards of a 7-card hand at their REAL x
+        record_card_position(vcal, rect, 7, k, _realx(k), int(0.9 * rect.h))
+    pred6 = predict_card_position(vcal, rect, 7, 6)
+    nom6 = int(rect.x + (0.5 + (6 - 3) * nsf) * rect.w)      # what the NOMINAL fan would (wrongly) predict
+    check("calibration recovers the real fan: slot-6 prediction matches REAL spacing, not nominal",
+          pred6 is not None and abs(pred6[0] - _realx(6)) <= 8 and abs(pred6[0] - nom6) > 50)
+    pred5 = predict_card_position(vcal, rect, 5, 4)          # transfers across N (samples were all at N=7)
+    check("calibration transfers across hand size: predicts a 5-card slot from 7-card samples",
+          pred5 is not None and abs(pred5[0] - int(rect.x + (0.5 + (4 - 2) * real) * rect.w)) <= 10)
+    reset_hand_calib()
 
     # a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (often not a clean 'Plains'); the wanted
     # name must still match it (as a word), or the reveal skips a real land and grabs something else.
