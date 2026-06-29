@@ -21,7 +21,12 @@ _DB_CACHE: dict = {}                                   # keyed on cards.dl's (mt
 
 
 def _args(s: str):
-    return [a.strip().strip('"') for a in re.findall(r'"[^"]*"|[^,]+', s)]
+    # Split on commas OUTSIDE double quotes (a comma inside a quoted field — a multi-part cost like
+    # "{T}, Sacrifice ~", or a card name like "Jaya, Fiery Negotiator" — is part of the value, not a
+    # delimiter). The old `"[^"]*"|[^,]+` findall mis-split these: after a leading space the [^,]+ branch
+    # swallowed the opening quote and stopped at the inner comma, truncating the field. The lookahead keeps a
+    # comma only when an EVEN number of quotes follows it (i.e. it isn't inside a quoted string).
+    return [a.strip().strip('"') for a in re.split(r',(?=(?:[^"]*"[^"]*")*[^"]*$)', s)]
 
 
 def load_db():

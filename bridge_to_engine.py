@@ -3538,6 +3538,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     r = _resolved_effect("return_to_hand", amt, tgt, extra)
                     if r is not None:
                         add("spell_effect", (tid, r[0], r[1], r[2])); continue
+                if verb == "get_boon" and str(extra).count("|") == 2:
+                    # §113-style one-time BOON ('you get a one-time boon with "When you cast a creature spell, it
+                    # gains your choice of prowess or haste"' — Swiftspear's Teachings). boon_v decomposed the
+                    # inner ability into '<trigger>|<recipient>|<grant>'; register it as a driver-only delayed
+                    # one-shot that fires on the controller's next matching cast (the engine has no permanent to
+                    # hang the trigger on, so the driver carries it). An UNDECOMPOSED opaque boon body abstains below.
+                    add("spell_effect", (tid, "register_boon", 0, str(extra))); continue
                 if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     continue                                  # spell_effect is now DERIVED IN DATALOG from the card
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A
@@ -3595,6 +3602,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # bridge still drives the abstain bookkeeping for a variable/restricted amount or target.
                     n = _int(amt)
                     dk = _damage_target(tgt)
+                    # §107.3 VARIABLE X damage ('~ deals X damage to <tgt>' — Blaze, Disintegrate, Stonesplitter
+                    # Bolt). The {X} value is CHOSEN + recorded at cast (driver _spell_x); datalog derives no
+                    # spell_damage for it (the rule gates on a numeric amount), so emit a driver-only
+                    # spell_damage_x the driver sizes from _spell_x at resolution.
+                    if n is None and str(amt) == "X" and dk is not None:
+                        add("spell_damage_x", (tid, 1, dk)); continue
+                    # a 'twice X ... instead' MULTIPLIER upgrade on the SAME target (Stonesplitter Bolt's bargain
+                    # rider: 'twice X instead if bargained'). The driver applies the multiplier iff it can CONFIRM
+                    # the cond — bargain/kicker aren't paid in this cast model -> the base X stands (no over-deal).
+                    if n is None and str(amt) == "twice_x" and str(extra) == "instead":
+                        add("spell_damage_x_upgrade", (tid, 2, str(_cond))); continue
                     if n is None or dk is None:
                         dropped.append(("effect", "deal_damage"))
                     continue                                     # spell_damage is DATALOG-derived on success
@@ -3858,6 +3876,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         emitted = True; continue
                     if _target_class(tgt) is not None:        # target creature -> ctarget (driver picks + applies, EOT)
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"cant_be_blocked|-|{_target_class(tgt)}"))
+                        emitted = True; continue
+                if verb == "draw" and str(amt) == "X_half_s_intensity":
+                    # §107.61/§107.3 Drix Interlacer: 'Draw X, where X is half this artifact's intensity, rounded
+                    # down'. The source is sacrificed as part of the cost, so the driver captures its intensity
+                    # BEFORE it leaves (_last_sac_counts) and the applier draws floor(intensity/2). A self-
+                    # referential dynamic draw — relies on the sac-self cost (ability_sac_cost, emitted above).
+                    if len(paid) > 2 and paid[2]:             # only when the source IS sacrificed (intensity is captured)
+                        add("activated_ability", (a, tid, paid[0], taps, "draw_half_intensity", 0, "self"))
                         emitted = True; continue
                 r = _resolved_effect(verb, amt, tgt, extra, _cond, attached_source)
                 if r is None:

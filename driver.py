@@ -2765,9 +2765,39 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
     now, now_dyn = _pending_both(state)
     new, new_dyn = now - before, now_dyn - before_dyn
     _apply_effects(state, new, new_dyn)
+    _fire_boons(state, caster, spell)                        # §113 a one-time boon watching 'you cast a … spell'
     state["cast_spell"] = set()
     state["cast_ord"] = set()
     state["cast_nc_ord"] = set()
+
+
+def _fire_boons(state: dict, caster: str, spell: str) -> None:
+    """§113 one-time BOON — a delayed one-shot triggered ability the controller GOT (Swiftspear's Teachings:
+    'When you cast a creature spell, it gains your choice of prowess or haste'). It has no permanent to hang a
+    trigger on, so the driver carries it in `_boons` and fires on the FIRST matching cast: grant the chosen
+    keyword to the cast spell (which keeps its id onto the battlefield), then consume it (one-time)."""
+    boons = state.get("_boons")
+    if not boons:
+        return
+    is_creature = (spell, "creature") in state.get("spell_type", set())
+    for boon in sorted(boons):
+        bctrl, trigger, recipient, grant = boon
+        if bctrl != caster or trigger != "you_cast_a_creature_spell" or not is_creature:
+            continue                                          # only the modelled trigger fires; others wait
+        kw = _boon_keyword(state, caster, grant)
+        if kw and recipient == "it":                          # 'it' = the cast spell (same id onto the battlefield)
+            state.setdefault("eff_grant_keyword", set()).add((f"boon__{spell}__{kw}", spell, kw))
+            print(f"    §113 boon: {caster}'s {spell} gains {kw}")
+        boons.discard(boon)                                   # one-time — consumed whether or not the grant was live
+        break
+
+
+def _boon_keyword(state: dict, ctrl: str, grant: str):
+    """Resolve a boon's granted keyword. 'choice_<a>_or_<b>' offers a §601 choice via the _choose seam (default
+    the LAST option — haste, the engine-modelled one for Swiftspear's); a single keyword is taken as is.
+    Granting a keyword the engine doesn't model (prowess) is harmlessly inert, so no filtering is needed."""
+    opts = grant[len("choice_"):].split("_or_") if grant.startswith("choice_") else [grant]
+    return _choose(state, "boon_keyword", tuple(opts), opts[-1]) if opts else None
 
 
 # --- §608 CAST COUNTER + §707.10 SPELL COPYING ------------------------------------------------------
@@ -3184,6 +3214,21 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
             print(f"      {spell}: condition '{upgrade[1]}' met -> deals {upgrade[0]} instead of {amt}")
             amt = upgrade[0]
         _apply_damage(state, spell, amt, kind, ctrl)
+    # §107.3 VARIABLE X damage ('deals X damage' — Blaze, Disintegrate, Stonesplitter Bolt): X is the value the
+    # controller chose + paid at cast (recorded in _spell_x). A driver-only spell_damage_x(spell, mult, kind)
+    # carries the per-target multiplier (1, or 2 for a 'twice X' rider). An optional spell_damage_x_upgrade
+    # bumps the multiplier ONLY when _spell_cond_met confirms its cond (bargain/kicker unpaid here -> base X).
+    xrows = sorted((int(m), k) for (s, m, k) in state.get("spell_damage_x", set()) if s == spell)
+    if xrows:
+        xval = int(state.get("_spell_x", {}).get(spell, 0))
+        xup = next(((int(m), c) for (s, m, c) in state.get("spell_damage_x_upgrade", set()) if s == spell), None)
+        for (mult, kind) in xrows:
+            if xup is not None and _spell_cond_met(state, xup[1], ctrl):
+                print(f"      {spell}: condition '{xup[1]}' met -> deals {xup[0]}xX instead of {mult}xX")
+                mult = xup[0]
+            amt = mult * xval
+            if amt > 0:
+                _apply_damage(state, spell, amt, kind, ctrl)
 
 
 def _spell_cond_met(state: dict, cond: str, ctrl: str) -> bool:
@@ -3961,6 +4006,9 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
         _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
     if (a,) in state.get("ability_sac_cost", set()):         # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
+        # CAPTURE the source's counter counts BEFORE it leaves, so an effect sized 'X = a counter on it' (Drix
+        # Interlacer: 'Draw X, X = half this artifact's intensity') can read them once the source is in the yard.
+        state["_last_sac_counts"] = {k: c for (o, k, c) in state.get("counter", set()) if o == src}
         _sacrifice(state, src)                               # fires 'when sacrificed', then -> graveyard
     sac_kind = next((k for (aa, k) in state.get("ability_sac_filter", set()) if aa == a), None)
     if sac_kind is not None:                                  # §602.5 'Sacrifice a <creature/artifact/subtype>'
