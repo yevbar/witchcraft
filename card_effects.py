@@ -1718,6 +1718,19 @@ _NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$",
 _HAVE = re.compile(rf"^have ({_TGT}) (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
+# a trailing 'during your turn' — a STATIC ability's conditional applicability restricted to the CONTROLLER's
+# own turn ('~ has first strike during your turn' — Razorkin Needlehead), not a one-shot duration. Peeled into
+# the cond 'during_your_turn'. DELIBERATELY scoped to the controller's-turn phrasings only ('your turn(s)',
+# 'each of your turns'): an all-turns 'during each turn' / 'during any turn' means a DIFFERENT applicability
+# (every player's turn), so it is NOT matched here — it must not be conflated with the your-turn restriction.
+# This is an EFFECT-clause fallback (trigger frames like 'Whenever … during your turn' are stripped at the unit
+# level before this), and self-limiting (only fires when the head clause itself grounds).
+_DURING_TURN = re.compile(r"^(.+?) during (?:your turns?|each of your turns)$", re.I)
+# §616.1 a conditional damage UPGRADE clause — '[it/~/he/she/they/that <x>/this <x>/<Name>] deals <amt>
+# damage [to <tgt>] instead'. Splits the damage HEAD (re-grounded through the leaf) from an optional named
+# target; the trailing 'instead' marks a replacement (vs the generic no-op 'instead' strip).
+_DMG_INSTEAD = re.compile(
+    r"^((?:it|~|he|she|they|that [\w']+|this [\w']+|[A-Z][\w']+) deals .+? damage)(?: to (.+?))? instead$", re.I)
 # A whole-clause GRANT of a single quoted ability ('<who> gains/has "…"', '<who> get(s) an emblem with
 # "…"'), optionally under a leading 'Until end of turn,' duration. The quoted ability is matched WHOLE so
 # parse_clause's surface rewrites ('… for each X', '… unless … pays', '… where X is') never reach inside
@@ -2095,7 +2108,35 @@ def parse_clause(sentence: str) -> "Effect | None":
     s = re.sub(r"^the owner of (.+?) puts it\b", r"\1's owner puts it", s, flags=re.I)
     s = re.sub(r"\balso (gains?|gets?|has|have)\b", r"\1", s, flags=re.I)  # 'X also gains trample' -> 'X gains trample'
     s = re.sub(r"^(they|those [\w-]+|these [\w-]+) each\b", r"\1", s, flags=re.I)  # 'They each get +N/+N' -> 'They get'
-    s = re.sub(r"\s+instead$", "", s, flags=re.I)               # replacement tail — 'exile it instead' -> 'exile it'
+    # §616.1 a conditional damage UPGRADE — '[it/~/that <x>] deals <amt> damage [to <tgt>] instead' REPLACES a
+    # base damage's amount (Burst Lightning if kicked, Brimstone morbid, Invasive Maneuvers, Stonesplitter
+    # bargained). The generic 'instead' strip just below treats 'instead' as a no-op, which is wrong here (the
+    # upgrade would read as ADDITIONAL damage). STRUCTURAL: recognise the shape, ground the amount/target through
+    # the leaf (re-probe with the base's target supplied when omitted), and record extra='instead' + an anaphoric
+    # 'that_target' when no target is named. The condition still rides `cond` via the _IF_COND/_IF_TRAIL peels
+    # below (this fires on the inner clause after a wrapper is peeled).
+    mdi = _DMG_INSTEAD.match(s)
+    if mdi:
+        head, tgt = mdi.group(1), mdi.group(2)
+        # a leading 'twice'/'half' multiplier on the amount (Stonesplitter Bolt: 'twice X') — strip it so the
+        # base amount grounds through the leaf, then fold the multiplier into the amount slug ('twice_x').
+        mm = re.search(r"\bdeals\s+(twice|half)\s+", head, re.I)
+        mult = mm.group(1).lower() if mm else None
+        if mult:
+            head = re.sub(r"\bdeals\s+(?:twice|half)\s+", "deals ", head, count=1, flags=re.I)
+        inner = parse_clause(f"{head} to {tgt}" if tgt else f"{head} to any target")
+        if inner is not None and inner.verb == "deal_damage":
+            amt = f"{mult}_{inner.amount}".lower() if mult else inner.amount
+            return _dc.replace(inner, amount=amt, target=(inner.target if tgt else "that_target"), extra="instead")
+        return None
+    # the generic no-op 'instead' strip — but NOT when a LEADING 'If <cond>,' still wraps a damage-UPGRADE
+    # (its post-comma tail is itself a _DMG_INSTEAD clause): keep 'instead' so the _IF_COND recursion below
+    # re-enters _DMG_INSTEAD on the inner clause (Burst Lightning 'If ~ was kicked, it deals 4 damage instead').
+    # Scoped to the leading-'if' shape so it can't suppress the strip on an unrelated redirect that merely
+    # contains 'deal … damage … instead' (Flaming Gambit's 'have ~ deal that damage to it instead').
+    _keep = bool(re.match(r"^if\b", s, re.I) and ", " in s and _DMG_INSTEAD.match(s.split(", ", 1)[1]))
+    if not _keep:
+        s = re.sub(r"\s+instead$", "", s, flags=re.I)           # replacement tail — 'exile it instead' -> 'exile it'
     s = re.sub(r"^instead,?\s+", "", s, flags=re.I)             # replacement lead — 'instead draw a card' -> 'draw a card'
     s = re.sub(r",? rounded (?:up|down)$", "", s, flags=re.I)    # 'mill half their library, rounded down'
     s = re.sub(r" this way$| that way$", "", s, flags=re.I)      # anaphoric tail — 'exile the cards revealed this way'
@@ -2189,6 +2230,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _HAVE.match(s)             # causative 'have <X> <effect>' — FALLBACK (specific have-templates win
     if m:                         # first in parse_effect); reattach the subject so <X> performs the effect
         return parse_clause(f"{m.group(1)} {m.group(2)}")
+    m = _DURING_TURN.match(s)      # '<static> during your turn' — controller's-turn applicability (Razorkin)
+    if m:
+        return _combine(parse_clause(m.group(1)), "during_your_turn", suffix=True)
     m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
     if m:
         return _combine(parse_clause(m.group(1)), ground.slug(m.group(2)), suffix=True)

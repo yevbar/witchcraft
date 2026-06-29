@@ -3396,6 +3396,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "deal_damage" and str(tgt) == "that_target" and str(extra) == "instead":
+                    # §616.1 a CONDITIONAL damage UPGRADE — 'deals N to <tgt>. If <cond>, it deals M instead'
+                    # (Burst Lightning if kicked, Brimstone morbid, Invasive Maneuvers control-a-Spacecraft).
+                    # The base deal_damage already derives spell_damage(spell, N, kind); emit a driver-only
+                    # spell_damage_upgrade the driver substitutes for the base amount ONLY when it can CONFIRM
+                    # the condition (faithful: the base damage always resolves; the upgrade never over-deals on
+                    # an unconfirmable cond). A non-numeric upgrade amount (Stonesplitter's 'twice X') abstains.
+                    up = _int(amt)
+                    if up is not None and _cond != "-":
+                        add("spell_damage_upgrade", (tid, up, str(_cond))); continue
+                    dropped.append(("effect", "deal_damage")); continue
                 if str(tgt) in ("that_creature", "that_creature_s_controller"):
                     # §607.2 a 'that creature(' s controller)' RIDER referencing the spell's MAIN target (Team
                     # Tactics' trample, Repulsor Blast's 2-to-controller — both gated 'if cast using teamwork').
@@ -3419,6 +3430,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # §613 layer 5 'target creature becomes <color> until end of turn' (Crimson/Cerulean Wisps)
                     # -> a becomes_color spell_effect the driver resolves (pick a creature, set eff_set_color).
                     add("spell_effect", (tid, "becomes_color", 0, f"{extra}|{_target_class(tgt)}")); continue
+                if verb == "add_type" and str(extra) == "all_basic_land_types":
+                    # §305.7 'lands you control gain all basic land types until end of turn' (Energybending) —
+                    # each of the controller's lands taps for ANY color this turn. The driver marks them
+                    # (gain_all_land_types) so the mana model treats them as any-color; cleared at §514.2 cleanup.
+                    add("spell_effect", (tid, "gain_all_land_types", 0, str(tgt))); continue
                 if verb == "search":
                     # an UNFOLDED search (no recognized destination clause to pair with): abstain rather than
                     # emit a bare search_select that would pull a card out of the library with nowhere to put
@@ -3686,12 +3702,26 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
                     continue
+                if verb == "add_mana" and str(amt) == "for_each_color_among_monocolored_permanents_you_control":
+                    # §106 'for each color among monocolored permanents you control, add one mana of that color'
+                    # (Tarnation Vista) -> one mana of EACH color present among the controller's MONOCOLORED
+                    # permanents (the driver computes it live from printed_color). A mana_per_board_color slot.
+                    add("activated_ability", (a, tid, paid[0], taps, "mana_per_board_color", 0, "monocolored_you_control"))
+                    emitted = True; continue
                 if verb == "add_mana":                        # the source's mana clauses
                     if not mana_registered:                   # registration abstained -> drop as before
                         dropped.append(("effect", verb))
                     continue
                 if _is_still_land_rider(verb, amt, extra):    # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "put_counter" and str(_cond).startswith("moved_from_"):
+                    # §122 MOVE a counter — 'move a counter from <src> onto <dst>' grounds as a put_counter on
+                    # the dst with cond moved_from_<src> (Nesting Grounds). Resolve as a RELOCATION (the driver
+                    # removes a counter from a <src> the controller controls and adds it to a <dst>); 'any' kind
+                    # = any counter present, else the named kind. -> a move_counter activated_ability slot.
+                    src_class = str(_cond)[len("moved_from_"):]
+                    add("activated_ability", (a, tid, paid[0], taps, "move_counter", 0, f"{extra}|{src_class}|{tgt}"))
+                    emitted = True; continue
                 if verb == "grant_keyword" and str(extra) == "haste" and "mana_is_spent_on_a_creature" in str(_cond):
                     # §106 a 'haste-mana' rider on a mana ability: 'Add {R}{R}. If that mana is spent on a
                     # creature spell, it gains haste' (Arena of Glory). Flag the source — the driver grants
@@ -3813,6 +3843,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     dp = _dyn_pt_spec(amt, tgt, cond)
                     if dp is not None:
                         add("dyn_pt", (tid, dp[0], dp[1], dp[2])); continue
+                if verb == "set_max_hand_size":
+                    # §402.2 a static maximum-hand-size override (The Ten Rings 'your maximum hand size is ten';
+                    # 'no maximum hand size' -> unlimited, Reliquary Tower). Emit a SLUG-keyed static_player
+                    # permission the driver's §514.1 cleanup reads (no_maximum / max_hand_size_<N>).
+                    if str(amt) == "unlimited":
+                        add("static_player", (facts, "no_maximum_hand_size")); continue
+                    if _int(amt) is not None:
+                        add("static_player", (facts, f"max_hand_size_{_int(amt)}")); continue
+                    dropped.append(("static", verb)); continue
                 if verb not in ("modify_pt", "grant_keyword"):
                     dropped.append(("static", verb))
                     continue
@@ -3822,7 +3861,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 # Otherwise (unmodeled condition, attached/filtered scope) it abstains. A modeled+expressible
                 # conditional static is engine-OWNED (datalog derives static_pt/static_grant) -> no drop, no emit.
                 if cond and cond != "-":
-                    payload_ok = (_parse_pt(amt) is not None) if verb == "modify_pt" else (amt in _ENGINE_KEYWORDS)
+                    payload_ok = (_parse_pt(amt) is not None) if verb == "modify_pt" else (extra in _ENGINE_KEYWORDS)  # keyword in EXTRA
                     if str(cond) in _MODELED_CONDS and str(tgt) in _ENGINE_ANTHEM_SCOPE and payload_ok:
                         continue                                 # engine conditional static rule owns it
                     dropped.append(("static", verb))

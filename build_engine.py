@@ -1575,13 +1575,17 @@ def _emit_translate(p) -> None:
     p.decl("cond_met", [("source", "symbol"), ("cond", "symbol")])
     p.rule('cond_met(S, "as_long_as_you_gained_life_this_turn")',
            ["instance_of(S, _)", "controls(P, S)", "gained_life_this_turn(P)"])
+    # §611.2 'during your turn' — the static holds while S's controller is the active player (Razorkin
+    # Needlehead 'has first strike during your turn'). Makes 'during_your_turn' a modeled cond, so the bridge
+    # leaves such a self-static to the engine's conditional static_grant rule.
+    p.rule('cond_met(S, "during_your_turn")', ["instance_of(S, _)", "controls(P, S)", "active_player(P)"])
     p.rule("static_pt(S, Dp, Dt, Scope)",
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, Cond)', 'Cond != "-"',
             "pt_value(Amount, Dp, Dt)", "cond_scope(Target, Scope)", "cond_met(S, Cond)"])
     p.rule("static_grant(S, Kw, Scope)",
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
-            'card_effect(Card, A, _, "grant_keyword", Kw, Target, _, Cond)', 'Cond != "-"',
+            'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, Cond)', 'Cond != "-"',  # Kw is the EXTRA column
             "engine_keyword(Kw)", "cond_scope(Target, Scope)", "cond_met(S, Cond)"])
     p.comment("ONE WORLD: §611.2 FILTERED static lords (subtype/type/color-restricted anthems: 'Other Goblins")
     p.comment("get +1/+1', 'Artifact creatures you control', 'White creatures have flying') -> static_pt/")

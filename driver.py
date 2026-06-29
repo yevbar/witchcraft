@@ -1915,8 +1915,12 @@ def _source_units(state: dict, ap: str):
 
     lands = sorted(c for (c,) in bf if (c, "land") in state.get("printed_type", set())
                    and (ap, c) in ctrl and (c,) not in tapped)
+    all_color = state.get("_all_colors_lands", set())         # §305.7 'gain all basic land types' (Energybending)
     for c in lands:                                           # §106 a land taps for one mana of a color it makes
-        cols = sorted(col for (s, col) in produces if s == c)
+        if (c,) in all_color:                                 # all basic land types -> taps for ANY color this turn
+            cols = ["white", "blue", "black", "red", "green"]
+        else:
+            cols = sorted(col for (s, col) in produces if s == c)
         # a DUAL/any-color land (Underground Sea, City of Brass) is FLEXIBLE: a frozenset wildcard the pool
         # aims at the hand's demand (§106.6 the player picks the color). A basic makes its single color.
         unit = frozenset(cols) if len(cols) > 1 else (cols[0] if cols else "colorless")
@@ -3157,8 +3161,35 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
     # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine
     # (the amount comes back a string through souffle, so int(n) before the lethality arithmetic).
     rows = sorted(r for r in run(state, ["spell_damage"])["spell_damage"] if r[0] == spell)
+    # §616.1 a CONDITIONAL damage UPGRADE ('deals N; if <cond>, M instead' — Burst Lightning, Brimstone Volley,
+    # Invasive Maneuvers): deal M instead of N iff the engine can CONFIRM the condition. Never over-deals on an
+    # unconfirmable cond (kicker/bargain aren't modelled -> treated as not met -> the base N resolves).
+    upgrade = next(((int(up), c) for (s, up, c) in state.get("spell_damage_upgrade", set()) if s == spell), None)
     for (_s, n, kind) in rows:
-        _apply_damage(state, spell, int(n), kind, ctrl)
+        amt = int(n)
+        if upgrade is not None and _spell_cond_met(state, upgrade[1], ctrl):
+            print(f"      {spell}: condition '{upgrade[1]}' met -> deals {upgrade[0]} instead of {amt}")
+            amt = upgrade[0]
+        _apply_damage(state, spell, amt, kind, ctrl)
+
+
+def _spell_cond_met(state: dict, cond: str, ctrl: str) -> bool:
+    """§616.1 evaluate a conditional damage UPGRADE's condition for `ctrl`, or False when the engine can't
+    confirm it (so the base amount stands — never an over-deal). Modelled: 'you control a <type/subtype>'
+    (a live board read, e.g. Invasive Maneuvers' Spacecraft) and morbid ('a creature died this turn', from the
+    turn-scoped death tally). Optional ADDITIONAL costs the cast model doesn't pay — kicker (was_kicked),
+    bargain (was_bargained) — are treated as NOT met (faithful: the spell wasn't kicked/bargained here)."""
+    m = re.match(r"^you_control_a[n]?_(\w+)$", cond)
+    if m:
+        kind = m.group(1)
+        controls = {c for (p, c) in run(state, ["controls"])["controls"] if p == ctrl}
+        ptype = state.get("printed_type", set())
+        psub = state.get("printed_subtype", set()) | state.get("card_subtype", set())
+        return any(c in controls and ((c, kind) in ptype or (c, kind) in psub) for (c,) in
+                   {(x,) for x in controls})
+    if cond in ("a_creature_died_this_turn", "morbid"):
+        return bool(state.get("_died_this_turn"))
+    return False                                            # was_kicked / was_bargained / unmodelled -> not met
 
 
 def _run_spell_riders(state: dict, spell: str, ctrl: str) -> None:
@@ -4076,15 +4107,37 @@ def _no_max_hand_size(state: dict, p: str) -> bool:
     return False
 
 
-def _cleanup_discard(state: dict, ap: str, max_hand: int = 7) -> None:
-    """§514.1 cleanup — the active player discards down to their maximum hand size (normally seven, §402.2).
-    SKIPPED entirely if ap has a 'no maximum hand size' static (Reliquary Tower etc.). Each discard routes
-    through the _choose seam (the player's choice) so a policy/search sees it; the greedy default keeps the
-    lowest-sorted card (stable, deterministic). Discarded cards go to ap's discard zone (graveyard/exile)."""
-    if _no_max_hand_size(state, ap):
+def _max_hand_size(state: dict, p: str) -> "int | None":
+    """§402.2 p's MAXIMUM hand size: None = unlimited ('no maximum hand size'), else the highest value any
+    static_player permission p controls sets (max_hand_size_<N> — The Ten Rings raises it to 10), defaulting
+    to seven. Read from the slug-keyed static_player permissions of p's on-battlefield permanents."""
+    if _no_max_hand_size(state, p):
+        return None
+    sp = state.get("static_player")
+    base = 7
+    if sp:
+        io = {i: c for (i, c) in state.get("instance_of", set())}
+        ctrl = state.get("printed_control", set())
+        for (c,) in state.get("on_battlefield", set()):
+            if (p, c) not in ctrl:
+                continue
+            slug = io.get(c)
+            for (s, perm) in sp:
+                if s == slug and perm.startswith("max_hand_size_"):
+                    base = max(base, int(perm.rsplit("_", 1)[1]))
+    return base
+
+
+def _cleanup_discard(state: dict, ap: str, max_hand: "int | None" = None) -> None:
+    """§514.1 cleanup — the active player discards down to their maximum hand size (normally seven, §402.2; a
+    static can raise it — The Ten Rings to ten — or remove it — Reliquary Tower). Each discard routes through
+    the _choose seam (the player's choice) so a policy/search sees it; the greedy default keeps the lowest-
+    sorted card (stable, deterministic). Discarded cards go to ap's discard zone (graveyard/exile)."""
+    mh = _max_hand_size(state, ap) if max_hand is None else max_hand
+    if mh is None:                                            # 'no maximum hand size' -> never discards
         return
     hand = sorted(c for (pp, c) in state.get("in_hand", set()) if pp == ap)
-    while len(hand) > max_hand:
+    while len(hand) > mh:
         card = _choose(state, "cleanup_discard", hand, hand[0])
         hand.remove(card)
         state["in_hand"].discard((ap, card))
@@ -4186,6 +4239,7 @@ def play_game(state: dict, players: list[str], max_turns: int = 20) -> str | Non
         state["may_play"] = set(); state["_flashback"] = set()  # §608/§702.34 impulse + flashback permissions expire EOT
         state["free_grant"] = set()                             # §118.9 the impulse 'play without paying' grant expires with may_play
         state["_extra_combats"] = {}; state["_skip_step"] = set()  # §505/§506 + §500.7 turn-structure flags are per-turn
+        state["_all_colors_lands"] = set()                      # §305.7 'gain all basic land types until eot' expires
         ctrl = {c for (pp, c) in run(state, ["controls"])["controls"] if pp == nxt_p}
         state["_sick"] = {row for row in state.get("_sick", set()) if row[0] not in ctrl}  # §302.6 sickness wears off at turn start
         print(f"  --- {ap}'s turn ends; {nxt_p} becomes the active player ---")
