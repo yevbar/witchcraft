@@ -263,6 +263,28 @@ def hand_screen_order(view, seat: int) -> list:
 hand_order = hand_screen_order
 
 
+def command_zone_members(view, seat: int) -> list:
+    """instanceIds in `seat`'s command zone (§903 — a commander castable from there). These are NOT hand cards:
+    they don't appear in `hand_members`, so the hand name/anchor path can't place them (and the board-bleed
+    filter would even drop the commander's legible name). They get their own geometry — see `commander_point`."""
+    return [o.instanceId for o in view.in_zone("ZoneType_Command", seat)]
+
+
+def commander_point(rect: Rect, n_hand: int) -> tuple:
+    """The click point for a command-zone commander. MTGA lays the bottom rail out as if the hand had N+2 slots —
+    the N hand cards, one EMPTY 'ghost' slot, then the commander — so the commander is the RIGHTMOST card of an
+    (N+2)-wide centred fan (hand at slots 0..N-1, ghost at N, commander at N+1). Returns that rightmost slot's
+    (x, y), with y bowed DOWN to the fan's edge (an edge card sits below the centre). `n_hand` is the GRE hand
+    size (authoritative), so this needs no vision — vision can't see the command zone as a hand card anyway."""
+    slots = n_hand + 2
+    cx = rect.x + rect.w / 2.0
+    spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, slots - 1))   # N-aware: tighter when the fan is full
+    span = (slots - 1) * spacing
+    xs = [int(cx - span / 2.0 + k * spacing) for k in range(slots)]
+    top_y = rect.y + int(0.855 * rect.h)                    # the resting hand band (centre/top of the arc)
+    return xs[-1], _bowed_y(xs[-1], xs, top_y)              # rightmost slot = the commander, bowed to the edge
+
+
 def _name_anchors(view, seat: int, screen: list, named: list) -> list:
     """Pin OCR'd names to screen slots: for each legible name, if it maps to a UNIQUELY-named hand card, record
     (slot_index, x, y). These anchors calibrate the pixel position of each slot, so an OCCLUDED target slot can
@@ -729,10 +751,33 @@ def play_land(actuator, locator, view, seat: int, options, preferred=None, *, se
     return _play_from_hand(actuator, locator, view, seat, want, settle=settle, label="land", prefer_left=True)
 
 
+def play_commander(actuator, view, seat: int, instance_id: int, *, settle: float = 0.3) -> bool:
+    """Cast the COMMANDER from the command zone (§903.6). It isn't a hand card — the name/anchor path can't place
+    it and the board-bleed filter would drop its legible name — but MTGA renders it as the RIGHTMOST card of an
+    (N+2)-slot fan (the hand's N cards + one ghost gap + the commander). Click that slot with the normal
+    grab→lift→drop cast gesture. No vision needed: the hand size comes from the GRE."""
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    n = len(hand_members(view, seat))
+    pt = commander_point(rect, n)
+    o = view.objects.get(instance_id)
+    _log.info("  cast commander: %s (instance %s) — rightmost of an N+2 fan (N=%d hand) at %s",
+              cards.label(o.grpId) if o else "?", instance_id, n, pt)
+    actuator.hover(*rest_point(rect))                       # rest the cursor so the rail is at its un-magnified layout
+    actuator.wait(settle)
+    play_card(actuator, pt, body_drop=0)                   # pt is already a card-body point (bowed into the card)
+    return True
+
+
 def play_hand_card(actuator, locator, view, seat: int, instance_id: int, *, settle: float = 0.3) -> bool:
     """Cast/play the SPECIFIC hand card `instance_id` (a spell) by its on-screen name — generalises play_land to
     any card. (Clicking the card is the cast; if the spell needs a TARGET, MTGA then asks via a targets decision,
-    handled separately.) Returns True only on a positively-identified click."""
+    handled separately.) The §903.6 COMMANDER is cast from the command zone, not the hand, so it routes to
+    `play_commander` (the N+2-fan geometry) rather than the hand name/anchor path. Returns True only on a
+    positively-identified click."""
+    if instance_id in command_zone_members(view, seat):
+        return play_commander(actuator, view, seat, instance_id, settle=settle)
     want = _want_names(view, [instance_id])
     o = view.objects.get(instance_id)
     _log.info("  cast: %s (instance %s)", (cards.label(o.grpId) if o else "?"), instance_id)

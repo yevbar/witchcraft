@@ -1140,6 +1140,34 @@ def _hand_checks():
     sweep_hand(a2, pts, dwell=0)
     check("sweep_hand hovers each card (moves, no clicks)", a2.clicks == [] and len(a2.moves) >= 3)
 
+    # §903.6 COMMANDER from the command zone: NOT a hand card (so the name/anchor path can't place it), rendered
+    # as the RIGHTMOST card of an N+2 fan (hand's N cards + a ghost gap + the commander). Geometry + routing.
+    from types import SimpleNamespace as NS
+    from inthearena.mtga import command_zone_members, commander_point, hand_members, play_hand_card
+    cx_, x6 = rect.w // 2, commander_point(rect, 6)[0]
+    check("commander_point: rightmost of N+2, right of centre, in the hand band",
+          x6 > cx_ and 0.84 <= commander_point(rect, 6)[1] / rect.h <= 0.98
+          and commander_point(rect, 3)[0] < x6)          # fewer hand cards -> commander sits further left
+
+    class _Z:
+        def __init__(self, t, ids): self.type, self.ownerSeatId, self.objectInstanceIds = t, 1, ids
+    class _V:
+        zones = {9: _Z("ZoneType_Command", [50]), 5: _Z("ZoneType_Hand", [11, 12, 13])}
+        objects = {50: NS(instanceId=50, grpId=105108, zoneId=9, controllerSeatId=1),
+                   **{i: NS(instanceId=i, grpId=i, zoneId=5, controllerSeatId=1) for i in (11, 12, 13)}}
+        def in_zone(self, zt, seat=None):
+            return [o for o in self.objects.values()
+                    if self.zones.get(o.zoneId) and self.zones[o.zoneId].type == zt
+                    and (seat is None or self.zones[o.zoneId].ownerSeatId == seat)]
+        def hand(self, seat): return self.in_zone("ZoneType_Hand", seat)
+    v = _V()
+    check("command_zone_members finds the commander; it is NOT in hand_members",
+          command_zone_members(v, 1) == [50] and 50 not in hand_members(v, 1))
+    a3 = DryRunActuator(rect=rect)
+    ok = play_hand_card(a3, None, v, 1, 50)               # locator=None: the commander path must NOT need vision
+    check("play_hand_card routes the commander to the N+2 click (no vision), grabs right-of-centre",
+          ok and bool(a3.clicks) and a3.clicks[0][0] > cx_)
+
     from inthearena.mtga.hand import _CARD_BODY_DROP, _PLAY_LIFT_Y
     a3 = DryRunActuator(rect=rect)
     play_card(a3, (900, 1000))
