@@ -16,6 +16,8 @@ eval `_value`) are the metrics. `prioritize` picks the max-scoring move in the f
 """
 from __future__ import annotations
 
+import random
+
 import env
 
 from .game import Game
@@ -57,9 +59,18 @@ class SocietyOfControlPlayer(Player):
     W_CURVE = 1.0
     _CURVE_BASE = 20.0
 
-    # burn_choice base: a lethal creature-removal cast scores _BURN_BASE + the dead creature's power, so the
-    # biggest threat is answered first; >0 clears the floor=0.0 gate (it only fires on an actual kill).
+    # burn_choice base: a lethal creature-removal cast scores _BURN_BASE + a target-priority term (see below),
+    # always >0 so it clears the floor=0.0 gate (it only fires on an actual kill).
     _BURN_BASE = 1.0
+
+    # burn TARGET priority (which killable creature to point removal at), as one lexicographic float so
+    # game.prioritize's max picks the top priority: the opponent's COMMANDER first (it recurs from the command
+    # zone — kill it on sight), then highest POWER (the hardest clock), then highest TOUGHNESS (the most
+    # resilient body), then an arbitrary-but-reproducible jitter. The weights just stack those keys so a higher
+    # tier always dominates the ones below it; they assume sane creature P/T (well under ~10k).
+    _TGT_COMMANDER = 1e9
+    _TGT_POWER = 1e4
+    _TGT_TOUGH = 1.0
 
     # forced-win gate slack: extra headroom on the cheap reach estimate so we never skip the (expensive) win scan
     # when a real kill is on the table — only when nobody is plausibly in range.
@@ -167,27 +178,54 @@ class SocietyOfControlPlayer(Player):
 
     def burn_choice(self, game, move) -> float:
         """Score a creature-targeting damage spell by the THREAT IT REMOVES — but only when it WOULD KILL an
-        opponent creature (else -inf, so the floor=0.0 gate holds it). A damage spell picks its target at
-        RESOLUTION, so this fires when SOME opponent creature is within the spell's damage (toughness <= damage);
-        weight by the biggest such threat. Lethality is `damage >= toughness` (ignores marked damage / deathtouch
-        / indestructible — a heuristic). The 'is this creature-target damage at all' gate is the LINE's
-        `.matching(is_creature_damage)`; this is the board judgement.
+        opponent creature (else -inf, so the floor=0.0 gate holds it). The engine enumerates one cast variant per
+        legal target, so this scores the SPECIFIC creature this variant hits (`move.choices['target']`); when the
+        spell carries no cast-time target it's scored by the best creature on the board (`_burn_target`). Lethality
+        is `damage >= toughness` (ignores marked damage / deathtouch / indestructible — a heuristic). The 'is this
+        creature-target damage at all' gate is the LINE's `.matching(is_creature_damage)`; this is the board
+        judgement, and `_target_priority` orders WHICH creature: commander > power > toughness > arbitrary.
 
-        COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold it unless a SECOND commander-
-        killing burn card is in hand — a commander recasts from the command zone, so keep one answer in reserve
-        for its next appearance rather than spending the last on it now."""
+        COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold the WHOLE spell unless a SECOND
+        commander-killing burn card is in hand — a commander recasts from the command zone, so keep one answer in
+        reserve for its next appearance rather than spending the last on it now (overrides the kill-commander-first
+        target priority: reserve the card entirely when it's our only answer)."""
         dmg = creature_damage(game, move)
         if dmg is None:                                # (the matcher already gates this; belt-and-suspenders
             return float("-inf")                       #  so burn_choice is also safe to score standalone)
-        killable = [c.power for o in self.opponents for c in o.creatures if c.toughness <= dmg]
-        if not killable:
-            return float("-inf")                       # no opponent creature it would kill -> don't fire it
+        victim = self._burn_target(game, move, dmg)
+        if victim is None:
+            return float("-inf")                       # this cast kills no opponent creature -> hold it
         cmd = self._opp_commander(game)
         if cmd is not None and cmd.toughness <= dmg:
             backups = self._commander_answers_in_hand(game, cmd.toughness) - {move.card.id}
             if not backups:
-                return float("-inf")                   # our only commander-answer -> reserve it
-        return self._BURN_BASE + max(killable)         # cast it; weight by the BIGGEST threat it can remove
+                return float("-inf")                   # our only commander-answer -> reserve the spell entirely
+        return self._BURN_BASE + self._target_priority(game, victim)
+
+    def _burn_target(self, game, move, dmg):
+        """The opponent creature THIS burn kills, or None if it kills nothing. With a cast-time target
+        (`move.choices['target']`, one variant per legal target) it's that creature — provided it's an opponent's
+        and within the damage. With no cast-time target (the choice is deferred to resolution) it's the
+        highest-`_target_priority` killable creature on the board, so the cast is still scored by the threat it
+        would remove."""
+        victims = [c for o in self.opponents for c in o.creatures if c.toughness <= dmg]
+        tid = (move.choices or {}).get("target")
+        if tid is not None:
+            return next((c for c in victims if c.id == tid), None)
+        return max(victims, key=lambda c: self._target_priority(game, c), default=None)
+
+    def _target_priority(self, game, victim) -> float:
+        """How much to prefer pointing removal at `victim` — the lexicographic burn-target order encoded as one
+        float (higher = kill first): the opponent's COMMANDER above all, then highest POWER, then highest
+        TOUGHNESS, then an arbitrary pick. The tail jitter is a game-seeded value in [0,1) keyed by the creature's
+        id, so otherwise-identical creatures get a STABLE pseudo-random order (reproducible across runs — it
+        derives its own Random and never touches the game RNG stream)."""
+        is_cmd = (victim.id,) in game.state.get("is_commander", set())
+        jitter = random.Random(f"{game.state.get('_seed', 0)}:{victim.id}").random()
+        return (self._TGT_COMMANDER * is_cmd
+                + self._TGT_POWER * victim.power
+                + self._TGT_TOUGH * victim.toughness
+                + jitter)
 
     def _opp_commander(self, game):
         """The opponent's COMMANDER as a battlefield creature (is_commander + opponent-controlled), or None. A
