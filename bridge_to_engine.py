@@ -3824,6 +3824,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     dp = _dyn_pt_spec(amt, tgt, cond)
                     if dp is not None:
                         add("dyn_pt", (tid, dp[0], dp[1], dp[2])); continue
+                if verb == "set_max_hand_size":
+                    # §402.2 a static maximum-hand-size override (The Ten Rings 'your maximum hand size is ten';
+                    # 'no maximum hand size' -> unlimited, Reliquary Tower). Emit a SLUG-keyed static_player
+                    # permission the driver's §514.1 cleanup reads (no_maximum / max_hand_size_<N>).
+                    if str(amt) == "unlimited":
+                        add("static_player", (facts, "no_maximum_hand_size")); continue
+                    if _int(amt) is not None:
+                        add("static_player", (facts, f"max_hand_size_{_int(amt)}")); continue
+                    dropped.append(("static", verb)); continue
                 if verb not in ("modify_pt", "grant_keyword"):
                     dropped.append(("static", verb))
                     continue

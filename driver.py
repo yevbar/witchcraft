@@ -4103,15 +4103,37 @@ def _no_max_hand_size(state: dict, p: str) -> bool:
     return False
 
 
-def _cleanup_discard(state: dict, ap: str, max_hand: int = 7) -> None:
-    """§514.1 cleanup — the active player discards down to their maximum hand size (normally seven, §402.2).
-    SKIPPED entirely if ap has a 'no maximum hand size' static (Reliquary Tower etc.). Each discard routes
-    through the _choose seam (the player's choice) so a policy/search sees it; the greedy default keeps the
-    lowest-sorted card (stable, deterministic). Discarded cards go to ap's discard zone (graveyard/exile)."""
-    if _no_max_hand_size(state, ap):
+def _max_hand_size(state: dict, p: str) -> "int | None":
+    """§402.2 p's MAXIMUM hand size: None = unlimited ('no maximum hand size'), else the highest value any
+    static_player permission p controls sets (max_hand_size_<N> — The Ten Rings raises it to 10), defaulting
+    to seven. Read from the slug-keyed static_player permissions of p's on-battlefield permanents."""
+    if _no_max_hand_size(state, p):
+        return None
+    sp = state.get("static_player")
+    base = 7
+    if sp:
+        io = {i: c for (i, c) in state.get("instance_of", set())}
+        ctrl = state.get("printed_control", set())
+        for (c,) in state.get("on_battlefield", set()):
+            if (p, c) not in ctrl:
+                continue
+            slug = io.get(c)
+            for (s, perm) in sp:
+                if s == slug and perm.startswith("max_hand_size_"):
+                    base = max(base, int(perm.rsplit("_", 1)[1]))
+    return base
+
+
+def _cleanup_discard(state: dict, ap: str, max_hand: "int | None" = None) -> None:
+    """§514.1 cleanup — the active player discards down to their maximum hand size (normally seven, §402.2; a
+    static can raise it — The Ten Rings to ten — or remove it — Reliquary Tower). Each discard routes through
+    the _choose seam (the player's choice) so a policy/search sees it; the greedy default keeps the lowest-
+    sorted card (stable, deterministic). Discarded cards go to ap's discard zone (graveyard/exile)."""
+    mh = _max_hand_size(state, ap) if max_hand is None else max_hand
+    if mh is None:                                            # 'no maximum hand size' -> never discards
         return
     hand = sorted(c for (pp, c) in state.get("in_hand", set()) if pp == ap)
-    while len(hand) > max_hand:
+    while len(hand) > mh:
         card = _choose(state, "cleanup_discard", hand, hand[0])
         hand.remove(card)
         state["in_hand"].discard((ap, card))
