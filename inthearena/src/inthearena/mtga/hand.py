@@ -84,9 +84,18 @@ def _n_drop(n: int) -> int:
 _FAN_CALIB: dict = {}
 
 
-def _calib_key(view) -> str:
+def _calib_key(view, seat: int) -> str:
+    """The calibration bucket: per match AND per command-zone REGIME. While a commander sits in the command zone
+    MTGA lays the rail out as N+2 (hand cards + ghost + commander), which shifts the hand LEFT; once the commander
+    is cast the rail is a plain, re-centred N-card fan. Those are different layouts, so they get separate buckets —
+    a post-cast prediction never inherits the pre-cast (ghost-shifted) samples, and vice versa."""
     gi = getattr(view, "game_info", None)
-    return (getattr(gi, "matchID", None) or "default") if gi is not None else "default"
+    match = (getattr(gi, "matchID", None) or "default") if gi is not None else "default"
+    try:
+        cz = len(command_zone_members(view, seat))          # 0 once the commander is played; 1 (or 2) before
+    except Exception:
+        cz = 0
+    return f"{match}|cz{cz}"
 
 
 def _nominal_spacing_frac(n: int, w: int) -> float:
@@ -95,23 +104,25 @@ def _nominal_spacing_frac(n: int, w: int) -> float:
     return min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, n - 1)) / max(1, w)
 
 
-def record_card_position(view, rect, n: int, slot: int, x: int, y: int) -> None:
+def record_card_position(view, seat: int, rect, n: int, slot: int, x: int, y: int) -> None:
     """Log a CONFIRMED identification — card read at `slot` of an `n`-card hand, on screen at (x, y) — into the
-    per-game fan calibration. Every identification feeds this one store (mulligan OCR, legible-at-rest, sweep
-    reveal), so later searches predict a slot's position instead of re-discovering the hand each time."""
+    per-game fan calibration (the bucket for `seat`'s current command-zone regime). Every identification feeds
+    this one store (mulligan OCR, legible-at-rest, sweep reveal), so later searches predict a slot's position
+    instead of re-discovering the hand each time."""
     if rect is None or n < 1 or not (0 <= slot < n):
         return
-    s = _FAN_CALIB.setdefault(_calib_key(view), [])
+    s = _FAN_CALIB.setdefault(_calib_key(view, seat), [])
     s.append((n, slot, (x - rect.x) / (rect.w or 1), (y - rect.y) / (rect.h or 1)))
     if len(s) > 80:                                        # bound it (a game yields plenty); keep the most recent
         del s[:-80]
 
 
-def predict_card_position(view, rect, n: int, slot: int):
-    """Predict on-screen (x, y) of `slot` in an `n`-card hand from the per-game calibration, or None when there
-    aren't enough samples to fit. X comes from a least-squares fit of (centre + scale * nominal_spacing) over all
-    samples — so it transfers across hand sizes; Y uses the (reliable) nominal arc + N-drop."""
-    s = _FAN_CALIB.get(_calib_key(view))
+def predict_card_position(view, seat: int, rect, n: int, slot: int):
+    """Predict on-screen (x, y) of `slot` in an `n`-card hand from the per-game calibration (for `seat`'s current
+    command-zone regime), or None when there aren't enough samples to fit. X comes from a least-squares fit of
+    (centre + scale * nominal_spacing) over all samples — so it transfers across hand sizes; Y uses the (reliable)
+    nominal arc + N-drop."""
+    s = _FAN_CALIB.get(_calib_key(view, seat))
     if not s or len(s) < 2 or rect is None or n < 1 or not (0 <= slot < n):
         return None
     us = [(ss - (sn - 1) / 2.0) * _nominal_spacing_frac(sn, rect.w) for (sn, ss, _x, _y) in s]
@@ -130,12 +141,15 @@ def predict_card_position(view, rect, n: int, slot: int):
 
 
 def reset_hand_calib(view=None) -> None:
-    """Drop the calibration — for one game (`view`) or all (None). Call at game start so a new match doesn't
-    inherit the previous fan."""
+    """Drop the calibration — for one game (`view`, BOTH command-zone regimes) or all (None). Call at game start
+    so a new match doesn't inherit the previous fan."""
     if view is None:
         _FAN_CALIB.clear()
-    else:
-        _FAN_CALIB.pop(_calib_key(view), None)
+        return
+    gi = getattr(view, "game_info", None)
+    match = (getattr(gi, "matchID", None) or "default") if gi is not None else "default"
+    for k in [key for key in _FAN_CALIB if key.startswith(match + "|")]:
+        _FAN_CALIB.pop(k, None)
 
 
 def _record_anchors(view, seat, screen, named, rect) -> None:
@@ -143,7 +157,9 @@ def _record_anchors(view, seat, screen, named, rect) -> None:
     which maps a legible name to its slot + position). Shared by the legible-at-rest read, the calibration
     confirm, and each sweep reveal — so every identification, however it happened, refines the SAME store."""
     for (slot, x, y) in _name_anchors(view, seat, screen, named):
-        record_card_position(view, rect, len(screen), slot, x, y)
+        record_card_position(view, seat, rect, len(screen), slot, x, y)
+
+
 _REVEAL_Y = 0.45           # name-band floor while a hovered card is MAGNIFIED — it lifts its banner well UP, so
 #                            this must reach much higher than the resting hand band (0.84). near_x keeps a
 #                            battlefield card of the same name (also in this band) from matching.
@@ -350,6 +366,15 @@ def command_zone_members(view, seat: int) -> list:
     they don't appear in `hand_members`, so the hand name/anchor path can't place them (and the board-bleed
     filter would even drop the commander's legible name). They get their own geometry — see `commander_point`."""
     return [o.instanceId for o in view.in_zone("ZoneType_Command", seat)]
+
+
+def in_command_zone(view, seat: int) -> bool:
+    """True while `seat` has a commander sitting in the command zone — i.e. the bottom rail is laid out as N+2
+    (hand + ghost + commander). Goes False once the commander is CAST out, so the rail is a plain N-card hand
+    again. (The live-bridge counterpart to python-mtg's `Game.command_zone(player)`: the executor reads the GRE
+    view directly rather than reconstructing an engine Game just to check a zone.) Gates the ghost/commander-slot
+    handling so a played-out commander is never counted as part of the hand."""
+    return bool(command_zone_members(view, seat))
 
 
 def commander_point(rect: Rect, n_hand: int) -> tuple:
@@ -846,7 +871,7 @@ def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, re
     for inst in sorted(set(want.values()), key=lambda i: screen.index(i) if i in screen else 0):
         if inst not in screen:
             continue
-        pt = predict_card_position(view, rect, len(screen), screen.index(inst))
+        pt = predict_card_position(view, seat, rect, len(screen), screen.index(inst))
         if pt is None:
             break                                          # not enough calibration yet -> sweep
         actuator.hover(*pt)
