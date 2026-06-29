@@ -2116,6 +2116,50 @@ def _wheel_of(effs: list) -> tuple | None:
     return (sh, dr, scope, str(effs[sh][4]), _int(effs[dr][2]))
 
 
+def _you_do_impulse_kind(exile_amt) -> str | None:
+    """If an impulse's exile count is 'X = the number of <kind> counters on it', return that counter kind
+    (e.g. 'skewer'); None for a plain integer (a static impulse) or an unrecognized dynamic amount."""
+    m = re.search(r"number_of_(.+?)_counters", str(exile_amt))
+    return m.group(1) if m else None
+
+
+def _fold_you_do_trigger_impulse(effs: list, *, aid: str, tid: str, facts: str, add) -> set:
+    """§603.2c + §608 — a TRIGGERED ability of the shape 'you may sacrifice ~; if you do, exile the top X of
+    your library (X = a counter on it / a fixed N), you may play them this turn' (Rotisserie Elemental). The
+    parser leaves the cost + consequent inline in ONE ability with 'may'/'if_you_did' conds, which the generic
+    trigger_effect rules (cond '-' only) drop. Reuse the you_do machinery: keep the antecedent's other effects
+    (the counter placement) on `aid`, emit you_do_cost(ante,'sacrifice_self') for the optional cost, and
+    SYNTHESIZE a consequent ability (a 'you_did' trigger carrying impulse_play, paired to the antecedent) so the
+    exile→play resolves engine-side exactly when the sacrifice is taken. A dynamic count rides as
+    impulse_play target 'dyn:<kind>' (the driver sizes X from the counters it captured at the sacrifice).
+    Returns the consumed effect indices (the sac / exile / play clauses)."""
+    sac_i = next((i for i, (_s, v, _a, t, x, c) in enumerate(effs)
+                  if v == "sacrifice" and str(t) in ("it", "self", "this", "itself", "~", "him", "her")
+                  and ("may" in str(c) or "may" in str(x))), None)
+    ex_i = next((i for i, (_s, v, _a, t, _x, c) in enumerate(effs)
+                 if v == "exile" and str(t) == "top_of_library" and "if_you_did" in str(c)), None)
+    play_i = next((i for i, (_s, v, _a, t, _x, _c) in enumerate(effs)
+                   if v in ("play", "cast") and _is_impulse_card_obj(t)), None)
+    if sac_i is None or ex_i is None or play_i is None:
+        return set()
+    kind = _you_do_impulse_kind(effs[ex_i][2])
+    n = _int(effs[ex_i][2])
+    if kind is not None:
+        amt, tgt = 0, f"dyn:{kind}"                            # X = <kind> counters on the source (driver-captured)
+    elif n is not None and n > 0:
+        amt, tgt = n, _impulse_free(effs[play_i])             # a fixed-N exile-and-play consequent
+    else:
+        return set()                                          # an unrecognized exile count -> abstain
+    ante_ia, cons_aid = f"{tid}_{aid}", f"{aid}_yd"
+    cons_ia = f"{tid}_{cons_aid}"
+    add("you_do_cost", (ante_ia, "sacrifice_self", 1))        # the optional cost the driver offers (default decline)
+    add("card_ability", (facts, cons_aid, "triggered"))       # the synthetic consequent: a 'you_did' trigger…
+    add("ability_trigger", (facts, cons_aid, "you_did"))
+    add("trigger_effect", (cons_ia, "impulse_play", amt, tgt))   # …carrying the exile→play, gated on did_optional
+    add("you_do_pair", (cons_ia, ante_ia))
+    return {sac_i, ex_i, play_i}
+
+
 def _fold_impulse(effs: list, emit) -> set:
     """§608 IMPULSE — 'exile the top N cards of your library. Until end of turn, you may play/cast them.'
     (Light Up the Stage, Mind's Desire, Stella Lee, Opera Love Song …). Fold the '[exile N top_of_library] +
@@ -3120,9 +3164,15 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             search_skip = _fold_search_placements(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             # §702.34 FLASHBACK GRANT on a TRIGGERED ability (Snapcaster Mage's ETB) -> one grant_flashback.
             fb_skip = _fold_flashback(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            # §603.2c + §608 the OPTIONAL self-sacrifice impulse ('you may sacrifice ~; if you do, exile the
+            # top X, play them this turn' — Rotisserie Elemental): split into you_do_cost + a synthetic 'you_did'
+            # consequent ability via the you_do machinery (must run BEFORE _fold_impulse, which would otherwise
+            # mis-fold the exile/play as an unconditional impulse).
+            ydt_skip = _fold_you_do_trigger_impulse(effs, aid=aid, tid=tid, facts=facts, add=add)
             # §608 IMPULSE on a TRIGGERED ability (Stella Lee: 'exile the top card, you may play it') -> one
             # impulse_play trigger_effect, same as the spell path (the card engine's triggered card advantage).
-            impulse_skip = _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
+            impulse_skip = (set() if ydt_skip else
+                            _fold_impulse(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t))))
             # §608 THEFT IMPULSE on a TRIGGERED ability (Ragavan: 'exile the top card of that player's library,
             # you may cast it') -> one impulse_opp trigger_effect.
             impulse_skip |= _fold_impulse_opp(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
@@ -3155,7 +3205,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # top N, put a <type> card from among them in hand, the rest in your graveyard') -> one zone_sort.
             dfa_skip = _fold_dig_from_among(effs, lambda e, n, t: add("trigger_effect", (a, e, n, t)))
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(effs):
-                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip or _idx in dt_skip or _idx in dfa_skip:   # consumed by a folded effect
+                if _idx in search_skip or _idx in fb_skip or _idx in impulse_skip or _idx in ydt_skip or _idx in flip_skip or _idx in pay_skip or _idx in cd_skip or _idx in poc_skip or _idx in end_skip or _idx in xcd_skip or _idx in dig_skip or _idx in zs_skip or _idx in roll_skip or _idx in dt_skip or _idx in dfa_skip:   # consumed by a folded effect
                     emitted = True
                     continue
                 if verb in ("search", "reveal"):

@@ -27,7 +27,15 @@ def _apply_impulse_play(D, state, a, n, tgt, src, ctrl):
     if ctrl not in lib:                                          # materialize the ordered library (top = index 0)
         lib[ctrl] = sorted(c for (pp, c) in state.get("in_library", set()) if pp == ctrl)
     order = lib[ctrl]
-    k = int(n) if n else 1
+    # DYNAMIC count: tgt 'dyn:<counter_kind>' = X is the number of that counter that was on the source when it
+    # was sacrificed as the 'if you do' cost (Rotisserie: X = skewer counters on it), captured by the driver
+    # before the source left (the source is gone by the time this consequent resolves).
+    if str(tgt).startswith("dyn:"):
+        k = int(state.get("_you_did_counts", {}).get(str(tgt).split(":", 1)[1], 0))
+    else:
+        k = int(n) if n else 1
+    if k <= 0:                                                   # no counters captured -> nothing to exile
+        return
     top = order[:k]
     del order[:k]                                               # pull the top k out of the library
     inlib = state.setdefault("in_library", set())

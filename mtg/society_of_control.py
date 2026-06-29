@@ -180,13 +180,15 @@ class SocietyOfControlPlayer(Player):
         return affordable or 0
 
     def decide(self, view, key, options, default):
-        """Steer engine sub-choices (routed through `driver._choose`). The one override: an OPTIONAL SELF-SACRIFICE
-        offered via the engine's GENERAL `you_do_sacrifice` seam — §603.2c 'you may sacrifice <X>; if you do,
-        <benefit>'. We accept it only when the board can SPARE a creature: a faithful, deck-independent COST-side
-        rule applied to ANY such sacrifice, not a per-card hack. (The engine surfaces this seam only for a you_do
-        whose benefit it has actually modeled — so the upside is real; the decision here is just 'can we afford to
-        lose a body for it'.) Every other sub-choice keeps the engine default."""
-        if key == "you_do_sacrifice":
+        """Steer engine sub-choices (routed through `driver._choose`). The one override: an OPTIONAL SACRIFICE
+        offered via the engine's you_do seam — §603.2c 'you may sacrifice <X>; if you do, <benefit>'. Covers both
+        kinds: `you_do_sacrifice` (sacrifice SOME creature) and `you_do_sacrifice_self` (sacrifice the source
+        itself — e.g. Rotisserie Elemental's 'sacrifice it; if you do, exile X = skewer counters, play them'). We
+        accept it only when the board can SPARE a creature: a faithful, deck-independent COST-side rule, not a
+        per-card hack. (The engine surfaces this seam only for a you_do whose benefit it has actually modeled — so
+        the upside is real; the decision here is just 'can we afford to lose a body for it'.) Every other
+        sub-choice keeps the engine default."""
+        if key in ("you_do_sacrifice", "you_do_sacrifice_self"):
             return self._board_can_spare_creature_state(view)
         return default
 

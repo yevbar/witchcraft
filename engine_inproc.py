@@ -252,6 +252,16 @@ def _rel_blob(items) -> bytes:
     return ("\n".join(parts) + "\n").encode() if parts else b""
 
 
+def reset() -> None:
+    """Forget the carried-over input state so the NEXT evaluate() does a FULL load. The delta path keeps the
+    instance's inputs loaded and patches only what changed between consecutive (forward-evolving) states — but
+    when the next call is an INDEPENDENT scenario (a fresh state that happens to reuse instance ids), the carried
+    `_LOADED` is a wrong baseline to diff against. `driver.clear_cache()` calls this at scenario boundaries so an
+    independent run is isolated; within a game the carry-over stays (and is byte-identical to a full load)."""
+    global _LOADED
+    _LOADED = None
+
+
 def evaluate(fkey: frozenset) -> dict:
     """Run the compiled engine IN-PROCESS on a fact set; return {relation: set(tuples)} for every non-empty
     output relation — same signature/return as engine_native.evaluate and driver._evaluate. Raises if the
