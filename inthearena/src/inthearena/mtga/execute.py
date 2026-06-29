@@ -68,6 +68,10 @@ _NO_BLOCKS = ViewElement("No Blocks", ScreenAnchor.BOTTOM_RIGHT, radius=40, quer
 # The combat-damage-order screen's confirm button is CENTRE-bottom (not the bottom-right rail). Verified on a
 # live frame: Moondream finds 'Done button' at ~(0.50, 0.81) of the window.
 _DONE = ViewElement("Done", ScreenAnchor.CENTER, radius=40, query="Done button", frac=(0.50, 0.81))
+# An OPTIONAL trigger ('you may sacrifice …', e.g. Rotisserie Elemental) renders as a stacked 'Decline / Take
+# Action' pair, NOT the single advance button — and the advance frac sits BETWEEN them, so a plain pass click
+# misses and the bot stalls to timeout. Decline (upper, ~0.82h) = the pass the bot chose; Take Action is below it.
+_DECLINE = ViewElement("Decline", ScreenAnchor.BOTTOM_RIGHT, radius=40, query="Decline button", frac=(0.932, 0.824))
 
 
 @dataclass
@@ -130,6 +134,23 @@ class GameExecutor:
             return ExecResult(False, "no window rect")
         return ExecResult(interact(self._act, element, rect, self._rng, locator=self._locator), note)
 
+    def _decline_optional_prompt(self):
+        """An OPTIONAL trigger ('you may sacrifice …', e.g. Rotisserie Elemental's combat-damage sac) shows as a
+        'Decline / Take Action' pair, NOT the generic advance button — whose spot sits BETWEEN the two, so a plain
+        pass click misses and the bot stalls to timeout. If 'Decline' is on screen, click it (declining the
+        optional == the pass the bot chose). Returns the ExecResult, or None when no such prompt is up (caller
+        falls back to the normal advance). Policy: DECLINE — the engine declines these by default; enacting 'Take
+        Action' (the you_do sacrifice) isn't wired through the bridge yet."""
+        img = self._act.screenshot()
+        if img is None:
+            return None
+        from . import ocr
+        txt = " ".join(t for (t, _x, _y) in ocr.recognize_text(img)).lower()
+        if "decline" not in txt:
+            return None
+        _log.info("  optional 'Decline / Take Action' prompt detected — clicking DECLINE")
+        return self._advance("declined optional prompt", _DECLINE)
+
     def _do_mulligan(self, decision, choice) -> ExecResult:
         from .navigate import click_mulligan
         ok = click_mulligan(self._act, choice == "keep", rng=self._rng, locator=self._locator)
@@ -169,6 +190,13 @@ class GameExecutor:
             self._act.key("q", "q")
             return ExecResult(True, "tap all mana (q,q)")
         if choice is None or getattr(choice, "actionType", None) == "ActionType_Pass":
+            # An OPTIONAL trigger offered as 'Decline / Take Action' (its menu carries an ActionType_Activate the
+            # bot is passing on) needs the DECLINE button, not the generic advance (which sits between the two and
+            # misses). Try it when an Activate is offered; otherwise the normal pass.
+            if any(getattr(a, "actionType", None) == "ActionType_Activate" for a in (decision.options or [])):
+                declined = self._decline_optional_prompt()
+                if declined is not None:
+                    return declined
             return self._advance("pass")
         if not isinstance(choice, Action):
             return ExecResult(False, "unexpected actions choice")

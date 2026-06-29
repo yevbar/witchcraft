@@ -62,6 +62,17 @@ _FAN_ARC = 84              # px the hand fan bows down at its EDGES vs the centr
 # card centres span ~0.18-0.82 of the window (≈1200px), i.e. ~170px apart for 8.
 _FAN_STEP_MAX = 178        # px: the widest per-card step (a small hand, cards barely overlapping)
 _FAN_FULL_WIDTH = 1200     # px: the full-hand span of card CENTRES (cards tighten to fit within this)
+# A FULLER hand rests LOWER on screen (MTGA widens the fan and drops it), so a fixed centre-y hovers ABOVE the
+# cards once the hand is large — the cursor "inches over the tops" and never magnifies them. `_bowed_y` already
+# drops the EDGES via the arc; this drops the WHOLE fan, scaling with the hand size (beyond a small hand).
+_FAN_N_DROP = 15           # px of extra downward hover per card past _FAN_N_BASE
+_FAN_N_BASE = 4            # hands this size or smaller need no extra drop (keeps small-hand behaviour unchanged)
+
+
+def _n_drop(n: int) -> int:
+    """Extra downward hover (px) for a wider hand (see _FAN_N_DROP): _FAN_N_DROP px per card past _FAN_N_BASE,
+    0 for a small hand. Added to the fan's centre-y so a full (7-8 card) hand is hovered ON the cards, not above."""
+    return _FAN_N_DROP * max(0, int(n) - _FAN_N_BASE)
 _REVEAL_Y = 0.45           # name-band floor while a hovered card is MAGNIFIED — it lifts its banner well UP, so
 #                            this must reach much higher than the resting hand band (0.84). near_x keeps a
 #                            battlefield card of the same name (also in this band) from matching.
@@ -281,8 +292,8 @@ def commander_point(rect: Rect, n_hand: int) -> tuple:
     spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, slots - 1))   # N-aware: tighter when the fan is full
     span = (slots - 1) * spacing
     xs = [int(cx - span / 2.0 + k * spacing) for k in range(slots)]
-    top_y = rect.y + int(0.855 * rect.h)                    # the resting hand band (centre/top of the arc)
-    return xs[-1], _bowed_y(xs[-1], xs, top_y)              # rightmost slot = the commander, bowed to the edge
+    top_y = rect.y + int(0.855 * rect.h)                    # resting band; the commander is the rightmost (edge)
+    return xs[-1], _bowed_y(xs[-1], xs, top_y)              # card, so the arc already drops it — no extra _n_drop
 
 
 def _name_anchors(view, seat: int, screen: list, named: list) -> list:
@@ -554,6 +565,14 @@ def _bowed_y(x: int, xs: list, top_y: int) -> int:
     return int(top_y + _FAN_ARC * ((x - cx) / half) ** 2)
 
 
+def _expected_x(rect: Rect, slot: int, n: int) -> float:
+    """The approximate screen-x of hand slot `slot` (0 = leftmost) in an `n`-card fan — used to ORDER the reveal
+    sweep toward WHERE the target should be (the bridge knows each wanted card's slot from the log's screen
+    order). Coarse on purpose: it ranks which position to hover first, it doesn't place a click."""
+    lo, hi = rect.x + _NAME_X[0] * rect.w, rect.x + _NAME_X[1] * rect.w
+    return (lo + hi) / 2.0 if n <= 1 else lo + (max(0, min(slot, n - 1)) / (n - 1)) * (hi - lo)
+
+
 def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
     """LEFT-TO-RIGHT (x, y) points to hover for revealing OCCLUDED cards — derived from PHYSICAL positions, NOT
     the instanceId order model (which may not match this hand's layout). Legible `anchors` set the spacing/span;
@@ -595,6 +614,7 @@ def _reveal_positions(rect: Rect, n: int, anchors: list, det: list) -> list:
         span = (slots - 1) * spacing
         xs = [int(cx - span / 2 + k * spacing) for k in range(slots)]
     span = sorted(xs)
+    top_y += _n_drop(n)                                     # a fuller hand sits lower — drop the whole sweep, not just edges
     return [(sx, _bowed_y(sx, span, top_y)) for sx in xs]
 
 
@@ -754,8 +774,15 @@ def _locate_in_hand(actuator, locator, view, seat: int, want: dict, *, image, re
         anchors = [(i, t[1], t[2]) for i, t in enumerate(sorted(named, key=lambda t: t[1]))]
     det = locate_hand_cards(image, rect, locator) if not anchors else None
     positions = _reveal_positions(rect, len(screen), anchors, det)
+    # Visit the TARGET's expected location FIRST. The bridge knows each wanted card's screen slot (ascending
+    # instanceId), so order the sweep by proximity to where the target should sit — a card on the RIGHT edge is
+    # then found in the first hover or two, instead of crawling through every card to its left (which dwelt on the
+    # whole left side and nearly timed out before reaching a rightmost card). Stable, so ties keep left-to-right.
+    wanted_xs = [_expected_x(rect, screen.index(i), len(screen)) for i in set(want.values()) if i in screen]
+    if wanted_xs:
+        positions = sorted(positions, key=lambda p: min(abs(p[0] - wx) for wx in wanted_xs))
     max_dist = int(0.11 * rect.w)                          # a magnified card's name shifts, so allow more slack
-    _log.info("  %s: not legible at rest — hover-revealing %d position(s) left-to-right", label, len(positions))
+    _log.info("  %s: not legible at rest — hover-revealing %d position(s) nearest the target first", label, len(positions))
     for x, y in positions:
         actuator.hover(x, y)
         actuator.wait(max(settle, _REVEAL_DWELL))          # let the magnify finish before reading
