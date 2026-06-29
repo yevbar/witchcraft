@@ -10,6 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace as NS
 
 from mtg.game import Game
+from mtg.predicates import is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -149,10 +150,13 @@ def run() -> None:
         return g, p
     g, p = _ramp_game()
     def mc(c): return NS(kind="cast", card=NS(id=c), choices={})
-    check("mana_rock_choice fires for a mana ROCK (Mind Stone artifact)", p.mana_rock_choice(g, mc("rock")) > 0)
-    check("mana_rock_choice fires for a mana DORK (a creature that taps for mana)", p.mana_rock_choice(g, mc("dork")) > 0)
-    check("mana_rock_choice -inf for a plain creature", p.mana_rock_choice(g, mc("bear")) == float("-inf"))
-    check("mana_rock_choice -inf for a non-permanent spell", p.mana_rock_choice(g, mc("bolt")) == float("-inf"))
+    # is_mana_rock is the OBJECTIVE matcher the ramp line keys on (Do.SPELLS.matching(is_mana_rock)); it's true
+    # of a tap-for-mana ROCK or DORK, false of a plain creature or a non-permanent — deck-independent.
+    check("is_mana_rock True for a mana ROCK (Mind Stone artifact)", is_mana_rock(g, mc("rock")) is True)
+    check("is_mana_rock True for a mana DORK (a creature that taps for mana)", is_mana_rock(g, mc("dork")) is True)
+    check("is_mana_rock False for a plain creature", is_mana_rock(g, mc("bear")) is False)
+    check("is_mana_rock False for a non-permanent spell", is_mana_rock(g, mc("bolt")) is False)
+    check("curve_choice scores a matched mana source (above the floor=0.0 gate)", p.curve_choice(g, mc("rock")) > 0)
     check("choose_move deploys a mana source BEFORE the plain creature",
           getattr(getattr(p.choose_move(g), "card", None), "id", None) in ("rock", "dork"))
 

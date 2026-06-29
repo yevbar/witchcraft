@@ -338,28 +338,61 @@ class PriorityOption(Enum):
         score that's an improvement-over-passing delta = 'only act if it beats doing nothing')."""
         return ScoredOption(self, preference, floor)
 
+    def matching(self, predicate) -> "MatchedOption":
+        """Restrict this category to the moves whose card OBJECTIVELY satisfies `predicate(game, move) -> bool`,
+        then score them with `.prefer(...)`. Reads as 'for THIS kind of card, prefer THIS':
+
+            game.prioritize(Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice),
+                            Do.SPELLS.matching(is_creature).prefer(self.curve_choice))
+
+        A move that DOESN'T match falls THROUGH to the next option (left unhandled here), so the predicate is the
+        declarative 'what this line is for' and `prioritize`'s ORDER is the strategy — readable without knowing
+        the scorers' internals. Predicates must be UNFALSIFIABLE card facts (a creature is a creature, a mana
+        rock taps for mana, in ANY deck); deck-ROLE labels (burn / control) are deck-dependent and don't belong
+        here. See `mtg.predicates`."""
+        return MatchedOption(self, predicate)
+
+
+class MatchedOption:
+    """A `PriorityOption` narrowed to the moves matching a predicate (from `PriorityOption.matching(pred)`). Only
+    meaningful once scored: call `.prefer(scorer[, floor])` to get the `ScoredOption` that `prioritize` consumes."""
+
+    __slots__ = ("option", "predicate")
+
+    def __init__(self, option: "PriorityOption", predicate):
+        self.option = option
+        self.predicate = predicate
+
+    def prefer(self, preference, floor: float | None = None) -> "ScoredOption":
+        """Score the MATCHING moves by `preference(game, move)` (same contract as `PriorityOption.prefer`)."""
+        return ScoredOption(self.option, preference, floor, match=self.predicate)
+
 
 class ScoredOption:
-    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.prefer(preference)`.
-    In `game.prioritize`, it contributes the move in its category that maximises `preference(game, move)`
-    (or None when the category is empty), so the policy reads as an ordered list of scored preferences:
+    """A `PriorityOption` paired with a preference function, produced by `PriorityOption.prefer(preference)`
+    (optionally narrowed by `.matching(predicate)`). In `game.prioritize`, it contributes the move in its
+    category that maximises `preference(game, move)` (or None when the category is empty / nothing matched), so
+    the policy reads as an ordered list of scored preferences:
 
         game.prioritize(Do.LANDS, Do.SPELLS.prefer(self.develop_choice),
                         Do.ATTACKS.prefer(self.attack_choice), Do.SKIP)
 
     The preference is a `(game, move) -> float`; a bound method `self.<name>_choice` slots in directly."""
 
-    __slots__ = ("option", "preference", "floor")
+    __slots__ = ("option", "preference", "floor", "match")
 
-    def __init__(self, option: "PriorityOption", preference, floor: float | None = None):
+    def __init__(self, option: "PriorityOption", preference, floor: float | None = None, match=None):
         self.option = option
         self.preference = preference
         self.floor = floor
+        self.match = match                    # optional (game, move) -> bool gate from .matching(); None = all moves
 
     def pick(self, game, priority: "Priority"):
-        """The category's move maximising `preference(game, move)` — or None if the category is empty, or
-        (when a `floor` is set) if even the best move's score doesn't clear it."""
+        """The category's (matching) move maximising `preference(game, move)` — or None if the category is empty,
+        nothing matched the predicate, or (with a `floor`) even the best move's score doesn't clear it."""
         moves = getattr(priority, self.option.value)
+        if self.match is not None:
+            moves = [m for m in moves if self.match(game, m)]
         if not moves:
             return None
         score, best = max(((self.preference(game, m), m) for m in moves), key=lambda t: t[0])
