@@ -75,7 +75,7 @@ _NEEDS_LIFE = {"gain_life", "lose_life"}
 _GRAMMAR = r"""
 start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | cconjclause | tclause | tconjclause | gclause | gchclause | cntclause | fcastclause | pdurclause | pflashclause | pfromclause | tfaceclause | aclause
      | deqclause | dteqclause | dtmclause | ddivclause | bcmclause | bccclause | bcpclause | bchclause | bctclause | bptclause | btaoclause | bcchclause | bdgclause | bnsclause | alltclause | chsclause | rvclause | pvclause
-     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause | endureclause | exdmgclause
+     | sfclause | rcclause | dbclause | pzputclause | pzhandclause | lkclause | shclause | nsclause | amclause | amceqclause | amcxclause | amcfeclause | atclause | tfclause | mfclause | fgclause | litclause | pfclause | rdclause | skclause | asclause | cpclause | mrclause | xtclause | xlclause | rhclause | gccclause | msclause | gdclause | fcclause | feclause | kwnclause | kviclause | excclause | tcpclause | tcpofclause | osclause | ceqmclause | pszclause | pgcclause | acronlyclause | trgonlyclause | dothisonlyclause | swptclause | geclause | kvmclause | rollclause | smaclause | smbclause | xtnclause | pvtclause | pbaoclause | dcclause | pmcclause | mcfclause | ecclause | lureclause | youctrlclause | endureclause | exdmgclause | mhsclause | intclause | boonclause | gltclause | mcmclause
 
 // LITERAL keyword-action effects: §720 monarch/initiative + §701 clash — fixed whole-clause phrases the
 // regex templates (_clash/_monarch/_initiative) grounded to a nullary Effect(verb, '-', 'you'). One
@@ -83,6 +83,34 @@ start: rclause | oclause | pclause | dclause | mclause | mfeclause | cclause | c
 // to the anchored `^…$` regex, or no parse.
 litclause: LITEFFECT                                          -> lit
 LITEFFECT.5: /clash with an opponent|you become the monarch|you take the initiative/
+// §402.2 maximum hand size static — 'your maximum hand size is <N>' (Ten Rings) / 'you have no maximum hand
+// size' (Reliquary Tower). ONE phrase-terminal (the number rides in the matched text, parsed in the xf, like
+// get_energy_v) so it never steals the individual words elsewhere.
+mhsclause: MHSEFFECT                                          -> max_hand
+MHSEFFECT.6: /your maximum hand size is \w+|you have no maximum hand size/
+// §701.61 the intensify keyword action (Duskmourn) — '<self> intensifies [by N]' (Drix Interlacer). ONE
+// phrase-terminal over a self-reference subject (intensify only raises the SOURCE's intensity); 'intensifies'
+// is a distinctive verb (no collision). The count rides the matched text, parsed in the xf.
+intclause: INTENSIFY                                          -> intensify_v
+INTENSIFY.6: /(?:~|this creature|this permanent|this artifact|it) intensifies(?: by \w+)?/
+// a one-time BOON carrying a quoted ability — 'you get a [one-time] boon with "<ability>"' (Swiftspear's
+// Teachings). Modeled on aclause/grant_ab: the quoted ability rides the existing QUOTED terminal (no new
+// interpretation regex). The boon body is slugged whole in the xf, like an emblem.
+boonclause: BOONHEAD QUOTED                                   -> boon_v
+BOONHEAD.6: /you get a (?:one-time )?boon with/
+// §613.1c layer 4 / §305.7 type-adding — '<perms> gain all basic land types [until eot]' (Energybending,
+// Prismatic Omen). The 'gain all basic land types' phrase is ONE terminal (prio 6 > GVERB so it wins 'gain'),
+// over the reused gtgt subject span. -> add_type(-, <subj>, 'all_basic_land_types').
+gltclause: gtgt GLTYPES mdur?                                 -> gain_land_types_v
+GLTYPES.6: /gains? all basic land types/
+// §106 dynamic multicolor mana — 'for each color among <X>, add one mana of that color' (Tarnation Vista):
+// one mana of EACH color present among the permanent-set <X>. The <X> span sits between two fixed terminals
+// (no unanchored '.+' in a terminal — that poisons the dynamic lexer). -> add_mana('for_each_color_among_<X>',
+// you, 'that_color').
+mcmclause: FEC_HEAD fecobj FEC_TAIL                           -> multicolor_mana_v
+FEC_HEAD.6: /for each color among /
+FEC_TAIL.6: /, add one mana of that color/
+fecobj: (WORD | QUANT | NUM | YOUCTRL)+        // 'monocolored permanents you control' ('you control' -> YOUCTRL)
 // GET ENERGY (§107.16) — '[you] get {E}{E}…' (the `_get_energy` template). A whole-phrase GETENERGY terminal
 // (requires the trailing {e} symbol(s), so it can't steal 'you get an emblem'/'you get N poison counters');
 // the transformer counts the {e} glyphs for the amount -> get_energy(<N>, you). (src is lowercased, so {e}.)
@@ -1409,6 +1437,9 @@ _MCF_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) ([+-]\d+/[+-]\d+|[\w ]+
 # 'move all [of its/their] counters from <src> onto|to <tgt>' (§122) — every counter regardless of kind/count
 # (Fate Transfer, Nexus Mentality); no count/kind span, so _MCF_RE's count+kind shape misses it.
 _MCF_ALL_RE = re.compile(rf"^move all (?:of (?:its|their) )?counters? from ({_TGT}) (?:onto|to) ({_TGT})$", re.I)
+# 'move a|N counter[s] from <src> onto|to <tgt>' (§122) — a COUNT but NO kind (any kind): Nesting Grounds
+# 'move a counter …'. _MCF_RE requires a kind span between the count and 'counter', so it misses this.
+_MCF_NOKIND_RE = re.compile(rf"^move (a|an|one|two|three|x|\w+) counters? from (?:a |an )?({_TGT}) (?:onto|to) (?:a |an )?({_TGT})$", re.I)
 # §509 combat-requirement — `_lure` ('all creatures able to block <X> [dur] do so' -> lure(-, X)) exact pattern,
 # re-applied to src by lure_v. (extra_combat is a constant-tuple whole-phrase terminal, so it needs no re-apply
 # regex; '<X> must be blocked … if able' is handled in the mustreq transformer via the body-level _MR_MUST_BE_BLOCKED.)
@@ -2070,6 +2101,10 @@ class _GchRest(str):   # the keyword-list span after 'your choice of' (gchrest) 
     pass
 
 
+class _FecObj(str):    # the permanent-set span in 'for each color among <X>, add one mana of that color' (fecobj)
+    pass
+
+
 class _Dur(str):
     pass
 
@@ -2198,6 +2233,42 @@ class _ToEffect(Transformer):
         v = _LIT_EFFECTS.get(str(tok).strip())
         return Effect(*v) if v else None
 
+    def max_hand(self, tok):                       # §402.2 'your maximum hand size is <N>' / 'no maximum hand size'
+        t = str(tok).strip().lower()
+        if t == "you have no maximum hand size":
+            return Effect("set_max_hand_size", "unlimited", "you")
+        m = re.match(r"your maximum hand size is (\w+)$", t)
+        n = _amount(m.group(1)) if m else None
+        return Effect("set_max_hand_size", n, "you") if n is not None else None
+
+    def intensify_v(self, tok):                    # §701.61 '<self> intensifies [by N]' (default N=1)
+        m = re.search(r"by (\w+)$", str(tok).strip().lower())
+        n = _amount(m.group(1)) if m else 1
+        return Effect("intensify", n if n is not None else 1, "self")
+
+    def boon_v(self, *args):                       # 'you get a [one-time] boon with "<ability>"' — slug the body
+        quoted = next((str(a) for a in args if str(a).startswith('"')), None)
+        if quoted is None or len(quoted) < 2:
+            return None
+        return Effect("get_boon", "-", "you", ground.slug(quoted.strip('"'))[:160])
+
+    def gain_land_types_v(self, *args):            # §305.7 '<perms> gain all basic land types [until eot]'
+        tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)
+        dur = next((str(a) for a in args if isinstance(a, _Dur)), None)
+        if tgt is None:
+            return None
+        cond = "-" if not dur or dur.strip().lower() == "until end of turn" else ground.slug(dur.strip().lower())
+        return Effect("add_type", "-", _target(tgt.strip().lower()), "all_basic_land_types", cond)
+
+    def fecobj(self, *toks):
+        return _FecObj(" ".join(str(t) for t in toks))
+
+    def multicolor_mana_v(self, *args):            # §106 'for each color among <X>, add one mana of that color'
+        obj = next((str(a) for a in args if isinstance(a, _FecObj)), None)
+        if obj is None:
+            return None
+        return Effect("add_mana", "for_each_color_among_" + ground.slug(obj.strip().lower()), "you", "that_color")
+
     def get_energy_v(self, tok):
         # 'you get {E}{E}…' (§107.16) — the EXACT `_get_energy` template: get_energy(<#{e}>, you). Count the
         # energy glyphs in the matched terminal text (== the regex's m.group(1).count('{') — 'you get' has no '{').
@@ -2311,12 +2382,17 @@ class _ToEffect(Transformer):
             return Effect("put_counter", "all", _target(ma.group(2)), "all",
                           "moved_from_" + _target(ma.group(1)))
         m = _MCF_RE.match(src.strip())
-        if not m:
-            return None
-        n = _amount(m.group(1))
-        kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
-        return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind,
-                      "moved_from_" + _target(m.group(3)))
+        if m:
+            n = _amount(m.group(1))
+            kind = m.group(2) if "/" in m.group(2) else ground.slug(m.group(2))
+            return Effect("put_counter", n if n is not None else "X", _target(m.group(4)), kind,
+                          "moved_from_" + _target(m.group(3)))
+        mk = _MCF_NOKIND_RE.match(src.strip())       # 'move a|N counter[s] from <src> onto <tgt>' — any kind
+        if mk:
+            n = _amount(mk.group(1))
+            return Effect("put_counter", n if n is not None else "X", _target(mk.group(3)), "any",
+                          "moved_from_" + _target(mk.group(2)))
+        return None
 
     def extra_combat_v(self, tok):
         # '[after this [main] phase,] there is an additional combat phase [followed by an additional main phase]'

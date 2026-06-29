@@ -174,6 +174,11 @@ _CORE_ACTIONS = frozenset({
     "assign_no_combat_damage",  # §510.1c — an effect that a creature assigns no combat damage
     "seek", "draft",        # §701.51 seek / §701 draft — keyword actions missing from the (older) rules-
     #                         derived keyword_action_index; added here as recognized rules-defined verbs
+    "set_max_hand_size",    # §402.2 — a continuous effect setting a player's maximum hand size (Ten Rings;
+    #                         'no maximum hand size' = unlimited, Reliquary Tower)
+    "intensify",            # §701.61 — the intensify keyword action (Duskmourn): raise a permanent's intensity
+    "get_boon",             # §113-style one-time boon (a player gets a one-time bonus carrying a quoted ability)
+    "add_type",             # §613.1c layer 4 / §305.7 — a type-adding continuous effect ('gain all basic land types')
 })
 
 
