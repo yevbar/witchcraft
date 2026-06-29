@@ -378,6 +378,26 @@ def run() -> None:
     check("a killable creature -> the one-drop burn still FIRES at it (kill beats the hold)",
           p.burn_choice(g, NS(kind="cast", card=NS(id="b1", has_type=lambda t: t == "instant"), choices={"target": "o0"})) > 0)
 
+    # GENERAL optional self-sacrifice (the §603.2c `you_do_sacrifice` seam — 'you may sacrifice <X>; if you do,
+    # <benefit>'). DECK-INDEPENDENT: accept iff the board can SPARE a creature (>= _SAC_SPARE_MIN of ours), with
+    # NO card/counter/land-specific reasoning. (The engine only surfaces this seam for a you_do whose benefit it
+    # has modeled, so the upside is real; this is the cost-side 'is a body affordable to lose' decision.)
+    def _creatures_view(n, owner="alice"):
+        st = {"printed_control": set(), "on_battlefield": set(), "printed_type": set()}
+        for i in range(n):
+            c = f"{owner}_c{i}"
+            st["printed_control"].add((owner, c)); st["on_battlefield"].add((c,)); st["printed_type"].add((c, "creature"))
+        return st
+    sp = SocietyOfControlPlayer(); sp._seat = "alice"
+    sac = lambda n, o="alice": sp.decide(_creatures_view(n, o), "you_do_sacrifice", (False, True), False)
+    check("optional sac: ACCEPT when the board can spare a creature (3 >= _SAC_SPARE_MIN)", sac(3) is True)
+    check("optional sac: ACCEPT with a wider board (5)", sac(5) is True)
+    check("optional sac: DECLINE when too few creatures to spare one (2 < 3)", sac(2) is False)
+    check("optional sac: DECLINE with no creatures", sac(0) is False)
+    check("optional sac: only OUR creatures count (opponent's board doesn't license it)", sac(4, "bob") is False)
+    check("decide leaves other sub-choices at the engine default", sp.decide(_creatures_view(3), "mode", ("a", "b"), "a") == "a")
+    check("decide with no seat bound -> safe decline", SocietyOfControlPlayer().decide(_creatures_view(5), "you_do_sacrifice", (False, True), False) is False)
+
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)
 

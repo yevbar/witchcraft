@@ -80,6 +80,10 @@ class SocietyOfControlPlayer(Player):
     # when a real kill is on the table — only when nobody is plausibly in range.
     _WIN_SLACK = 2
 
+    # an optional self-sacrifice (`you_do_sacrifice` seam) is 'affordable' only with at least this many creatures
+    # — enough that cashing one in for the offered benefit still leaves a board (see decide / _board_can_spare_*).
+    _SAC_SPARE_MIN = 3
+
     def choose_move(self, game) -> Move | None:
         self.bind(game)                          # so self.creatures / self.opponent / self.life are live here
 
@@ -174,6 +178,31 @@ class SocietyOfControlPlayer(Player):
         if lethal is not None and (affordable is None or lethal <= affordable):
             return lethal
         return affordable or 0
+
+    def decide(self, view, key, options, default):
+        """Steer engine sub-choices (routed through `driver._choose`). The one override: an OPTIONAL SELF-SACRIFICE
+        offered via the engine's GENERAL `you_do_sacrifice` seam — §603.2c 'you may sacrifice <X>; if you do,
+        <benefit>'. We accept it only when the board can SPARE a creature: a faithful, deck-independent COST-side
+        rule applied to ANY such sacrifice, not a per-card hack. (The engine surfaces this seam only for a you_do
+        whose benefit it has actually modeled — so the upside is real; the decision here is just 'can we afford to
+        lose a body for it'.) Every other sub-choice keeps the engine default."""
+        if key == "you_do_sacrifice":
+            return self._board_can_spare_creature_state(view)
+        return default
+
+    def _board_can_spare_creature_state(self, view) -> bool:
+        """True if we control at least `_SAC_SPARE_MIN` creatures — enough that cashing one in for an optional
+        benefit still leaves a board behind. Reads the engine state directly (the `decide` seam carries the raw
+        `view`, with no bound game). DECK-INDEPENDENT: no card / counter / land-specific logic — every optional
+        self-sacrifice is judged by the same 'is a body affordable to lose' rule (the cost side of the decision;
+        the benefit side is the engine's, since it only offers the seam for a modeled consequent)."""
+        seat = getattr(self, "_seat", None)                 # read _seat directly (the `seat` property needs a game)
+        if seat is None:
+            return False
+        bf, ptype = view.get("on_battlefield", set()), view.get("printed_type", set())
+        mine = sum(1 for (p, c) in view.get("printed_control", set())
+                   if p == seat and (c,) in bf and (c, "creature") in ptype)
+        return mine >= self._SAC_SPARE_MIN
 
     # ---- choices (score ONE move; game.prioritize picks the max in each category) ----------------
 
