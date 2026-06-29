@@ -11,7 +11,7 @@ from types import SimpleNamespace as NS
 
 from mtg.game import Game
 from mtg.models import PriorityOption as Do
-from mtg.predicates import is_commander_cast, is_creature, is_mana_rock
+from mtg.predicates import is_cantrip, is_commander_cast, is_creature, is_draw_ability, is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -88,9 +88,27 @@ def run() -> None:
               creatures=[(1, 1, "bob", True), (4, 4, "bob")])
     check("priority: COMMANDER (1/1) outranks a bigger non-commander (4/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
 
-    # among non-commanders, higher POWER wins even with lower toughness
+    # commander tier only applies when the spell can ACTUALLY kill the commander. A 4-dmg spell at a 6/6
+    # commander must NOT bend the priority — the commander variant doesn't even fire, and the best killable
+    # body (here the 2/2 by power) is chosen instead. (Mirrors the real game: Molten Exhale 4 vs Ovika 6/6.)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(6, 6, "bob", True), (2, 2, "bob"), (1, 4, "bob")])
+    check("un-killable COMMANDER (6/6 vs 4 dmg) doesn't fire / doesn't bend priority", _burn(g, "b1", "c0") == NEG)
+    check("...and the best killable body is targeted instead (the 2/2)", _burn(g, "b1", "c1") > _burn(g, "b1", "c2"))
+
+    # among non-commanders, higher POWER wins even with lower toughness (no creature of ours answers it)
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 1, "bob"), (1, 4, "bob")])
     check("priority: higher POWER (3/1) outranks higher toughness (1/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
+
+    # ...UNLESS the biggest-power killable creature is one we could block-and-kill in combat: then burn the
+    # high-TOUGHNESS body combat can't answer. Our 3/3 blocks-and-kills the 2/2, so removal hits the 1/4.
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (1, 4, "bob"), (3, 3, "alice")])
+    check("combat-answerable top threat -> burn the high-TOUGHNESS body (1/4 over 2/2)",
+          _burn(g, "b1", "c1") > _burn(g, "b1", "c0"))
+    # a TAPPED would-be blocker can't block, so the swap does NOT apply -> stays power-first (burn the 2/2)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (1, 4, "bob"), (3, 3, "alice")])
+    g.state.setdefault("tapped", set()).add(("c2",))           # tap our 3/3 (c2) so it can't block
+    check("a TAPPED blocker doesn't count as a combat answer -> power-first (burn the 2/2)",
+          _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
 
     # equal power -> higher TOUGHNESS wins
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (2, 4, "bob")])
@@ -206,6 +224,94 @@ def run() -> None:
               Do.SPELLS.matching(is_creature).prefer(lambda gg, m: 1.0, floor=0.0)]
     picked = next((mv for opt in ladder if (mv := opt.pick(None, pr)) is not None), None)
     check("commander line is taken before the cheaper-creature line", picked is commander)
+
+    # BOARD-COSTING DRAW (sac-and-draw, e.g. Insolent Neonate): develop_choice refuses it (board loss), so the
+    # draw_ability_choice exception only fires it when (a) a CONTINUOUS draw engine is already in play and (b) if
+    # it's a rummage, we hold an EXCESS LAND to pitch (a land in hand once we control five). Mirrors the real T9.
+    def _draw_game(*, lands_in_play, land_in_hand, engine, sac=True, discard=True):
+        st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+              "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+              "in_hand": set(), "instance_of": set(), "on_battlefield": set(), "printed_control": set(),
+              "printed_type": set(), "printed_power": set(), "printed_toughness": set(), "is_commander": set(),
+              "card_ability": set(), "ability_cost": set(), "card_effect": set()}
+        st["instance_of"] |= {("neo", "neonate")}; st["on_battlefield"] |= {("neo",)}
+        st["printed_control"] |= {("alice", "neo")}; st["printed_type"] |= {("neo", "creature")}
+        st["printed_power"] |= {("neo", 1)}; st["printed_toughness"] |= {("neo", 1)}
+        st["card_ability"] |= {("neonate", "a1", "activated")}
+        cost = ("Discard a card, Sacrifice ~" if discard else "Sacrifice ~") if sac else "{T}, Discard a card"
+        st["ability_cost"] |= {("neonate", "a1", cost)}
+        st["card_effect"] |= {("neonate", "a1", 0, "draw", "1", "you", "-", "-")}
+        if engine:                                                 # Byway-like TRIGGERED draw engine (continuous)
+            st["instance_of"] |= {("byw", "byway")}; st["on_battlefield"] |= {("byw",)}
+            st["printed_control"] |= {("alice", "byw")}; st["printed_type"] |= {("byw", "creature")}
+            st["printed_power"] |= {("byw", 3)}; st["printed_toughness"] |= {("byw", 3)}
+            st["card_ability"] |= {("byway", "a1", "triggered")}
+            st["card_effect"] |= {("byway", "a1", 1, "draw", "2", "you", "-", "if_you_did")}
+        for i in range(lands_in_play):
+            L = f"L{i}"; st["instance_of"] |= {(L, "mountain")}; st["on_battlefield"] |= {(L,)}
+            st["printed_control"] |= {("alice", L)}; st["printed_type"] |= {(L, "land")}
+        if land_in_hand:
+            st["in_hand"] |= {("alice", "hl")}; st["instance_of"] |= {("hl", "mountain")}
+            st["printed_type"] |= {("hl", "land")}
+        g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
+        return g, p
+
+    def draw_score(**kw):
+        g, p = _draw_game(**kw)
+        return p.draw_ability_choice(g, NS(kind="activate", card=NS(id="neo"), choices={}, ability=None))
+
+    check("is_draw_ability True for an activated draw ability",
+          is_draw_ability(_draw_game(lands_in_play=0, land_in_hand=False, engine=False)[0],
+                          NS(kind="activate", card=NS(id="neo"), choices={})) is True)
+    check("sac-and-draw FIRES with an engine + an excess land to pitch (>=5 lands, land in hand)",
+          draw_score(lands_in_play=5, land_in_hand=True, engine=True) > 0)
+    check("sac-and-draw HELD when the rummage has nothing to pitch (no land in hand)",
+          draw_score(lands_in_play=5, land_in_hand=False, engine=True) == NEG)
+    check("sac-and-draw HELD when a land isn't excess yet (only four lands)",
+          draw_score(lands_in_play=4, land_in_hand=True, engine=True) == NEG)
+    check("sac-and-draw HELD with no separate continuous draw engine",
+          draw_score(lands_in_play=5, land_in_hand=True, engine=False) == NEG)
+    check("a sac-draw with NO discard cost ignores the pitch caveat (fires on the engine alone)",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=True, discard=False) > 0)
+    check("a draw ability that KEEPS its body is left to develop_choice (-inf here)",
+          draw_score(lands_in_play=5, land_in_hand=True, engine=True, sac=False) == NEG)
+
+    # FREE ONE-DROP CANTRIPS: with a commander in play whose on-cast trigger REFUNDS mana (Electro: add {R} on an
+    # instant/sorcery), a one-drop cantrip is effectively free (the {1} comes back, it replaces itself), so the
+    # free_cantrip_choice line casts it FIRST. Inert without such a commander, for non-one-drops, or off-type.
+    def _cantrip_game(*, electro, mv=1, spell_type="instant", draws=True):
+        st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+              "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+              "in_hand": {("alice", "wisp")}, "instance_of": {("wisp", "crimson_wisps")},
+              "on_battlefield": set(), "printed_control": set(), "printed_type": {("wisp", spell_type)},
+              "printed_power": set(), "printed_toughness": set(), "is_commander": set(),
+              "card_ability": set(), "ability_trigger": set(), "card_effect": set(), "mana_cost": {("wisp", mv)}}
+        if draws:
+            st["card_effect"] |= {("crimson_wisps", "a1", 0, "draw", "1", "you", "-", "-")}
+        if electro:                                                # a refund commander: add {R} on instant/sorcery
+            st["instance_of"] |= {("el", "electro")}; st["on_battlefield"] |= {("el",)}
+            st["printed_control"] |= {("alice", "el")}; st["printed_type"] |= {("el", "creature")}
+            st["printed_power"] |= {("el", 2)}; st["printed_toughness"] |= {("el", 3)}
+            st["is_commander"] |= {("el",)}
+            st["card_ability"] |= {("electro", "a2", "triggered")}
+            st["ability_trigger"] |= {("electro", "a2", "you_cast_an_instant_or_sorcery_spell")}
+            st["card_effect"] |= {("electro", "a2", 0, "add_mana", "1", "you", "red", "-")}
+        g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
+        return g, p
+
+    def cantrip_score(**kw):
+        g, p = _cantrip_game(**kw)
+        mv_move = NS(kind="cast", card=NS(id="wisp", has_type=lambda t, tt=kw.get("spell_type", "instant"): t == tt),
+                     choices={})
+        return p.free_cantrip_choice(g, mv_move)
+
+    check("is_cantrip True for a cast spell that draws",
+          is_cantrip(_cantrip_game(electro=False)[0], NS(kind="cast", card=NS(id="wisp"), choices={})) is True)
+    check("free cantrip FIRES: refund commander in play + a one-drop instant cantrip", cantrip_score(electro=True) > 0)
+    check("free cantrip inert with NO refund commander in play", cantrip_score(electro=False) == NEG)
+    check("free cantrip inert for a non-one-drop (mv 2)", cantrip_score(electro=True, mv=2) == NEG)
+    check("free cantrip inert off-type (Electro refunds instant/sorcery, not a creature)",
+          cantrip_score(electro=True, spell_type="creature") == NEG)
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)

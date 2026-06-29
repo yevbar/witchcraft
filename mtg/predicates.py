@@ -78,6 +78,30 @@ def is_mana_rock(game, move) -> bool:
                for (s, cost) in game.state.get("mana_ability", set()))
 
 
+def is_draw_ability(game, move) -> bool:
+    """An ACTIVATED ability that DRAWS a card — `move` activates a source one of whose abilities has a `draw`
+    effect (read from `card_effect`, so False when card rules aren't loaded). Objective: drawing is drawing in any
+    deck. WHEN it's worth paying a board cost for the draw is the bot's call, not this predicate's."""
+    if getattr(move, "kind", None) != "activate":
+        return False
+    slug = _slug(game, move)
+    if slug is None:
+        return False
+    return any(r[0] == slug and len(r) > 3 and r[3] == "draw" for r in game.state.get("card_effect", set()))
+
+
+def is_cantrip(game, move) -> bool:
+    """A spell CAST that draws a card (a cantrip) — `move` casts a card with a `draw` effect (read from
+    `card_effect`, so False without card rules). Objective: a cantrip cantrips in any deck. Its mana value and
+    whether our commander makes it FREE are board judgements the bot makes, not this predicate's."""
+    if getattr(move, "kind", None) != "cast":
+        return False
+    slug = _slug(game, move)
+    if slug is None:
+        return False
+    return any(r[0] == slug and len(r) > 3 and r[3] == "draw" for r in game.state.get("card_effect", set()))
+
+
 def creature_damage(game, move):
     """The most damage a strictly CREATURE-TARGETING `deal_damage` effect of this card does, or None. 'creature'
     in the target scope, but NOT 'any target' / a player — that's face burn, a different line. Objective per the

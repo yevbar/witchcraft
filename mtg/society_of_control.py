@@ -23,8 +23,8 @@ import env
 from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
-from .predicates import (anything, creature_damage, is_commander_cast, is_creature, is_creature_damage,
-                         is_mana_rock, is_permanent)
+from .predicates import (anything, creature_damage, is_cantrip, is_commander_cast, is_creature,
+                         is_creature_damage, is_draw_ability, is_mana_rock, is_permanent)
 
 
 class SocietyOfControlPlayer(Player):
@@ -65,10 +65,13 @@ class SocietyOfControlPlayer(Player):
     _BURN_BASE = 1.0
 
     # burn TARGET priority (which killable creature to point removal at), as one lexicographic float so
-    # game.prioritize's max picks the top priority: the opponent's COMMANDER first (it recurs from the command
-    # zone — kill it on sight), then highest POWER (the hardest clock), then highest TOUGHNESS (the most
-    # resilient body), then an arbitrary-but-reproducible jitter. The weights just stack those keys so a higher
-    # tier always dominates the ones below it; they assume sane creature P/T (well under ~10k).
+    # game.prioritize's max picks the top priority: the opponent's COMMANDER first — but ONLY when this spell can
+    # actually kill it (it recurs from the command zone, so kill it on sight when you can) — then highest POWER
+    # (the hardest clock), then highest TOUGHNESS (the most resilient body), then an arbitrary-but-reproducible
+    # jitter. EXCEPTION to power-first: if the biggest-power killable creature is one we could already answer in
+    # combat (a creature of ours blocks and kills it), don't waste removal there — rank by TOUGHNESS instead, to
+    # kill the body combat can't. The weights just stack those keys so a higher tier always dominates the ones
+    # below it; they assume sane creature P/T (well under ~10k).
     _TGT_COMMANDER = 1e9
     _TGT_POWER = 1e4
     _TGT_TOUGH = 1.0
@@ -90,6 +93,7 @@ class SocietyOfControlPlayer(Player):
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # aim a player-target spell at their face,
 
             # Playing spells
+            Do.SPELLS.matching(is_cantrip).prefer(self.free_cantrip_choice, floor=0.0),   # FREE one-drop cantrips first (commander refunds the cast),
             Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
             Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
             Do.SPELLS.matching(is_commander_cast).prefer(self.curve_choice, floor=0.0),   # then the COMMANDER (Brawl) before any creature,
@@ -99,6 +103,7 @@ class SocietyOfControlPlayer(Player):
 
             # Activating abilities
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
+            Do.ABILITIES.matching(is_draw_ability).prefer(self.draw_ability_choice, floor=0.0),  # else cash a body in for a card (engine + a pitch),
 
             # Combat related
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
@@ -178,6 +183,60 @@ class SocietyOfControlPlayer(Player):
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
 
+    # value of a free one-drop cantrip — any positive clears the floor=0.0 gate. It's the FIRST spell line, so a
+    # genuinely-free cantrip is cast before anything else: it replaces itself (a card) and triggers the commander
+    # (more mana / its on-cast effects) at no net cost, so there's no reason to hold it.
+    _FREE_CANTRIP_VALUE = 1.0
+    # the §205 card types a commander's on-cast trigger might name (to check the trigger covers THIS spell).
+    _SPELL_TYPES = ("instant", "sorcery", "creature", "artifact", "enchantment", "planeswalker", "land", "battle")
+
+    def free_cantrip_choice(self, game, move) -> float:
+        """Score a ONE-DROP cantrip that our COMMANDER makes effectively FREE — cast it first. The matcher
+        (`is_cantrip`) says the spell draws; this adds the two board conditions that make casting it pure upside:
+        it's a ONE-DROP (mana value 1), and a commander we control REFUNDS the cast — a triggered 'whenever you
+        cast …, add mana' ability whose trigger covers this spell's type (e.g. Electro, Assaulting Battery: add
+        {R} on an instant/sorcery). Then the {1} comes straight back and the spell replaces itself, so there's no
+        reason not to fire it before developing. Anything else (mv != 1, or no refunding commander in play) scores
+        -inf and falls through to the normal spell lines, so this is inert without such a commander."""
+        if self._mana_value(game, move.card.id) != 1:
+            return float("-inf")
+        if not self._commander_refunds_cast(game, move):
+            return float("-inf")
+        return self._FREE_CANTRIP_VALUE
+
+    def _my_commander_insts(self, game) -> list:
+        """Instance ids of the commanders WE control on the battlefield."""
+        cmd = game.state.get("is_commander", set())
+        return [p.id for p in self.battlefield if (p.id,) in cmd]
+
+    def _commander_refunds_cast(self, game, move) -> bool:
+        """True if a commander we control would REFUND casting `move` — it has a triggered 'whenever you cast …'
+        ability that ADDS MANA, and that trigger covers this spell's type. Read from `ability_trigger` +
+        `card_effect` (add_mana), so False without card rules / without such a commander in play."""
+        triggers = game.state.get("ability_trigger", set())            # (slug, aid, phrase)
+        effects = game.state.get("card_effect", set())
+        for inst in self._my_commander_insts(game):
+            slug = self._slug_of(game, inst)
+            if slug is None:
+                continue
+            for (s, aid, phrase) in triggers:
+                if s != slug or "cast" not in str(phrase):
+                    continue                                           # not a 'whenever you cast …' trigger
+                adds_mana = any(r[0] == slug and r[1] == aid and len(r) > 3 and r[3] == "add_mana" for r in effects)
+                if adds_mana and self._spell_matches_trigger(move, str(phrase)):
+                    return True
+        return False
+
+    def _spell_matches_trigger(self, move, phrase: str) -> bool:
+        """Does `move`'s spell satisfy a cast-trigger `phrase`? If the phrase names card types (e.g. an
+        'instant_or_sorcery' trigger), the spell must have one of them; a phrase that names no type (a generic
+        'whenever you cast a spell') covers everything."""
+        named = [t for t in self._SPELL_TYPES if t in phrase]
+        if not named:
+            return True
+        card = move.card
+        return card is not None and any(card.has_type(t) for t in named)
+
     def burn_choice(self, game, move) -> float:
         """Score a creature-targeting damage spell by the THREAT IT REMOVES — but only when it WOULD KILL an
         opponent creature (else -inf, so the floor=0.0 gate holds it). The engine enumerates one cast variant per
@@ -185,7 +244,7 @@ class SocietyOfControlPlayer(Player):
         spell carries no cast-time target it's scored by the best creature on the board (`_burn_target`). Lethality
         is `damage >= toughness` (ignores marked damage / deathtouch / indestructible — a heuristic). The 'is this
         creature-target damage at all' gate is the LINE's `.matching(is_creature_damage)`; this is the board
-        judgement, and `_target_priority` orders WHICH creature: commander > power > toughness > arbitrary.
+        judgement, and `_target_priority` orders WHICH creature: commander (when killable) > power > toughness.
 
         COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold the WHOLE spell unless a SECOND
         commander-killing burn card is in hand — a commander recasts from the command zone, so keep one answer in
@@ -202,7 +261,7 @@ class SocietyOfControlPlayer(Player):
             backups = self._commander_answers_in_hand(game, cmd.toughness) - {move.card.id}
             if not backups:
                 return float("-inf")                   # our only commander-answer -> reserve the spell entirely
-        return self._BURN_BASE + self._target_priority(game, victim)
+        return self._BURN_BASE + self._target_priority(game, victim, dmg)
 
     def _burn_target(self, game, move, dmg):
         """The opponent creature THIS burn kills, or None if it kills nothing. With a cast-time target
@@ -214,20 +273,45 @@ class SocietyOfControlPlayer(Player):
         tid = (move.choices or {}).get("target")
         if tid is not None:
             return next((c for c in victims if c.id == tid), None)
-        return max(victims, key=lambda c: self._target_priority(game, c), default=None)
+        return max(victims, key=lambda c: self._target_priority(game, c, dmg), default=None)
 
-    def _target_priority(self, game, victim) -> float:
+    def _target_priority(self, game, victim, dmg) -> float:
         """How much to prefer pointing removal at `victim` — the lexicographic burn-target order encoded as one
-        float (higher = kill first): the opponent's COMMANDER above all, then highest POWER, then highest
-        TOUGHNESS, then an arbitrary pick. The tail jitter is a game-seeded value in [0,1) keyed by the creature's
-        id, so otherwise-identical creatures get a STABLE pseudo-random order (reproducible across runs — it
-        derives its own Random and never touches the game RNG stream)."""
-        is_cmd = (victim.id,) in game.state.get("is_commander", set())
-        jitter = random.Random(f"{game.state.get('_seed', 0)}:{victim.id}").random()
-        return (self._TGT_COMMANDER * is_cmd
-                + self._TGT_POWER * victim.power
-                + self._TGT_TOUGH * victim.toughness
-                + jitter)
+        float (higher = kill first):
+
+          1. the opponent's COMMANDER, but ONLY when this spell can actually kill it (`toughness <= dmg`): it
+             recurs from the command zone, so kill it on sight when you can — but a spell that CAN'T kill it
+             (e.g. 4 damage at a 6/6 commander) must NOT bend the priority toward it; it just picks the best body.
+          2. then highest POWER (the hardest clock) — EXCEPT when the biggest-power killable creature is one we
+             could already answer in combat (a creature of ours blocks and kills it): then removal is better
+             spent on the body combat can't kill, so rank by TOUGHNESS first instead.
+          3. then the other of power/toughness, then an arbitrary jitter (a game-seeded value in [0,1) keyed by
+             the creature id, so otherwise-identical creatures get a STABLE pseudo-random order — reproducible,
+             and it never touches the game RNG stream).
+        """
+        if victim.toughness <= dmg and (victim.id,) in game.state.get("is_commander", set()):
+            return (self._TGT_COMMANDER + self._TGT_POWER * victim.power
+                    + self._TGT_TOUGH * victim.toughness + self._target_jitter(game, victim))
+        # power-first, unless the biggest-power killable creature is one combat already answers -> toughness-first
+        killable = [c for o in self.opponents for c in o.creatures if c.toughness <= dmg]
+        top_power = max(killable, key=lambda c: c.power, default=None)
+        toughness_first = top_power is not None and self._answerable_in_combat(top_power)
+        primary, secondary = ((victim.toughness, victim.power) if toughness_first
+                              else (victim.power, victim.toughness))
+        return self._TGT_POWER * primary + self._TGT_TOUGH * secondary + self._target_jitter(game, victim)
+
+    def _answerable_in_combat(self, target) -> bool:
+        """True if a creature of ours could BLOCK AND KILL `target` and survive — an untapped creature with power
+        >= the target's toughness (kills it) and toughness > the target's power (lives through it). When the
+        biggest threat is answerable this way, burn is better spent elsewhere (see `_target_priority`)."""
+        return any(not b.tapped and b.power >= target.toughness and b.toughness > target.power
+                   for b in self.creatures)
+
+    @staticmethod
+    def _target_jitter(game, victim) -> float:
+        """A stable per-creature tiebreak in [0,1): a game-seeded Random keyed by the creature id, so it's
+        reproducible across runs and never consumes the game's own RNG stream."""
+        return random.Random(f"{game.state.get('_seed', 0)}:{victim.id}").random()
 
     def _opp_commander(self, game):
         """The opponent's COMMANDER as a battlefield creature (is_commander + opponent-controlled), or None. A
@@ -326,6 +410,83 @@ class SocietyOfControlPlayer(Player):
         except Exception:
             return float("-inf")
         return self._value(child, self.seat) - self._value(game, self.seat)
+
+    # value of activating a board-costing DRAW ability when it's allowed — any positive clears the floor=0.0 gate
+    # (it's the LAST ability option, after develop_choice, so it only fires when nothing better wants the mana).
+    _DRAW_ABILITY_VALUE = 1.0
+
+    def draw_ability_choice(self, game, move) -> float:
+        """Score an activated DRAW ability that COSTS US THE BOARD (sacrifices its own source). `develop_choice`
+        rightly refuses these — trading a creature for a card is a board loss — so this is the deliberate
+        exception: cashing the body in is FINE when (a) we already control a separate CONTINUOUS draw engine (a
+        triggered / non-sacrifice repeatable draw — not a one-shot spell or another sac-draw), so the hand keeps
+        refilling, AND (b) if the ability also DISCARDS (a rummage), we hold a 'discardable' card to pitch — an
+        EXCESS LAND (a land in hand once we already control five). A draw ability that does NOT cost the board
+        (it keeps its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case
+        changes. (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
+        slug = self._slug_of(game, move.card.id)
+        if slug is None or not self._sacrifices_self_to_draw(game, slug):
+            return float("-inf")                       # not a board-costing draw -> develop_choice handles it
+        if not self._has_continuous_draw_source(game, exclude=move.card.id):
+            return float("-inf")                       # no engine to refill -> don't trade the body for a wash
+        if self._draws_with_discard(game, slug) and not self._has_discardable(game):
+            return float("-inf")                       # a rummage with nothing worth pitching -> hold the body
+        return self._DRAW_ABILITY_VALUE                # an engine + a card to pitch -> cashing the body in is fine
+
+    def _slug_of(self, game, inst):
+        """The card slug for an instance id (from `instance_of`), or None."""
+        return next((s for (i, s) in game.state.get("instance_of", set()) if i == inst), None)
+
+    def _draw_aids(self, game, slug) -> set:
+        """The ability ids of `slug` whose effect is `draw`."""
+        return {r[1] for r in game.state.get("card_effect", set()) if r[0] == slug and len(r) > 3 and r[3] == "draw"}
+
+    def _ability_costs(self, game, slug) -> list:
+        """(aid, cost-text) for each of `slug`'s activated-ability costs (`ability_cost`)."""
+        return [(aid, cost) for (s, aid, cost) in game.state.get("ability_cost", set()) if s == slug]
+
+    def _sacrifices_self_to_draw(self, game, slug) -> bool:
+        """True if a DRAW ability of `slug` sacrifices its OWN source as a cost ('Sacrifice ~') — the board-loss
+        case develop_choice declines, and the one this exception is for."""
+        draw = self._draw_aids(game, slug)
+        return any(aid in draw and "sacrifice ~" in str(cost).lower()
+                   for (aid, cost) in self._ability_costs(game, slug))
+
+    def _draws_with_discard(self, game, slug) -> bool:
+        """True if a DRAW ability of `slug` also DISCARDS as a cost (a rummage), which needs a card to pitch."""
+        draw = self._draw_aids(game, slug)
+        return any(aid in draw and "discard" in str(cost).lower()
+                   for (aid, cost) in self._ability_costs(game, slug))
+
+    def _has_continuous_draw_source(self, game, *, exclude) -> bool:
+        """True if we control a CONTINUOUS draw engine other than `exclude`: a battlefield permanent whose draw
+        comes from a TRIGGERED ability (e.g. Byway Barterer) or a NON-sacrifice ACTIVATED ability (e.g. Diary of
+        Dreams) — i.e. repeatable, not a one-shot spell or another sac-draw."""
+        for perm in self.battlefield:
+            if perm.id == exclude:
+                continue
+            slug = self._slug_of(game, perm.id)
+            if slug is None:
+                continue
+            draw = self._draw_aids(game, slug)
+            if not draw:
+                continue
+            kinds = {aid: kind for (s, aid, kind) in game.state.get("card_ability", set()) if s == slug}
+            costs = dict(self._ability_costs(game, slug))
+            for aid in draw:
+                if kinds.get(aid) == "triggered":
+                    return True                        # a triggered draw engine (Byway Barterer)
+                if kinds.get(aid) == "activated" and "sacrifice ~" not in str(costs.get(aid, "")).lower():
+                    return True                        # a repeatable activated draw (Diary of Dreams)
+        return False
+
+    def _has_discardable(self, game) -> bool:
+        """True if we hold a card freely worth pitching to a rummage — an EXCESS LAND: a land in hand once we
+        already control five lands (the sixth is surplus). Only excess lands count as discardable here."""
+        if len(self.me.permanents(type="land")) < 5:
+            return False
+        ptype = game.state.get("printed_type", set())
+        return any((inst, "land") in ptype for inst in self.hand)
 
     @staticmethod
     def _creature_value(c) -> float:                                   # a rough creature worth for a trade
