@@ -59,6 +59,13 @@ def is_permanent(game, move) -> bool:
     return _has_type(move, *_PERMANENT_TYPES)
 
 
+def is_commander_cast(game, move) -> bool:
+    """Casting YOUR commander from the command zone — the engine's `cast_commander` move (§903.6). Objective and
+    self-gating: this move only exists in commander-style variants (Brawl / Commander), so a line keyed on it is
+    naturally inert in a non-commander game. Distinct from a normal `cast` of the same card from hand."""
+    return getattr(move, "kind", None) == "cast_commander"
+
+
 # ── ability-derived, still objective (read from the card's rule facts) ────────────────────────────────────
 def is_mana_rock(game, move) -> bool:
     """Taps for mana — an artifact 'rock' OR a creature 'dork' with a repeatable {T} mana ability. A one-shot

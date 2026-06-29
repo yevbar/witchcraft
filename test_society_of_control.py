@@ -10,7 +10,8 @@ from __future__ import annotations
 from types import SimpleNamespace as NS
 
 from mtg.game import Game
-from mtg.predicates import is_mana_rock
+from mtg.models import PriorityOption as Do
+from mtg.predicates import is_commander_cast, is_creature, is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -185,6 +186,26 @@ def run() -> None:
     check("curve_choice scores a matched mana source (above the floor=0.0 gate)", p.curve_choice(g, mc("rock")) > 0)
     check("choose_move deploys a mana source BEFORE the plain creature",
           getattr(getattr(p.choose_move(g), "card", None), "id", None) in ("rock", "dork"))
+
+    # BRAWL/COMMANDER: cast the commander before the cheapest creature. The ladder line keys on the
+    # cast_commander MOVE (is_commander_cast), placed above the is_creature curve line — so when the engine
+    # surfaces a castable commander it's taken first. Verified on a real commander game (the move only exists
+    # in commander-style variants).
+    gc = Game(variant="commander", commanders={"alice": ["Grizzly Bears"], "bob": ["Grizzly Bears"]}, seed=3)
+    check("commander game surfaces a castable commander at the opener",
+          any(getattr(m, "kind", None) == "cast_commander" for m in gc.legal_moves))
+    pc = SocietyOfControlPlayer().bind(gc, "alice")
+    check("choose_move CASTS the commander (Brawl) when it can", getattr(pc.choose_move(gc), "kind", None) == "cast_commander")
+
+    # ordering guarantee, in isolation: the commander line precedes the creature line, so a cast_commander
+    # move wins over a cheaper plain-creature cast even though the creature curves cheaper.
+    commander = NS(kind="cast_commander", card=NS(id="cmd", has_type=lambda t: t == "creature"), choices={})
+    cheaper = NS(kind="cast", card=NS(id="bear", has_type=lambda t: t == "creature"), choices={})
+    pr = NS(spells=[cheaper, commander])
+    ladder = [Do.SPELLS.matching(is_commander_cast).prefer(lambda gg, m: 1.0, floor=0.0),
+              Do.SPELLS.matching(is_creature).prefer(lambda gg, m: 1.0, floor=0.0)]
+    picked = next((mv for opt in ladder if (mv := opt.pick(None, pr)) is not None), None)
+    check("commander line is taken before the cheaper-creature line", picked is commander)
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)

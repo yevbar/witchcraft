@@ -23,7 +23,8 @@ import env
 from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
-from .predicates import anything, creature_damage, is_creature, is_creature_damage, is_mana_rock, is_permanent
+from .predicates import (anything, creature_damage, is_commander_cast, is_creature, is_creature_damage,
+                         is_mana_rock, is_permanent)
 
 
 class SocietyOfControlPlayer(Player):
@@ -91,7 +92,8 @@ class SocietyOfControlPlayer(Player):
             # Playing spells
             Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
             Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
-            Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then CREATURES (curve out),
+            Do.SPELLS.matching(is_commander_cast).prefer(self.curve_choice, floor=0.0),   # then the COMMANDER (Brawl) before any creature,
+            Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then other CREATURES (curve out),
             Do.SPELLS.matching(is_permanent).prefer(self.curve_choice, floor=0.0),        # then other PERMANENTS,
             Do.SPELLS.matching(anything).prefer(self.develop_choice, floor=0.0),          # else ANY remaining spell if it beats passing,
 
