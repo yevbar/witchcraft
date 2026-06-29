@@ -90,11 +90,11 @@ class SocietyOfControlPlayer(Player):
         return game.prioritize(
             # Game actions
             Do.LANDS.prefer(self.land_choice),                                   # play a land (non-basics first),
-            Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # aim a player-target spell at their face,
 
             # Playing spells
             Do.SPELLS.matching(is_cantrip).prefer(self.free_cantrip_choice, floor=0.0),   # FREE one-drop cantrips first (commander refunds the cast),
-            Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
+            Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat with burn — incl generic any-target burn (only if it kills),
+            Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # else aim a player-target spell at their face (kill a creature takes precedence),
             Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
             Do.SPELLS.matching(is_commander_cast).prefer(self.curve_choice, floor=0.0),   # then the COMMANDER (Brawl) before any creature,
             Do.SPELLS.matching(is_creature).prefer(self.curve_choice, floor=0.0),         # then other CREATURES (curve out),
@@ -209,23 +209,57 @@ class SocietyOfControlPlayer(Player):
         cmd = game.state.get("is_commander", set())
         return [p.id for p in self.battlefield if (p.id,) in cmd]
 
-    def _commander_refunds_cast(self, game, move) -> bool:
-        """True if a commander we control would REFUND casting `move` — it has a triggered 'whenever you cast …'
-        ability that ADDS MANA, and that trigger covers this spell's type. Read from `ability_trigger` +
-        `card_effect` (add_mana), so False without card rules / without such a commander in play."""
+    def _slug_refunds_cast(self, game, slug, move) -> bool:
+        """True if commander `slug` has a triggered 'whenever you cast …' ability that ADDS MANA and whose trigger
+        covers `move`'s spell type — i.e. casting `move` would be refunded. From `ability_trigger` + `card_effect`."""
+        if slug is None:
+            return False
         triggers = game.state.get("ability_trigger", set())            # (slug, aid, phrase)
         effects = game.state.get("card_effect", set())
-        for inst in self._my_commander_insts(game):
-            slug = self._slug_of(game, inst)
-            if slug is None:
-                continue
-            for (s, aid, phrase) in triggers:
-                if s != slug or "cast" not in str(phrase):
-                    continue                                           # not a 'whenever you cast …' trigger
-                adds_mana = any(r[0] == slug and r[1] == aid and len(r) > 3 and r[3] == "add_mana" for r in effects)
-                if adds_mana and self._spell_matches_trigger(move, str(phrase)):
-                    return True
+        for (s, aid, phrase) in triggers:
+            if s != slug or "cast" not in str(phrase):
+                continue                                               # not a 'whenever you cast …' trigger
+            adds_mana = any(r[0] == slug and r[1] == aid and len(r) > 3 and r[3] == "add_mana" for r in effects)
+            if adds_mana and self._spell_matches_trigger(move, str(phrase)):
+                return True
         return False
+
+    def _commander_refunds_cast(self, game, move) -> bool:
+        """True if a commander we control ON THE BATTLEFIELD would REFUND casting `move` (so it's free RIGHT NOW).
+        False without card rules / without such a commander in play."""
+        return any(self._slug_refunds_cast(game, self._slug_of(game, i), move)
+                   for i in self._my_commander_insts(game))
+
+    def _my_command_zone(self, game) -> list:
+        """The instance ids of OUR command zone (§408) — commanders not currently in play. [] off a commander game."""
+        cz = game.command_zone(self.seat) if hasattr(game, "command_zone") else []
+        return cz if isinstance(cz, list) else []
+
+    def _refunding_commander_exists(self, game, move) -> bool:
+        """True if a commander that would REFUND `move` (covers its type) exists for us anywhere — on the
+        battlefield OR still in the command zone (so it WILL refund once cast). Used to decide whether holding a
+        one-drop for 'when the commander's out' is even worthwhile; False in a non-commander game, so nothing is
+        held there."""
+        insts = list(self._my_commander_insts(game)) + self._my_command_zone(game)
+        return any(self._slug_refunds_cast(game, self._slug_of(game, i), move) for i in insts)
+
+    def _save_one_drop_burn(self, game, move) -> bool:
+        """A one-drop NON-creature damage spell we'd rather HOLD: cast it later for FREE once the commander
+        refunds it, developing in the meantime. Only holds when (a) it's a one-drop, (b) a commander that WOULD
+        refund it exists (in play or the command zone — so the wait pays off; never in a non-commander game), and
+        (c) it isn't already free (commander not yet in play). It can still KILL a creature now — that's the burn
+        line, which runs BEFORE the face/develop lines this gate sits on, so a worthwhile kill is taken first."""
+        if getattr(move, "kind", None) != "cast":
+            return False
+        card = move.card
+        has_type = getattr(card, "has_type", None)
+        if card is None or not callable(has_type) or has_type("creature"):
+            return False
+        if creature_damage(game, move) is None:                        # not a damage spell
+            return False
+        if self._mana_value(game, move.card.id) != 1:                  # one-drop only
+            return False
+        return self._refunding_commander_exists(game, move) and not self._commander_refunds_cast(game, move)
 
     def _spell_matches_trigger(self, move, phrase: str) -> bool:
         """Does `move`'s spell satisfy a cast-trigger `phrase`? If the phrase names card types (e.g. an
@@ -359,6 +393,8 @@ class SocietyOfControlPlayer(Player):
         targeting play (burn / 'target player') fires here — aimed at their face — while creature-targeting
         and untargeted plays score 0 and fall through to normal development. The SAME 'a player target -> the
         opponent' rule drives the inthearena bridge's MTGA SelectTargets pick (see engine_policy)."""
+        if self._save_one_drop_burn(game, move):
+            return 0.0                                      # HOLD a one-drop burn for when the commander makes it free
         target = (move.choices or {}).get("target")
         return 1.0 if target in {o.seat for o in self.opponents} else 0.0
 
@@ -405,6 +441,8 @@ class SocietyOfControlPlayer(Player):
         """How much a non-combat play `move` IMPROVES the board: _value(after the play) - _value(now), via a
         1-ply lookahead. A value-negative play scores < 0, so the `floor=0.0` in choose_move skips it (and
         the chain falls through to passing) — the old 'only act if it beats sitting still' gate."""
+        if self._save_one_drop_burn(game, move):
+            return float("-inf")                           # HOLD a one-drop burn for when the commander makes it free
         try:
             child = Game.from_state(env.step(game.state, move.raw))    # env.step normalises the Move to .raw
         except Exception:
@@ -418,20 +456,31 @@ class SocietyOfControlPlayer(Player):
     def draw_ability_choice(self, game, move) -> float:
         """Score an activated DRAW ability that COSTS US THE BOARD (sacrifices its own source). `develop_choice`
         rightly refuses these — trading a creature for a card is a board loss — so this is the deliberate
-        exception: cashing the body in is FINE when (a) we already control a separate CONTINUOUS draw engine (a
-        triggered / non-sacrifice repeatable draw — not a one-shot spell or another sac-draw), so the hand keeps
-        refilling, AND (b) if the ability also DISCARDS (a rummage), we hold a 'discardable' card to pitch — an
-        EXCESS LAND (a land in hand once we already control five). A draw ability that does NOT cost the board
-        (it keeps its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case
-        changes. (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
+        exception: cashing the body in is FINE when the body is AFFORDABLE TO LOSE, by either route —
+          (a) a separate CONTINUOUS draw engine keeps the hand refilling (a triggered / non-sacrifice repeatable
+              draw — not a one-shot spell or another sac-draw); OR
+          (b) the BOARD CAN SPARE IT — at least TWO OTHER creatures remain after the sacrifice (a wide board, so
+              one body for a card — plus any ramp/token the sac also makes — is fine).
+        Affordability of the activation itself is implicit: the ability only surfaces as a legal move when payable.
+        Then, if the ability also DISCARDS (a rummage), we still require a 'discardable' card to pitch — an EXCESS
+        LAND (a land in hand once we already control five). A draw ability that does NOT cost the board (it keeps
+        its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case changes.
+        (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
         slug = self._slug_of(game, move.card.id)
         if slug is None or not self._sacrifices_self_to_draw(game, slug):
             return float("-inf")                       # not a board-costing draw -> develop_choice handles it
-        if not self._has_continuous_draw_source(game, exclude=move.card.id):
-            return float("-inf")                       # no engine to refill -> don't trade the body for a wash
+        if not (self._has_continuous_draw_source(game, exclude=move.card.id)
+                or self._board_can_spare_creature(game, move)):
+            return float("-inf")                       # no engine AND a thin board -> don't trade the body for a wash
         if self._draws_with_discard(game, slug) and not self._has_discardable(game):
             return float("-inf")                       # a rummage with nothing worth pitching -> hold the body
-        return self._DRAW_ABILITY_VALUE                # an engine + a card to pitch -> cashing the body in is fine
+        return self._DRAW_ABILITY_VALUE                # affordable to lose the body -> cashing it in is fine
+
+    def _board_can_spare_creature(self, game, move) -> bool:
+        """True if our board can afford to sacrifice `move`'s source creature — at least TWO OTHER creatures of
+        ours remain after it goes. With a wide board, spending one body for a card (and any ramp/token the sac
+        also yields) is fine."""
+        return sum(1 for c in self.creatures if c.id != move.card.id) >= 2
 
     def _slug_of(self, game, inst):
         """The card slug for an instance id (from `instance_of`), or None."""

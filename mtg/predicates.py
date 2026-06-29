@@ -103,10 +103,13 @@ def is_cantrip(game, move) -> bool:
 
 
 def creature_damage(game, move):
-    """The most damage a strictly CREATURE-TARGETING `deal_damage` effect of this card does, or None. 'creature'
-    in the target scope, but NOT 'any target' / a player — that's face burn, a different line. Objective per the
-    card's printed deal_damage scope; from `card_effect`, so None when card rules aren't loaded. `move` may be a
-    Move (uses `move.card.id`) or a raw engine instance-id string (handy for scanning the cards in a zone)."""
+    """The most damage a `deal_damage` effect of this card can do TO A CREATURE, or None. That's a 'target
+    creature' scope OR an 'any target' scope (any-target burn can be pointed at a creature) — but NOT a
+    player-only effect ('target player' / 'each player'). Objective per the card's printed deal_damage scope;
+    from `card_effect`, so None when card rules aren't loaded. `move` may be a Move (uses `move.card.id`) or a
+    raw engine instance-id string (handy for scanning the cards in a zone). The bot uses this to route generic
+    (any-target) burn through the same kill-a-creature path as strict removal — WHICH target it actually picks
+    (a creature vs the face) is the scorer's call (`burn_choice` / `resolve_choice`)."""
     card_id = move if isinstance(move, str) else getattr(getattr(move, "card", None), "id", None)
     slug = next((s for (i, s) in game.state.get("instance_of", set()) if i == card_id), None) if card_id else None
     if slug is None:
@@ -114,13 +117,14 @@ def creature_damage(game, move):
     best = None
     for row in game.state.get("card_effect", set()):
         c, _aid, _seq, verb, amount, scope = row[0], row[1], row[2], row[3], row[4], row[5]
-        if (c == slug and verb == "deal_damage" and "creature" in scope
-                and "player" not in scope and "any" not in scope and str(amount).isdigit()):
+        hits_creature = "creature" in scope or "any" in scope    # target-creature, or any-target (can hit a creature)
+        if c == slug and verb == "deal_damage" and hits_creature and str(amount).isdigit():
             best = max(best or 0, int(amount))
     return best
 
 
 def is_creature_damage(game, move) -> bool:
-    """True if this card can deal damage to a TARGET CREATURE (strictly creature-target, not 'any target'/face).
-    The objective property a removal line keys on — whether to FIRE it (lethal? worth it?) is the scorer's call."""
+    """True if this card can deal damage to a CREATURE — strict 'target creature' removal OR generic 'any target'
+    burn (which can be pointed at a creature). The objective property the removal line keys on; whether to FIRE it
+    at a creature (lethal? worth it?) vs send it at the face is the scorer's call (`burn_choice`)."""
     return creature_damage(game, move) is not None

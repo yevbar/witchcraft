@@ -70,12 +70,14 @@ def run() -> None:
     # ── ability-derived predicates: read the loaded card rule facts ───────────────────────────────────────
     st = {
         "instance_of": {("rock", "mind_stone"), ("dork", "llanowar_elves"),
-                        ("bolt", "lightning_bolt"), ("flame", "flame_slash")},
+                        ("bolt", "lightning_bolt"), ("flame", "flame_slash"), ("lava", "lava_spike")},
         "mana_ability": {("mind_stone", "{T}"), ("llanowar_elves", "{T}"),
                          ("chromatic_star", "{1}, {T}, Sacrifice ~")},
-        # bolt hits ANY target (face burn); flame_slash strictly targets a creature.
+        # bolt hits ANY target (can hit a creature); flame_slash strictly targets a creature; lava_spike is
+        # PLAYER-ONLY (can never hit a creature).
         "card_effect": {("lightning_bolt", "a0", 0, "deal_damage", "3", "any_target", "-", "-"),
-                        ("flame_slash", "a0", 0, "deal_damage", "4", "target_creature", "-", "-")},
+                        ("flame_slash", "a0", 0, "deal_damage", "4", "target_creature", "-", "-"),
+                        ("lava_spike", "a0", 0, "deal_damage", "3", "target_player", "-", "-")},
     }
     g = Game.from_state(st)
     def mv(c, *types):
@@ -85,11 +87,13 @@ def run() -> None:
     check("is_mana_rock True for a {T} rock", P.is_mana_rock(g, mv("rock")) is True)
     check("is_mana_rock True for a {T} dork", P.is_mana_rock(g, mv("dork")) is True)
     check("is_mana_rock False for a burn spell", P.is_mana_rock(g, mv("bolt")) is False)
-    check("creature_damage None for face burn (any target)", P.creature_damage(g, mv("bolt")) is None)
+    check("creature_damage = amount for ANY-TARGET burn too (it can hit a creature)", P.creature_damage(g, mv("bolt")) == 3)
     check("creature_damage = printed amount for creature-target burn", P.creature_damage(g, mv("flame")) == 4)
     check("creature_damage accepts a raw instance-id string too", P.creature_damage(g, "flame") == 4)
     check("is_creature_damage True for creature-target burn", P.is_creature_damage(g, mv("flame")) is True)
-    check("is_creature_damage False for face burn", P.is_creature_damage(g, mv("bolt")) is False)
+    check("is_creature_damage True for ANY-TARGET burn (routed through the kill path)", P.is_creature_damage(g, mv("bolt")) is True)
+    check("creature_damage None for PLAYER-ONLY burn (can't hit a creature)", P.creature_damage(g, mv("lava")) is None)
+    check("is_creature_damage False for player-only burn", P.is_creature_damage(g, mv("lava")) is False)
     # without card rules loaded, the fact-based predicates are simply False/None (never a crash)
     empty = Game.from_state({"instance_of": {("rock", "mind_stone")}})
     check("is_mana_rock False when no mana_ability facts loaded", P.is_mana_rock(empty, mv("rock")) is False)

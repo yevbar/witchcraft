@@ -76,8 +76,15 @@ def run() -> None:
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "alice")])
     check("burn_choice ignores OUR own creatures", _burn(g, "b1") == NEG)
 
+    # GENERIC any-target burn is now routed through the kill path too: it FIRES at a killable creature, but its
+    # FACE variant (target = a player) scores -inf here (the face is the resolve line's job).
     g = _game(hand=[("lb", "lightning_bolt")], effects=BOLT, creatures=[(2, 2, "bob")])
-    check("burn_choice EXCLUDES 'any target' spells (face burn, handled elsewhere)", _burn(g, "lb") == NEG)
+    check("burn_choice FIRES any-target burn at a killable creature", _burn(g, "lb", "c0") > 0)
+    check("burn_choice -inf for the FACE variant of any-target burn (resolve handles the face)",
+          _burn(g, "lb", "alice") == NEG and _burn(g, "lb", "bob") == NEG)
+    g = _game(hand=[("lb", "lightning_bolt")], effects=BOLT, creatures=[(5, 5, "bob")])
+    check("burn_choice does NOT fire any-target burn with no killable creature (falls to the face line)",
+          _burn(g, "lb") == NEG)
 
     g = _game(hand=[("b1", "bombard")], effects={}, creatures=[(2, 2, "bob")])
     check("burn_choice is inert when card rules aren't loaded (no card_effect -> -inf)", _burn(g, "b1") == NEG)
@@ -228,7 +235,7 @@ def run() -> None:
     # BOARD-COSTING DRAW (sac-and-draw, e.g. Insolent Neonate): develop_choice refuses it (board loss), so the
     # draw_ability_choice exception only fires it when (a) a CONTINUOUS draw engine is already in play and (b) if
     # it's a rummage, we hold an EXCESS LAND to pitch (a land in hand once we control five). Mirrors the real T9.
-    def _draw_game(*, lands_in_play, land_in_hand, engine, sac=True, discard=True):
+    def _draw_game(*, lands_in_play, land_in_hand, engine, sac=True, discard=True, others=0):
         st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
               "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
               "in_hand": set(), "instance_of": set(), "on_battlefield": set(), "printed_control": set(),
@@ -253,6 +260,10 @@ def run() -> None:
         if land_in_hand:
             st["in_hand"] |= {("alice", "hl")}; st["instance_of"] |= {("hl", "mountain")}
             st["printed_type"] |= {("hl", "land")}
+        for i in range(others):                                    # extra OUR creatures (board the sac can spare)
+            o = f"k{i}"; st["instance_of"] |= {(o, "x")}; st["on_battlefield"] |= {(o,)}
+            st["printed_control"] |= {("alice", o)}; st["printed_type"] |= {(o, "creature")}
+            st["printed_power"] |= {(o, 2)}; st["printed_toughness"] |= {(o, 3)}
         g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
         return g, p
 
@@ -275,6 +286,15 @@ def run() -> None:
           draw_score(lands_in_play=0, land_in_hand=False, engine=True, discard=False) > 0)
     check("a draw ability that KEEPS its body is left to develop_choice (-inf here)",
           draw_score(lands_in_play=5, land_in_hand=True, engine=True, sac=False) == NEG)
+
+    # BOARD-CAN-SPARE-IT path (Reckless Lackey: sac -> draw + Treasure): even with NO draw engine, a sac-draw
+    # fires when at least TWO OTHER creatures remain after it (a wide board can spend one body for a card).
+    check("sac-draw FIRES off a wide board (2 other creatures) even without a draw engine",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=False, others=2) > 0)
+    check("sac-draw HELD with only one other creature (board too thin)",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=False, others=1) == NEG)
+    check("the discard caveat STILL applies on the board-spare path (no pitch -> held)",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=True, others=3) == NEG)
 
     # FREE ONE-DROP CANTRIPS: with a commander in play whose on-cast trigger REFUNDS mana (Electro: add {R} on an
     # instant/sorcery), a one-drop cantrip is effectively free (the {1} comes back, it replaces itself), so the
@@ -312,6 +332,51 @@ def run() -> None:
     check("free cantrip inert for a non-one-drop (mv 2)", cantrip_score(electro=True, mv=2) == NEG)
     check("free cantrip inert off-type (Electro refunds instant/sorcery, not a creature)",
           cantrip_score(electro=True, spell_type="creature") == NEG)
+
+    # GENERIC BURN: a one-drop ANY-TARGET burn (Burst Lightning-like) is HELD until a refunding commander makes it
+    # free — but it can still KILL a creature now (the burn line runs before the held face/develop lines), and the
+    # hold never applies in a non-commander game.
+    def _hold_game(*, commander_zone=False, commander_play=False, two_player=False, opp_creatures=()):
+        st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+              "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+              "in_hand": {("alice", "b1")}, "instance_of": {("b1", "burst")}, "mana_cost": {("b1", 1)},
+              "card_ability": {("burst", "a0", "spell")},
+              "card_effect": {("burst", "a0", 0, "deal_damage", "2", "any_target", "-", "-")},
+              "on_battlefield": set(), "printed_control": set(), "printed_type": {("b1", "instant")},
+              "printed_power": set(), "printed_toughness": set(), "is_commander": set(),
+              "ability_trigger": set(), "command_zone": set()}
+        for i, (p, t) in enumerate(opp_creatures):
+            cid = f"o{i}"; st["instance_of"] |= {(cid, "x")}; st["on_battlefield"] |= {(cid,)}
+            st["printed_control"] |= {("bob", cid)}; st["printed_type"] |= {(cid, "creature")}
+            st["printed_power"] |= {(cid, p)}; st["printed_toughness"] |= {(cid, t)}
+        if not two_player:                                     # an Electro-like refunding commander
+            st["instance_of"] |= {("el", "electro")}; st["card_ability"] |= {("electro", "a2", "triggered")}
+            st["ability_trigger"] |= {("electro", "a2", "you_cast_an_instant_or_sorcery_spell")}
+            st["card_effect"] |= {("electro", "a2", 0, "add_mana", "1", "you", "red", "-")}
+            st["is_commander"] |= {("el",)}
+            if commander_play:
+                st["on_battlefield"] |= {("el",)}; st["printed_control"] |= {("alice", "el")}
+                st["printed_type"] |= {("el", "creature")}; st["printed_power"] |= {("el", 2)}
+                st["printed_toughness"] |= {("el", 3)}
+            if commander_zone:
+                st["command_zone"] = {("alice", "el")}
+        g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
+        return g, p
+    face = NS(kind="cast", card=NS(id="b1", has_type=lambda t: t == "instant"), choices={"target": "bob"})
+
+    g, p = _hold_game(commander_zone=True)
+    check("one-drop burn HELD while the commander is still in the command zone (resolve declines the face)",
+          p.resolve_choice(g, face) == 0.0 and p._save_one_drop_burn(g, face) is True)
+    check("...and the develop line won't cast the held burn either", p.develop_choice(g, face) == NEG)
+    g, p = _hold_game(commander_play=True)
+    check("one-drop burn FACED once the commander is out (free)", p.resolve_choice(g, face) == 1.0)
+    g, p = _hold_game(two_player=True)
+    check("one-drop burn NOT held in a non-commander game (faced normally)",
+          p.resolve_choice(g, face) == 1.0 and p._save_one_drop_burn(g, face) is False)
+    # the hold yields to a KILL: a one-drop burn that can kill a creature fires on the burn line regardless
+    g, p = _hold_game(commander_zone=True, opp_creatures=[(2, 2)])
+    check("a killable creature -> the one-drop burn still FIRES at it (kill beats the hold)",
+          p.burn_choice(g, NS(kind="cast", card=NS(id="b1", has_type=lambda t: t == "instant"), choices={"target": "o0"})) > 0)
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)
