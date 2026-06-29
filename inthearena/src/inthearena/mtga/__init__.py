@@ -25,6 +25,7 @@ from .hand import (
     hand_order,
     hand_screen_order,
     hover_card,
+    in_command_zone,
     land_play_options,
     locate_hand_cards,
     locate_named_cards,
@@ -122,5 +123,5 @@ __all__ = [
     "play_land", "play_hand_card", "land_play_options", "on_mulligan_screen",
     "locate_named_cards", "match_named_card", "order_inversions",
     "command_zone_members", "commander_point", "play_commander", "resolve_cast_mode_modal",
-    "record_card_position", "predict_card_position", "reset_hand_calib",
+    "record_card_position", "predict_card_position", "reset_hand_calib", "in_command_zone",
 ]

@@ -1531,25 +1531,46 @@ def _hand_checks():
     # and it TRANSFERS across hand sizes (the geometry, not a stale pixel).
     from types import SimpleNamespace as _NSc
     import inthearena.mtga.hand as _hcal
-    from inthearena.mtga.hand import predict_card_position, record_card_position, reset_hand_calib
-    vcal = _NSc(game_info=None)                              # -> the 'default' calibration key
+    from inthearena.mtga.hand import (in_command_zone, predict_card_position, record_card_position,
+                                      reset_hand_calib)
+
+    class _CalibView:                                        # a view whose command zone we control (cz regime)
+        game_info = None
+        def __init__(self, cz): self._cz = cz
+        def in_zone(self, zt, seat=None):
+            return [_NSc(instanceId=99)] if (zt == "ZoneType_Command" and self._cz) else []
+    SEAT = 1
+    vz0 = _CalibView(cz=False)                               # commander PLAYED (out of the command zone) -> plain N
     nsf = _hcal._nominal_spacing_frac(7, rect.w)
     real = 1.2 * nsf                                         # a REAL fan 1.2x wider than the nominal, centred at 0.5
     def _realx(k): return int(rect.x + (0.5 + (k - 3) * real) * rect.w)
-    reset_hand_calib()
-    record_card_position(vcal, rect, 7, 1, _realx(1), int(0.9 * rect.h))
+    reset_hand_calib(vz0)
+    check("in_command_zone: False once the command zone is empty (commander played)", in_command_zone(vz0, SEAT) is False)
+    record_card_position(vz0, SEAT, rect, 7, 1, _realx(1), int(0.9 * rect.h))
     check("calibration: <2 samples -> no prediction (falls back to the sweep)",
-          predict_card_position(vcal, rect, 7, 6) is None)
+          predict_card_position(vz0, SEAT, rect, 7, 6) is None)
     for k in (0, 2, 4):                                      # identify three cards of a 7-card hand at their REAL x
-        record_card_position(vcal, rect, 7, k, _realx(k), int(0.9 * rect.h))
-    pred6 = predict_card_position(vcal, rect, 7, 6)
+        record_card_position(vz0, SEAT, rect, 7, k, _realx(k), int(0.9 * rect.h))
+    pred6 = predict_card_position(vz0, SEAT, rect, 7, 6)
     nom6 = int(rect.x + (0.5 + (6 - 3) * nsf) * rect.w)      # what the NOMINAL fan would (wrongly) predict
     check("calibration recovers the real fan: slot-6 prediction matches REAL spacing, not nominal",
           pred6 is not None and abs(pred6[0] - _realx(6)) <= 8 and abs(pred6[0] - nom6) > 50)
-    pred5 = predict_card_position(vcal, rect, 5, 4)          # transfers across N (samples were all at N=7)
+    pred5 = predict_card_position(vz0, SEAT, rect, 5, 4)     # transfers across N (samples were all at N=7)
     check("calibration transfers across hand size: predicts a 5-card slot from 7-card samples",
           pred5 is not None and abs(pred5[0] - int(rect.x + (0.5 + (4 - 2) * real) * rect.w)) <= 10)
-    reset_hand_calib()
+
+    # REGIME SEPARATION (the fix): samples taken while the commander is in the command zone (cz1, N+2 rail, hand
+    # shifted) must NOT leak into the post-cast (cz0) prediction — else a played-out commander's ghost slot keeps
+    # shifting the hand. Record ONLY under cz1; a cz0 predict sees none of it.
+    reset_hand_calib(vz0)
+    vz1 = _CalibView(cz=True)                                # commander STILL in the command zone (N+2 rail)
+    check("in_command_zone: True while a commander sits in the command zone", in_command_zone(vz1, SEAT) is True)
+    for k in (0, 2, 4):
+        record_card_position(vz1, SEAT, rect, 7, k, _realx(k), int(0.9 * rect.h))
+    check("regime separation: cz1 (commander in zone) samples do NOT pollute the cz0 (played-out) prediction",
+          predict_card_position(vz1, SEAT, rect, 7, 6) is not None
+          and predict_card_position(vz0, SEAT, rect, 7, 6) is None)
+    reset_hand_calib(vz0)
 
     # a MAGNIFIED basic land reads its type line 'Basic Land - Plains' (often not a clean 'Plains'); the wanted
     # name must still match it (as a word), or the reveal skips a real land and grabs something else.
