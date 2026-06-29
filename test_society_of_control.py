@@ -10,7 +10,8 @@ from __future__ import annotations
 from types import SimpleNamespace as NS
 
 from mtg.game import Game
-from mtg.predicates import is_mana_rock
+from mtg.models import PriorityOption as Do
+from mtg.predicates import is_commander_cast, is_creature, is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -50,50 +51,76 @@ def _game(*, hand, effects, creatures):
     return Game.from_state(st)
 
 
-def _burn(g, card):
+def _burn(g, card, target=None):
+    """burn_choice score for casting `card`; `target` (a creature instance id) selects the per-target cast
+    variant the engine would enumerate (None = no cast-time target -> scored by the best creature on board)."""
     p = SocietyOfControlPlayer(); p.bind(g, "alice")
-    return p.burn_choice(g, NS(kind="cast", card=NS(id=card), choices={}))
+    choices = {"target": target} if target is not None else {}
+    return p.burn_choice(g, NS(kind="cast", card=NS(id=card), choices=choices))
 
 
 def run() -> None:
     BOMBARD = {"bombard": (4, "target_creature")}                 # 4 dmg, strictly target creature
     BOLT = {"lightning_bolt": (3, "any_target")}                  # 3 dmg, ANY target (face burn)
+    NEG = float("-inf")
 
+    # ── FIRES only on an actual kill ───────────────────────────────────────────────────────────────────────
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (5, 5, "bob")])
-    check("burn_choice fires on a lethal target (4 dmg kills the 2/2), weighted by its power",
-          _burn(g, "b1") == 1.0 + 2)
-    check("burn_choice ignores the un-killable 5/5 (scores by the killable one)", _burn(g, "b1") == 3.0)
-
-    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (4, 4, "bob")])
-    check("burn_choice weights by the BIGGEST killable threat (4/4 over 2/2)", _burn(g, "b1") == 1.0 + 4)
+    check("burn_choice fires on a lethal target (4 dmg kills the 2/2)", _burn(g, "b1") > 0)
+    check("burn_choice -inf at the un-killable 5/5 variant (5 toughness > 4 dmg)", _burn(g, "b1", "c1") == NEG)
+    check("burn_choice fires at the killable 2/2 variant", _burn(g, "b1", "c0") > 0)
 
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(5, 5, "bob")])
-    check("burn_choice does NOT fire when nothing is killable (no speculative cast)", _burn(g, "b1") == float("-inf"))
+    check("burn_choice does NOT fire when nothing is killable (no speculative cast)", _burn(g, "b1") == NEG)
 
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "alice")])
-    check("burn_choice ignores OUR own creatures", _burn(g, "b1") == float("-inf"))
+    check("burn_choice ignores OUR own creatures", _burn(g, "b1") == NEG)
 
     g = _game(hand=[("lb", "lightning_bolt")], effects=BOLT, creatures=[(2, 2, "bob")])
-    check("burn_choice EXCLUDES 'any target' spells (face burn, handled elsewhere)",
-          _burn(g, "lb") == float("-inf"))
+    check("burn_choice EXCLUDES 'any target' spells (face burn, handled elsewhere)", _burn(g, "lb") == NEG)
 
     g = _game(hand=[("b1", "bombard")], effects={}, creatures=[(2, 2, "bob")])
-    check("burn_choice is inert when card rules aren't loaded (no card_effect -> -inf)",
-          _burn(g, "b1") == float("-inf"))
+    check("burn_choice is inert when card rules aren't loaded (no card_effect -> -inf)", _burn(g, "b1") == NEG)
 
-    # COMMANDER RESERVE: hold the only commander-answer; spend it only with a backup in hand.
+    # ── TARGET PRIORITY: commander > power > toughness > arbitrary ──────────────────────────────────────────
+    # commander beats a far bigger non-commander (backup answer in hand so the reserve rule doesn't hold it)
+    g = _game(hand=[("b1", "bombard"), ("b2", "bombard")], effects=BOMBARD,
+              creatures=[(1, 1, "bob", True), (4, 4, "bob")])
+    check("priority: COMMANDER (1/1) outranks a bigger non-commander (4/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
+
+    # among non-commanders, higher POWER wins even with lower toughness
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 1, "bob"), (1, 4, "bob")])
+    check("priority: higher POWER (3/1) outranks higher toughness (1/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
+
+    # equal power -> higher TOUGHNESS wins
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (2, 4, "bob")])
+    check("priority: equal power -> higher TOUGHNESS (2/4 over 2/2)", _burn(g, "b1", "c1") > _burn(g, "b1", "c0"))
+
+    # equal power AND toughness -> both fire, broken by a stable arbitrary jitter (distinct, deterministic)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (2, 2, "bob")])
+    s0, s1 = _burn(g, "b1", "c0"), _burn(g, "b1", "c1")
+    check("priority: identical P/T both fire", s0 > 0 and s1 > 0)
+    check("priority: identical P/T broken by an arbitrary (distinct) jitter", s0 != s1)
+    check("priority: the jitter is deterministic (stable across calls)", _burn(g, "b1", "c0") == s0)
+
+    # no cast-time target -> scored by the BEST creature on board (commander here)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(4, 4, "bob"), (1, 1, "bob", True)])
+    check("no-target fallback scores by the best creature (the commander)",
+          _burn(g, "b1") == _burn(g, "b1", "c1"))
+
+    # ── COMMANDER RESERVE: hold the only commander-answer; spend it only with a backup in hand ──────────────
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True)])  # commander, only answer
-    check("burn_choice reserves our ONLY commander-answer (don't spend the last one)", _burn(g, "b1") == float("-inf"))
+    check("burn_choice reserves our ONLY commander-answer (don't spend the last one)", _burn(g, "b1", "c0") == NEG)
 
     g = _game(hand=[("b1", "bombard"), ("b2", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True)])
-    check("burn_choice kills the commander when a BACKUP answer is in hand", _burn(g, "b1") == 1.0 + 3)
+    check("burn_choice kills the commander when a BACKUP answer is in hand", _burn(g, "b1", "c0") > 0)
 
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(5, 5, "bob", True), (2, 2, "bob")])
-    check("commander un-killable by this spell -> reserve rule off, kills the 2/2", _burn(g, "b1") == 1.0 + 2)
+    check("commander un-killable by this spell -> reserve rule off, kills the 2/2", _burn(g, "b1", "c1") > 0)
 
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 3, "bob", True), (2, 2, "bob")])
-    check("only commander-answer is held even with another creature killable (reserve wins)",
-          _burn(g, "b1") == float("-inf"))
+    check("only commander-answer is held even with another creature killable (reserve holds the whole spell)",
+          _burn(g, "b1", "c1") == NEG)
 
     # FORCED-WIN TAKE-OVER: a lethal line this turn is taken over any positional play.
     def _burn_to_face(opp_life, dmg=3, mana=5):
@@ -159,6 +186,26 @@ def run() -> None:
     check("curve_choice scores a matched mana source (above the floor=0.0 gate)", p.curve_choice(g, mc("rock")) > 0)
     check("choose_move deploys a mana source BEFORE the plain creature",
           getattr(getattr(p.choose_move(g), "card", None), "id", None) in ("rock", "dork"))
+
+    # BRAWL/COMMANDER: cast the commander before the cheapest creature. The ladder line keys on the
+    # cast_commander MOVE (is_commander_cast), placed above the is_creature curve line — so when the engine
+    # surfaces a castable commander it's taken first. Verified on a real commander game (the move only exists
+    # in commander-style variants).
+    gc = Game(variant="commander", commanders={"alice": ["Grizzly Bears"], "bob": ["Grizzly Bears"]}, seed=3)
+    check("commander game surfaces a castable commander at the opener",
+          any(getattr(m, "kind", None) == "cast_commander" for m in gc.legal_moves))
+    pc = SocietyOfControlPlayer().bind(gc, "alice")
+    check("choose_move CASTS the commander (Brawl) when it can", getattr(pc.choose_move(gc), "kind", None) == "cast_commander")
+
+    # ordering guarantee, in isolation: the commander line precedes the creature line, so a cast_commander
+    # move wins over a cheaper plain-creature cast even though the creature curves cheaper.
+    commander = NS(kind="cast_commander", card=NS(id="cmd", has_type=lambda t: t == "creature"), choices={})
+    cheaper = NS(kind="cast", card=NS(id="bear", has_type=lambda t: t == "creature"), choices={})
+    pr = NS(spells=[cheaper, commander])
+    ladder = [Do.SPELLS.matching(is_commander_cast).prefer(lambda gg, m: 1.0, floor=0.0),
+              Do.SPELLS.matching(is_creature).prefer(lambda gg, m: 1.0, floor=0.0)]
+    picked = next((mv for opt in ladder if (mv := opt.pick(None, pr)) is not None), None)
+    check("commander line is taken before the cheaper-creature line", picked is commander)
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)

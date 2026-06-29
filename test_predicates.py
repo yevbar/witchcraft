@@ -41,6 +41,13 @@ def run() -> None:
     check("is_permanent False for a sorcery", P.is_permanent(None, _typed("sorcery")) is False)
     check("a move with no card matches nothing", P.is_creature(None, NS(kind="pass", card=None)) is False)
 
+    # is_commander_cast keys on the cast_commander MOVE kind (§903.6), not a card type — only exists in
+    # commander-style variants, so it's self-gating in a normal game.
+    cmd_move = NS(kind="cast_commander", card=NS(id="cmd", has_type=lambda t: t == "creature"), choices={})
+    check("is_commander_cast True for a cast_commander move", P.is_commander_cast(None, cmd_move) is True)
+    check("is_commander_cast False for a normal creature cast", P.is_commander_cast(None, _typed("creature")) is False)
+    check("is_commander_cast False for a card-less pass", P.is_commander_cast(None, NS(kind="pass", card=None)) is False)
+
     # ── ability-derived predicates: read the loaded card rule facts ───────────────────────────────────────
     st = {
         "instance_of": {("rock", "mind_stone"), ("dork", "llanowar_elves"),
