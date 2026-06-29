@@ -32,6 +32,14 @@ def _slug(game, move):
     return next((s for (i, s) in game.state.get("instance_of", set()) if i == card.id), None)
 
 
+def anything(game, move) -> bool:
+    """Matches EVERY move — the explicit catch-all. Use it as the LAST `.matching(...)` line so the fall-through
+    case (handle whatever's left, however unfalsifiable) reads in the same declarative shape as the lines above
+    it: `Do.SPELLS.matching(anything).prefer(self.develop_choice)` instead of a bare `Do.SPELLS.prefer(...)`. No
+    narrowing — its job is to say 'and everything else here', visibly, rather than leaving the default implicit."""
+    return True
+
+
 # ── card types (§205) — pure, deck-independent ────────────────────────────────────────────────────────────
 def is_creature(game, move) -> bool:     return _has_type(move, "creature")
 def is_artifact(game, move) -> bool:     return _has_type(move, "artifact")
