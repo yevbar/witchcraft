@@ -65,10 +65,13 @@ class SocietyOfControlPlayer(Player):
     _BURN_BASE = 1.0
 
     # burn TARGET priority (which killable creature to point removal at), as one lexicographic float so
-    # game.prioritize's max picks the top priority: the opponent's COMMANDER first (it recurs from the command
-    # zone — kill it on sight), then highest POWER (the hardest clock), then highest TOUGHNESS (the most
-    # resilient body), then an arbitrary-but-reproducible jitter. The weights just stack those keys so a higher
-    # tier always dominates the ones below it; they assume sane creature P/T (well under ~10k).
+    # game.prioritize's max picks the top priority: the opponent's COMMANDER first — but ONLY when this spell can
+    # actually kill it (it recurs from the command zone, so kill it on sight when you can) — then highest POWER
+    # (the hardest clock), then highest TOUGHNESS (the most resilient body), then an arbitrary-but-reproducible
+    # jitter. EXCEPTION to power-first: if the biggest-power killable creature is one we could already answer in
+    # combat (a creature of ours blocks and kills it), don't waste removal there — rank by TOUGHNESS instead, to
+    # kill the body combat can't. The weights just stack those keys so a higher tier always dominates the ones
+    # below it; they assume sane creature P/T (well under ~10k).
     _TGT_COMMANDER = 1e9
     _TGT_POWER = 1e4
     _TGT_TOUGH = 1.0
@@ -185,7 +188,7 @@ class SocietyOfControlPlayer(Player):
         spell carries no cast-time target it's scored by the best creature on the board (`_burn_target`). Lethality
         is `damage >= toughness` (ignores marked damage / deathtouch / indestructible — a heuristic). The 'is this
         creature-target damage at all' gate is the LINE's `.matching(is_creature_damage)`; this is the board
-        judgement, and `_target_priority` orders WHICH creature: commander > power > toughness > arbitrary.
+        judgement, and `_target_priority` orders WHICH creature: commander (when killable) > power > toughness.
 
         COMMANDER RESERVE: if the spell could kill the opponent's COMMANDER, hold the WHOLE spell unless a SECOND
         commander-killing burn card is in hand — a commander recasts from the command zone, so keep one answer in
@@ -202,7 +205,7 @@ class SocietyOfControlPlayer(Player):
             backups = self._commander_answers_in_hand(game, cmd.toughness) - {move.card.id}
             if not backups:
                 return float("-inf")                   # our only commander-answer -> reserve the spell entirely
-        return self._BURN_BASE + self._target_priority(game, victim)
+        return self._BURN_BASE + self._target_priority(game, victim, dmg)
 
     def _burn_target(self, game, move, dmg):
         """The opponent creature THIS burn kills, or None if it kills nothing. With a cast-time target
@@ -214,20 +217,45 @@ class SocietyOfControlPlayer(Player):
         tid = (move.choices or {}).get("target")
         if tid is not None:
             return next((c for c in victims if c.id == tid), None)
-        return max(victims, key=lambda c: self._target_priority(game, c), default=None)
+        return max(victims, key=lambda c: self._target_priority(game, c, dmg), default=None)
 
-    def _target_priority(self, game, victim) -> float:
+    def _target_priority(self, game, victim, dmg) -> float:
         """How much to prefer pointing removal at `victim` — the lexicographic burn-target order encoded as one
-        float (higher = kill first): the opponent's COMMANDER above all, then highest POWER, then highest
-        TOUGHNESS, then an arbitrary pick. The tail jitter is a game-seeded value in [0,1) keyed by the creature's
-        id, so otherwise-identical creatures get a STABLE pseudo-random order (reproducible across runs — it
-        derives its own Random and never touches the game RNG stream)."""
-        is_cmd = (victim.id,) in game.state.get("is_commander", set())
-        jitter = random.Random(f"{game.state.get('_seed', 0)}:{victim.id}").random()
-        return (self._TGT_COMMANDER * is_cmd
-                + self._TGT_POWER * victim.power
-                + self._TGT_TOUGH * victim.toughness
-                + jitter)
+        float (higher = kill first):
+
+          1. the opponent's COMMANDER, but ONLY when this spell can actually kill it (`toughness <= dmg`): it
+             recurs from the command zone, so kill it on sight when you can — but a spell that CAN'T kill it
+             (e.g. 4 damage at a 6/6 commander) must NOT bend the priority toward it; it just picks the best body.
+          2. then highest POWER (the hardest clock) — EXCEPT when the biggest-power killable creature is one we
+             could already answer in combat (a creature of ours blocks and kills it): then removal is better
+             spent on the body combat can't kill, so rank by TOUGHNESS first instead.
+          3. then the other of power/toughness, then an arbitrary jitter (a game-seeded value in [0,1) keyed by
+             the creature id, so otherwise-identical creatures get a STABLE pseudo-random order — reproducible,
+             and it never touches the game RNG stream).
+        """
+        if victim.toughness <= dmg and (victim.id,) in game.state.get("is_commander", set()):
+            return (self._TGT_COMMANDER + self._TGT_POWER * victim.power
+                    + self._TGT_TOUGH * victim.toughness + self._target_jitter(game, victim))
+        # power-first, unless the biggest-power killable creature is one combat already answers -> toughness-first
+        killable = [c for o in self.opponents for c in o.creatures if c.toughness <= dmg]
+        top_power = max(killable, key=lambda c: c.power, default=None)
+        toughness_first = top_power is not None and self._answerable_in_combat(top_power)
+        primary, secondary = ((victim.toughness, victim.power) if toughness_first
+                              else (victim.power, victim.toughness))
+        return self._TGT_POWER * primary + self._TGT_TOUGH * secondary + self._target_jitter(game, victim)
+
+    def _answerable_in_combat(self, target) -> bool:
+        """True if a creature of ours could BLOCK AND KILL `target` and survive — an untapped creature with power
+        >= the target's toughness (kills it) and toughness > the target's power (lives through it). When the
+        biggest threat is answerable this way, burn is better spent elsewhere (see `_target_priority`)."""
+        return any(not b.tapped and b.power >= target.toughness and b.toughness > target.power
+                   for b in self.creatures)
+
+    @staticmethod
+    def _target_jitter(game, victim) -> float:
+        """A stable per-creature tiebreak in [0,1): a game-seeded Random keyed by the creature id, so it's
+        reproducible across runs and never consumes the game's own RNG stream."""
+        return random.Random(f"{game.state.get('_seed', 0)}:{victim.id}").random()
 
     def _opp_commander(self, game):
         """The opponent's COMMANDER as a battlefield creature (is_commander + opponent-controlled), or None. A

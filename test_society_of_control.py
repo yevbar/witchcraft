@@ -88,9 +88,27 @@ def run() -> None:
               creatures=[(1, 1, "bob", True), (4, 4, "bob")])
     check("priority: COMMANDER (1/1) outranks a bigger non-commander (4/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
 
-    # among non-commanders, higher POWER wins even with lower toughness
+    # commander tier only applies when the spell can ACTUALLY kill the commander. A 4-dmg spell at a 6/6
+    # commander must NOT bend the priority — the commander variant doesn't even fire, and the best killable
+    # body (here the 2/2 by power) is chosen instead. (Mirrors the real game: Molten Exhale 4 vs Ovika 6/6.)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(6, 6, "bob", True), (2, 2, "bob"), (1, 4, "bob")])
+    check("un-killable COMMANDER (6/6 vs 4 dmg) doesn't fire / doesn't bend priority", _burn(g, "b1", "c0") == NEG)
+    check("...and the best killable body is targeted instead (the 2/2)", _burn(g, "b1", "c1") > _burn(g, "b1", "c2"))
+
+    # among non-commanders, higher POWER wins even with lower toughness (no creature of ours answers it)
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(3, 1, "bob"), (1, 4, "bob")])
     check("priority: higher POWER (3/1) outranks higher toughness (1/4)", _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
+
+    # ...UNLESS the biggest-power killable creature is one we could block-and-kill in combat: then burn the
+    # high-TOUGHNESS body combat can't answer. Our 3/3 blocks-and-kills the 2/2, so removal hits the 1/4.
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (1, 4, "bob"), (3, 3, "alice")])
+    check("combat-answerable top threat -> burn the high-TOUGHNESS body (1/4 over 2/2)",
+          _burn(g, "b1", "c1") > _burn(g, "b1", "c0"))
+    # a TAPPED would-be blocker can't block, so the swap does NOT apply -> stays power-first (burn the 2/2)
+    g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (1, 4, "bob"), (3, 3, "alice")])
+    g.state.setdefault("tapped", set()).add(("c2",))           # tap our 3/3 (c2) so it can't block
+    check("a TAPPED blocker doesn't count as a combat answer -> power-first (burn the 2/2)",
+          _burn(g, "b1", "c0") > _burn(g, "b1", "c1"))
 
     # equal power -> higher TOUGHNESS wins
     g = _game(hand=[("b1", "bombard")], effects=BOMBARD, creatures=[(2, 2, "bob"), (2, 4, "bob")])
