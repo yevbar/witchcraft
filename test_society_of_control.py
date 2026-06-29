@@ -11,7 +11,7 @@ from types import SimpleNamespace as NS
 
 from mtg.game import Game
 from mtg.models import PriorityOption as Do
-from mtg.predicates import is_commander_cast, is_creature, is_draw_ability, is_mana_rock
+from mtg.predicates import is_cantrip, is_commander_cast, is_creature, is_draw_ability, is_mana_rock
 from mtg.society_of_control import SocietyOfControlPlayer
 
 _fails = 0
@@ -275,6 +275,43 @@ def run() -> None:
           draw_score(lands_in_play=0, land_in_hand=False, engine=True, discard=False) > 0)
     check("a draw ability that KEEPS its body is left to develop_choice (-inf here)",
           draw_score(lands_in_play=5, land_in_hand=True, engine=True, sac=False) == NEG)
+
+    # FREE ONE-DROP CANTRIPS: with a commander in play whose on-cast trigger REFUNDS mana (Electro: add {R} on an
+    # instant/sorcery), a one-drop cantrip is effectively free (the {1} comes back, it replaces itself), so the
+    # free_cantrip_choice line casts it FIRST. Inert without such a commander, for non-one-drops, or off-type.
+    def _cantrip_game(*, electro, mv=1, spell_type="instant", draws=True):
+        st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
+              "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
+              "in_hand": {("alice", "wisp")}, "instance_of": {("wisp", "crimson_wisps")},
+              "on_battlefield": set(), "printed_control": set(), "printed_type": {("wisp", spell_type)},
+              "printed_power": set(), "printed_toughness": set(), "is_commander": set(),
+              "card_ability": set(), "ability_trigger": set(), "card_effect": set(), "mana_cost": {("wisp", mv)}}
+        if draws:
+            st["card_effect"] |= {("crimson_wisps", "a1", 0, "draw", "1", "you", "-", "-")}
+        if electro:                                                # a refund commander: add {R} on instant/sorcery
+            st["instance_of"] |= {("el", "electro")}; st["on_battlefield"] |= {("el",)}
+            st["printed_control"] |= {("alice", "el")}; st["printed_type"] |= {("el", "creature")}
+            st["printed_power"] |= {("el", 2)}; st["printed_toughness"] |= {("el", 3)}
+            st["is_commander"] |= {("el",)}
+            st["card_ability"] |= {("electro", "a2", "triggered")}
+            st["ability_trigger"] |= {("electro", "a2", "you_cast_an_instant_or_sorcery_spell")}
+            st["card_effect"] |= {("electro", "a2", 0, "add_mana", "1", "you", "red", "-")}
+        g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
+        return g, p
+
+    def cantrip_score(**kw):
+        g, p = _cantrip_game(**kw)
+        mv_move = NS(kind="cast", card=NS(id="wisp", has_type=lambda t, tt=kw.get("spell_type", "instant"): t == tt),
+                     choices={})
+        return p.free_cantrip_choice(g, mv_move)
+
+    check("is_cantrip True for a cast spell that draws",
+          is_cantrip(_cantrip_game(electro=False)[0], NS(kind="cast", card=NS(id="wisp"), choices={})) is True)
+    check("free cantrip FIRES: refund commander in play + a one-drop instant cantrip", cantrip_score(electro=True) > 0)
+    check("free cantrip inert with NO refund commander in play", cantrip_score(electro=False) == NEG)
+    check("free cantrip inert for a non-one-drop (mv 2)", cantrip_score(electro=True, mv=2) == NEG)
+    check("free cantrip inert off-type (Electro refunds instant/sorcery, not a creature)",
+          cantrip_score(electro=True, spell_type="creature") == NEG)
 
     print(f"\n{'ALL PASS' if not _fails else str(_fails) + ' FAILED'}")
     raise SystemExit(1 if _fails else 0)

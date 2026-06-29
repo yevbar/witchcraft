@@ -23,8 +23,8 @@ import env
 from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
-from .predicates import (anything, creature_damage, is_commander_cast, is_creature, is_creature_damage,
-                         is_draw_ability, is_mana_rock, is_permanent)
+from .predicates import (anything, creature_damage, is_cantrip, is_commander_cast, is_creature,
+                         is_creature_damage, is_draw_ability, is_mana_rock, is_permanent)
 
 
 class SocietyOfControlPlayer(Player):
@@ -93,6 +93,7 @@ class SocietyOfControlPlayer(Player):
             Do.RESOLVE_TRIGGER.prefer(self.resolve_choice, floor=0.0),           # aim a player-target spell at their face,
 
             # Playing spells
+            Do.SPELLS.matching(is_cantrip).prefer(self.free_cantrip_choice, floor=0.0),   # FREE one-drop cantrips first (commander refunds the cast),
             Do.SPELLS.matching(is_creature_damage).prefer(self.burn_choice, floor=0.0),   # KILL a threat (only if lethal),
             Do.SPELLS.matching(is_mana_rock).prefer(self.curve_choice, floor=0.0),        # RAMP — rocks/dorks first,
             Do.SPELLS.matching(is_commander_cast).prefer(self.curve_choice, floor=0.0),   # then the COMMANDER (Brawl) before any creature,
@@ -181,6 +182,60 @@ class SocietyOfControlPlayer(Player):
         spend the scarcer, ability-bearing non-basics first and keep basics in reserve. (Only relevant under
         explicit_lands — in the default mode lands auto-develop and don't surface as moves.)"""
         return 0.0 if move.card.is_basic else 1.0
+
+    # value of a free one-drop cantrip — any positive clears the floor=0.0 gate. It's the FIRST spell line, so a
+    # genuinely-free cantrip is cast before anything else: it replaces itself (a card) and triggers the commander
+    # (more mana / its on-cast effects) at no net cost, so there's no reason to hold it.
+    _FREE_CANTRIP_VALUE = 1.0
+    # the §205 card types a commander's on-cast trigger might name (to check the trigger covers THIS spell).
+    _SPELL_TYPES = ("instant", "sorcery", "creature", "artifact", "enchantment", "planeswalker", "land", "battle")
+
+    def free_cantrip_choice(self, game, move) -> float:
+        """Score a ONE-DROP cantrip that our COMMANDER makes effectively FREE — cast it first. The matcher
+        (`is_cantrip`) says the spell draws; this adds the two board conditions that make casting it pure upside:
+        it's a ONE-DROP (mana value 1), and a commander we control REFUNDS the cast — a triggered 'whenever you
+        cast …, add mana' ability whose trigger covers this spell's type (e.g. Electro, Assaulting Battery: add
+        {R} on an instant/sorcery). Then the {1} comes straight back and the spell replaces itself, so there's no
+        reason not to fire it before developing. Anything else (mv != 1, or no refunding commander in play) scores
+        -inf and falls through to the normal spell lines, so this is inert without such a commander."""
+        if self._mana_value(game, move.card.id) != 1:
+            return float("-inf")
+        if not self._commander_refunds_cast(game, move):
+            return float("-inf")
+        return self._FREE_CANTRIP_VALUE
+
+    def _my_commander_insts(self, game) -> list:
+        """Instance ids of the commanders WE control on the battlefield."""
+        cmd = game.state.get("is_commander", set())
+        return [p.id for p in self.battlefield if (p.id,) in cmd]
+
+    def _commander_refunds_cast(self, game, move) -> bool:
+        """True if a commander we control would REFUND casting `move` — it has a triggered 'whenever you cast …'
+        ability that ADDS MANA, and that trigger covers this spell's type. Read from `ability_trigger` +
+        `card_effect` (add_mana), so False without card rules / without such a commander in play."""
+        triggers = game.state.get("ability_trigger", set())            # (slug, aid, phrase)
+        effects = game.state.get("card_effect", set())
+        for inst in self._my_commander_insts(game):
+            slug = self._slug_of(game, inst)
+            if slug is None:
+                continue
+            for (s, aid, phrase) in triggers:
+                if s != slug or "cast" not in str(phrase):
+                    continue                                           # not a 'whenever you cast …' trigger
+                adds_mana = any(r[0] == slug and r[1] == aid and len(r) > 3 and r[3] == "add_mana" for r in effects)
+                if adds_mana and self._spell_matches_trigger(move, str(phrase)):
+                    return True
+        return False
+
+    def _spell_matches_trigger(self, move, phrase: str) -> bool:
+        """Does `move`'s spell satisfy a cast-trigger `phrase`? If the phrase names card types (e.g. an
+        'instant_or_sorcery' trigger), the spell must have one of them; a phrase that names no type (a generic
+        'whenever you cast a spell') covers everything."""
+        named = [t for t in self._SPELL_TYPES if t in phrase]
+        if not named:
+            return True
+        card = move.card
+        return card is not None and any(card.has_type(t) for t in named)
 
     def burn_choice(self, game, move) -> float:
         """Score a creature-targeting damage spell by the THREAT IT REMOVES — but only when it WOULD KILL an

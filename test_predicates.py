@@ -59,6 +59,14 @@ def run() -> None:
     check("is_draw_ability False when the ability doesn't draw",
           P.is_draw_ability(nodraw, NS(kind="activate", card=NS(id="x"), choices={})) is False)
 
+    # is_cantrip: a CAST move whose spell has a `draw` effect (the cast analogue of is_draw_ability)
+    cg = Game.from_state({"instance_of": {("w", "crimson_wisps")},
+                          "card_effect": {("crimson_wisps", "a1", 0, "draw", "1", "you", "-", "-")}})
+    check("is_cantrip True for a cast spell that draws",
+          P.is_cantrip(cg, NS(kind="cast", card=NS(id="w"), choices={})) is True)
+    check("is_cantrip False for an activate of the same card (not a cast)",
+          P.is_cantrip(cg, NS(kind="activate", card=NS(id="w"), choices={})) is False)
+
     # ── ability-derived predicates: read the loaded card rule facts ───────────────────────────────────────
     st = {
         "instance_of": {("rock", "mind_stone"), ("dork", "llanowar_elves"),
