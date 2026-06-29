@@ -3396,6 +3396,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     continue
                 if _is_still_land_rider(verb, amt, extra):   # §613 'It's still a land' no-op (man-land rider)
                     continue
+                if verb == "deal_damage" and str(tgt) == "that_target" and str(extra) == "instead":
+                    # §616.1 a CONDITIONAL damage UPGRADE — 'deals N to <tgt>. If <cond>, it deals M instead'
+                    # (Burst Lightning if kicked, Brimstone morbid, Invasive Maneuvers control-a-Spacecraft).
+                    # The base deal_damage already derives spell_damage(spell, N, kind); emit a driver-only
+                    # spell_damage_upgrade the driver substitutes for the base amount ONLY when it can CONFIRM
+                    # the condition (faithful: the base damage always resolves; the upgrade never over-deals on
+                    # an unconfirmable cond). A non-numeric upgrade amount (Stonesplitter's 'twice X') abstains.
+                    up = _int(amt)
+                    if up is not None and _cond != "-":
+                        add("spell_damage_upgrade", (tid, up, str(_cond))); continue
+                    dropped.append(("effect", "deal_damage")); continue
                 if str(tgt) in ("that_creature", "that_creature_s_controller"):
                     # §607.2 a 'that creature(' s controller)' RIDER referencing the spell's MAIN target (Team
                     # Tactics' trample, Repulsor Blast's 2-to-controller — both gated 'if cast using teamwork').

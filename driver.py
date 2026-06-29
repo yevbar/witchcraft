@@ -3157,8 +3157,35 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
     # (translate.dl), the rest still bridge-fed (.input). souffle unions both; read it back from the engine
     # (the amount comes back a string through souffle, so int(n) before the lethality arithmetic).
     rows = sorted(r for r in run(state, ["spell_damage"])["spell_damage"] if r[0] == spell)
+    # §616.1 a CONDITIONAL damage UPGRADE ('deals N; if <cond>, M instead' — Burst Lightning, Brimstone Volley,
+    # Invasive Maneuvers): deal M instead of N iff the engine can CONFIRM the condition. Never over-deals on an
+    # unconfirmable cond (kicker/bargain aren't modelled -> treated as not met -> the base N resolves).
+    upgrade = next(((int(up), c) for (s, up, c) in state.get("spell_damage_upgrade", set()) if s == spell), None)
     for (_s, n, kind) in rows:
-        _apply_damage(state, spell, int(n), kind, ctrl)
+        amt = int(n)
+        if upgrade is not None and _spell_cond_met(state, upgrade[1], ctrl):
+            print(f"      {spell}: condition '{upgrade[1]}' met -> deals {upgrade[0]} instead of {amt}")
+            amt = upgrade[0]
+        _apply_damage(state, spell, amt, kind, ctrl)
+
+
+def _spell_cond_met(state: dict, cond: str, ctrl: str) -> bool:
+    """§616.1 evaluate a conditional damage UPGRADE's condition for `ctrl`, or False when the engine can't
+    confirm it (so the base amount stands — never an over-deal). Modelled: 'you control a <type/subtype>'
+    (a live board read, e.g. Invasive Maneuvers' Spacecraft) and morbid ('a creature died this turn', from the
+    turn-scoped death tally). Optional ADDITIONAL costs the cast model doesn't pay — kicker (was_kicked),
+    bargain (was_bargained) — are treated as NOT met (faithful: the spell wasn't kicked/bargained here)."""
+    m = re.match(r"^you_control_a[n]?_(\w+)$", cond)
+    if m:
+        kind = m.group(1)
+        controls = {c for (p, c) in run(state, ["controls"])["controls"] if p == ctrl}
+        ptype = state.get("printed_type", set())
+        psub = state.get("printed_subtype", set()) | state.get("card_subtype", set())
+        return any(c in controls and ((c, kind) in ptype or (c, kind) in psub) for (c,) in
+                   {(x,) for x in controls})
+    if cond in ("a_creature_died_this_turn", "morbid"):
+        return bool(state.get("_died_this_turn"))
+    return False                                            # was_kicked / was_bargained / unmodelled -> not met
 
 
 def _run_spell_riders(state: dict, spell: str, ctrl: str) -> None:
