@@ -456,20 +456,31 @@ class SocietyOfControlPlayer(Player):
     def draw_ability_choice(self, game, move) -> float:
         """Score an activated DRAW ability that COSTS US THE BOARD (sacrifices its own source). `develop_choice`
         rightly refuses these — trading a creature for a card is a board loss — so this is the deliberate
-        exception: cashing the body in is FINE when (a) we already control a separate CONTINUOUS draw engine (a
-        triggered / non-sacrifice repeatable draw — not a one-shot spell or another sac-draw), so the hand keeps
-        refilling, AND (b) if the ability also DISCARDS (a rummage), we hold a 'discardable' card to pitch — an
-        EXCESS LAND (a land in hand once we already control five). A draw ability that does NOT cost the board
-        (it keeps its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case
-        changes. (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
+        exception: cashing the body in is FINE when the body is AFFORDABLE TO LOSE, by either route —
+          (a) a separate CONTINUOUS draw engine keeps the hand refilling (a triggered / non-sacrifice repeatable
+              draw — not a one-shot spell or another sac-draw); OR
+          (b) the BOARD CAN SPARE IT — at least TWO OTHER creatures remain after the sacrifice (a wide board, so
+              one body for a card — plus any ramp/token the sac also makes — is fine).
+        Affordability of the activation itself is implicit: the ability only surfaces as a legal move when payable.
+        Then, if the ability also DISCARDS (a rummage), we still require a 'discardable' card to pitch — an EXCESS
+        LAND (a land in hand once we already control five). A draw ability that does NOT cost the board (it keeps
+        its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case changes.
+        (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
         slug = self._slug_of(game, move.card.id)
         if slug is None or not self._sacrifices_self_to_draw(game, slug):
             return float("-inf")                       # not a board-costing draw -> develop_choice handles it
-        if not self._has_continuous_draw_source(game, exclude=move.card.id):
-            return float("-inf")                       # no engine to refill -> don't trade the body for a wash
+        if not (self._has_continuous_draw_source(game, exclude=move.card.id)
+                or self._board_can_spare_creature(game, move)):
+            return float("-inf")                       # no engine AND a thin board -> don't trade the body for a wash
         if self._draws_with_discard(game, slug) and not self._has_discardable(game):
             return float("-inf")                       # a rummage with nothing worth pitching -> hold the body
-        return self._DRAW_ABILITY_VALUE                # an engine + a card to pitch -> cashing the body in is fine
+        return self._DRAW_ABILITY_VALUE                # affordable to lose the body -> cashing it in is fine
+
+    def _board_can_spare_creature(self, game, move) -> bool:
+        """True if our board can afford to sacrifice `move`'s source creature — at least TWO OTHER creatures of
+        ours remain after it goes. With a wide board, spending one body for a card (and any ramp/token the sac
+        also yields) is fine."""
+        return sum(1 for c in self.creatures if c.id != move.card.id) >= 2
 
     def _slug_of(self, game, inst):
         """The card slug for an instance id (from `instance_of`), or None."""

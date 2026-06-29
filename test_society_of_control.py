@@ -235,7 +235,7 @@ def run() -> None:
     # BOARD-COSTING DRAW (sac-and-draw, e.g. Insolent Neonate): develop_choice refuses it (board loss), so the
     # draw_ability_choice exception only fires it when (a) a CONTINUOUS draw engine is already in play and (b) if
     # it's a rummage, we hold an EXCESS LAND to pitch (a land in hand once we control five). Mirrors the real T9.
-    def _draw_game(*, lands_in_play, land_in_hand, engine, sac=True, discard=True):
+    def _draw_game(*, lands_in_play, land_in_hand, engine, sac=True, discard=True, others=0):
         st = {"is_player": {("alice",), ("bob",)}, "life": {("alice", 20), ("bob", 20)},
               "active_player": {("alice",)}, "has_priority": {("alice",)}, "current_step": {("precombat_main",)},
               "in_hand": set(), "instance_of": set(), "on_battlefield": set(), "printed_control": set(),
@@ -260,6 +260,10 @@ def run() -> None:
         if land_in_hand:
             st["in_hand"] |= {("alice", "hl")}; st["instance_of"] |= {("hl", "mountain")}
             st["printed_type"] |= {("hl", "land")}
+        for i in range(others):                                    # extra OUR creatures (board the sac can spare)
+            o = f"k{i}"; st["instance_of"] |= {(o, "x")}; st["on_battlefield"] |= {(o,)}
+            st["printed_control"] |= {("alice", o)}; st["printed_type"] |= {(o, "creature")}
+            st["printed_power"] |= {(o, 2)}; st["printed_toughness"] |= {(o, 3)}
         g = Game.from_state(st); p = SocietyOfControlPlayer().bind(g, "alice")
         return g, p
 
@@ -282,6 +286,15 @@ def run() -> None:
           draw_score(lands_in_play=0, land_in_hand=False, engine=True, discard=False) > 0)
     check("a draw ability that KEEPS its body is left to develop_choice (-inf here)",
           draw_score(lands_in_play=5, land_in_hand=True, engine=True, sac=False) == NEG)
+
+    # BOARD-CAN-SPARE-IT path (Reckless Lackey: sac -> draw + Treasure): even with NO draw engine, a sac-draw
+    # fires when at least TWO OTHER creatures remain after it (a wide board can spend one body for a card).
+    check("sac-draw FIRES off a wide board (2 other creatures) even without a draw engine",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=False, others=2) > 0)
+    check("sac-draw HELD with only one other creature (board too thin)",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=False, others=1) == NEG)
+    check("the discard caveat STILL applies on the board-spare path (no pitch -> held)",
+          draw_score(lands_in_play=0, land_in_hand=False, engine=False, discard=True, others=3) == NEG)
 
     # FREE ONE-DROP CANTRIPS: with a commander in play whose on-cast trigger REFUNDS mana (Electro: add {R} on an
     # instant/sorcery), a one-drop cantrip is effectively free (the {1} comes back, it replaces itself), so the
