@@ -3702,6 +3702,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
                     continue
+                if verb == "add_mana" and str(amt) == "for_each_color_among_monocolored_permanents_you_control":
+                    # §106 'for each color among monocolored permanents you control, add one mana of that color'
+                    # (Tarnation Vista) -> one mana of EACH color present among the controller's MONOCOLORED
+                    # permanents (the driver computes it live from printed_color). A mana_per_board_color slot.
+                    add("activated_ability", (a, tid, paid[0], taps, "mana_per_board_color", 0, "monocolored_you_control"))
+                    emitted = True; continue
                 if verb == "add_mana":                        # the source's mana clauses
                     if not mana_registered:                   # registration abstained -> drop as before
                         dropped.append(("effect", verb))
