@@ -19,6 +19,8 @@ from .board import BoardLocator, locate_named_permanents
 from .execute import ExecResult, GameExecutor, ObjectLocator
 from .hand import (
     capture_hand,
+    command_zone_members,
+    commander_point,
     hand_members,
     hand_order,
     hand_screen_order,
@@ -30,6 +32,7 @@ from .hand import (
     on_mulligan_screen,
     order_inversions,
     play_card,
+    play_commander,
     play_hand_card,
     play_hand_object,
     play_land,
@@ -114,4 +117,5 @@ __all__ = [
     "hand_order", "hand_screen_order", "hand_members", "play_hand_object",
     "play_land", "play_hand_card", "land_play_options", "on_mulligan_screen",
     "locate_named_cards", "match_named_card", "order_inversions",
+    "command_zone_members", "commander_point", "play_commander",
 ]
