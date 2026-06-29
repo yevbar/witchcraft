@@ -24,7 +24,7 @@ from .game import Game
 from .models import Move, PriorityOption as Do
 from .players import Player
 from .predicates import (anything, creature_damage, is_commander_cast, is_creature, is_creature_damage,
-                         is_mana_rock, is_permanent)
+                         is_draw_ability, is_mana_rock, is_permanent)
 
 
 class SocietyOfControlPlayer(Player):
@@ -102,6 +102,7 @@ class SocietyOfControlPlayer(Player):
 
             # Activating abilities
             Do.ABILITIES.prefer(self.develop_choice, floor=0.0),  # else the best ability, same gate,
+            Do.ABILITIES.matching(is_draw_ability).prefer(self.draw_ability_choice, floor=0.0),  # else cash a body in for a card (engine + a pitch),
 
             # Combat related
             Do.ATTACKS.prefer(self.attack_choice),              # else the best attack declaration,
@@ -354,6 +355,83 @@ class SocietyOfControlPlayer(Player):
         except Exception:
             return float("-inf")
         return self._value(child, self.seat) - self._value(game, self.seat)
+
+    # value of activating a board-costing DRAW ability when it's allowed — any positive clears the floor=0.0 gate
+    # (it's the LAST ability option, after develop_choice, so it only fires when nothing better wants the mana).
+    _DRAW_ABILITY_VALUE = 1.0
+
+    def draw_ability_choice(self, game, move) -> float:
+        """Score an activated DRAW ability that COSTS US THE BOARD (sacrifices its own source). `develop_choice`
+        rightly refuses these — trading a creature for a card is a board loss — so this is the deliberate
+        exception: cashing the body in is FINE when (a) we already control a separate CONTINUOUS draw engine (a
+        triggered / non-sacrifice repeatable draw — not a one-shot spell or another sac-draw), so the hand keeps
+        refilling, AND (b) if the ability also DISCARDS (a rummage), we hold a 'discardable' card to pitch — an
+        EXCESS LAND (a land in hand once we already control five). A draw ability that does NOT cost the board
+        (it keeps its source) returns -inf here and is left to `develop_choice`, so only the sacrifice case
+        changes. (Slug-level: keyed on the source card's facts, exact for the common one-activated-ability case.)"""
+        slug = self._slug_of(game, move.card.id)
+        if slug is None or not self._sacrifices_self_to_draw(game, slug):
+            return float("-inf")                       # not a board-costing draw -> develop_choice handles it
+        if not self._has_continuous_draw_source(game, exclude=move.card.id):
+            return float("-inf")                       # no engine to refill -> don't trade the body for a wash
+        if self._draws_with_discard(game, slug) and not self._has_discardable(game):
+            return float("-inf")                       # a rummage with nothing worth pitching -> hold the body
+        return self._DRAW_ABILITY_VALUE                # an engine + a card to pitch -> cashing the body in is fine
+
+    def _slug_of(self, game, inst):
+        """The card slug for an instance id (from `instance_of`), or None."""
+        return next((s for (i, s) in game.state.get("instance_of", set()) if i == inst), None)
+
+    def _draw_aids(self, game, slug) -> set:
+        """The ability ids of `slug` whose effect is `draw`."""
+        return {r[1] for r in game.state.get("card_effect", set()) if r[0] == slug and len(r) > 3 and r[3] == "draw"}
+
+    def _ability_costs(self, game, slug) -> list:
+        """(aid, cost-text) for each of `slug`'s activated-ability costs (`ability_cost`)."""
+        return [(aid, cost) for (s, aid, cost) in game.state.get("ability_cost", set()) if s == slug]
+
+    def _sacrifices_self_to_draw(self, game, slug) -> bool:
+        """True if a DRAW ability of `slug` sacrifices its OWN source as a cost ('Sacrifice ~') — the board-loss
+        case develop_choice declines, and the one this exception is for."""
+        draw = self._draw_aids(game, slug)
+        return any(aid in draw and "sacrifice ~" in str(cost).lower()
+                   for (aid, cost) in self._ability_costs(game, slug))
+
+    def _draws_with_discard(self, game, slug) -> bool:
+        """True if a DRAW ability of `slug` also DISCARDS as a cost (a rummage), which needs a card to pitch."""
+        draw = self._draw_aids(game, slug)
+        return any(aid in draw and "discard" in str(cost).lower()
+                   for (aid, cost) in self._ability_costs(game, slug))
+
+    def _has_continuous_draw_source(self, game, *, exclude) -> bool:
+        """True if we control a CONTINUOUS draw engine other than `exclude`: a battlefield permanent whose draw
+        comes from a TRIGGERED ability (e.g. Byway Barterer) or a NON-sacrifice ACTIVATED ability (e.g. Diary of
+        Dreams) — i.e. repeatable, not a one-shot spell or another sac-draw."""
+        for perm in self.battlefield:
+            if perm.id == exclude:
+                continue
+            slug = self._slug_of(game, perm.id)
+            if slug is None:
+                continue
+            draw = self._draw_aids(game, slug)
+            if not draw:
+                continue
+            kinds = {aid: kind for (s, aid, kind) in game.state.get("card_ability", set()) if s == slug}
+            costs = dict(self._ability_costs(game, slug))
+            for aid in draw:
+                if kinds.get(aid) == "triggered":
+                    return True                        # a triggered draw engine (Byway Barterer)
+                if kinds.get(aid) == "activated" and "sacrifice ~" not in str(costs.get(aid, "")).lower():
+                    return True                        # a repeatable activated draw (Diary of Dreams)
+        return False
+
+    def _has_discardable(self, game) -> bool:
+        """True if we hold a card freely worth pitching to a rummage — an EXCESS LAND: a land in hand once we
+        already control five lands (the sixth is surplus). Only excess lands count as discardable here."""
+        if len(self.me.permanents(type="land")) < 5:
+            return False
+        ptype = game.state.get("printed_type", set())
+        return any((inst, "land") in ptype for inst in self.hand)
 
     @staticmethod
     def _creature_value(c) -> float:                                   # a rough creature worth for a trade

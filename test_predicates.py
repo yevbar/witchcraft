@@ -48,6 +48,17 @@ def run() -> None:
     check("is_commander_cast False for a normal creature cast", P.is_commander_cast(None, _typed("creature")) is False)
     check("is_commander_cast False for a card-less pass", P.is_commander_cast(None, NS(kind="pass", card=None)) is False)
 
+    # is_draw_ability: an ACTIVATE move whose source has a `draw` card_effect (objective; reads the rule facts)
+    dg = Game.from_state({"instance_of": {("neo", "neonate")},
+                          "card_effect": {("neonate", "a1", 0, "draw", "1", "you", "-", "-")}})
+    act = NS(kind="activate", card=NS(id="neo"), choices={})
+    check("is_draw_ability True for an activated draw ability", P.is_draw_ability(dg, act) is True)
+    check("is_draw_ability False for a non-activate move (a cast of the same card)",
+          P.is_draw_ability(dg, NS(kind="cast", card=NS(id="neo"), choices={})) is False)
+    nodraw = Game.from_state({"instance_of": {("x", "vanilla")}, "card_effect": set()})
+    check("is_draw_ability False when the ability doesn't draw",
+          P.is_draw_ability(nodraw, NS(kind="activate", card=NS(id="x"), choices={})) is False)
+
     # ── ability-derived predicates: read the loaded card rule facts ───────────────────────────────────────
     st = {
         "instance_of": {("rock", "mind_stone"), ("dork", "llanowar_elves"),

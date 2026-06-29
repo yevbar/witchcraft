@@ -40,7 +40,7 @@ from .rebel import ReBeLPlayer, heuristic_value                        # noqa: E
 from .cards import cards, CardCorpus                                    # noqa: E402  (lazy — see module)
 from .predicates import (anything, is_creature, is_artifact, is_enchantment, is_instant, is_sorcery,  # noqa: E402
                          is_land, is_planeswalker, is_battle, is_permanent, is_mana_rock,
-                         is_commander_cast, is_creature_damage, creature_damage)
+                         is_commander_cast, is_draw_ability, is_creature_damage, creature_damage)
 
 __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
            "Player", "RandomPlayer", "GreedyPlayer", "InformationPlayer", "play",
@@ -49,7 +49,7 @@ __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
            "load_deck", "parse_deck", "bundled_decks", "read_cards", "read_arena_cards", "find_best_deck",
            "anything", "is_creature", "is_artifact", "is_enchantment", "is_instant", "is_sorcery", "is_land",
            "is_planeswalker", "is_battle", "is_permanent", "is_mana_rock", "is_commander_cast",
-           "is_creature_damage", "creature_damage",
+           "is_draw_ability", "is_creature_damage", "creature_damage",
            "new_game", "self_play", "demo", "engine_available", "__version__"]
 __version__ = "0.1.0"
 
