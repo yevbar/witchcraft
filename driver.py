@@ -3976,6 +3976,9 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
         _tap(state, src)                                     # §602.2 pay {T} (records just_tapped)
     _fire_tap_triggers(state)                                # §603 'becomes tapped' for the {T} cost / mana taps
     if (a,) in state.get("ability_sac_cost", set()):         # §118 a 'Sacrifice this' activation cost (Teardrop Kami)
+        # CAPTURE the source's counter counts BEFORE it leaves, so an effect sized 'X = a counter on it' (Drix
+        # Interlacer: 'Draw X, X = half this artifact's intensity') can read them once the source is in the yard.
+        state["_last_sac_counts"] = {k: c for (o, k, c) in state.get("counter", set()) if o == src}
         _sacrifice(state, src)                               # fires 'when sacrificed', then -> graveyard
     sac_kind = next((k for (aa, k) in state.get("ability_sac_filter", set()) if aa == a), None)
     if sac_kind is not None:                                  # §602.5 'Sacrifice a <creature/artifact/subtype>'

@@ -3870,6 +3870,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     if _target_class(tgt) is not None:        # target creature -> ctarget (driver picks + applies, EOT)
                         add("activated_ability", (a, tid, paid[0], taps, "ctarget", 0, f"cant_be_blocked|-|{_target_class(tgt)}"))
                         emitted = True; continue
+                if verb == "draw" and str(amt) == "X_half_s_intensity":
+                    # §107.61/§107.3 Drix Interlacer: 'Draw X, where X is half this artifact's intensity, rounded
+                    # down'. The source is sacrificed as part of the cost, so the driver captures its intensity
+                    # BEFORE it leaves (_last_sac_counts) and the applier draws floor(intensity/2). A self-
+                    # referential dynamic draw — relies on the sac-self cost (ability_sac_cost, emitted above).
+                    if len(paid) > 2 and paid[2]:             # only when the source IS sacrificed (intensity is captured)
+                        add("activated_ability", (a, tid, paid[0], taps, "draw_half_intensity", 0, "self"))
+                        emitted = True; continue
                 r = _resolved_effect(verb, amt, tgt, extra, _cond, attached_source)
                 if r is None:
                     dropped.append(("effect", verb))
