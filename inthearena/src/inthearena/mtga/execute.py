@@ -32,6 +32,12 @@ from .views import ScreenAnchor, ViewElement
 
 _log = logging.getLogger("inthearena.mtga.execute")
 
+# An "actions" choice sentinel: tap ALL of our mana sources via MTGA's hotkey ('q' pressed twice) — the client's
+# own "tap all" convenience, not a GRE action option. The engine surfaces this as a `tap_mana` move (Do.TAP_MANA,
+# e.g. society_of_control banking mana under a retain-mana commander); EnginePolicy._translate returns this
+# sentinel and `_do_actions` presses the keys. Shared so the policy and the executor agree on one object.
+TAP_MANA = object()
+
 # Bottom-right context buttons. The generic advance button's LABEL changes with the step (Pass / Resolve / Done /
 # Next); one element covers those. BUT the declare-attackers step shows TWO buttons stacked there — 'All Attack'
 # (lower) and 'No Attacks' (above it) — both inside the bottom-right anchor region, so a generic query could grab
@@ -123,8 +129,12 @@ class GameExecutor:
         return self._advance("assign damage: accept default order", _DONE)
 
     def _do_actions(self, decision, choice) -> ExecResult:
-        # choice is a gre.Action (or None). Pass -> advance; play a land / cast a spell -> the HAND.
+        # choice is a gre.Action (or None), the TAP_MANA sentinel, or a Pass. Pass -> advance; tap all mana ->
+        # the 'q' hotkey (twice); play a land / cast a spell -> the HAND.
         from .gre import Action  # local import keeps execute importable without the gre cycle at module load
+        if choice is TAP_MANA:                               # §106.4 'tap all mana sources' — MTGA's q,q hotkey
+            self._act.key("q", "q")
+            return ExecResult(True, "tap all mana (q,q)")
         if choice is None or getattr(choice, "actionType", None) == "ActionType_Pass":
             return self._advance("pass")
         if not isinstance(choice, Action):

@@ -178,6 +178,9 @@ class Move(BaseModel):
         if kind in ("cast_face_down", "foretell", "turn_face_up"):
             _, player, card = action
             return cls.model_construct(kind=kind, raw=action, player=player, card=ref(card))
+        if kind == "tap_mana":                                  # §106.4 tap all mana sources, float the mana
+            _, player = action
+            return cls.model_construct(kind=kind, raw=action, player=player)
         if kind == "attack":
             return cls.model_construct(kind=kind, raw=action, attackers=frozenset(action[1]))
         if kind == "block":
@@ -242,6 +245,13 @@ class Priority:
     def abilities(self) -> list:
         """The activated abilities (`kind == "activate"`)."""
         return self.of("activate")
+
+    @property
+    def tap_mana(self) -> list:
+        """The bulk 'tap all mana sources for mana' action(s) (`kind == "tap_mana"`) — surfaced only in
+        explicit-lands mode (CR 106.4), where the agent floats its own mana rather than the engine
+        auto-stocking the pool. There's at most one such move (it taps everything at once)."""
+        return self.of("tap_mana")
 
     @property
     def attacks(self) -> list:
@@ -309,6 +319,7 @@ class PriorityOption(Enum):
     LANDS = "lands"
     SPELLS = "spells"
     ABILITIES = "abilities"
+    TAP_MANA = "tap_mana"                   # §106.4 tap mana sources to FLOAT mana (explicit_lands only) — e.g. bank under a retain-mana commander
     RESOLVE_TRIGGER = "resolve_triggers"   # resolve a targeted effect (§601.2c) — pick WHO/WHAT it hits
     ATTACKS = "attacks"
     BLOCKS = "blocks"

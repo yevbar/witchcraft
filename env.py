@@ -393,6 +393,10 @@ def legal_actions(state: dict) -> list[tuple]:
         if state.get("_explicit_lands"):                      # §305 opt-in: land drops are the agent's choice
             for land in _playable_lands(state, ap):
                 actions.append(("play", ap, land))
+            # §106.4 opt-in: float mana yourself — offer a single 'tap all sources' action when ap has an
+            # untapped source that taps for mana (so a retain-mana commander can BANK it). Empty otherwise.
+            if any(taps for (_sid, _u, _cg, taps) in driver._source_units(state, ap)):
+                actions.append(("tap_mana", ap))
         actions.extend(_priority_actions(state, ap))
         actions.extend(_face_down_actions(state, ap))         # §702/§708 morph/disguise/foretell/turn-face-up
         actions.extend(_cycle_actions(state, ap))             # §702.29 cycling — discard a hand card to draw
@@ -578,6 +582,9 @@ def step(state: dict, action: tuple) -> dict:
         elif kind == "cycle":                                   # §702.29 cycling — pay cost, discard card, draw a card
             _, ap, card = action
             driver.cycle(s, card, ap)
+        elif kind == "tap_mana":                                # §106.4 tap every mana source and FLOAT the mana
+            _, ap = action
+            driver._tap_all_for_mana(s, ap)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
             _advance_one(s)

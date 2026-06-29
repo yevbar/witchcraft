@@ -381,6 +381,12 @@ class Actuator(Protocol):
         each carrying the clickState field. clicks=1 = a single click; clicks=2 = a real double-click."""
         ...
 
+    def key(self, *keys: str, gap: float = 0.05) -> None:
+        """Press the given keyboard key(s) in sequence on the FRONTMOST app (focus first) — the keyboard
+        analogue of `click()`. e.g. `key('q', 'q')` triggers MTGA's 'tap all mana sources' hotkey (q pressed
+        twice). `gap` is the pause between presses."""
+        ...
+
     def wait(self, seconds: float) -> None:
         ...
 
@@ -413,6 +419,7 @@ class DryRunActuator:
     moves: list = field(default_factory=list)              # (from, to, seg_duration) sub-segments travelled
     clicks: list = field(default_factory=list)             # positions clicked (end of a move)
     click_args: list = field(default_factory=list)         # (hold, settle) requested per click (None = default)
+    keys: list = field(default_factory=list)               # keyboard keys pressed (in order)
     waits: list = field(default_factory=list)              # pauses taken (seconds)
 
     def __post_init__(self):
@@ -456,6 +463,12 @@ class DryRunActuator:
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
         self.click()
+
+    def key(self, *keys: str, gap: float = 0.05) -> None:
+        for i, k in enumerate(keys):
+            self.keys.append(k)
+            if gap and i < len(keys) - 1:
+                self.waits.append(gap)
 
     def hover(self, x: int, y: int, *, duration: Optional[float] = None,
               curve: Optional[float] = None, wobble: Optional[float] = None) -> None:
@@ -617,6 +630,15 @@ class PyAutoGuiActuator:
     def move_and_click(self, x: int, y: int, *, duration: Optional[float] = None) -> None:
         self.move(x, y, duration=duration)
         self.click()
+
+    def key(self, *keys: str, gap: float = 0.05) -> None:
+        # Keystrokes go to the FRONTMOST window, so focus Arena first (same as click). pyautogui.press does a
+        # full down+up per key; MTGA's 'tap all mana' is 'q' pressed twice (key('q', 'q')).
+        self._focus()
+        for i, k in enumerate(keys):
+            self._pg.press(k)
+            if gap and i < len(keys) - 1:
+                self.wait(gap)
 
 
 # For each non-game view, the element to interact with to advance toward a game (from the view's own elements,
