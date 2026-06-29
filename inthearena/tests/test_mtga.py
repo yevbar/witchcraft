@@ -1512,6 +1512,34 @@ def _hand_checks():
     check("_name_matches: a clean 'Plains' matches", _name_matches("plains", "Plains"))
     check("_name_matches: a non-land name does NOT match 'plains'", not _name_matches("plains", "Lifecreed Duo"))
 
+    # ALT-COST 'Choose One' cast modal (Warp etc.): always take the NORMAL cast = the card copy LEFT of the
+    # 'Cast With <X>' label. Detected by that label; a no-modal screen is a no-op so ordinary casts are untouched.
+    from inthearena.mtga import cards as _cards, hand as _handmod, ocr as _ocr
+    from inthearena.mtga.hand import resolve_cast_mode_modal
+    _orec = _ocr.recognize_text
+    try:
+        # modal up: 'Cast With Warp' label at xf 0.59; the same card shown at 0.40 (normal) and 0.59 (warp)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [
+            ("Choose One", 0.50, 0.07), ("Cast With Warp", 0.59, 0.17),
+            ("Weftstalker Ardent", 0.40, 0.27), ("Weftstalker Ardent", 0.59, 0.27)]
+        acm = DryRunActuator(rect=rect, image=object())
+        hit = resolve_cast_mode_modal(acm, "Weftstalker Ardent", settle=0)
+        check("cast-mode: alt-cost modal -> clicks the NORMAL (left) option, not 'Cast With Warp'",
+              hit and len(acm.clicks) == 1 and 740 <= acm.clicks[0][0] <= 800)
+        # no 'Cast With' on screen -> no-op (a plain cast must be unaffected)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [("Lightning Bolt", 0.50, 0.90)]
+        acm2 = DryRunActuator(rect=rect, image=object())
+        none = resolve_cast_mode_modal(acm2, "Lightning Bolt", settle=0)
+        check("cast-mode: no alt-cost modal -> no-op (False, no click)", none is False and acm2.clicks == [])
+        # name unreadable -> mirror the labelled card across the modal centre (0.59 -> ~0.41w)
+        _ocr.recognize_text = _handmod.ocr.recognize_text = lambda image: [("Cast With Warp", 0.59, 0.17)]
+        acm3 = DryRunActuator(rect=rect, image=object())
+        hit3 = resolve_cast_mode_modal(acm3, None, settle=0)
+        check("cast-mode: name unreadable -> mirrors to the normal option (~0.41w)",
+              hit3 and len(acm3.clicks) == 1 and 760 <= acm3.clicks[0][0] <= 820)
+    finally:
+        _ocr.recognize_text = _handmod.ocr.recognize_text = _orec
+
 
 def _vision_crop_checks():
     """MoondreamLocator's `region` crop (the #2 speedup) must map detections back to the SAME absolute click
@@ -1594,6 +1622,19 @@ def _engine_policy_checks():
     from inthearena.mtga.execute import TAP_MANA
     check("engine 'tap_mana' -> the TAP_MANA hotkey sentinel (not a GRE Play/Cast/Pass option)",
           ep._translate(d_act, move("tap_mana")) is TAP_MANA)
+
+    # choose_x: a NumericInputType_ChooseX prompt parses to a 'choose_x' Decision, and the policy MAXIMIZES it.
+    from inthearena.mtga.execute import CHOOSE_X_MAX
+    from inthearena.mtga.gre import GameView as _GV, GreMessage, update
+    mx = GreMessage.model_validate({"type": "GREMessageType_NumericInputReq", "systemSeatIds": [1],
+                                    "numericInputReq": {"maxValue": 2147483647, "stepSize": 1, "sourceId": 9,
+                                                        "numericInputType": "NumericInputType_ChooseX"}})
+    dec_cx = update(_GV(), mx)
+    check("gre: NumericInputReq(ChooseX) -> a 'choose_x' Decision carrying the req",
+          dec_cx is not None and dec_cx.kind == "choose_x"
+          and getattr(dec_cx.req, "numericInputType", None) == "NumericInputType_ChooseX")
+    check("EnginePolicy.decide maximizes X (choose_x -> CHOOSE_X_MAX sentinel)",
+          ep.decide(dec_cx) is CHOOSE_X_MAX)
 
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
@@ -1746,6 +1787,16 @@ def _execute_checks():
     r_tap = GameExecutor(a_tap, locator=AdvLoc()).execute(dec_actions, TAP_MANA)
     check("execute: TAP_MANA -> presses the q,q hotkey (no click), done",
           r_tap.done and a_tap.keys == ["q", "q"] and a_tap.clicks == [])
+
+    # choose_x ('Select a value for X'): MAXIMIZE — spam the '+5' button (right of the widget) past the cap, then
+    # click the central 'Pay X=N' (left of +5), which sets AND confirms. 12 +5 + 1 Pay = 13 clicks.
+    from inthearena.mtga.execute import CHOOSE_X_MAX, _X_PLUS5_CLICKS
+    dec_x = Decision(kind="choose_x", options=[], seat=1, view=GameView(), req=None)
+    a_x = DryRunActuator(rect=rect)
+    r_x = GameExecutor(a_x).execute(dec_x, CHOOSE_X_MAX)
+    check("execute: choose_x -> spams +5 then clicks Pay to maximize X",
+          r_x.done and len(a_x.clicks) == _X_PLUS5_CLICKS + 1
+          and a_x.clicks[-1][0] < a_x.clicks[0][0])      # final 'Pay' click is LEFT of the '+5' clicks
 
     # cast routes to the HAND (play_hand_card); with an empty view there's no card to identify -> shadow, no click
     cast = Action(actionType="ActionType_Cast", instanceId=51)

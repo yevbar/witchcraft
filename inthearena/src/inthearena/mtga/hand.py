@@ -433,6 +433,46 @@ def play_hand_object(actuator, locator, view, seat: int, instance_id: int) -> bo
     return True
 
 
+# The 'Choose One' ALTERNATIVE-COST cast picker (Warp, and any 'Cast With <X>' alt cost): MTGA pops a modal
+# showing the card at its NORMAL cost beside a 'Cast With <X>' copy. Clicking a hand card with such an option
+# opens this BEFORE the cast registers, so the cast never lands and the drive loop re-clicks forever. Policy:
+# always take the NORMAL cast (keep the permanent — the engine doesn't model the alt cost's downside, e.g. Warp
+# exiles the creature until your next turn). The 'Cast With' label is the distinctive signal.
+_CAST_WITH = "cast with"
+_CAST_MODE_CARD_Y = 0.41   # frac-h of the two card options' row in the modal (both copies sit at this height)
+
+
+def resolve_cast_mode_modal(actuator, target_name: str | None = None, *, settle: float = 0.4) -> bool:
+    """If MTGA is showing the alternative-cost 'Choose One' cast picker (e.g. Warp — the card at its normal cost
+    vs 'Cast With Warp'), click the NORMAL option and return True. Returns False when no such modal is up, so a
+    plain cast is unaffected. Detected by the distinctive 'Cast With <X>' label; the normal option is the copy of
+    the card LEFT of that label, with a centre-mirror fallback when the name can't be read."""
+    rect = actuator.window_rect()
+    if rect is None:
+        return False
+    actuator.wait(settle)                                  # let the modal animate in before reading it
+    image = actuator.screenshot()
+    if image is None:
+        return False
+    texts = list(ocr.recognize_text(image))
+    warp = next(((xf, yf) for (t, xf, yf) in texts if _CAST_WITH in _norm_name(t)), None)
+    if warp is None:
+        return False                                       # not the alt-cost picker -> nothing to handle
+    warp_xf = warp[0]
+    # both options show the SAME card name; the NORMAL one is the copy LEFT of the 'Cast With' label.
+    tn = _norm_name(target_name or "")
+    left = [xf for (t, xf, yf) in texts
+            if 0.12 <= yf <= 0.72 and xf < warp_xf - 0.03
+            and tn and _name_score(tn, _norm_name(t)) >= _NAME_MATCH]
+    nx = min(left) if left else max(0.0, min(1.0, 1.0 - warp_xf))   # else mirror the labelled card across centre
+    x, y = rect.x + int(nx * rect.w), rect.y + int(_CAST_MODE_CARD_Y * rect.h)
+    _log.info("  cast-mode: alt-cost 'Choose One' modal up ('Cast With' at xf=%.2f) — taking the NORMAL cast at xf=%.2f",
+              warp_xf, nx)
+    actuator.hover(x, y)
+    actuator.click()
+    return True
+
+
 def _is_land(view, instance_id) -> bool:
     o = view.objects.get(instance_id)
     return bool(o and "CardType_Land" in (o.cardTypes or []))

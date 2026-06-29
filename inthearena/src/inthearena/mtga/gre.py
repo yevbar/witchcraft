@@ -179,6 +179,16 @@ class MulliganReq(_M):
     freeMulliganCount: Optional[int] = None
 
 
+class NumericInputReq(_M):
+    """A 'pick a number' prompt — for us, NumericInputType_ChooseX: the value for an {X} cost/effect (e.g. the
+    commander mousetrap's 'pay {X}: deal X', or a Stonesplitter Bolt). `maxValue` is unbounded (int max) in
+    practice, so the affordable cap isn't here — the executor drives the on-screen +/-/Pay widget to max."""
+    maxValue: Optional[int] = None
+    stepSize: Optional[int] = None
+    sourceId: Optional[int] = None
+    numericInputType: Optional[str] = None
+
+
 class DeckConstraintInfo(_M):
     minDeckSize: Optional[int] = None
     maxDeckSize: Optional[int] = None
@@ -221,6 +231,7 @@ class GreMessage(_M):
     selectTargetsReq: Optional[SelectTargetsReq] = None
     assignDamageReq: Optional[AssignDamageReq] = None
     mulliganReq: Optional[MulliganReq] = None
+    numericInputReq: Optional[NumericInputReq] = None
 
 
 # ── stream + accumulation ───────────────────────────────────────────────────────────────────────────────
@@ -359,6 +370,7 @@ _DECISIONS = {
     "targets": ("selectTargetsReq", "targets"),
     "assign_damage": ("assignDamageReq", None),            # order damage among multiple blockers — accept default
     "mulligan": ("mulliganReq", None),
+    "choose_x": ("numericInputReq", None),                 # 'Select a value for X' — req carries maxValue/sourceId
 }
 _TYPE_TO_KIND = {
     "GREMessageType_ActionsAvailableReq": "actions",
@@ -367,6 +379,7 @@ _TYPE_TO_KIND = {
     "GREMessageType_SelectTargetsReq": "targets",
     "GREMessageType_AssignDamageReq": "assign_damage",
     "GREMessageType_MulliganReq": "mulligan",
+    "GREMessageType_NumericInputReq": "choose_x",
 }
 
 
