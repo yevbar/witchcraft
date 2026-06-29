@@ -2246,11 +2246,21 @@ class _ToEffect(Transformer):
         n = _amount(m.group(1)) if m else 1
         return Effect("intensify", n if n is not None else 1, "self")
 
-    def boon_v(self, *args):                       # 'you get a [one-time] boon with "<ability>"' — slug the body
+    def boon_v(self, *args):                       # 'you get a [one-time] boon with "<ability>"'
         quoted = next((str(a) for a in args if str(a).startswith('"')), None)
         if quoted is None or len(quoted) < 2:
             return None
-        return Effect("get_boon", "-", "you", ground.slug(quoted.strip('"'))[:160])
+        body = quoted.strip('"')
+        # A boon is a delayed one-shot triggered ability the controller GETS. DECOMPOSE its inner ability through
+        # the normal clause parser (reusing the existing pipeline — NOT a new interpretation regex): a 'When
+        # <event>, it gains <keyword>' boon yields a structured '<trigger>|<recipient>|<grant>' payload the engine
+        # can model (Swiftspear's Teachings). Anything that doesn't cleanly decompose into a grant-on-trigger
+        # falls back to the opaque whole-slug, interpretation deferred (faithful — the engine then abstains).
+        inner = _ce.parse_clause(body)
+        if inner is not None and inner.verb == "grant_keyword" and str(inner.cond).startswith("when_"):
+            trigger = str(inner.cond)[len("when_"):]
+            return Effect("get_boon", "-", "you", f"{trigger}|{inner.target}|{inner.extra}")
+        return Effect("get_boon", "-", "you", ground.slug(body)[:160])
 
     def gain_land_types_v(self, *args):            # §305.7 '<perms> gain all basic land types [until eot]'
         tgt = next((str(a) for a in args if isinstance(a, _Tgt)), None)

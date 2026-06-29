@@ -3538,6 +3538,13 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     r = _resolved_effect("return_to_hand", amt, tgt, extra)
                     if r is not None:
                         add("spell_effect", (tid, r[0], r[1], r[2])); continue
+                if verb == "get_boon" and str(extra).count("|") == 2:
+                    # §113-style one-time BOON ('you get a one-time boon with "When you cast a creature spell, it
+                    # gains your choice of prowess or haste"' — Swiftspear's Teachings). boon_v decomposed the
+                    # inner ability into '<trigger>|<recipient>|<grant>'; register it as a driver-only delayed
+                    # one-shot that fires on the controller's next matching cast (the engine has no permanent to
+                    # hang the trigger on, so the driver carries it). An UNDECOMPOSED opaque boon body abstains below.
+                    add("spell_effect", (tid, "register_boon", 0, str(extra))); continue
                 if verb in _PSCOPE_DATALOG and _cond == "-":  # ONE WORLD: draw/gain_life/lose_life/mill/discard
                     continue                                  # spell_effect is now DERIVED IN DATALOG from the card
                     # parse facts (translate.dl, keyed by tid) — fed by card_facts; not the python bridge. A

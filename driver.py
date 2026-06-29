@@ -2765,9 +2765,39 @@ def _fire_cast_triggers(state: dict, caster: str, spell: str) -> None:
     now, now_dyn = _pending_both(state)
     new, new_dyn = now - before, now_dyn - before_dyn
     _apply_effects(state, new, new_dyn)
+    _fire_boons(state, caster, spell)                        # §113 a one-time boon watching 'you cast a … spell'
     state["cast_spell"] = set()
     state["cast_ord"] = set()
     state["cast_nc_ord"] = set()
+
+
+def _fire_boons(state: dict, caster: str, spell: str) -> None:
+    """§113 one-time BOON — a delayed one-shot triggered ability the controller GOT (Swiftspear's Teachings:
+    'When you cast a creature spell, it gains your choice of prowess or haste'). It has no permanent to hang a
+    trigger on, so the driver carries it in `_boons` and fires on the FIRST matching cast: grant the chosen
+    keyword to the cast spell (which keeps its id onto the battlefield), then consume it (one-time)."""
+    boons = state.get("_boons")
+    if not boons:
+        return
+    is_creature = (spell, "creature") in state.get("spell_type", set())
+    for boon in sorted(boons):
+        bctrl, trigger, recipient, grant = boon
+        if bctrl != caster or trigger != "you_cast_a_creature_spell" or not is_creature:
+            continue                                          # only the modelled trigger fires; others wait
+        kw = _boon_keyword(state, caster, grant)
+        if kw and recipient == "it":                          # 'it' = the cast spell (same id onto the battlefield)
+            state.setdefault("eff_grant_keyword", set()).add((f"boon__{spell}__{kw}", spell, kw))
+            print(f"    §113 boon: {caster}'s {spell} gains {kw}")
+        boons.discard(boon)                                   # one-time — consumed whether or not the grant was live
+        break
+
+
+def _boon_keyword(state: dict, ctrl: str, grant: str):
+    """Resolve a boon's granted keyword. 'choice_<a>_or_<b>' offers a §601 choice via the _choose seam (default
+    the LAST option — haste, the engine-modelled one for Swiftspear's); a single keyword is taken as is.
+    Granting a keyword the engine doesn't model (prowess) is harmlessly inert, so no filtering is needed."""
+    opts = grant[len("choice_"):].split("_or_") if grant.startswith("choice_") else [grant]
+    return _choose(state, "boon_keyword", tuple(opts), opts[-1]) if opts else None
 
 
 # --- §608 CAST COUNTER + §707.10 SPELL COPYING ------------------------------------------------------
