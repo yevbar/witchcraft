@@ -3595,6 +3595,17 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     # bridge still drives the abstain bookkeeping for a variable/restricted amount or target.
                     n = _int(amt)
                     dk = _damage_target(tgt)
+                    # §107.3 VARIABLE X damage ('~ deals X damage to <tgt>' — Blaze, Disintegrate, Stonesplitter
+                    # Bolt). The {X} value is CHOSEN + recorded at cast (driver _spell_x); datalog derives no
+                    # spell_damage for it (the rule gates on a numeric amount), so emit a driver-only
+                    # spell_damage_x the driver sizes from _spell_x at resolution.
+                    if n is None and str(amt) == "X" and dk is not None:
+                        add("spell_damage_x", (tid, 1, dk)); continue
+                    # a 'twice X ... instead' MULTIPLIER upgrade on the SAME target (Stonesplitter Bolt's bargain
+                    # rider: 'twice X instead if bargained'). The driver applies the multiplier iff it can CONFIRM
+                    # the cond — bargain/kicker aren't paid in this cast model -> the base X stands (no over-deal).
+                    if n is None and str(amt) == "twice_x" and str(extra) == "instead":
+                        add("spell_damage_x_upgrade", (tid, 2, str(_cond))); continue
                     if n is None or dk is None:
                         dropped.append(("effect", "deal_damage"))
                     continue                                     # spell_damage is DATALOG-derived on success

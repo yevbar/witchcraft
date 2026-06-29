@@ -3184,6 +3184,21 @@ def _run_spell_damage(state: dict, spell: str, ctrl: str) -> None:
             print(f"      {spell}: condition '{upgrade[1]}' met -> deals {upgrade[0]} instead of {amt}")
             amt = upgrade[0]
         _apply_damage(state, spell, amt, kind, ctrl)
+    # §107.3 VARIABLE X damage ('deals X damage' — Blaze, Disintegrate, Stonesplitter Bolt): X is the value the
+    # controller chose + paid at cast (recorded in _spell_x). A driver-only spell_damage_x(spell, mult, kind)
+    # carries the per-target multiplier (1, or 2 for a 'twice X' rider). An optional spell_damage_x_upgrade
+    # bumps the multiplier ONLY when _spell_cond_met confirms its cond (bargain/kicker unpaid here -> base X).
+    xrows = sorted((int(m), k) for (s, m, k) in state.get("spell_damage_x", set()) if s == spell)
+    if xrows:
+        xval = int(state.get("_spell_x", {}).get(spell, 0))
+        xup = next(((int(m), c) for (s, m, c) in state.get("spell_damage_x_upgrade", set()) if s == spell), None)
+        for (mult, kind) in xrows:
+            if xup is not None and _spell_cond_met(state, xup[1], ctrl):
+                print(f"      {spell}: condition '{xup[1]}' met -> deals {xup[0]}xX instead of {mult}xX")
+                mult = xup[0]
+            amt = mult * xval
+            if amt > 0:
+                _apply_damage(state, spell, amt, kind, ctrl)
 
 
 def _spell_cond_met(state: dict, cond: str, ctrl: str) -> bool:
