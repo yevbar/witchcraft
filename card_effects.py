@@ -1718,6 +1718,14 @@ _NEXT_TIME = re.compile(r"^the next time (.+? would .+?)(?: this turn)?, (.+)$",
 _HAVE = re.compile(rf"^have ({_TGT}) (.+)$", re.I)
 _UNTIL = re.compile(r"^until (end of turn|your next turn|the end of your next turn|end of combat),\s+(.+)$", re.I)
 _IF_TRAIL = re.compile(r"^(.+?) if (.+)$", re.I)
+# a trailing 'during your turn' — a STATIC ability's conditional applicability restricted to the CONTROLLER's
+# own turn ('~ has first strike during your turn' — Razorkin Needlehead), not a one-shot duration. Peeled into
+# the cond 'during_your_turn'. DELIBERATELY scoped to the controller's-turn phrasings only ('your turn(s)',
+# 'each of your turns'): an all-turns 'during each turn' / 'during any turn' means a DIFFERENT applicability
+# (every player's turn), so it is NOT matched here — it must not be conflated with the your-turn restriction.
+# This is an EFFECT-clause fallback (trigger frames like 'Whenever … during your turn' are stripped at the unit
+# level before this), and self-limiting (only fires when the head clause itself grounds).
+_DURING_TURN = re.compile(r"^(.+?) during (?:your turns?|each of your turns)$", re.I)
 # §616.1 a conditional damage UPGRADE clause — '[it/~/he/she/they/that <x>/this <x>/<Name>] deals <amt>
 # damage [to <tgt>] instead'. Splits the damage HEAD (re-grounded through the leaf) from an optional named
 # target; the trailing 'instead' marks a replacement (vs the generic no-op 'instead' strip).
@@ -2222,6 +2230,9 @@ def parse_clause(sentence: str) -> "Effect | None":
     m = _HAVE.match(s)             # causative 'have <X> <effect>' — FALLBACK (specific have-templates win
     if m:                         # first in parse_effect); reattach the subject so <X> performs the effect
         return parse_clause(f"{m.group(1)} {m.group(2)}")
+    m = _DURING_TURN.match(s)      # '<static> during your turn' — controller's-turn applicability (Razorkin)
+    if m:
+        return _combine(parse_clause(m.group(1)), "during_your_turn", suffix=True)
     m = _IF_TRAIL.match(s)         # '<effect> if <condition>' — trailing conditional
     if m:
         return _combine(parse_clause(m.group(1)), ground.slug(m.group(2)), suffix=True)
