@@ -12,15 +12,21 @@ Run: python3 test_creature_effects.py   (needs datalog/cards.dl)
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import contextlib
 import io
 
 from interpreter import card_corpus
-import sim
-import driver
-import bridge_to_engine as bridge
+from mtg import sim
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -84,7 +90,7 @@ def _bridge_checks() -> None:
     # trigger_effect_grant. Found dynamically (robust as more events get mapped over time) — there are
     # always structurally-unmappable events (subtype/count/targeting-gated).
     from interpreter import card_corpus as _cc, ground as _g
-    import bridge_to_engine as _B
+    from mtg import bridge_to_engine as _B
     _db = _B.sim.load_db()
     _unmapped = None
     for _c in _cc.load_cards():

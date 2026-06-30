@@ -17,12 +17,18 @@ Run: python3 test_forge_bridge.py
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import json
 import threading
 
-import forge_bridge as fb
+from forge_integration import forge_bridge as fb
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -182,7 +188,7 @@ def _search_driven_storm() -> None:
     sync with Forge via the reconstructed _cast_count. Simulate Forge's observation at three points of a
     turn-1 storm line (Lotus Petal x9 -> Tendrils of Agony) and check the search keeps casting Petals to
     build the count, then fires the payoff once it's lethal — re-planned each decision from the snapshot."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -221,7 +227,7 @@ def _search_driven_oracle() -> None:
     (libCounts), so reconstruct synthesizes them; without the witch library the win is meaningless, and
     without the opponent's the search would fabricate a deck-out. The search names the absent card to empty
     the library, and the policy relays that name to Forge's chooseCardName prompt."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -234,7 +240,7 @@ def _search_driven_oracle() -> None:
     check("oracle: reconstruct synthesizes both libraries from libCounts",
           sum(1 for (p, _c) in state["in_library"] if p == "w") == 55 and sum(1 for (p, _c) in state["in_library"] if p == "o") == 53)
 
-    import win_search
+    from mtg.engine import win_search
     driver.clear_cache()
     path, _n = win_search.find_win(dict(state, active_player={("w",)}), me="w", max_turns=1, node_budget=60000)
     check("oracle: the lookahead finds a turn-1 win from the faithful state", path is not None)
@@ -260,7 +266,7 @@ def _mana_payment_delegated() -> None:
     COLOR each makes, so Forge can execute the exact payment a combo depends on. The classic trap: with
     Black Lotus (3 of ONE color) + Mox Jet, pay {B} from the Mox — NOT by cracking the Lotus needed for a
     later {U}{U}. driver.mana_plan must make that call (and the policy's 'pay' decision relay it)."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -298,7 +304,7 @@ def _land_play_coverage_bound() -> None:
     offered counted only spells, a land play would add 1 to endorsed against 0 offered -> cumulative
     endorsed_frac > 1 (seen as 2.167 in a vanilla mirror). offered/modeled must include lands, so per
     decision endorsed (0/1) <= offered."""
-    import driver
+    from mtg import driver
     obs = {"seat": "w", "players": ["w", "opp"], "life": {"w": 20, "opp": 20}, "active": "w",
            "step": "precombat_main", "zones": {"hand": [{"id": "L1", "name": "Forest", "controller": "w"}]}}
     state, _ = fb.reconstruct(obs, "w")

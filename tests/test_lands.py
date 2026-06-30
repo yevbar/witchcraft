@@ -2,8 +2,15 @@
 effect (effect_handlers/lands.py) and the continuous Exploration/Azusa permission (driver._static_extra_lands),
 both feeding the driver's land-drop loop. Run: python3 test_lands.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import driver, effect_handlers
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from mtg import driver
+import effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]

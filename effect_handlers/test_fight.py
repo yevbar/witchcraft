@@ -13,11 +13,14 @@ import contextlib
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import effect_handlers
 import effect_handlers.fight as F
-import driver as D
+from mtg import driver as D
 
 CHECKS: list = []
 
@@ -153,7 +156,7 @@ def _real_card_checks() -> None:
     """Faithful-or-abstain on REAL corpus cards via card_facts: the determinable fights emit a fight tuple;
     the choice/back-reference fights abstain (stay in the drop list)."""
     from interpreter import card_corpus
-    import sim, bridge_to_engine as bridge
+    from mtg import sim, bridge_to_engine as bridge
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

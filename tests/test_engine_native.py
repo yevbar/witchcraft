@@ -8,16 +8,22 @@ when the local toolchain can't build a binary. Run: python3 test_engine_native.p
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import csv
 import subprocess
 import tempfile
 from pathlib import Path
 
-import engine_native
-import engine_inproc
-from driver import RULES, _facts_key, _lit
+from mtg import engine_native
+from mtg import engine_inproc
+from mtg.driver import RULES, _facts_key, _lit
 
 
 def _interp(fkey) -> dict:
@@ -93,8 +99,8 @@ def run() -> None:
     # full recompute. This is what makes the "incremental input, full recompute" optimization safe to trust.
     if engine_inproc.available():
         import contextlib, io
-        import bridge_to_engine as _bridge
-        import driver as _drv
+        from mtg import bridge_to_engine as _bridge
+        from mtg import driver as _drv
         seq = []
         _orig = _drv._evaluate
         _drv._evaluate = lambda fk: (seq.append(fk), _orig(fk))[1]

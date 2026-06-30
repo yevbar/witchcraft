@@ -477,7 +477,7 @@ def _select_card(state: dict, ctrl: str, pred: str, fire: bool = True) -> str | 
         if order is not None and card in order:
             order.remove(card)
     if fire:
-        import driver as _D
+        from mtg import driver as _D
         _D._fire_search_triggers(state, ctrl)                 # §701.18 'an opponent searches their library'
     return card
 

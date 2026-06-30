@@ -17,10 +17,16 @@ equivalence below (the OLD bridge oracle replicates the pre-migration python f'{
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 
 PASS = FAIL = 0
@@ -167,7 +173,7 @@ def _engine_rows(verb, amt, tgt, extra):
 
 
 def _equivalence_checks():
-    import sim
+    from mtg import sim
     db = sim.load_db()
     rels = ("spell_target", "spell_scope", "spell_damage", "spell_reanimate")
     checked = {r: 0 for r in rels}
@@ -201,7 +207,7 @@ def _equivalence_checks():
 
 
 def _no_python_translation():
-    import sim
+    from mtg import sim
     from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}

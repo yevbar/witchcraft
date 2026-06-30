@@ -14,8 +14,14 @@ We read has_keyword (an .output relation) as the OBSERVABLE effect: an affected 
 an unaffected one keeps them; P/T and creature-ness are UNTOUCHED. Both info modes.
 Run: python3 test_lose_abilities_scope.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import driver
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from mtg import driver
 
 _ok = [0, 0]
 def check(name, cond):
@@ -121,7 +127,7 @@ check("spell opp-control APPLY: e (opponent's) loses all keywords", ke == set())
 
 
 # === IMPERFECT-INFORMATION: the suppression holds on the observed (public board) view ==================
-import observe
+from mtg.engine import observe
 s = _static("creatures_you_control")
 s["loses_abilities"] = set()                                 # static derivation is engine-side; nothing to redact
 view = observe.observe(s, "bob")                             # bob observes alice's board

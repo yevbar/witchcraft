@@ -31,7 +31,7 @@ Owner: ONE agent. Implement and @register("search"). Helpers/signature: engine_h
 
 from __future__ import annotations
 
-from engine import _BASIC, _PERM_TYPES
+from mtg.engine.engine import _BASIC, _PERM_TYPES
 from engine_handlers import register
 
 # leading number words a "search for N …" spec can carry (default 1).

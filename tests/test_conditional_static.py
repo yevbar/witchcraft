@@ -8,11 +8,18 @@ Run: python3 test_conditional_static.py
 """
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from interpreter import card_corpus
-import sim, driver, observe
-import bridge_to_engine as bridge
+from mtg import sim, driver
+from mtg.engine import observe
+from mtg import bridge_to_engine as bridge
 
 _P = [0, 0]
 def check(name, cond):

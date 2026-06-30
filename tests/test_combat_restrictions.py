@@ -19,14 +19,20 @@ Tests:
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import contextlib
 import io
 
-import env
-import driver
-import observe
+from mtg.engine import env
+from mtg import driver
+from mtg.engine import observe
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -163,7 +169,7 @@ def _bridge_encodes_self_scope() -> None:
     check("encoder ABSTAINS on anaphoric that_creature", enc and enc("cant_be_blocked", 0, "that_creature", "-") is None)
     # end-to-end through the bridge: a self-scope card no longer drops the clause
     from interpreter import card_corpus
-    import sim, bridge_to_engine as bridge
+    from mtg import sim, bridge_to_engine as bridge
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     if "Aetherling" in corpus:
         _f, dropped = bridge.card_facts("Aetherling", "p", "t0", db, corpus)

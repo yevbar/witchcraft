@@ -15,10 +15,16 @@ Needs datalog/cards.dl. Run: python3 test_forge_engine.py
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import forge_bridge as fb
-import driver
+from forge_integration import forge_bridge as fb
+from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -114,8 +120,8 @@ def _keyword_param_roundtrip() -> None:
     load_db -> card_facts, not just live in cards.dl. (load_db used to read printed_keyword but drop the
     companion keyword_param row, so the bridge emitted bare 'landwalk' with no land type.)"""
     from interpreter import card_corpus
-    import sim
-    import bridge_to_engine as bridge
+    from mtg import sim
+    from mtg import bridge_to_engine as bridge
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     bog, _ = bridge.card_facts("Bog Wraith", "p1", "bw", db, corpus)
     check("load_db carries keyword_param", ("landwalk", "swamp") in db.get("bog_wraith", {}).get("keyword_param", set()))

@@ -13,9 +13,12 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 import effect_handlers
 from effect_handlers import library as lib
 
@@ -529,7 +532,7 @@ def _dig_from_among_checks() -> None:
     `_fold_dig_from_among` recognizes 'reveal top N; put a <type> card from among them in hand; put the rest in
     your graveyard' -> one zone_sort('<pred>#graveyard#1'), and the zone_sort applier moves library->hand /
     library->graveyard conserving every card (no loss/duplication)."""
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
 
     def fold(effs):
         out = []

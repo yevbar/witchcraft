@@ -3,9 +3,15 @@ consistency it enforces. This replaces hand audits with a query: the bridge can 
 events the engine actually implements, and the shim's relation set is the engine's `.decl` schema.
 """
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import engine_schema
+from mtg import engine_schema
 
 
 PASS = FAIL = 0
@@ -28,7 +34,7 @@ def main():
     check("outputs are a subset of the relations", engine_schema.outputs() <= set(rels))
 
     # the shim derives its relation set from the schema (no second ad-hoc parse to drift).
-    import driver
+    from mtg import driver
     check("driver.DECLARED == engine_schema.relations()", driver.DECLARED == set(rels))
 
     # supported event vocabulary is recovered from the fires rules.

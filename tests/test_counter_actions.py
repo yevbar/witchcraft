@@ -2,9 +2,17 @@
 reduced to D._bump_counter via the interpreter -> shim, verified in BOTH perfect and imperfect information.
 Counters are PUBLIC (§122), so the result is visible to BOTH seats in every case. Run: python3 test_counter_actions.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from interpreter import card_corpus
-import sim, bridge_to_engine as bridge, driver, observe, effect_handlers
+from mtg import sim, bridge_to_engine as bridge, driver
+from mtg.engine import observe
+import effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]

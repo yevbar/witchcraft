@@ -2,8 +2,15 @@
 end-step, attacks-or-blocks, your-second-draw, and 'is put into a graveyard' = dies. Verifies firing
 SEMANTICS and that the bridge↔datalog event_map stays in sync. Run: python3 test_event_map.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import re, driver, bridge_to_engine as bridge
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from mtg import driver, bridge_to_engine as bridge
+import re
 
 _ok = [0, 0]
 def check(name, cond):

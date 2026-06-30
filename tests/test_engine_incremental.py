@@ -11,7 +11,13 @@ Skips cleanly when the fork toolchain can't build the --incremental .so. Run: py
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import statistics
 import sys
@@ -20,9 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "incremental" / "harness"))
 
-import engine_inproc
-import engine_incremental
-from driver import _facts_key
+from mtg import engine_inproc
+from mtg import engine_incremental
+from mtg.driver import _facts_key
 from test_engine_native import STATES
 
 

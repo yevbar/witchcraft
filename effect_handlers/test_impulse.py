@@ -7,9 +7,12 @@ import io
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 import effect_handlers
 
 effect_handlers.load()
@@ -28,7 +31,7 @@ def _run(state, outs):
 def _fold_checks():
     # the bridge _fold_impulse recognizes 'play/cast <the exiled cards> (without paying …)' across the spell,
     # triggered, and modal paths — the storm-payoff card engine.
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     E = lambda effs: B._fold_impulse(effs, lambda *a: None)
 
     def fires(exile_tgt, play_verb, play_tgt, n="1"):
@@ -94,7 +97,7 @@ def _fold_checks():
 
     # the real corpus cards this recovers resolve CLEAN (no dropped play/cast clause).
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     _db = sim.load_db()
     _corpus = {c["name"]: c for c in card_corpus.load_cards()}
     for nm in ("Dark-Dweller Oracle", "Professional Face-Breaker"):
@@ -121,10 +124,10 @@ def _fold_checks():
 
 
 def _theft_and_freecast_checks():
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
     from interpreter import ground
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

@@ -12,12 +12,18 @@ Run: python3 test_stack.py
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import io
 from contextlib import redirect_stdout
 
-import driver as D
+from mtg import driver as D
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -130,9 +136,9 @@ def test_overspend_invariant() -> None:
 
 
 def test_counter_magic_frontier() -> None:
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     import effect_handlers
     effect_handlers.load()
     db = sim.load_db()
@@ -176,9 +182,9 @@ def test_counter_magic_frontier() -> None:
 
 
 def test_sacrifice_activation_cost() -> None:
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     import effect_handlers
     effect_handlers.load()
     db = sim.load_db()

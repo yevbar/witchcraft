@@ -21,11 +21,17 @@ Run from the worktree: MTG_NO_SPACY=1 python3 test_counter_placed_end_to_end.py
 (SKIPS gracefully if the local toolchain can't build a native engine binary.)
 """
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from interpreter import build_engine as be
-import engine_native
-import bridge_to_engine as bridge
-import sim
+from mtg import engine_native
+from mtg import bridge_to_engine as bridge
+from mtg import sim
 from interpreter import card_corpus
 
 CH = []

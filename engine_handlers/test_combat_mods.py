@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from engine import Card, Game, Perm, Player
+from mtg.engine.engine import Card, Game, Perm, Player
 
 
 def _game() -> Game:

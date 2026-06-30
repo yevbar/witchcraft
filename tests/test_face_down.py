@@ -4,8 +4,14 @@ the internal `subtype`/`color` relations aren't surfaced as outputs, we prove th
 OBSERVABLE side effects: a subtype lord and a color anthem buff the face-up card but NOT the face-down one.
 Run: python3 test_face_down.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import driver
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from mtg import driver
 
 _ok = [0, 0]
 def check(name, cond):
@@ -56,7 +62,8 @@ check("face-down: no flying — abilities suppressed", kws == set())
 check("face-down: still a creature (2/2 body)", cre)
 
 # === MANIFEST mechanic end to end: card_effect 'manifest' -> face-down 2/2 -> shim + observe ============
-import effect_handlers, observe
+from mtg.engine import observe
+import effect_handlers
 effect_handlers.load()
 
 # the interpreter -> mechanic link: the manifest effect ENCODES to the engine effect the driver applies
@@ -112,7 +119,7 @@ check("turn_face_up: now public to the opponent too",
       ("drg", "dragonslug") in observe.observe(s, "bob").get("instance_of", set()))
 
 # === MORPH / DISGUISE / FORETELL casting + turn-face-up in the ACTION SURFACE (env) =====================
-import env
+from mtg.engine import env
 
 def _hand_state(kw, param):
     # alice holds 'mz', really a 4/4 green Beast with `kw` (morph/disguise/foretell) costing `param`

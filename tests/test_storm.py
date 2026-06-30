@@ -12,12 +12,18 @@ Run: python3 test_storm.py
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
-import sim
+from mtg import driver
+from mtg import bridge_to_engine as B
+from mtg import sim
 
 CORPUS = {c["name"]: c for c in card_corpus.load_cards()}
 DB = sim.load_db()
@@ -125,7 +131,7 @@ def _counter_resets_each_turn():
     import contextlib
     import io
 
-    import env
+    from mtg.engine import env
     st = B.make_deck_state({"alice": ["Mountain"] * 40, "bob": ["Mountain"] * 40}, seed=1, hand=3, life=20)
     st["active_player"] = {("alice",)}; st["current_step"] = {("end_of_turn",)}; st["_cast_count"] = 4
     s = env.start(st)
@@ -141,8 +147,8 @@ def _storm_kill_is_searchable():
     # END-TO-END through the env/search: a turn-1 storm kill (20 life) is DISCOVERABLE by win_search.
     # 9 Lotus Petals (each a spell -> +1 storm count, sacrificed for mana) then Tendrils of Agony: storm 9
     # -> 10 drains of 2 = 20. The search must develop mana from the board (no pre-seeded pool).
-    import env
-    import win_search
+    from mtg.engine import env
+    from mtg.engine import win_search
     deck = ["Lotus Petal"] * 9 + ["Tendrils of Agony"] + ["Swamp"] * 30
     st = B.make_deck_state({"alice": deck, "bob": ["Mountain"] * 30}, seed=1, hand=0, life=20)
 

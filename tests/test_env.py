@@ -6,13 +6,19 @@ the driver used to resolve greedily — the substrate an AlphaZero-style agent d
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import contextlib
 import io
 
-import env
-import driver
+from mtg.engine import env
+from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -103,7 +109,7 @@ def _greedy_equivalence() -> None:
 def _full_game() -> None:
     # drive a COMPLETE real-deck game purely through env.legal_actions / env.step with a simple policy
     # (cast if able, else attack with all, else pass) — proving the referee can run a whole game to a winner.
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     decks = {
         "alice": ["Forest"] * 8 + ["Grizzly Bears", "Grizzly Bears", "Craw Wurm", "Hill Giant",
                                    "Gray Ogre", "Giant Growth", "Grizzly Bears", "Hill Giant", "Craw Wurm", "Gray Ogre"],
@@ -142,7 +148,7 @@ def _purity() -> None:
     check("step() does not mutate the input state (pure transition)", st == before)
 
     # the fast clone (driver.clone_state, ~17x faster than deepcopy) is a faithful, INDEPENDENT copy.
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     src = bridge.make_deck_state({"alice": ["Forest"] * 10, "bob": ["Mountain"] * 10}, seed=1)
     c = driver.clone_state(src)
     # the state now carries a seeded RNG (a random.Random); two Randoms with identical internal state are

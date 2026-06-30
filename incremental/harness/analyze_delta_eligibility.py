@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "packages"))  # the mtg package
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _SOUFFLE = _ROOT / "third_party" / "souffle" / "build" / "src" / "souffle"
@@ -108,8 +109,8 @@ def main():
         print("fork souffle binary not built — skipping")
         return 0
     try:
-        import engine_native
-        from driver import RULES
+        from mtg import engine_native
+        from mtg.driver import RULES
     except Exception as e:
         print(f"engine modules unavailable ({e}) — skipping")
         return 0

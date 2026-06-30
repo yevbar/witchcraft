@@ -13,7 +13,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import Card, Game, Perm, Player  # noqa: E402
+from mtg.engine.engine import Card, Game, Perm, Player  # noqa: E402
 
 
 def _creature(name, p, t):

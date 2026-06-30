@@ -16,6 +16,15 @@ Run:
 """
 from __future__ import annotations
 
+import os, sys  # put repo root + packages/ on sys.path (find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+
 import ast
 import os
 import re
@@ -79,8 +88,8 @@ def axis_synergy(key: str) -> dict:
     MTG_MINIMAX). Computed once per deck and cached. This is what makes the seat cast its deck instead of
     playing a land and passing every turn."""
     if key not in _AXIS_CACHE:
-        import deck_evaluator
-        import interaction_evaluator
+        from mtg.analysis import deck_evaluator
+        from mtg.analysis import interaction_evaluator
         names = _deck_card_names(key)
         syn = interaction_evaluator.synergy_cluster(names, commander=True)
         _AXIS_CACHE[key] = {"MTG_DECK_AXIS": deck_evaluator.deck_axis(names, commander=True),

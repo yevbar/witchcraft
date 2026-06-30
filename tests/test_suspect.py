@@ -17,15 +17,21 @@ Run: python3 test_suspect.py
 """
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import contextlib
 import io
 
-import driver
-import env
+from mtg import driver
+from mtg.engine import env
 import effect_handlers
-import observe
+from mtg.engine import observe
 
 effect_handlers.load()
 _P = [0, 0]

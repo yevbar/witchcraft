@@ -18,6 +18,15 @@ Each game = a fresh bot process (run_bot.py, serves one game) + a fresh Forge JV
 
 from __future__ import annotations
 
+import os, sys  # put repo root + packages/ on sys.path (find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+
 import os
 import glob
 import platform
@@ -196,12 +205,12 @@ def _deck_cards(name: str) -> list:
 
 
 def _axis_of(name: str) -> str:
-    import deck_evaluator
+    from mtg.analysis import deck_evaluator
     return deck_evaluator.deck_axis(_deck_cards(name))
 
 
 def _synergy_of(name: str) -> dict:
-    import interaction_evaluator
+    from mtg.analysis import interaction_evaluator
     return interaction_evaluator.synergy_cluster(_deck_cards(name))
 
 

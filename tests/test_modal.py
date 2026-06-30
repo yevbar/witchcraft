@@ -1,9 +1,15 @@
 """test_modal.py — §700.2 modal spells through the datalog engine: the controller chooses a mode as the
 spell is cast (chose_mode), the engine derives active_mode, and ONLY the chosen mode's effects resolve."""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 
 PASS = FAIL = 0
 
@@ -123,8 +129,8 @@ def _modal_count_and_card_checks():
     import io
     import copy
     from interpreter import card_corpus
-    import sim
-    import bridge_to_engine as B
+    from mtg import sim
+    from mtg import bridge_to_engine as B
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

@@ -1,11 +1,17 @@
 """test_observe.py — imperfect-information projection (observe.py) + reveal visibility.
 Run: python3 test_observe.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import observe
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from mtg.engine import observe
 import effect_handlers
 effect_handlers.load()
-import driver
+from mtg import driver
 
 _ok = [0, 0]
 def check(name, cond):
@@ -122,7 +128,7 @@ check("after look: alice sees bob's hand, bob does not gain knowledge",
       observe.visible_to(s, "alice", "b_h1") and not any(sp == "bob" for (sp, _c) in s.get("known", set())))
 
 # --- deciding-seat threading: a 'blocks' decision belongs to the defender --------------------------
-import game
+from mtg.engine import game
 s = _state()                                                  # active = alice
 check("deciding_seat: normal decision -> active player (alice)", game.deciding_seat(s, "cast") == "alice")
 check("deciding_seat: blocks -> defender (bob)", game.deciding_seat(s, "blocks") == "bob")

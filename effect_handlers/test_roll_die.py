@@ -16,9 +16,12 @@ import io
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 import effect_handlers
 
 effect_handlers.load()
@@ -89,9 +92,9 @@ def apply_checks() -> None:
 def bridge_checks() -> None:
     # recover the real simple-number cards as ONE atomic roll_die effect; abstain on table/multi/targeted.
     try:
-        import sim
+        from mtg import sim
         from interpreter import card_corpus
-        import bridge_to_engine as B
+        from mtg import bridge_to_engine as B
         db = sim.load_db()
         corpus = {c["name"]: c for c in card_corpus.load_cards()}
     except Exception as e:                                     # corpus/db unavailable -> skip the integration leg

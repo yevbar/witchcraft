@@ -6,7 +6,13 @@ may-decline, owner scoping, type/MV filters); both information modes (the gravey
 """
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import contextlib
 import io
@@ -15,7 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import driver
+from mtg import driver
 import effect_handlers
 
 effect_handlers.load()
@@ -153,7 +159,7 @@ def _applier_checks():
 
 # ── IMPERFECT INFORMATION: the graveyard and the resolving spell are PUBLIC. ───
 def _observe_checks():
-    import observe
+    from mtg.engine import observe
     st = _base_state(
         graveyard={("bolt",)}, printed_control={("me", "bolt")},
         spell_type={("bolt", "instant")}, printed_type={("bolt", "instant")}, mana_cost={("bolt", 1)},
@@ -170,9 +176,9 @@ def _observe_checks():
 
 def _corpus_checks():
     # end-to-end on the corpus: the cards that motivated this resolve CLEAN; the dynamic-bound card abstains.
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
