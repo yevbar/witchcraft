@@ -170,7 +170,7 @@ def new_cedh_game(deck_a: str = "Ral Turbo Storm", deck_b: str = "Stella Lee Wil
     99 + commander each, 40 life, command zone — so the mtg 'stockfish' (env.legal_actions/step,
     win_search, the Forge seat) plays a real cEDH list with every interpreted mechanic reachable. Names
     must be keys of cedh_decklists.DECKS (e.g. the two Izzet spellslinger decks above)."""
-    from cedh_decklists import DECKS as _CEDH
+    from mtg.cedh_decklists import DECKS as _CEDH
 
     def _99(name):
         return [cn for cn, k in _CEDH[name]["cards"].items() for _ in range(k)]

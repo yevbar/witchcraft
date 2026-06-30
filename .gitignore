@@ -27,3 +27,6 @@ rebel_runs/
 
 # Locally-built / shipped engine binaries (the future per-arch wheel ships these; see mtg/_native.py)
 packages/mtg/_native/
+
+# stray run logs (ReBeL/training output etc.) — never commit
+*.log

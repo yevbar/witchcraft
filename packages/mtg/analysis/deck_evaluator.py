@@ -326,10 +326,10 @@ def _named_deck(name: str, cedh: bool):
     """Return (card names, is_commander). cEDH decks ARE Commander (§903); a constructed deck carries its
     format, so commander damage only applies when that format is Commander."""
     if cedh:
-        import cedh_decklists as M
+        from mtg import cedh_decklists as M
         decks = getattr(M, "DECKS", None) or {}
     else:
-        import meta_decklists_constructed as M
+        from mtg import meta_decklists_constructed as M
         decks = M.DECKS
     d = decks.get(name)
     if d is None:

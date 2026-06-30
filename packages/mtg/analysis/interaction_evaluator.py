@@ -525,10 +525,10 @@ def _evaluate(names, label: str, commander: bool) -> dict:
 def _named_deck(name: str, cedh: bool):
     """(card names, is_commander) for a named deck — same source/pattern as deck_evaluator._named_deck."""
     if cedh:
-        import cedh_decklists as M
+        from mtg import cedh_decklists as M
         decks = getattr(M, "DECKS", None) or {}
     else:
-        import meta_decklists_constructed as M
+        from mtg import meta_decklists_constructed as M
         decks = M.DECKS
     d = decks.get(name)
     if d is None:
