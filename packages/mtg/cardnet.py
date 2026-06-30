@@ -40,8 +40,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-import env
-import observe
+from mtg.engine import env
+from mtg.engine import observe
 from .game import Game
 from .players import Player, RandomPlayer
 from . import rebel_train
@@ -435,7 +435,7 @@ def generate_solver_value(games: int = 40, *, player_factory=None, decks=None, d
     gamma=1.0 — this is NOT the failed faster-win reward (which compressed the terminal scalar); it ADDS labeled
     states. Only the +1 (forced win for me) label is applied; the symmetric -1 (opponent forces a win on us)
     needs a forall-over-MY-moves search and is left for later."""
-    import win_search
+    from mtg.engine import win_search
     if incremental:
         _engage_incremental()
     pf = player_factory or (lambda _seat: RandomPlayer())

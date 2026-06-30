@@ -54,7 +54,7 @@ import torch
 import torch.nn as nn
 
 from mtg import driver
-import env
+from mtg.engine import env
 from .cardnet import (CardNetValue, CardPVNet, DEFAULT_GAMMA, GLOBAL_FEATURES, MOVE_KINDS, OBJ_FEATURES,
                       _discounted_target, _move_index, card_features, move_features, net_abilities)
 from .game import Game

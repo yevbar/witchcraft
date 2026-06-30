@@ -20,7 +20,7 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 
 from mtg import driver
-import env
+from mtg.engine import env
 
 CHECKS: list[tuple[str, bool]] = []
 

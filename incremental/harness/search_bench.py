@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "packages"))  # the mtg package
 
 
 def _base(board=0):
@@ -64,7 +65,7 @@ def main():
             print("harness UNAVAILABLE — skipping")
             return 0
         from mtg import driver
-        import search
+        from mtg.engine import search
         from mtg import engine_incremental
     except Exception as e:
         print(f"modules unavailable ({e}) — skipping")

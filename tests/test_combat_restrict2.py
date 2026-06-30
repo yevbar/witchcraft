@@ -38,9 +38,9 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import env
+from mtg.engine import env
 from mtg import driver
-import observe
+from mtg.engine import observe
 
 CHECKS: list[tuple[str, bool]] = []
 

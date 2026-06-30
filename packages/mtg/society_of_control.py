@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import random
 
-import env
+from mtg.engine import env
 
 from .game import Game
 from .models import Move, PriorityOption as Do

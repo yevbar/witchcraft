@@ -123,7 +123,7 @@ def _value_player_drives_subchoices() -> None:
     """ValuePlayer drives the nested sub-choices too: the card net DIFFERENTIATES a cleanup_discard (which
     card to pitch) where the heuristic — counting only hand SIZE — cannot, and a full game completes."""
     from mtg import driver
-    import env
+    from mtg.engine import env
     from mtg.rebel import ValuePlayer, GreedyValuePlayer, heuristic_value
     from mtg.players import play, RandomPlayer
 

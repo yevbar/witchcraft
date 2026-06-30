@@ -27,7 +27,7 @@ import contextlib
 import io
 
 from mtg import driver
-import env
+from mtg.engine import env
 from mtg import bridge_to_engine as bridge
 
 DECKS = bridge._DEMO_DECKS              # the on-color Gruul vs Dimir demo decks (real cards)
@@ -80,7 +80,7 @@ def hidden_info(policy):
     state (a player acts on public legality), but the wrapped policy reasons over a redacted state with
     opponents' hands/libraries hidden, so it cannot peek. The deciding seat is threaded per decision (a
     'blocks' decision observes from the DEFENDER's seat, not the attacker's)."""
-    import observe
+    from mtg.engine import observe
     def wrapped(state: dict, key: str, options, default):
         seat = deciding_seat(state, key)
         if seat is None:

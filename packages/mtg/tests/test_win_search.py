@@ -15,7 +15,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import win_search
+from mtg.engine import win_search
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -90,7 +90,7 @@ def _develop_state():
 
 
 def _progress_checks():
-    import env
+    from mtg.engine import env
     # progress_score rises monotonically toward an opponent losing on each §104 axis.
     def life(b):
         return {"is_player": {("alice",), ("bob",)}, "life": {("alice", 40), ("bob", b)}}

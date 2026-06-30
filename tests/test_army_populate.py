@@ -23,7 +23,7 @@ import io
 import effect_handlers
 effect_handlers.load()
 from mtg import driver
-import observe
+from mtg.engine import observe
 from effect_handlers import army_populate as AP
 
 _ok = [0, 0]

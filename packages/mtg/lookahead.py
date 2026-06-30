@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import random
 
-import win_search
+from mtg.engine import win_search
 
 from .players import Player
 
@@ -168,7 +168,7 @@ def _player_opp_move(opponent: "Player"):
     bind `opponent` to the seat-to-move, and ask it for its move — so the search steps the opponent's ACTUAL
     reply (e.g. AggroPlayer's swing/develop) instead of a generic passive/worst-case one. Falls back to pass
     if the player abstains or returns an action that isn't legal here."""
-    import env
+    from mtg.engine import env
 
     from .game import Game
 

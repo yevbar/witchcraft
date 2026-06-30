@@ -159,7 +159,7 @@ def _applier_checks():
 
 # ── IMPERFECT INFORMATION: the graveyard and the resolving spell are PUBLIC. ───
 def _observe_checks():
-    import observe
+    from mtg.engine import observe
     st = _base_state(
         graveyard={("bolt",)}, printed_control={("me", "bolt")},
         spell_type={("bolt", "instant")}, printed_type={("bolt", "instant")}, mana_cost={("bolt", 1)},

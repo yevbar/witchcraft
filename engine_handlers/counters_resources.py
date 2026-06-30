@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from engine import Card, Perm
+from mtg.engine.engine import Card, Perm
 from engine_handlers import register
 
 # The only counter kinds the engine models numerically: net +1/+1 lives in Perm.counters (int), where a

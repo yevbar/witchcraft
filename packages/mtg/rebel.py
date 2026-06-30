@@ -33,8 +33,8 @@ import random
 import time
 
 from mtg import driver
-import env
-import observe
+from mtg.engine import env
+from mtg.engine import observe
 from .players import Player
 
 _NEG = float("-inf")

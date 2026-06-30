@@ -240,7 +240,7 @@ def _search_driven_oracle() -> None:
     check("oracle: reconstruct synthesizes both libraries from libCounts",
           sum(1 for (p, _c) in state["in_library"] if p == "w") == 55 and sum(1 for (p, _c) in state["in_library"] if p == "o") == 53)
 
-    import win_search
+    from mtg.engine import win_search
     driver.clear_cache()
     path, _n = win_search.find_win(dict(state, active_player={("w",)}), me="w", max_turns=1, node_budget=60000)
     check("oracle: the lookahead finds a turn-1 win from the faithful state", path is not None)

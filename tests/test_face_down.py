@@ -62,7 +62,8 @@ check("face-down: no flying — abilities suppressed", kws == set())
 check("face-down: still a creature (2/2 body)", cre)
 
 # === MANIFEST mechanic end to end: card_effect 'manifest' -> face-down 2/2 -> shim + observe ============
-import effect_handlers, observe
+from mtg.engine import observe
+import effect_handlers
 effect_handlers.load()
 
 # the interpreter -> mechanic link: the manifest effect ENCODES to the engine effect the driver applies
@@ -118,7 +119,7 @@ check("turn_face_up: now public to the opponent too",
       ("drg", "dragonslug") in observe.observe(s, "bob").get("instance_of", set()))
 
 # === MORPH / DISGUISE / FORETELL casting + turn-face-up in the ACTION SURFACE (env) =====================
-import env
+from mtg.engine import env
 
 def _hand_state(kw, param):
     # alice holds 'mz', really a 4/4 green Beast with `kw` (morph/disguise/foretell) costing `param`

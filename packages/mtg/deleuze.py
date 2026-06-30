@@ -13,7 +13,7 @@ arguments is the strategy* and the per-move scorers are the *knobs*.
 """
 from __future__ import annotations
 
-import env
+from mtg.engine import env
 
 from .game import Game
 from .models import Move, PriorityOption as Do

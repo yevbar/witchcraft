@@ -13,7 +13,8 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 from interpreter import card_corpus
 from mtg import sim, bridge_to_engine as bridge, driver
-import observe, effect_handlers
+from mtg.engine import observe
+import effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]

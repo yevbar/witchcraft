@@ -85,7 +85,7 @@ check("loses-all: red anthem STILL buffs it -> 5/5 (color survived layer 6)", (p
 
 
 # === IMPERFECT-INFORMATION: the suppression holds on the observed view (public board state) ============
-import observe
+from mtg.engine import observe
 s_obs = _state(True)
 s_obs["is_player"].add(("bob",))                          # bob is the opponent observing alice's board
 view = observe.observe(s_obs, "bob")

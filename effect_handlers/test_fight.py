@@ -13,7 +13,10 @@ import contextlib
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import effect_handlers
 import effect_handlers.fight as F

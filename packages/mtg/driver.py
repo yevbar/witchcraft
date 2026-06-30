@@ -124,7 +124,7 @@ def _shuffle_library(state: dict, p: str) -> None:
     lib = [c for (pp, c) in state.get("in_library", set()) if pp == p]
     _rng(state).shuffle(lib)
     state.setdefault("_lib_order", {})[p] = lib
-    import observe
+    from mtg.engine import observe
     observe.on_shuffle(state, p)                             # §708: forget library ORDER + end face-up reveals (keep identity memory)
 
 

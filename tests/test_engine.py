@@ -18,7 +18,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from collections import Counter
 
-from engine import Card, Game, Perm, Player
+from mtg.engine.engine import Card, Game, Perm, Player
 
 
 def _game() -> Game:

@@ -21,7 +21,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import env
+from mtg.engine import env
 from mtg.game import Game
 from mtg.rebel import heuristic_value, quiescent, _quiesce, _COMBAT_STEPS
 

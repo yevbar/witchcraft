@@ -21,7 +21,7 @@ import contextlib
 import io
 
 from mtg import driver
-import observe
+from mtg.engine import observe
 import effect_handlers
 
 effect_handlers.load()

@@ -8,10 +8,13 @@ import io
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_root, os.path.join(_root, "packages")):  # repo root + packages/ (for the mtg package)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from mtg import driver
-import observe
+from mtg.engine import observe
 import effect_handlers
 
 effect_handlers.load()

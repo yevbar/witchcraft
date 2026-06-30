@@ -11,7 +11,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import Card, Perm, Game
+from mtg.engine.engine import Card, Perm, Game
 
 
 def _card(name, *types):
@@ -36,7 +36,7 @@ def _game():
 
 
 def _player(name):
-    from engine import Player
+    from mtg.engine.engine import Player
     return Player(name=name)
 
 

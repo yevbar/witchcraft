@@ -19,7 +19,7 @@ if INC:
     os.environ["MTG_INCREMENTAL"] = "1"
 
 from mtg import driver
-import win_search                                          # noqa: E402
+from mtg.engine import win_search
 from mtg.game import Game                           # noqa: E402
 from mtg.lookahead import EnhancedLookaheadPlayer   # noqa: E402
 from mtg.players import RandomPlayer                # noqa: E402

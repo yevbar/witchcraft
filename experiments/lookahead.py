@@ -30,7 +30,7 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 
 from mtg import driver
-import search
+from mtg.engine import search
 
 
 def reachable(state: dict, depth: int) -> dict:

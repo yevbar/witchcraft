@@ -117,7 +117,7 @@ def _gy_source_side(pl, opp, tgt):
 
 def _matches(card, tgt):
     """Faithful type filter from a 'target_<type>_card_from_..._graveyard' spec; no type word -> any card."""
-    from engine import _PERM_TYPES
+    from mtg.engine.engine import _PERM_TYPES
     types = {_PERM_TYPES[w] for w in tgt.split("_") if w in _PERM_TYPES}
     return not types or bool(card.types & types)
 

@@ -29,7 +29,7 @@ Homepage = "https://github.com/yevbar/witchcraft"
 # The package directory IS packages/mtg/ (this file's directory), so map the `mtg` package to ".".
 # Subpackages (mtg.engine, mtg.analysis) are added as they land in later increments.
 [tool.setuptools]
-packages = ["mtg"]
+packages = ["mtg", "mtg.engine"]
 package-dir = { "mtg" = "." }
 
 [tool.setuptools.package-data]

@@ -27,7 +27,7 @@ from interpreter import card_corpus
 from mtg import driver
 from mtg import bridge_to_engine as B
 import effect_handlers
-import observe
+from mtg.engine import observe
 from mtg import sim
 
 effect_handlers.load()

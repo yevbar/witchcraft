@@ -18,7 +18,7 @@ import math
 import time
 
 from mtg import driver
-import env
+from mtg.engine import env
 
 
 def _active(s):

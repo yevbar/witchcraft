@@ -24,7 +24,7 @@ def check(name, cond):
 
 
 def run():
-    import env
+    from mtg.engine import env
 
     from mtg.aggro import AggroPlayer
     from mtg.game import Game

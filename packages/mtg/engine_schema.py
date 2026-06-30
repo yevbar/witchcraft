@@ -108,8 +108,7 @@ def validate_outputs_consumed() -> dict:
     schema. Both driver.py (the player) AND env.py (the referee built on it, which probes engine outputs to
     enumerate legal combat actions — e.g. illegal_block, may_attack, must_attack) are output consumers."""
     here = Path(__file__).parent                                    # packages/mtg/ (holds driver.py)
-    _root = here.parent.parent                                      # repo root (holds env.py until it moves)
-    src = (here / "driver.py").read_text() + "\n" + (_root / "env.py").read_text()
+    src = (here / "driver.py").read_text() + "\n" + (here / "engine" / "env.py").read_text()
     reads = set(re.findall(r'"(\w+)"', src))            # any quoted relation the driver/referee mentions
     outs = outputs()
     return {"outputs": sorted(outs), "unread": sorted(outs - reads)}

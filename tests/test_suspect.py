@@ -29,9 +29,9 @@ import contextlib
 import io
 
 from mtg import driver
-import env
+from mtg.engine import env
 import effect_handlers
-import observe
+from mtg.engine import observe
 
 effect_handlers.load()
 _P = [0, 0]

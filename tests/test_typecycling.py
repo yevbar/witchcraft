@@ -28,7 +28,7 @@ import re
 
 from interpreter import card_corpus
 from mtg import driver
-import env
+from mtg.engine import env
 from interpreter import ground
 from interpreter import transpile_card as T
 from effect_handlers import library as _lib

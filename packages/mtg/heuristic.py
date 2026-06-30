@@ -23,7 +23,7 @@ the *order of the arguments is the strategy* and the per-move scorers (`attack_c
 """
 from __future__ import annotations
 
-import env
+from mtg.engine import env
 
 from .game import Game
 from .models import Move, PriorityOption as Do

@@ -19,7 +19,7 @@ import io
 import os
 
 from mtg import driver
-import env
+from mtg.engine import env
 from mtg import bridge_to_engine as bridge
 
 _P = [0, 0]

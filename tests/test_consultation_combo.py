@@ -30,8 +30,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from mtg import driver
 from mtg import bridge_to_engine as B
-import env
-import win_search
+from mtg.engine import env
+from mtg.engine import win_search
 import effect_handlers
 
 effect_handlers.load()

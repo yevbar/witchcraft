@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from engine import Card, Game, Perm, Player  # noqa: E402
+from mtg.engine.engine import Card, Game, Perm, Player  # noqa: E402
 
 
 def _game():

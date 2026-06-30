@@ -30,7 +30,7 @@ from interpreter import card_corpus
 from mtg import driver
 from mtg import engine_native
 from mtg import engine_inproc
-import env
+from mtg.engine import env
 from mtg import sim
 
 

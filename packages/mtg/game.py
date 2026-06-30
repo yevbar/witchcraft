@@ -40,8 +40,8 @@ import warnings
 from functools import lru_cache
 
 from mtg import driver
-import env
-import game as _setup
+from mtg.engine import env
+from mtg.engine import game as _setup
 
 from .models import Move, Permanent, Priority, PriorityOption, ScoredOption
 
@@ -548,7 +548,7 @@ class Game:
         `library_top` exposes cards this seat has scried/looked at. This is the view an agent should reason
         over to 'play like a real player'. It can be inspected but not driven — `push()` raises on it
         (legality is enumerated on the true game, not a redacted one)."""
-        import observe
+        from mtg.engine import observe
         g = Game.from_state(observe.observe(self._state, player))
         g._observer = player
         return g

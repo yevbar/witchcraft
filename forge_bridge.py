@@ -329,7 +329,7 @@ class EnginePolicy:
         lookahead reasons from Forge's REAL current mana (we mark this turn's land drop used so it doesn't
         phantom-develop an extra land and pick a cast Forge can't pay for). Falls back to a safe default if it
         can find nothing — NO Forge-AI strategy."""
-        import win_search
+        from mtg.engine import win_search
         spells = [o for o in options if isinstance(o, dict) and o.get("kind") == "spell"]
         lands = [o for o in options if isinstance(o, dict) and o.get("kind") == "land"]
         objs = {o for (o,) in state.get("on_battlefield", set())} | {c for (_p, c) in state.get("in_hand", set())}

@@ -28,7 +28,7 @@ import io
 
 from mtg import bridge_to_engine as B
 from mtg import driver
-import env
+from mtg.engine import env
 
 CHECKS: list[tuple[str, bool]] = []
 

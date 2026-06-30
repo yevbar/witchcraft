@@ -11,7 +11,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from mtg import driver
-import observe, effect_handlers
+from mtg.engine import observe
+import effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]

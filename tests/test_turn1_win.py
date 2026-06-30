@@ -28,9 +28,9 @@ import time
 from mtg import bridge_to_engine as B
 from mtg import driver
 import effect_handlers
-import env
+from mtg.engine import env
 from interpreter import ground
-import win_search
+from mtg.engine import win_search
 
 effect_handlers.load()
 CHECKS: list[tuple[str, bool]] = []

@@ -20,7 +20,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib, io
 from mtg import bridge_to_engine as bridge
 from mtg import driver
-import observe
+from mtg.engine import observe
 
 CHECKS = []
 def check(name, cond):

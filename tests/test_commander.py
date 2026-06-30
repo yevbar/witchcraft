@@ -40,8 +40,8 @@ import io
 from mtg import bridge_to_engine as bridge
 from interpreter import card_corpus
 from mtg import driver
-import env
-import game
+from mtg.engine import env
+from mtg.engine import game
 
 CHECKS: list[tuple[str, bool]] = []
 

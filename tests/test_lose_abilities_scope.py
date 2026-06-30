@@ -127,7 +127,7 @@ check("spell opp-control APPLY: e (opponent's) loses all keywords", ke == set())
 
 
 # === IMPERFECT-INFORMATION: the suppression holds on the observed (public board) view ==================
-import observe
+from mtg.engine import observe
 s = _static("creatures_you_control")
 s["loses_abilities"] = set()                                 # static derivation is engine-side; nothing to redact
 view = observe.observe(s, "bob")                             # bob observes alice's board

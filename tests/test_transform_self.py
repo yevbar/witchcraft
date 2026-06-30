@@ -21,7 +21,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 import io, contextlib
 from interpreter import card_corpus
 from mtg import driver, sim
-import effect_handlers, observe
+from mtg.engine import observe
+import effect_handlers
 from mtg import bridge_to_engine as bridge
 
 effect_handlers.load()

@@ -43,7 +43,7 @@ IMPLEMENTATION NOTES / ABSTENTIONS (see also the agent report):
 from __future__ import annotations
 
 from engine_handlers import register
-from engine import _KEYWORDS
+from mtg.engine.engine import _KEYWORDS
 
 
 def _parse_nn(amt: str):

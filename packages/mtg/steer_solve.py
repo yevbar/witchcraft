@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import random
 
-import win_search
+from mtg.engine import win_search
 
 from .players import Player
 

@@ -27,7 +27,7 @@ _safe.clamp(mem_gb=6)
 _safe.watchdog(900)
 
 import time                                                          # noqa: E402
-import win_search                                                    # noqa: E402
+from mtg.engine import win_search
 
 BUDGET = int(sys.argv[1]) if len(sys.argv) > 1 else 6000
 MAX_TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 5

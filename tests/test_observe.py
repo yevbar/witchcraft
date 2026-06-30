@@ -8,7 +8,7 @@ while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog"
 for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import observe
+from mtg.engine import observe
 import effect_handlers
 effect_handlers.load()
 from mtg import driver
@@ -128,7 +128,7 @@ check("after look: alice sees bob's hand, bob does not gain knowledge",
       observe.visible_to(s, "alice", "b_h1") and not any(sp == "bob" for (sp, _c) in s.get("known", set())))
 
 # --- deciding-seat threading: a 'blocks' decision belongs to the defender --------------------------
-import game
+from mtg.engine import game
 s = _state()                                                  # active = alice
 check("deciding_seat: normal decision -> active player (alice)", game.deciding_seat(s, "cast") == "alice")
 check("deciding_seat: blocks -> defender (bob)", game.deciding_seat(s, "blocks") == "bob")

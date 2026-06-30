@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "packages"))  # the mtg package
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _SOUFFLE = _ROOT / "third_party" / "souffle" / "build" / "src" / "souffle"

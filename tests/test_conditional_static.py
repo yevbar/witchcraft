@@ -18,7 +18,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from interpreter import card_corpus
 from mtg import sim, driver
-import observe
+from mtg.engine import observe
 from mtg import bridge_to_engine as bridge
 
 _P = [0, 0]

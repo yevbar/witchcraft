@@ -24,8 +24,8 @@ import random
 
 import numpy as np
 
-import env
-import observe
+from mtg.engine import env
+from mtg.engine import observe
 from .game import Game
 from .players import RandomPlayer, play as _play
 
