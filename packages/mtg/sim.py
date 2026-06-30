@@ -58,6 +58,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], [])
         elif rel == "adds_mana":
             db.setdefault(a[0], {}).setdefault("mana", {}).setdefault(a[1], []).append(a[2])
+        elif rel == "mana_source":                            # §605 resolved mana production WITH count: (cost, produces, n)
+            db.setdefault(a[0], {}).setdefault("mana_source", []).append((a[1], a[2], int(a[3])))
         elif rel == "card_ability":
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
         elif rel == "ability_cost":

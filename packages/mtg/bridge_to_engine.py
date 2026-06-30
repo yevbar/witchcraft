@@ -21,7 +21,6 @@ import re
 from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
 from mtg._text import slug                              # name->id contract (was interpreter.slug)
 from mtg import sim
-from interpreter.card_effects import _mana_production   # TODO(decouple): bake into cards.dl (needs rebuild)
 
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
 _EVENT = {
@@ -4079,58 +4078,45 @@ def _register_colored(state: dict, tid: str, c: dict) -> None:
             state.setdefault("source_wildcard", set()).add((tid, kind, amt))
 
 
-# A produced mana descriptor (from card_effects._mana_production) that is a CONCRETE color the pool can
-# hold directly. 'colorless' is included; the five WUBRG colors come straight through.
+# A produced mana descriptor (a `produces` value from cards.dl's mana_source) that is a CONCRETE color the
+# pool can hold directly. 'colorless' is included; the five WUBRG colors come straight through.
 _FIXED_COLORS = {"white", "blue", "black", "red", "green", "colorless"}
 # Descriptors that mean "any of several colors" — the pool holds them as a wildcard the driver spends
 # against any colored pip. We FAITHFULLY model these as flexible mana (faithful for paying costs; the
 # §903.4 commander-identity / 'chosen color' restriction is a superset the pool can always satisfy here).
 _WILDCARD_KINDS = {"any_color", "any_one_color", "chosen_color", "commander_color_identity"}
-# A '{cost}: Add …' / '{cost}, {T}: Add …' mana ability line. Cost is the part before the ':'.
-_MANA_LINE = re.compile(r"^\s*(?P<cost>[^:\"\n]+?):\s*Add (?P<what>[^.\n]+?)\.", re.M)
 
 
 def _mana_source_outputs(c: dict):
-    """Lex a permanent's oracle text into its activated mana abilities (§605.1a), faithfully or abstain.
-    Yields (cost_generic, taps_self, fixed:{color:amount}, wild:{kind:amount}) for each '{cost}: Add …'
-    line whose production grounds to concrete colors / known wildcards. Abstains (skips the line) on a
-    granted/quoted ability, a non-mana cost (Sacrifice/Tap-other), a {X} cost, or a production
-    card_effects._mana_production can't resolve (conditional / 'for each' / filter-land)."""
-    text = c.get("text")
-    if not text:
+    """A permanent's activated mana abilities (§605.1a), READ from the cards.dl build artifact
+    (mana_source: the resolved production WITH count, baked at build time by interpreter/build_cards.py).
+    Yields (cost_generic, taps_self, sac_self, special, fixed:{color:amount}, wild:{kind:amount}) per
+    activation cost. Granted/quoted abilities and unresolvable productions were already filtered at build
+    time; here we keep the mechanical cost decomposition and the fixed/wild colour mapping (no interpreter).
+    Abstains (skips) on a non-mana cost (Sacrifice/Tap-other), a {X} cost, or a wildcard the pool can't hold."""
+    if "Land" in (c.get("types") or []):
+        return                                                # lands are modeled by land_produces (no double-count)
+    rows = sim.load_db().get(slug(c.get("name") or ""), {}).get("mana_source")
+    if not rows:
         return
-    types = c.get("types") or []
-    is_land = "Land" in types
-    for m in _MANA_LINE.finditer(text):
-        cost, what = m.group("cost").strip(), m.group("what").strip()
-        if '"' in (text[max(0, m.start() - 1):m.start()] or ""):
-            continue                                          # inside a granted/quoted ability
-        prod = _mana_production(what)
-        if not prod:
-            continue                                          # variable/conditional production -> abstain
-        cost_generic, taps_self, sac_self, special, ok = _parse_ability_cost(cost)
+    # Parse each distinct activation cost once (mechanical); then yield ONE entry per (cost, produced
+    # descriptor, count) row. Downstream (_register_colored) folds these into the source_cost /
+    # source_produces / source_wildcard SETS, so emitting per-row is set-equivalent to the old per-line
+    # yields for one-ability-many-colours cards, AND it correctly keeps two same-cost abilities that make
+    # the same colour in different amounts (Elfhame Druid: {T}:Add{G} and {T}:Add{G}{G} -> green×1 AND ×2).
+    cost_parse: dict[str, tuple] = {}
+    for cost, produces, n in rows:
+        if cost not in cost_parse:
+            cost_parse[cost] = _parse_ability_cost(cost)
+        cost_generic, taps_self, sac_self, special, ok = cost_parse[cost]
         if not ok:
             continue                                          # non-mana / {X} cost -> abstain (driver can't pay)
-        # Lands are already modeled by land_produces (one color per land); only emit source rows for
-        # NON-LAND mana sources (rocks/dorks) so we don't double-count a land's mana.
-        if is_land:
-            continue
-        fixed: dict[str, int] = {}
-        wild: dict[str, int] = {}
-        abstain = False
-        for d in prod:
-            if d in _FIXED_COLORS:
-                fixed[d] = fixed.get(d, 0) + 1
-            elif d in _WILDCARD_KINDS:
-                wild[d] = wild.get(d, 0) + 1
-            elif "_or_" in d and all(p in _FIXED_COLORS for p in d.split("_or_")):
-                wild[d] = wild.get(d, 0) + 1                  # 'green_or_white' (Noble Hierarch): a restricted choice
-            else:
-                abstain = True                                # 'any_combination' / 'that_land_type' / land_could_produce
-                break
-        if abstain or (not fixed and not wild):
-            continue
-        yield cost_generic, taps_self, sac_self, special, fixed, wild
+        if produces in _FIXED_COLORS:
+            yield cost_generic, taps_self, sac_self, special, {produces: n}, {}
+        elif produces in _WILDCARD_KINDS or (
+                "_or_" in produces and all(p in _FIXED_COLORS for p in produces.split("_or_"))):
+            yield cost_generic, taps_self, sac_self, special, {}, {produces: n}
+        # else: 'any_combination' / 'that_land_type' / land_could_produce -> the pool can't hold it; abstain
 
 
 _SAC_SELF = re.compile(r"^sacrifice (this |~|it$)", re.I)

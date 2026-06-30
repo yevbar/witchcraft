@@ -20,13 +20,41 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 import collections
 import os
+import re
 from multiprocessing import Pool
 from pathlib import Path
 
 from interpreter import card_corpus
 from interpreter import ground
+from interpreter.card_effects import _mana_production
 from interpreter.dlgen import Program
 from interpreter.transpile_card import transpile_unit
+
+
+# A '{cost}: Add …' / '{cost}, {T}: Add …' mana ability line (cost is the part before ':').
+_MANA_LINE = re.compile(r"^\s*(?P<cost>[^:\"\n]+?):\s*Add (?P<what>[^.\n]+?)\.", re.M)
+
+
+def _mana_source_facts(cid: str, c: dict) -> list[str]:
+    """mana_source(card, cost, produces, n): the RESOLVED mana production WITH MULTIPLICITY of each
+    '{cost}: Add …' line. This bakes into cards.dl what bridge_to_engine used to recompute at runtime via
+    card_effects._mana_production (which adds_mana can't carry — it has no count: Sol Ring's {C}{C} would
+    look like one 'colorless'). The driver reads these rows instead of importing the interpreter. Line
+    selection mirrors the old runtime: granted/quoted abilities (inside `"…"`) are skipped, and a
+    production _mana_production can't resolve is omitted (the driver abstains, as before)."""
+    text = c.get("text") or ""
+    out: list[str] = []
+    for m in _MANA_LINE.finditer(text):
+        cost, what = m.group("cost").strip(), m.group("what").strip()
+        if '"' in (text[max(0, m.start() - 1):m.start()] or ""):
+            continue                                          # inside a granted/quoted ability
+        prod = _mana_production(what)
+        if not prod:
+            continue                                          # variable/conditional production -> omit
+        cost_e = cost.replace('"', "'")
+        for desc, n in collections.Counter(prod).items():
+            out.append(f'mana_source("{cid}", "{cost_e}", "{desc}", {n})')
+    return out
 
 
 def _process_chunk(cards_chunk):
@@ -47,6 +75,9 @@ def _process_chunk(cards_chunk):
             bp[o.pattern] += 1
             emitted = True
             facts.extend(o.facts)
+        facts.extend(_mana_source_facts(cid, c))              # resolved mana production w/ count (for the driver);
+        #                                                       does NOT flip `emitted` — the name relation is unchanged,
+        #                                                       and the driver reads mana_source by cid via sim.load_db.
         out.append((cid, c["name"].replace('"', "'") if emitted else None, facts, dict(bp), full))
     return out
 
@@ -96,6 +127,9 @@ def build() -> tuple[str, dict]:
     p.decl("keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])
     p.decl("mana_ability", [("card", "symbol"), ("cost", "symbol")])
     p.decl("adds_mana", [("card", "symbol"), ("cost", "symbol"), ("produces", "symbol")])
+    # mana_source = adds_mana WITH the production COUNT (Sol Ring -> ("colorless", 2)), so the driver reads
+    # the §605 mana a rock/dork taps for instead of re-parsing oracle text via the interpreter.
+    p.decl("mana_source", [("card", "symbol"), ("cost", "symbol"), ("produces", "symbol"), ("n", "number")])
     p.decl("card_ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")])
     p.decl("ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
     p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
@@ -152,7 +186,7 @@ def build() -> tuple[str, dict]:
     for f in facts:
         p.fact(f)
     p.blank()
-    p.output("printed_keyword", "keyword_param", "mana_ability", "adds_mana",
+    p.output("printed_keyword", "keyword_param", "mana_ability", "adds_mana", "mana_source",
              "card_ability", "ability_cost", "ability_trigger", "ability_modifier", "card_effect", "mode_option",
              "modal",
              "cant", "doesnt_untap", "attacks_each_combat", "enters_with_counters",
