@@ -211,8 +211,8 @@ static engine from rules facts → codegen card data → execute.
 ```
 mkdir -p mtgjson && curl -L -o mtgjson/AllPrintings.json.gz \
   https://mtgjson.com/api/v5/AllPrintings.json.gz && gunzip -kf mtgjson/AllPrintings.json.gz
-python3 build_oracle_corpus.py     # -> mtgjson/oracle_corpus.json
-python3 card_coverage.py           # current %
-python3 build_cards.py             # -> datalog/cards.dl (gitignored; souffle-checkable)
+python3 interpreter/build_oracle_corpus.py   # -> mtgjson/oracle_corpus.json
+python3 card_coverage.py                     # current %
+python3 interpreter/build_cards.py           # -> datalog/cards.dl (gitignored; souffle-checkable)
 ```
 `mtgjson/` and `datalog/cards.dl` are gitignored — they derive from external bulk data, not the repo.

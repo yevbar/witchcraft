@@ -12,10 +12,11 @@ interpreters abstain rather than emit lossy or uncertain output.
 
 ## Layout
 - `rules.txt` — the MTG Comprehensive Rules (the single source of truth).
-- `build_*.py` — the interpreters. Each reads `rules.txt` and emits one `datalog/*.dl` artifact
-  (with conformance checks). Examples: `build_casting`, `build_zones`, `build_turn_actions`,
-  `build_supertypes`, `build_keyword_definitions`, `build_ending`, `build_objects`, …
-- `build_engine.py` — assembles `datalog/engine_rules.dl`, the playable engine. It **depends on**
+- `interpreter/build_*.py` — the interpreters (the English→Datalog pipeline lives in `interpreter/`).
+  Each reads `rules.txt` and emits one `datalog/*.dl` artifact (with conformance checks). Examples:
+  `build_casting`, `build_zones`, `build_turn_actions`, `build_supertypes`,
+  `build_keyword_definitions`, `build_ending`, `build_objects`, …
+- `interpreter/build_engine.py` — assembles `datalog/engine_rules.dl`, the playable engine. It **depends on**
   the interpreted artifacts (permanent types via `resolves_to`, casting timing via
   `cast_permission`, priority via `grants_priority`, main phases, the poison loss threshold, …)
   rather than hardcoding those constants.
