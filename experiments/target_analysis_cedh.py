@@ -21,6 +21,8 @@ This loads the corpus + the engine db once and is read-only — it never regener
 
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 from collections import Counter, defaultdict
 
 import bridge_to_engine

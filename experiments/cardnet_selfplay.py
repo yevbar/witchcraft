@@ -10,6 +10,8 @@ CPU-only. Usage: python3 cardnet_selfplay.py [--games N] [--bench G] [--epochs E
 """
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 import os
 import sys
 

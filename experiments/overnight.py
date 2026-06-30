@@ -6,6 +6,8 @@ Core program (each part logs to OVERNIGHT_FINDINGS.md as it finishes, so partial
   C. DEFINITIVE ELO LADDER — rank every agent (random/greedy/heuristic/value-strong/rebel-strong).
 Robust: each part is wrapped so one failure doesn't sink the rest; nets are checkpointed to /tmp.
 """
+
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
 import time, traceback
 from collections import deque
 
