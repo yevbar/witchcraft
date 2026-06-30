@@ -196,7 +196,7 @@ def run_combo(name: str, combo: str, port: int, timeout: int = GAME_TIMEOUT) -> 
 
 def _deck_cards(name: str) -> list:
     if name == "izzet":
-        import meta_decklists_constructed as M
+        from mtg import meta_decklists_constructed as M
         return list(M.DECKS["Izzet Prowess (STD)"]["cards"].keys())
     if name == "infect":                                       # §104.2c poison axis (a DIFFERENT win condition)
         return ["Glistener Elf", "Blighted Agent", "Plague Stinger", "Ichorclaw Myr", "Giant Growth",

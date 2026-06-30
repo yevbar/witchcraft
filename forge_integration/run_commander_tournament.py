@@ -72,7 +72,7 @@ SUBST = {"________ Goblin": "Island"}                          # the un-set stic
 
 def _deck_card_names(key: str) -> list:
     """The distinct card names of deck `key` — commander front-faces + main — as the deck evaluators want them."""
-    from cedh_decklists import DECKS as CEDH
+    from mtg.cedh_decklists import DECKS as CEDH
     d = CEDH[DECKS[key]]
     cmd = d["commander"] if isinstance(d["commander"], list) else [d["commander"]]
     return [c.split(" // ")[0] for c in cmd] + list(d["cards"].keys())
@@ -105,7 +105,7 @@ def sh(cmd, **kw):
 def write_decks() -> dict:
     """Emit one Forge .dck-ish file per deck (a [Commander] section + an 'N CardName' [Main]). Returns
     {key: path}. DFC commanders are listed by their front-face name; un-loadable cards are substituted."""
-    from cedh_decklists import DECKS as CEDH
+    from mtg.cedh_decklists import DECKS as CEDH
     os.makedirs(DECK_DIR, exist_ok=True)
     paths = {}
     for key, dn in DECKS.items():

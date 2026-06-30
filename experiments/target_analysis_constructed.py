@@ -28,7 +28,7 @@ from collections import defaultdict
 from mtg import sim
 from interpreter import card_corpus
 from mtg import bridge_to_engine
-from meta_decklists_constructed import DECKS
+from mtg.meta_decklists_constructed import DECKS
 
 
 def classify_all():

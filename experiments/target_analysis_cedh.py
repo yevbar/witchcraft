@@ -34,7 +34,7 @@ from collections import Counter, defaultdict
 from mtg import bridge_to_engine
 from interpreter import card_corpus
 from mtg import sim
-from cedh_decklists import DECKS
+from mtg.cedh_decklists import DECKS
 
 
 def classify(name: str, db: dict, corpus: dict) -> tuple[str, list[str]]:
