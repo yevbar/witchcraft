@@ -59,8 +59,8 @@ def _slug_to_name() -> dict[str, str]:
     cached; empty (-> title-case fallback) if the corpus can't be loaded."""
     try:
         from mtg import _corpus as card_corpus          # the oracle-corpus artifact reader (no interpreter import)
-        from interpreter import ground                  # TODO(decouple): ground.slug — pending logic decouple
-        return {ground.slug(c["name"]): c["name"] for c in card_corpus.load_cards()}
+        from mtg._text import slug                       # name->id contract (was interpreter.ground.slug)
+        return {slug(c["name"]): c["name"] for c in card_corpus.load_cards()}
     except Exception:
         return {}
 

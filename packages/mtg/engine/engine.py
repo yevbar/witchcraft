@@ -27,7 +27,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
-from interpreter import ground                          # TODO(decouple): ground.slug — pending logic decouple
+from mtg._text import slug                              # name->id contract (was interpreter.slug)
 from mtg import sim
 
 # basic-land subtype -> color it taps for (§305.6) — basic lands have no oracle text to interpret.
@@ -105,7 +105,7 @@ def load_deck_cards() -> dict:
     db = sim.load_db()
     cards = {}
     for name, c in corpus.items():
-        cid = ground.slug(name)
+        cid = slug(name)
         facts = db.get(cid, {})
         cards[name] = Card(
             name=name, cost=parse_cost(c.get("manaCost")),
