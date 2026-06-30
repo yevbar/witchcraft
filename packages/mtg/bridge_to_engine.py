@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 
 from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
-from interpreter import ground                          # TODO(decouple): ground.slug — pending logic decouple
+from mtg._text import slug                              # name->id contract (was interpreter.slug)
 from mtg import sim
 from interpreter.card_effects import _mana_production   # TODO(decouple): bake into cards.dl (needs rebuild)
 
@@ -1581,7 +1581,7 @@ _DIG_NONSUBTYPE = frozenset({"historic", "playtest", "nontoken", "token", "color
 
 def _dig_typed_pred(extra) -> str | None:
     """A 'reveal <X> card' filter (the reveal clause's EXTRA column) -> a zone_sort predicate the applier can
-    evaluate from the surfaced printed identity, or None to ABSTAIN. Resolvable shapes (after ground.slug):
+    evaluate from the surfaced printed identity, or None to ABSTAIN. Resolvable shapes (after slug):
       'creature_card' / 'artifact_card' / 'land_card' / 'permanent_card'   -> 'type:creature' / … / 'permanent'
       'creature_or_land_card' / 'artifact_or_enchantment_card'             -> 'type:creature|land' …
       'colorless_card' / 'white_card' / 'blue_card' …                      -> 'color:colorless' / 'color:white'
@@ -2660,7 +2660,7 @@ def _name_aliases(name: str) -> frozenset:
     """The slug forms a card uses to refer to ITSELF by name — the full name and the part before the first
     comma ('Wan Shi Tong, Librarian' -> {'wan_shi_tong_librarian', 'wan_shi_tong'}). An effect target matching
     one of these is the source itself, normalized to 'self' so the self-counter / self-effect paths fire."""
-    return frozenset({ground.slug(name), ground.slug(name.split(",")[0])})
+    return frozenset({slug(name), slug(name.split(",")[0])})
 
 
 def _norm_self(effs: list, aliases: frozenset) -> list:
@@ -2825,7 +2825,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     """The (relation -> rows) an instance `tid` of card `name` controlled by `ctrl` contributes to a
     driver state, plus a list of (kind, detail) for the clauses that abstained. Pure data — no rules."""
     c = corpus.get(name, {})
-    facts = ground.slug(name)
+    facts = slug(name)
     f = db.get(facts, {})
     out: dict[str, set] = {}
     dropped: list = []
@@ -3039,7 +3039,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # until then (no instance points at the back slug).
     back_name = c.get("back")
     if back_name:
-        back_slug = ground.slug(back_name)
+        back_slug = slug(back_name)
         bdb = db.get(back_slug, {})
         bc = corpus.get(back_name, {})
         add("transform_target", (tid, back_slug))
@@ -4191,7 +4191,7 @@ def make_state(boards: dict, life: int = 20) -> dict:
     n = [0]
 
     def place(name, pl, zone):
-        tid = f"{ground.slug(name)}_{n[0]}"
+        tid = f"{slug(name)}_{n[0]}"
         n[0] += 1
         facts, _ = card_facts(name, pl, tid, db, corpus)
         for rel, rows in facts.items():
@@ -4322,7 +4322,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
     n = [0]
 
     def load(name, pl, zone):
-        tid = f"{ground.slug(name)}_{n[0]}"
+        tid = f"{slug(name)}_{n[0]}"
         n[0] += 1
         facts, _ = card_facts(name, pl, tid, db, corpus)
         for rel, rows in facts.items():
