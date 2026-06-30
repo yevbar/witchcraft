@@ -6,8 +6,8 @@ match (it owns the rules and the state); mtg fills one seat, and every strategic
 asks that seat to make is forwarded to our Python engine over a socket.
 
 This is the **real thing**: an actual Forge JVM playing a real game, with mtg's lookahead driving
-its seat. It is distinct from the pure-Python **unit tests** at the repo root — `test_forge_bridge.py` and
-`test_forge_engine.py` — which exercise the same `forge_bridge` adapter against a hand-built **mock** Forge
+its seat. It is distinct from the pure-Python **unit tests** in `tests/` — `tests/test_forge_bridge.py` and
+`tests/test_forge_engine.py` — which exercise the same `forge_bridge` adapter against a hand-built **mock** Forge
 (scripted decision requests / a synthetic observation), so they run fast with **no JVM and no Forge build**.
 See the table at the bottom for exactly what runs where.
 
@@ -74,8 +74,8 @@ report (how much of the offered decisions our engine modelled/endorsed).
 | | Runs a real Forge JVM? | How to run |
 |---|---|---|
 | `run.sh`, `run_combo.sh`, `ForgeHeadless/ForgeVsBot/ForgeComboKill.java` | **Yes** — a real, refereed Forge match | the scripts in this directory (needs the prerequisites above) |
-| `test_forge_bridge.py` | No — a scripted **mock** Forge over loopback | `python3 test_forge_bridge.py` (repo root) |
-| `test_forge_engine.py` | No — a hand-built **synthetic** observation | `python3 test_forge_engine.py` (repo root) |
+| `tests/test_forge_bridge.py` | No — a scripted **mock** Forge over loopback | `python3 tests/test_forge_bridge.py` (from repo root) |
+| `tests/test_forge_engine.py` | No — a hand-built **synthetic** observation | `python3 tests/test_forge_engine.py` (from repo root) |
 
 The mocks test the `forge_bridge` protocol + policy logic quickly and hermetically (no JVM, no Forge
 checkout); the integration here proves that same adapter against Forge's authoritative rules.

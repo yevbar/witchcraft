@@ -31,7 +31,7 @@ interpreters abstain rather than emit lossy or uncertain output.
   plays one seat inside a **real, headless [Forge](https://github.com/Card-Forge/forge)** match — Forge
   is the authoritative referee, our engine drives the seat via its lookahead. The real Forge JVM connector
   lives in `forge_integration/` (run with `run.sh` / `run_combo.sh`; needs JDK 17 + a built Forge — see
-  `forge_integration/README.md`). The pure-Python `test_forge_bridge.py` / `test_forge_engine.py` test the
+  `forge_integration/README.md`). The pure-Python `tests/test_forge_bridge.py` / `tests/test_forge_engine.py` test the
   same adapter against a **mock** Forge (no JVM). Distinct from the earlier `~/Development/mtg`
   attempt that built a player *on top of* Forge — here Forge is only an external check.
 
