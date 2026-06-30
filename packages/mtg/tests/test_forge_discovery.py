@@ -23,8 +23,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "forge_integration"))
-import run_tournament as rt
+from forge_integration import run_tournament as rt   # forge_integration is a package; repo root is on sys.path
 
 from mtg import forge_status
 
