@@ -40,7 +40,7 @@ interpreters abstain rather than emit lossy or uncertain output.
 ```
 python3 build.py      # regenerate all datalog/*.dl, verify determinism
 python3 driver.py      # play the demo games
-python3 coverage.py    # interpretation coverage report
+python3 experiments/coverage.py    # interpretation coverage report
 ```
 
 ## Status

@@ -27,16 +27,16 @@ Always run **from the repo root** (so the top-level `env.py` / `observe.py` impo
 
 ```bash
 # Smoke test first (~30s): tiny rounds/games, no Forge.
-python3 run_rebel_train.py --quick --out rebel_runs/smoke
+python3 experiments/run_rebel_train.py --quick --out rebel_runs/smoke
 
 # Real run: 20 rounds, benchmark every 4, self-eval at the end.
-python3 run_rebel_train.py --rounds 20 --out rebel_runs/green_vnet
+python3 experiments/run_rebel_train.py --rounds 20 --out rebel_runs/green_vnet
 
 # Skip Forge even if installed:
-python3 run_rebel_train.py --rounds 20 --no-forge
+python3 experiments/run_rebel_train.py --rounds 20 --no-forge
 ```
 
-Useful flags (`python3 run_rebel_train.py --help` for all):
+Useful flags (`python3 experiments/run_rebel_train.py --help` for all):
 
 | flag | meaning | default |
 |------|---------|---------|

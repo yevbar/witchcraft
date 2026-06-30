@@ -110,7 +110,7 @@ class, and #3 could put mtg ahead on the search-node path where most simulation 
 
 ```bash
 # mtg
-python3 bench_mtg.py
+python3 experiments/bench_mtg.py
 
 # forge (needs JDK 17 + the fatjar; decks are the generated cEDH lists)
 python3 -c "import sys; sys.path.insert(0,'forge_integration'); from run_commander_tournament import write_decks; write_decks()"

@@ -1,6 +1,6 @@
 # Progress / loop state — mtg (rules.txt → Datalog interpretation)
 
-**Read this first each loop.** Then `git log --oneline -10` and `python3 coverage.py`.
+**Read this first each loop.** Then `git log --oneline -10` and `python3 experiments/coverage.py`.
 
 ## Current coverage (primary semantic body)
 **100.0%** — 2818 / 2818 interpretable rules. All nine sections at 100%. ZERO fully-uncovered, ZERO
