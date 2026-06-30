@@ -22,9 +22,9 @@ import re
 
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import card_corpus
-import transpile_card as tc
-import ground
+from interpreter import card_corpus
+from interpreter import transpile_card as tc
+from interpreter import ground
 import bridge_to_engine as bridge
 import driver
 

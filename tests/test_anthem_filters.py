@@ -60,7 +60,7 @@ check("other_legendary: the source lord (legendary) is NOT buffed", "lord" not i
 
 # (4) real cards no longer drop the anthem clause ------------------------------------------------------
 db = __import__("sim").load_db()
-import card_corpus
+from interpreter import card_corpus
 corpus = {c["name"]: c for c in card_corpus.load_cards()}
 for nm in ["Crystallized Serah", "Alela, Artful Provocateur", "Glass of the Guildpact"]:
     if nm in corpus:

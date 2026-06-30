@@ -13,7 +13,8 @@ from __future__ import annotations
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
 import io, contextlib
-import effect_handlers, driver, sim, card_corpus, observe
+from interpreter import card_corpus
+import effect_handlers, driver, sim, observe
 import bridge_to_engine as bridge
 
 effect_handlers.load()

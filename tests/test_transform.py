@@ -11,7 +11,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import contextlib
 import io
 
-import card_corpus
+from interpreter import card_corpus
 import driver
 import bridge_to_engine as B
 import effect_handlers

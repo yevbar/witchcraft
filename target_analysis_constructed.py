@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 
 import sim
-import card_corpus
+from interpreter import card_corpus
 import bridge_to_engine
 from meta_decklists_constructed import DECKS
 

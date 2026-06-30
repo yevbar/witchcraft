@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 import bridge_to_engine
-import card_corpus
+from interpreter import card_corpus
 import sim
 from cedh_decklists import DECKS
 

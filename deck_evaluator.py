@@ -30,8 +30,8 @@ from __future__ import annotations
 import sys
 
 import sim
-import card_corpus
-import ground
+from interpreter import card_corpus
+from interpreter import ground
 
 # ── the §104 win axes (each IS an engine loss/win rule — see module docstring) ───────────────────────
 AXES = {

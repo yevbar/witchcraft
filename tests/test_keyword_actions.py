@@ -2,7 +2,8 @@
 verified in BOTH perfect and imperfect information. Run: python3 test_keyword_actions.py"""
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import sim, bridge_to_engine as bridge, card_corpus, driver, observe, effect_handlers
+from interpreter import card_corpus
+import sim, bridge_to_engine as bridge, driver, observe, effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]

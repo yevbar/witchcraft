@@ -164,7 +164,8 @@ def _trigger_damage_checks() -> None:
     # from the card parse facts — the python bridge no longer emits it. Find a card with a clean triggered
     # deal_damage (int amount + a mapped damage target), feed its parse facts on a forced-firing upkeep
     # trigger, and prove the engine derives pending_damage (proxy for trigger_damage, which isn't .output).
-    import sim, card_corpus, ground
+    from interpreter import card_corpus, ground
+    import sim
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     found = None
     for name in corpus:
@@ -383,7 +384,8 @@ def _spell_checks() -> None:
     # a real burn spell routes deal_damage to spell_damage, not a dropped/mistranslated player effect.
     # ONE WORLD: spell_damage is now DERIVED IN DATALOG from the card parse facts the bridge feeds — so
     # read it back from the ENGINE (driver.run) on a state built from those facts, not from the bridge dict.
-    import sim as _sim, card_corpus as _cc
+    from interpreter import card_corpus as _cc
+    import sim as _sim
     _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}
     burn = None
     for name in _co:
@@ -401,7 +403,8 @@ def _spell_checks() -> None:
     # a real removal/pump spell's single-target clause routes to spell_target, not a dropped effect.
     # ONE WORLD: spell_target (incl. modify_pt now) is DERIVED IN DATALOG from the card parse facts the
     # bridge feeds — so read it back from the ENGINE (driver.run) on a state built from those facts.
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     found = None
@@ -420,7 +423,8 @@ def _spell_checks() -> None:
 
 
 def _bridge_checks() -> None:
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -442,7 +446,8 @@ def _perm_target_checks() -> None:
     """§115 non-creature permanent targets (Abrade-style destroy-artifact, bounce-nonland-permanent):
     the slug maps to a perm_<filter> class; the driver enumerates permanents by type (opponent-preferred
     for a harmful verb) and the zone-move resolves on the chosen permanent."""
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

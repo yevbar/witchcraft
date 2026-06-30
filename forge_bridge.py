@@ -115,7 +115,7 @@ def reconstruct(obs: dict, seat: str):
     import driver
     import bridge_to_engine as bridge
     import sim
-    import card_corpus
+    from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     players = obs.get("players") or [seat]
@@ -251,8 +251,8 @@ class EnginePolicy:
         if slug is None:
             return None
         if self._slug2name is None:
-            import card_corpus
-            import ground
+            from interpreter import card_corpus
+            from interpreter import ground
             self._slug2name = {ground.slug(c["name"]): c["name"] for c in card_corpus.load_cards()}
         return self._slug2name.get(str(slug))
 

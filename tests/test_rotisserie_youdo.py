@@ -13,7 +13,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import driver
 import bridge_to_engine as B
-import card_corpus
+from interpreter import card_corpus
 import sim
 
 _fails = 0

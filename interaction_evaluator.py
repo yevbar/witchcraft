@@ -62,8 +62,8 @@ from __future__ import annotations
 import sys
 
 import sim
-import card_corpus
-import ground
+from interpreter import card_corpus
+from interpreter import ground
 import bridge_to_engine
 
 # ── the shared EVENT vocabulary: the synergy "wires". An OUTPUT produces one of these; an INPUT (a triggered
@@ -444,7 +444,7 @@ def synergy_cluster(names, commander: bool = False) -> dict:
     win_search's instance_of), with its size and the deck's total edge count. This is what the agent develops
     TOWARD as a synergy/combo plan: {slugs: set, size: int, edges: int}. A thin wrapper the win_search policy
     consumes once per deck (like deck_evaluator.deck_axis). size < 2 -> no combo to assemble."""
-    import ground
+    from interpreter import ground
     g = interactions(names, commander)
     comps = _clusters(g)
     top = comps[0] if comps else set()

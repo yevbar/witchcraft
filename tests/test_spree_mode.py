@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-import card_corpus
-import ground
-from transpile_card import transpile_unit, _spree_mode
+from interpreter import card_corpus
+from interpreter import ground
+from interpreter.transpile_card import transpile_unit, _spree_mode
 
 CHECKS: list = []
 

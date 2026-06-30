@@ -73,7 +73,7 @@ def _discover_checks():
 
     # MODE = cast (free): end-to-end through the real cast path with a deck state (mirrors test_impulse).
     import bridge_to_engine as B
-    import ground
+    from interpreter import ground
     full = B.make_deck_state({"me": ["Shock", "Mountain", "Mountain", "Shock"], "op": ["Island"] * 4},
                              seed=1, hand=0, life=40)
     shock = next(t for (t, n) in sorted(full["instance_of"]) if n == ground.slug("Shock"))

@@ -10,7 +10,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import cost_lark
+from interpreter import cost_lark
 
 
 def test_forage_costs_accepted():

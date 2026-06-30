@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from models import Document
-from rules_parser import split
+from interpreter.rules_parser import split
 
 
 def summary(doc: Document) -> str:

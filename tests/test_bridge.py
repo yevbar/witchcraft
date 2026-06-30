@@ -12,7 +12,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import io
 from contextlib import redirect_stdout
 
-import card_corpus
+from interpreter import card_corpus
 import sim
 import driver
 import bridge_to_engine as bridge
@@ -88,7 +88,7 @@ def _engine_join(bf: dict, tid: str) -> dict:
 
 
 def _check_corpus_identity_equivalence(db: dict, corpus: dict) -> None:
-    import ground
+    from interpreter import ground
     tid = "x"
     mism = total = 0
     for name in corpus:

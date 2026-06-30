@@ -12,7 +12,7 @@ Run: MTG_NO_SPACY=1 python3 test_drix_draw.py
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
 import sim
-import card_corpus
+from interpreter import card_corpus
 import bridge_to_engine as bridge
 import driver
 import effect_handlers

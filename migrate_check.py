@@ -16,11 +16,11 @@ import collections
 # per-verb DIFFERS gate. Unset MTG_NO_SPACY to run the full reachability set on a roomier machine.
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import ground
-import card_corpus
-from card_effects import parse_clause, parse_effect
-from card_lark import parse_clause_lark
-from transpile_card import (transpile_unit, _sentences, _TRIG, _split_modifiers,
+from interpreter import ground
+from interpreter import card_corpus
+from interpreter.card_effects import parse_clause, parse_effect
+from interpreter.card_lark import parse_clause_lark
+from interpreter.transpile_card import (transpile_unit, _sentences, _TRIG, _split_modifiers,
                             _smart_split, _mask_q, _unmask, _leading_subject, _has_leading_subject)
 import re
 

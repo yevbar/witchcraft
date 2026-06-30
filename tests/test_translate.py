@@ -129,7 +129,8 @@ def _target_derivation_checks():
 
 def _equivalence_checks():
     # ACROSS THE CORPUS: the datalog derivation == the OLD python bridge logic for the migrated slice.
-    import sim, card_corpus, ground
+    from interpreter import card_corpus, ground
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -209,7 +210,8 @@ def _triggered_equivalence_checks():
     back via pending_target / pending_damage / pending_reanimate on a forced-firing upkeep trigger) EXACTLY
     equals the OLD python bridge's output for the migrated single-target / damage / counter / reanimate /
     switchpt slice. Per relation: X cards, 0 mismatches."""
-    import sim, card_corpus, ground
+    from interpreter import card_corpus, ground
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     stats = {"target": [0, 0], "damage": [0, 0], "reanimate": [0, 0], "switchpt_self": [0, 0]}
@@ -269,7 +271,7 @@ def _no_python_translation():
 
 
 def card_corpus_load():
-    import card_corpus
+    from interpreter import card_corpus
     return card_corpus.load_cards()
 
 
@@ -326,7 +328,8 @@ def _creature_scope_equivalence_checks():
     pending_target / pending on a forced-firing upkeep trigger over a 3-creature board (x=alice, y=alice,
     z=bob) so the resolved creature-set uniquely identifies the scope (self->{x}, creatures_you_control->{x,y},
     all_creatures->{x,y,z}). Per relation: X cards, 0 mismatches."""
-    import sim, card_corpus, ground
+    from interpreter import card_corpus, ground
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     keys = ["pt", "grant", "destroy", "exile", "tap", "untap", "return", "tt_modpt", "animate"]

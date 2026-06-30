@@ -202,7 +202,7 @@ def _equivalence_checks():
 
 def _no_python_translation():
     import sim
-    import card_corpus
+    from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     # find a real destroy-target removal spell (Murder-like) and a real burn spell; the bridge must feed the

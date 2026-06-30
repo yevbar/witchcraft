@@ -10,8 +10,8 @@ Run: MTG_NO_SPACY=1 python3 test_migrate_endure.py
 """
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-from card_effects import parse_clause
-from card_lark import parse_clause_lark
+from interpreter.card_effects import parse_clause
+from interpreter.card_lark import parse_clause_lark
 CH=[]
 def ck(n,c): CH.append((n,bool(c)))
 def tp(e): return (e.verb,str(e.amount),e.target,e.extra,e.cond) if e else None

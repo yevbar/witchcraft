@@ -23,7 +23,7 @@ import bridge_to_engine as B
 import driver
 import effect_handlers
 import env
-import ground
+from interpreter import ground
 import win_search
 
 effect_handlers.load()

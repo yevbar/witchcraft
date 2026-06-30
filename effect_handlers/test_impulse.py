@@ -93,7 +93,7 @@ def _fold_checks():
           ("me", "w1") in _run(fst, ["can_cast"])["can_cast"])
 
     # the real corpus cards this recovers resolve CLEAN (no dropped play/cast clause).
-    import card_corpus
+    from interpreter import card_corpus
     import sim
     _db = sim.load_db()
     _corpus = {c["name"]: c for c in card_corpus.load_cards()}
@@ -122,8 +122,8 @@ def _fold_checks():
 
 def _theft_and_freecast_checks():
     import bridge_to_engine as B
-    import card_corpus
-    import ground
+    from interpreter import card_corpus
+    from interpreter import ground
     import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}

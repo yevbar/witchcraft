@@ -13,9 +13,9 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import re
 
-import card_corpus
-import transpile_card
-import ground
+from interpreter import card_corpus
+from interpreter import transpile_card
+from interpreter import ground
 import bridge_to_engine as bridge
 import driver
 import effect_handlers

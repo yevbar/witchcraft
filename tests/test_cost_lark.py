@@ -11,9 +11,9 @@ from __future__ import annotations
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
 import re
-import card_corpus
-import cost_lark
-from transpile_card import _cost_ok_regex
+from interpreter import card_corpus
+from interpreter import cost_lark
+from interpreter.transpile_card import _cost_ok_regex
 
 CHECKS: list = []
 

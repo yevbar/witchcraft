@@ -3,7 +3,8 @@ Auras/Equipment locking the enchanted/equipped permanent), wired driver-side via
 driver._no_untap_set. Complements the verb-path test_no_untap.py. Run: python3 test_no_untap_static.py"""
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import sim, bridge_to_engine as bridge, card_corpus, driver, observe
+from interpreter import card_corpus
+import sim, bridge_to_engine as bridge, driver, observe
 
 _ok = [0, 0]
 def check(name, cond):

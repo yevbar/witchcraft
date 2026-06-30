@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 
 import bridge_to_engine as bridge
-import card_corpus
+from interpreter import card_corpus
 import driver
 import engine_native
 import engine_inproc

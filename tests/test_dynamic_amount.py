@@ -5,7 +5,8 @@ SPELL path (spell_dyn_effect) and the TRIGGER path (pending_dyn), doubler intera
 Run: python3 test_dynamic_amount.py"""
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import sim, card_corpus, bridge_to_engine as bridge, driver, observe, effect_handlers
+from interpreter import card_corpus
+import sim, bridge_to_engine as bridge, driver, observe, effect_handlers
 effect_handlers.load()
 
 _ok = [0, 0]
@@ -37,7 +38,7 @@ def _life(st, p):
 
 # ============================================================ the engine derives the count slugs ===========
 print("--- engine derivation: dyn_amount_tag table + spell_dyn_effect / trigger_dyn_effect ---")
-import build_engine as be
+from interpreter import build_engine as be
 tagged = {s for (s, _b, _t) in be._DYN_AMOUNT_TAG}
 check("dyn_amount_tag covers '1_per_creature_you_control'", "1_per_creature_you_control" in tagged)
 check("dyn_amount_tag covers 'equal_to_the_number_of_cards_in_your_hand'", "equal_to_the_number_of_cards_in_your_hand" in tagged)

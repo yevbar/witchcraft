@@ -31,7 +31,7 @@ class CardCorpus:
     testable (`"Black Lotus" in cards`). The single instance exported as `mtg.cards`."""
 
     def _cards(self) -> list[dict]:
-        import card_corpus
+        from interpreter import card_corpus
         try:
             return card_corpus.load_cards()
         except FileNotFoundError as e:

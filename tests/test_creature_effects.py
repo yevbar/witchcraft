@@ -17,7 +17,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import contextlib
 import io
 
-import card_corpus
+from interpreter import card_corpus
 import sim
 import driver
 import bridge_to_engine as bridge
@@ -83,7 +83,8 @@ def _bridge_checks() -> None:
     # Event-abstention path: a grant whose trigger event is still unmodelled must NOT mistranslate into a
     # trigger_effect_grant. Found dynamically (robust as more events get mapped over time) — there are
     # always structurally-unmappable events (subtype/count/targeting-gated).
-    import bridge_to_engine as _B, card_corpus as _cc, ground as _g
+    from interpreter import card_corpus as _cc, ground as _g
+    import bridge_to_engine as _B
     _db = _B.sim.load_db()
     _unmapped = None
     for _c in _cc.load_cards():

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-import card_corpus
-import ground
-from card_effects import parse_clause, parse_clauses
-from transpile_card import transpile_unit
+from interpreter import card_corpus
+from interpreter import ground
+from interpreter.card_effects import parse_clause, parse_clauses
+from interpreter.transpile_card import transpile_unit
 
 CHECKS: list = []
 
@@ -79,7 +79,7 @@ def _tokens() -> None:
     check("single create unchanged", one is not None and one.verb == "create" and one.extra == "1_1_white_soldier_creature")
     # the conjunction production does NOT over-match a heterogeneous 'create … and <non-token>' (no 2nd token
     # NP) — it abstains, so _parse_body's splitter still handles 'create … and draw …' as before.
-    from card_lark import parse_clauses_lark
+    from interpreter.card_lark import parse_clauses_lark
     check("conjunction abstains on 'create … and draw a card' (no 2nd token NP)",
           parse_clauses_lark("create a 1/1 white Soldier creature token and draw a card") is None)
 

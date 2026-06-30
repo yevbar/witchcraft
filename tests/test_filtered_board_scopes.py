@@ -73,7 +73,7 @@ check("attacking-pump: a2 (not attacking) unchanged at 1", pw.get("a2") == 1)
 
 # (4) the bridge resolves a real spell clause (no drop) for a filtered board scope -----------------------
 db = __import__("sim").load_db()
-import card_corpus
+from interpreter import card_corpus
 corpus = {c["name"]: c for c in card_corpus.load_cards()}
 # synthesize via a known card if present; otherwise assert the encode path doesn't drop a spell clause
 made = False

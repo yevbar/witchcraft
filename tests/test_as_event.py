@@ -10,8 +10,8 @@ Run: MTG_NO_SPACY=1 python3 test_as_event.py
 """
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-from build_cards import transpile_unit
-import card_corpus
+from interpreter.build_cards import transpile_unit
+from interpreter import card_corpus
 CH=[]
 def ck(n,c): CH.append((n,bool(c)))
 

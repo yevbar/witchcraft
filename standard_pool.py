@@ -23,7 +23,7 @@ from functools import lru_cache
 
 import ijson
 
-import card_corpus
+from interpreter import card_corpus
 
 _HERE = Path(__file__).resolve().parent
 _ALLPRINTINGS = _HERE / "mtgjson" / "AllPrintings.json"

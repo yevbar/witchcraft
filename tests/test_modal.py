@@ -122,7 +122,7 @@ def _modal_count_and_card_checks():
     import contextlib
     import io
     import copy
-    import card_corpus
+    from interpreter import card_corpus
     import sim
     import bridge_to_engine as B
     db = sim.load_db()
