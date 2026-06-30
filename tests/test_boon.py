@@ -22,8 +22,8 @@ import re
 from interpreter import card_corpus
 from interpreter import transpile_card
 from interpreter import ground
-import bridge_to_engine as bridge
-import driver
+from mtg import bridge_to_engine as bridge
+from mtg import driver
 import effect_handlers
 
 effect_handlers.load()

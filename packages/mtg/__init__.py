@@ -89,10 +89,10 @@ def demo(seed: int = 7) -> Game:
 def engine_available() -> str:
     """Which engine backend is live: 'incremental', 'native' (compiled), 'inproc' (.so), or 'interpreter'
     (souffle interpreter fallback). A quick way to confirm the C++ half built on this machine."""
-    import engine_native
-    import engine_inproc
+    from mtg import engine_native
+    from mtg import engine_inproc
     if os.environ.get("MTG_INCREMENTAL"):
-        import engine_incremental
+        from mtg import engine_incremental
         if engine_incremental.available():
             return "incremental"
     if not os.environ.get("MTG_NO_INPROC") and engine_inproc.available():

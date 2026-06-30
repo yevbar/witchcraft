@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import driver
+from mtg import driver
 import effect_handlers
 from effect_handlers import library as lib
 
@@ -529,7 +529,7 @@ def _dig_from_among_checks() -> None:
     `_fold_dig_from_among` recognizes 'reveal top N; put a <type> card from among them in hand; put the rest in
     your graveyard' -> one zone_sort('<pred>#graveyard#1'), and the zone_sort applier moves library->hand /
     library->graveyard conserving every card (no loss/duplication)."""
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
 
     def fold(effs):
         out = []

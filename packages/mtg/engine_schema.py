@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_RULES_PATH = Path(__file__).with_name("datalog") / "engine_rules.dl"
+_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "datalog" / "engine_rules.dl"  # repo root (module in packages/mtg/)
 _RULES = _RULES_PATH.read_text()
 
 
@@ -92,7 +92,7 @@ def validate_bridge() -> dict:
       * `unmapped` — engine events with a `fires` rule but no bridge phrasing routing to them (the
                      'pure-bridge gap' surface, computed not hand-maintained).
     """
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     events = supported_events()
     bridge_targets = set(bridge._EVENT.values())
     return {
@@ -107,8 +107,9 @@ def validate_outputs_consumed() -> dict:
     """Which `.output` relations the driver/referee actually read (directly or transitively), from the
     schema. Both driver.py (the player) AND env.py (the referee built on it, which probes engine outputs to
     enumerate legal combat actions — e.g. illegal_block, may_attack, must_attack) are output consumers."""
-    here = Path(__file__).parent
-    src = (here / "driver.py").read_text() + "\n" + (here / "env.py").read_text()
+    here = Path(__file__).parent                                    # packages/mtg/ (holds driver.py)
+    _root = here.parent.parent                                      # repo root (holds env.py until it moves)
+    src = (here / "driver.py").read_text() + "\n" + (_root / "env.py").read_text()
     reads = set(re.findall(r'"(\w+)"', src))            # any quoted relation the driver/referee mentions
     outs = outputs()
     return {"outputs": sorted(outs), "unread": sorted(outs - reads)}

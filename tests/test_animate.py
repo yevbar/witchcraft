@@ -22,8 +22,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -114,7 +114,7 @@ def _switch_checks() -> None:
 
 def _bridge_check() -> None:
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

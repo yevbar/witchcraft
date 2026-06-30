@@ -31,7 +31,7 @@ import contextlib
 import copy
 import io
 
-import driver
+from mtg import driver
 
 # Resource "fuel gauges" excluded from the structural board key and tracked separately:
 # two states with the same board but different life/mana are the SAME board, more/less fuel.

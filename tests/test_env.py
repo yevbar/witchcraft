@@ -18,7 +18,7 @@ import contextlib
 import io
 
 import env
-import driver
+from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -109,7 +109,7 @@ def _greedy_equivalence() -> None:
 def _full_game() -> None:
     # drive a COMPLETE real-deck game purely through env.legal_actions / env.step with a simple policy
     # (cast if able, else attack with all, else pass) — proving the referee can run a whole game to a winner.
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     decks = {
         "alice": ["Forest"] * 8 + ["Grizzly Bears", "Grizzly Bears", "Craw Wurm", "Hill Giant",
                                    "Gray Ogre", "Giant Growth", "Grizzly Bears", "Hill Giant", "Craw Wurm", "Gray Ogre"],
@@ -148,7 +148,7 @@ def _purity() -> None:
     check("step() does not mutate the input state (pure transition)", st == before)
 
     # the fast clone (driver.clone_state, ~17x faster than deepcopy) is a faithful, INDEPENDENT copy.
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     src = bridge.make_deck_state({"alice": ["Forest"] * 10, "bob": ["Mountain"] * 10}, seed=1)
     c = driver.clone_state(src)
     # the state now carries a seeded RNG (a random.Random); two Randoms with identical internal state are

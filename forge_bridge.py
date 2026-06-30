@@ -112,9 +112,9 @@ def reconstruct(obs: dict, seat: str):
     NAME (bridge.card_facts) under its Forge id, so our engine reasons over the same board Forge shows.
     Returns (state, unmodeled) where `unmodeled` lists (zone, name) cards our interpreter doesn't cover —
     the direct completeness gaps. Cards not in our corpus still get a bare object (so id plumbing works)."""
-    import driver
-    import bridge_to_engine as bridge
-    import sim
+    from mtg import driver
+    from mtg import bridge_to_engine as bridge
+    from mtg import sim
     from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
@@ -295,7 +295,7 @@ class EnginePolicy:
         if handler is None or seat is None:
             return self.fallback(obs, key, options, default)
         try:
-            import driver
+            from mtg import driver
             state, unmodeled = reconstruct(obs, seat)
             self.stats["unmodeled_cards"].update(n for _z, n in unmodeled)
             choice, modeled, endorsed, offered, used_engine = handler(driver, state, seat, options, default)

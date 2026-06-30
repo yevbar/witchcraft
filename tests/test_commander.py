@@ -37,9 +37,9 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import bridge_to_engine as bridge
+from mtg import bridge_to_engine as bridge
 from interpreter import card_corpus
-import driver
+from mtg import driver
 import env
 import game
 

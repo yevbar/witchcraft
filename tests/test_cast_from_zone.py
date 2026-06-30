@@ -21,7 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import driver
+from mtg import driver
 import effect_handlers
 
 effect_handlers.load()
@@ -176,9 +176,9 @@ def _observe_checks():
 
 def _corpus_checks():
     # end-to-end on the corpus: the cards that motivated this resolve CLEAN; the dynamic-bound card abstains.
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

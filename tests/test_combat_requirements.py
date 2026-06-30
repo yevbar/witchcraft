@@ -36,7 +36,7 @@ import contextlib
 import io
 
 import env
-import driver
+from mtg import driver
 import observe
 
 CHECKS: list[tuple[str, bool]] = []

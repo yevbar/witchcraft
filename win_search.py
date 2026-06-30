@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import time
 
-import driver
+from mtg import driver
 import env
 
 

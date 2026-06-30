@@ -22,9 +22,9 @@ from pathlib import Path
 
 import sys
 
-import engine_native        # compiled-binary backend (subprocess); falls back to the interpreter if unavailable
-import engine_inproc        # in-process compiled engine (ctypes .so, no fork/files); preferred when buildable
-import engine_incremental   # incremental `update` backend (fork --incremental); opt-in via MTG_INCREMENTAL
+from mtg import engine_native
+from mtg import engine_inproc
+from mtg import engine_incremental
 import effect_handlers      # pluggable effect verbs (effect_handlers/*.py); _apply_effects dispatches here
 
 _THIS = sys.modules[__name__]   # passed to effect-handler apply fns so they reach driver helpers w/o a cycle
@@ -34,7 +34,7 @@ RULES = Path("datalog/engine_rules.dl").read_text()
 # relations the engine knows about; driver-only bookkeeping (in_library, ...) is not passed to souffle.
 # Derived from the engine's `.decl` schema via the single introspection layer (engine_schema), not a
 # second ad-hoc parse — so the shim's notion of the engine interface can't drift from the engine.
-import engine_schema
+from mtg import engine_schema
 DECLARED = set(engine_schema.relations())
 
 # zone name (from the transpiled §701 keyword-action rules) -> driver state relation.

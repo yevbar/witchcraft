@@ -31,9 +31,9 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-import engine_native  # reuse _SRC / _edb / _wrapper so the wrapped program matches engine_inproc/engine_native
+from mtg import engine_native
 
-_HARNESS_DIR = Path(__file__).resolve().parent / "incremental" / "harness"
+_HARNESS_DIR = Path(__file__).resolve().parent.parent.parent / "incremental" / "harness"  # repo root (module in packages/mtg/)
 sys.path.insert(0, str(_HARNESS_DIR))
 import harness  # noqa: E402  (the in-process incremental ctypes bridge — the fork's --incremental .so)
 

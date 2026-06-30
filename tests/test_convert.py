@@ -24,11 +24,11 @@ import contextlib
 import io
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
+from mtg import driver
+from mtg import bridge_to_engine as B
 import effect_handlers
 import observe
-import sim
+from mtg import sim
 
 effect_handlers.load()
 _P = [0, 0]

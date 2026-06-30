@@ -354,7 +354,7 @@ def _engage_incremental() -> bool:
     play weights unchanged) — so it only ever changes speed, never results: ~1.1x on greedy self-play and more
     under ReBeL search (many CFR evals per move amortize the bootstrap). Idempotent and QUIET — a no-op
     returning False when the fork is absent, so callers degrade cleanly to the inproc backend (no warning)."""
-    import engine_incremental
+    from mtg import engine_incremental
     import mtg.game as _game
     return _game._select_incremental() if engine_incremental.available() else False
 

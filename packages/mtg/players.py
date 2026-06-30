@@ -25,7 +25,7 @@ from __future__ import annotations
 import random
 from contextlib import contextmanager
 
-import driver
+from mtg import driver
 from .game import Game
 from .models import Permanent
 

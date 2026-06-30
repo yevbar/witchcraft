@@ -32,7 +32,7 @@ import contextlib
 import io
 import itertools
 
-import driver
+from mtg import driver
 
 _MAIN = {"precombat_main", "postcombat_main"}
 _MAX_SUBSET_ATOMS = 5        # enumerate every attacker subset only up to this many eligible attackers

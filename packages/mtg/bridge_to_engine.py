@@ -20,7 +20,7 @@ import re
 
 from interpreter import card_corpus
 from interpreter import ground
-import sim
+from mtg import sim
 from interpreter.card_effects import _mana_production
 
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
@@ -705,7 +705,7 @@ def _clean_token_spec(spec: str) -> bool:
     if len(parts) >= 3 and parts[0].lstrip("-").isdigit() and parts[1].lstrip("-").isdigit():
         return True                                           # a numeric P/T spec
     try:
-        import driver
+        from mtg import driver
         return s in driver.TOKEN_DEFS                         # a known predefined token
     except Exception:
         return False
@@ -731,7 +731,7 @@ def _load_modeled_conds() -> frozenset:
     import re as _re
     from pathlib import Path as _Path
     try:
-        txt = (_Path(__file__).parent / "datalog" / "engine_rules.dl").read_text(encoding="utf-8")
+        txt = (_Path(__file__).parent.parent.parent / "datalog" / "engine_rules.dl").read_text(encoding="utf-8")
     except OSError:
         return frozenset()
     return frozenset(_re.findall(r'cond_met\(\s*S\s*,\s*"([^"]+)"\s*\)', txt))
@@ -2560,7 +2560,7 @@ def _materialize_printed(state: dict) -> None:
     lands/casting/reanimation, before a card is a battlefield permanent), so fold the engine-DERIVED printed_*
     rows back into the state. Every instance's card_*/instance_of facts are present, so one engine run
     derives them all; this keeps the driver's direct reads correct while the engine owns the derivation."""
-    import driver
+    from mtg import driver
     eng = driver.run({k: v for k, v in state.items() if isinstance(v, set)}, _PRINTED_DERIVED)
     numeric = {"printed_power", "printed_toughness"}
     for rel in _PRINTED_DERIVED:
@@ -4300,7 +4300,7 @@ def make_deck_state(decks: dict, seed: int = 0, hand: int | None = None,
     `decks` list is the 99-card singleton library (shuffled, opening hand drawn from it). Starting life
     (40) is READ from the rules (starting.dl) via the variant. The shim records `_commander_owner` and
     `_cmd_casts` (the §903.8 recast-tax count) so driver.cast_commander can cast from the command zone."""
-    import driver
+    from mtg import driver
     db, corpus = sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
     players = list(decks)
     if life is None:
@@ -4381,7 +4381,7 @@ def play_real_game(decks: dict, seed: int = 0, max_turns: int = 40) -> str | Non
     draw, play lands, cast creatures/spells as mana allows, attack, resolve triggers/deaths — every card
     characteristic and effect comes from cards.dl, every rule from engine_rules.dl; driver.py authors no
     game logic. Returns the loser."""
-    import driver
+    from mtg import driver
     state = make_deck_state(decks, seed=seed)
     return driver.play_game(state, list(decks), max_turns=max_turns)
 
@@ -4390,7 +4390,7 @@ def demo_game() -> None:
     """A self-playing game of REAL cards, driven entirely by the datalog rules engine. The bridge
     loads each card's characteristics + triggered abilities from cards.dl; driver.py derives combat,
     deaths, and which triggers fire; this function authors no game logic."""
-    import driver
+    from mtg import driver
     boards = {
         # alice's lone Tattered Mummy (1/2) — its interpreted ability is "when ~ dies, each opponent
         # loses 2 life". It attacks into bob's Gray Ogre (2/2), dies, and the death trigger must fire.

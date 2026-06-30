@@ -22,7 +22,7 @@ import io
 
 import effect_handlers
 effect_handlers.load()
-import driver
+from mtg import driver
 import observe
 from effect_handlers import army_populate as AP
 

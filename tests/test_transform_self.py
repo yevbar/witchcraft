@@ -20,8 +20,9 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 import io, contextlib
 from interpreter import card_corpus
-import effect_handlers, driver, sim, observe
-import bridge_to_engine as bridge
+from mtg import driver, sim
+import effect_handlers, observe
+from mtg import bridge_to_engine as bridge
 
 effect_handlers.load()
 _P = [0, 0]

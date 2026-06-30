@@ -11,7 +11,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import engine_schema
+from mtg import engine_schema
 
 
 PASS = FAIL = 0
@@ -34,7 +34,7 @@ def main():
     check("outputs are a subset of the relations", engine_schema.outputs() <= set(rels))
 
     # the shim derives its relation set from the schema (no second ad-hoc parse to drift).
-    import driver
+    from mtg import driver
     check("driver.DECLARED == engine_schema.relations()", driver.DECLARED == set(rels))
 
     # supported event vocabulary is recovered from the fires rules.

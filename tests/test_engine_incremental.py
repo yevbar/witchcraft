@@ -26,9 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "incremental" / "harness"))
 
-import engine_inproc
-import engine_incremental
-from driver import _facts_key
+from mtg import engine_inproc
+from mtg import engine_incremental
+from mtg.driver import _facts_key
 from test_engine_native import STATES
 
 

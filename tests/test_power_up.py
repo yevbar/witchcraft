@@ -31,8 +31,8 @@ os.environ.setdefault("MTG_NO_SPACY", "1")
 from interpreter import card_corpus
 from interpreter import transpile_card as tc
 from interpreter import ground
-import bridge_to_engine as bridge
-import driver
+from mtg import bridge_to_engine as bridge
+from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []
 

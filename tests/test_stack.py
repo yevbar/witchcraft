@@ -23,7 +23,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import io
 from contextlib import redirect_stdout
 
-import driver as D
+from mtg import driver as D
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -136,9 +136,9 @@ def test_overspend_invariant() -> None:
 
 
 def test_counter_magic_frontier() -> None:
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     import effect_handlers
     effect_handlers.load()
     db = sim.load_db()
@@ -182,9 +182,9 @@ def test_counter_magic_frontier() -> None:
 
 
 def test_sacrifice_activation_cost() -> None:
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     import effect_handlers
     effect_handlers.load()
     db = sim.load_db()

@@ -26,9 +26,9 @@ from __future__ import annotations
 import contextlib
 import io
 
-import driver
+from mtg import driver
 import env
-import bridge_to_engine as bridge
+from mtg import bridge_to_engine as bridge
 
 DECKS = bridge._DEMO_DECKS              # the on-color Gruul vs Dimir demo decks (real cards)
 COMMANDER_DECKS = bridge._COMMANDER_DECKS          # §903 1v1 Commander: Magda (mono-R) vs Isamaru (mono-W)

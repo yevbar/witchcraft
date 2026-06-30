@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import driver
+from mtg import driver
 import observe
 import effect_handlers
 
@@ -72,7 +72,7 @@ def _discover_checks():
           not sw["in_hand"] and ("me", "n0") in sw["in_library"])
 
     # MODE = cast (free): end-to-end through the real cast path with a deck state (mirrors test_impulse).
-    import bridge_to_engine as B
+    from mtg import bridge_to_engine as B
     from interpreter import ground
     full = B.make_deck_state({"me": ["Shock", "Mountain", "Mountain", "Shock"], "op": ["Island"] * 4},
                              seed=1, hand=0, life=40)

@@ -63,9 +63,9 @@ def main():
         if not harness.available():
             print("harness UNAVAILABLE — skipping")
             return 0
-        import driver
+        from mtg import driver
         import search
-        import engine_incremental
+        from mtg import engine_incremental
     except Exception as e:
         print(f"modules unavailable ({e}) — skipping")
         return 0

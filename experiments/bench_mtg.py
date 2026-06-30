@@ -25,13 +25,13 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 import time
 
-import bridge_to_engine as bridge
+from mtg import bridge_to_engine as bridge
 from interpreter import card_corpus
-import driver
-import engine_native
-import engine_inproc
+from mtg import driver
+from mtg import engine_native
+from mtg import engine_inproc
 import env
-import sim
+from mtg import sim
 
 
 def _rate(fn, warm: int = 3, secs: float = 6.0) -> float:

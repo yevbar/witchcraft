@@ -25,8 +25,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 import time
 
-import bridge_to_engine as B
-import driver
+from mtg import bridge_to_engine as B
+from mtg import driver
 import effect_handlers
 import env
 from interpreter import ground

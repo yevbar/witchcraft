@@ -10,7 +10,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from interpreter import card_corpus
-import sim, bridge_to_engine as bridge, driver, observe
+from mtg import sim, bridge_to_engine as bridge, driver
+import observe
 
 _ok = [0, 0]
 def check(name, cond):

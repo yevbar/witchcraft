@@ -31,7 +31,7 @@ _SRC = Path("datalog/engine_rules.dl")
 _CACHE_DIR = Path(tempfile.gettempdir())
 # The in-repo souffle fork. The recompute backends prefer it (it does standard, non-incremental codegen too),
 # so the whole driver runs from one `build_souffle.sh` build — no separate SYSTEM souffle install needed.
-_FORK = Path(__file__).resolve().parent / "third_party" / "souffle"
+_FORK = Path(__file__).resolve().parent.parent.parent / "third_party" / "souffle"  # repo root (module in packages/mtg/)
 
 
 def _souffle_bin() -> str:

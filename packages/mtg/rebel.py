@@ -32,7 +32,7 @@ import io
 import random
 import time
 
-import driver
+from mtg import driver
 import env
 import observe
 from .players import Player

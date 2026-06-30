@@ -31,9 +31,9 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from collections import Counter, defaultdict
 
-import bridge_to_engine
+from mtg import bridge_to_engine
 from interpreter import card_corpus
-import sim
+from mtg import sim
 from cedh_decklists import DECKS
 
 

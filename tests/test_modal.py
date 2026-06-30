@@ -9,7 +9,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 
 PASS = FAIL = 0
 
@@ -129,8 +129,8 @@ def _modal_count_and_card_checks():
     import io
     import copy
     from interpreter import card_corpus
-    import sim
-    import bridge_to_engine as B
+    from mtg import sim
+    from mtg import bridge_to_engine as B
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

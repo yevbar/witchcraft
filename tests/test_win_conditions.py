@@ -31,7 +31,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import io
 from contextlib import redirect_stdout
 
-import driver as D
+from mtg import driver as D
 
 CHECKS: list[tuple[str, bool]] = []
 

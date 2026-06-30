@@ -11,7 +11,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import observe
 import effect_handlers
 effect_handlers.load()
-import driver
+from mtg import driver
 
 _ok = [0, 0]
 def check(name, cond):

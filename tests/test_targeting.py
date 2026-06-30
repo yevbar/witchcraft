@@ -21,8 +21,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -171,7 +171,7 @@ def _trigger_damage_checks() -> None:
     # deal_damage (int amount + a mapped damage target), feed its parse facts on a forced-firing upkeep
     # trigger, and prove the engine derives pending_damage (proxy for trigger_damage, which isn't .output).
     from interpreter import card_corpus, ground
-    import sim
+    from mtg import sim
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     found = None
     for name in corpus:
@@ -391,7 +391,7 @@ def _spell_checks() -> None:
     # ONE WORLD: spell_damage is now DERIVED IN DATALOG from the card parse facts the bridge feeds — so
     # read it back from the ENGINE (driver.run) on a state built from those facts, not from the bridge dict.
     from interpreter import card_corpus as _cc
-    import sim as _sim
+    from mtg import sim as _sim
     _db = _sim.load_db(); _co = {c["name"]: c for c in _cc.load_cards()}
     burn = None
     for name in _co:
@@ -410,7 +410,7 @@ def _spell_checks() -> None:
     # ONE WORLD: spell_target (incl. modify_pt now) is DERIVED IN DATALOG from the card parse facts the
     # bridge feeds — so read it back from the ENGINE (driver.run) on a state built from those facts.
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     found = None
@@ -430,7 +430,7 @@ def _spell_checks() -> None:
 
 def _bridge_checks() -> None:
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -453,7 +453,7 @@ def _perm_target_checks() -> None:
     the slug maps to a perm_<filter> class; the driver enumerates permanents by type (opponent-preferred
     for a harmful verb) and the zone-move resolves on the chosen permanent."""
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

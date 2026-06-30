@@ -28,8 +28,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
-import bridge_to_engine as B
+from mtg import driver
+from mtg import bridge_to_engine as B
 import env
 import win_search
 import effect_handlers

@@ -18,7 +18,7 @@ NOSEARCH = "--nosearch" in sys.argv
 if INC:
     os.environ["MTG_INCREMENTAL"] = "1"
 
-import driver                                              # noqa: E402
+from mtg import driver
 import win_search                                          # noqa: E402
 from mtg.game import Game                           # noqa: E402
 from mtg.lookahead import EnhancedLookaheadPlayer   # noqa: E402

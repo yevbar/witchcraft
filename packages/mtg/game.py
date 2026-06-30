@@ -39,7 +39,7 @@ import re
 import warnings
 from functools import lru_cache
 
-import driver
+from mtg import driver
 import env
 import game as _setup
 
@@ -137,7 +137,7 @@ def _select_incremental() -> bool:
     Caveat: the driver reads `MTG_INCREMENTAL` per eval, so this flips a PROCESS-GLOBAL backend selection —
     it affects every Game in the process. That's harmless: all backends are byte-identical, so it only ever
     changes speed, never results."""
-    import engine_incremental
+    from mtg import engine_incremental
     os.environ["MTG_INCREMENTAL"] = "1"
     if engine_incremental.available():
         return True

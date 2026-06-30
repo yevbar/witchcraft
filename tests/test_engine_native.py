@@ -21,9 +21,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import engine_native
-import engine_inproc
-from driver import RULES, _facts_key, _lit
+from mtg import engine_native
+from mtg import engine_inproc
+from mtg.driver import RULES, _facts_key, _lit
 
 
 def _interp(fkey) -> dict:
@@ -99,8 +99,8 @@ def run() -> None:
     # full recompute. This is what makes the "incremental input, full recompute" optimization safe to trust.
     if engine_inproc.available():
         import contextlib, io
-        import bridge_to_engine as _bridge
-        import driver as _drv
+        from mtg import bridge_to_engine as _bridge
+        from mtg import driver as _drv
         seq = []
         _orig = _drv._evaluate
         _drv._evaluate = lambda fk: (seq.append(fk), _orig(fk))[1]

@@ -61,10 +61,10 @@ from __future__ import annotations
 
 import sys
 
-import sim
+from mtg import sim
 from interpreter import card_corpus
 from interpreter import ground
-import bridge_to_engine
+from mtg import bridge_to_engine
 
 # ── the shared EVENT vocabulary: the synergy "wires". An OUTPUT produces one of these; an INPUT (a triggered
 #    ability) watches one. Anchored on bridge_to_engine._EVENT (the engine's known trigger->event map) and the

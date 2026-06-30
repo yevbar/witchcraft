@@ -19,10 +19,10 @@ import contextlib
 import io
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
+from mtg import driver
+from mtg import bridge_to_engine as B
 import effect_handlers as EH
-import sim
+from mtg import sim
 
 EH.load()
 _P = [0, 0]

@@ -25,9 +25,9 @@ import contextlib
 import io
 
 from interpreter import card_corpus
-import sim
-import driver
-import bridge_to_engine as bridge
+from mtg import sim
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
 

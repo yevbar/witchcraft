@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import driver
+from mtg import driver
 import effect_handlers
 from effect_handlers.attach import encode_attach
 

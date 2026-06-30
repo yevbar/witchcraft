@@ -18,9 +18,9 @@ import contextlib
 import io
 import os
 
-import driver
+from mtg import driver
 import env
-import bridge_to_engine as bridge
+from mtg import bridge_to_engine as bridge
 
 _P = [0, 0]
 def check(name, cond):

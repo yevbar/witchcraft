@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import effect_handlers
 import effect_handlers.counters as C
-import driver as D
+from mtg import driver as D
 
 CHECKS: list = []
 

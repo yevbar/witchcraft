@@ -26,8 +26,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import bridge_to_engine as B
-import driver
+from mtg import bridge_to_engine as B
+from mtg import driver
 import env
 
 CHECKS: list[tuple[str, bool]] = []

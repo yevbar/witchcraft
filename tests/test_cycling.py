@@ -19,7 +19,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
+from mtg import driver
 import env
 
 CHECKS: list[tuple[str, bool]] = []

@@ -18,8 +18,9 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 
 import contextlib, io
-import bridge_to_engine as bridge
-import driver, observe
+from mtg import bridge_to_engine as bridge
+from mtg import driver
+import observe
 
 _P = [0, 0]
 def check(name, cond):

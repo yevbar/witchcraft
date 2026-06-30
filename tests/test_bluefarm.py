@@ -24,9 +24,9 @@ import contextlib
 import io
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
-import sim
+from mtg import driver
+from mtg import bridge_to_engine as B
+from mtg import sim
 
 _P = [0, 0]
 

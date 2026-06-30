@@ -16,8 +16,9 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import bridge_to_engine as bridge
-import driver, observe
+from mtg import bridge_to_engine as bridge
+from mtg import driver
+import observe
 
 _P = [0, 0]
 def check(name, cond):

@@ -99,7 +99,7 @@ def _merge_card_rules(s: dict, known: list) -> None:
     if loaded is None:
         return
     db, corpus = loaded
-    import bridge_to_engine as bridge
+    from mtg import bridge_to_engine as bridge
     for name, seat, iid in known:
         try:
             facts, _dropped = bridge.card_facts(name, seat, f"{_slug(name)}_{iid}", db, corpus)

@@ -21,8 +21,8 @@ for _p in (_r, os.path.join(_r, "packages")):
 import io
 import contextlib
 
-import driver
-import bridge_to_engine as B
+from mtg import driver
+from mtg import bridge_to_engine as B
 
 PASS = FAIL = 0
 

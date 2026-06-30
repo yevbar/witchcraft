@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import engine_native
+from mtg import engine_native
 
 
 def eval_state(rules: str, state: dict) -> dict | None:
@@ -28,7 +28,7 @@ def eval_state(rules: str, state: dict) -> dict | None:
             return engine_native.evaluate_program(rules, fkey)
         except subprocess.CalledProcessError:
             return None
-    from driver import _lit                                    # interpreter fallback (no native toolchain)
+    from mtg.driver import _lit                                    # interpreter fallback (no native toolchain)
     facts = "\n".join(f"{rel}({', '.join(map(_lit, row))})." for rel, rows in state.items() for row in rows)
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "e.dl").write_text(rules + "\n" + facts)

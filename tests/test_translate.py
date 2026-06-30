@@ -16,8 +16,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 
 PASS = FAIL = 0
@@ -136,7 +136,7 @@ def _target_derivation_checks():
 def _equivalence_checks():
     # ACROSS THE CORPUS: the datalog derivation == the OLD python bridge logic for the migrated slice.
     from interpreter import card_corpus, ground
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -217,7 +217,7 @@ def _triggered_equivalence_checks():
     equals the OLD python bridge's output for the migrated single-target / damage / counter / reanimate /
     switchpt slice. Per relation: X cards, 0 mismatches."""
     from interpreter import card_corpus, ground
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     stats = {"target": [0, 0], "damage": [0, 0], "reanimate": [0, 0], "switchpt_self": [0, 0]}
@@ -267,7 +267,7 @@ def _triggered_equivalence_checks():
 
 
 def _no_python_translation():
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus_load()}
     # a card with a player-scoped trigger emits the PARSE facts but NO python trigger_effect for it.
@@ -335,7 +335,7 @@ def _creature_scope_equivalence_checks():
     z=bob) so the resolved creature-set uniquely identifies the scope (self->{x}, creatures_you_control->{x,y},
     all_creatures->{x,y,z}). Per relation: X cards, 0 mismatches."""
     from interpreter import card_corpus, ground
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     keys = ["pt", "grant", "destroy", "exile", "tap", "untap", "return", "tt_modpt", "animate"]

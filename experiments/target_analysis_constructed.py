@@ -25,9 +25,9 @@ for _p in (_r, os.path.join(_r, "packages")):
 import sys
 from collections import defaultdict
 
-import sim
+from mtg import sim
 from interpreter import card_corpus
-import bridge_to_engine
+from mtg import bridge_to_engine
 from meta_decklists_constructed import DECKS
 
 

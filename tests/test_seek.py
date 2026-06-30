@@ -10,7 +10,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from interpreter import card_corpus
-import sim, bridge_to_engine as bridge, driver, effect_handlers
+from mtg import sim, bridge_to_engine as bridge, driver
+import effect_handlers
 from effect_handlers import library as L
 effect_handlers.load()
 

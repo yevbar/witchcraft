@@ -19,8 +19,8 @@ while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog"
 for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CH = []
 def ck(n, c): CH.append((n, bool(c)))
@@ -28,7 +28,7 @@ def ck(n, c): CH.append((n, bool(c)))
 
 def layer1_bridge():
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

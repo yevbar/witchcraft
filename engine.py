@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from interpreter import card_corpus
 from interpreter import ground
-import sim          # reuse the fact loader
+from mtg import sim
 
 # basic-land subtype -> color it taps for (§305.6) — basic lands have no oracle text to interpret.
 _BASIC = {"Plains": "W", "Island": "U", "Swamp": "B", "Mountain": "R", "Forest": "G"}

@@ -18,8 +18,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -62,7 +62,7 @@ def _engine_checks() -> None:
 
 def _bridge_checks() -> None:
     from interpreter import card_corpus
-    import sim
+    from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -112,7 +112,7 @@ def _room_dyn_damage_checks() -> None:
     Furnace // Steaming Sauna, end to end through the real engine + driver."""
     import contextlib
     import io
-    import sim
+    from mtg import sim
     from interpreter import card_corpus
     import effect_handlers
     effect_handlers.load()

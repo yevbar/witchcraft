@@ -1353,7 +1353,8 @@ def _pt_value_facts() -> list[str]:
     """ONE WORLD foundation: the build-time LEXING of P/T amount strings -> (dp, dt) as a fact table, so the
     SEMANTIC P/T rules (modify_pt / 'becomes a P/T creature') stay pure datalog (souffle can't parse '+1/+1').
     Covers every signed '+N/+N' / '-N/-N' (modify_pt) and bare 'N/M' (animation) amount in the corpus."""
-    import re as _re, sim as _sim
+    from mtg import sim as _sim
+    import re as _re
     pat = _re.compile(r"^([+-]?\d+)/([+-]?\d+)$")
     vals: dict[str, tuple[int, int]] = {}
     for e in _sim.load_db().values():
@@ -1374,8 +1375,8 @@ def _anthem_filter_facts() -> list[str]:
     time (souffle can't run the depluralize / subtype-universe logic), so the SEMANTIC static_pt/static_grant
     + static_filter rules stay pure datalog. Mirrors anthem_scope (the unfiltered case) for the filtered one."""
     from interpreter import card_corpus as _cc, ground as _ground
-    import sim as _sim
-    import bridge_to_engine as _b
+    from mtg import sim as _sim
+    from mtg import bridge_to_engine as _b
     corpus = {c["name"]: c for c in _cc.load_cards()}
     db = _sim.load_db()
     out: dict[str, tuple[str, str, str]] = {}
@@ -1399,7 +1400,7 @@ def _anthem_filter_facts() -> list[str]:
 
 
 def _emit_translate(p) -> None:
-    import bridge_to_engine as _b                          # single source of truth for the event vocabulary
+    from mtg import bridge_to_engine as _b
     p.comment("ONE WORLD foundation: pt_value = a P/T amount string -> (dp, dt), lexed at build time from the")
     p.comment("corpus (souffle can't parse '+1/+1'). The P/T rules (modify_pt / animation) join on this table.")
     p.decl("pt_value", [("amt", "symbol"), ("dp", "number"), ("dt", "number")])
@@ -1644,7 +1645,7 @@ def _emit_translate(p) -> None:
 # maps to an engine event (event_map, so it only derives where has_trigger derives) and an UNCONDITIONAL
 # effect (card_effect cond column == "-"). The instance ability id cat(S,"_",A) == the bridge's f"{tid}_{aid}".
 def _emit_translate_triggered_target(p) -> None:
-    import bridge_to_engine as _b
+    from mtg import bridge_to_engine as _b
     p.comment("ONE WORLD: §115/§120/§122/§701 TRIGGERED single-target / damage / counter / reanimate / switch-")
     p.comment("P/T -> trigger_target / trigger_damage / trigger_reanimate, DERIVED from the card parse facts")
     p.comment("(was the bridge's triggered single-target/deal_damage/put_counter/return_to_battlefield/switch_pt")

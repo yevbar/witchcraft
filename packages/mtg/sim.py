@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_DL = Path(__file__).parent / "datalog" / "cards.dl"
+_DL = Path(__file__).parent.parent.parent / "datalog" / "cards.dl"  # repo root (module in packages/mtg/)
 _ROW = re.compile(r'^(\w+)\((.*)\)\.$')
 _DB_CACHE: dict = {}                                   # keyed on cards.dl's (mtime, size) so a rebuild auto-invalidates
 

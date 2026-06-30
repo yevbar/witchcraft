@@ -53,7 +53,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-import driver
+from mtg import driver
 import env
 from .cardnet import (CardNetValue, CardPVNet, DEFAULT_GAMMA, GLOBAL_FEATURES, MOVE_KINDS, OBJ_FEATURES,
                       _discounted_target, _move_index, card_features, move_features, net_abilities)

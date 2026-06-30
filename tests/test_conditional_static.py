@@ -17,8 +17,9 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 
 from interpreter import card_corpus
-import sim, driver, observe
-import bridge_to_engine as bridge
+from mtg import sim, driver
+import observe
+from mtg import bridge_to_engine as bridge
 
 _P = [0, 0]
 def check(name, cond):

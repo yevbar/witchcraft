@@ -188,7 +188,7 @@ def _search_driven_storm() -> None:
     sync with Forge via the reconstructed _cast_count. Simulate Forge's observation at three points of a
     turn-1 storm line (Lotus Petal x9 -> Tendrils of Agony) and check the search keeps casting Petals to
     build the count, then fires the payoff once it's lethal — re-planned each decision from the snapshot."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -227,7 +227,7 @@ def _search_driven_oracle() -> None:
     (libCounts), so reconstruct synthesizes them; without the witch library the win is meaningless, and
     without the opponent's the search would fabricate a deck-out. The search names the absent card to empty
     the library, and the policy relays that name to Forge's chooseCardName prompt."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -266,7 +266,7 @@ def _mana_payment_delegated() -> None:
     COLOR each makes, so Forge can execute the exact payment a combo depends on. The classic trap: with
     Black Lotus (3 of ONE color) + Mox Jet, pay {B} from the Mox — NOT by cracking the Lotus needed for a
     later {U}{U}. driver.mana_plan must make that call (and the policy's 'pay' decision relay it)."""
-    import driver
+    from mtg import driver
     import effect_handlers
     effect_handlers.load()
 
@@ -304,7 +304,7 @@ def _land_play_coverage_bound() -> None:
     offered counted only spells, a land play would add 1 to endorsed against 0 offered -> cumulative
     endorsed_frac > 1 (seen as 2.167 in a vanilla mirror). offered/modeled must include lands, so per
     decision endorsed (0/1) <= offered."""
-    import driver
+    from mtg import driver
     obs = {"seat": "w", "players": ["w", "opp"], "life": {"w": 20, "opp": 20}, "active": "w",
            "step": "precombat_main", "zones": {"hand": [{"id": "L1", "name": "Forest", "controller": "w"}]}}
     state, _ = fb.reconstruct(obs, "w")

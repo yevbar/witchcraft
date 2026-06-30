@@ -9,7 +9,8 @@ while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog"
 for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import re, driver, bridge_to_engine as bridge
+from mtg import driver, bridge_to_engine as bridge
+import re
 
 _ok = [0, 0]
 def check(name, cond):

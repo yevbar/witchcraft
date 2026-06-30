@@ -29,9 +29,9 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from interpreter import build_engine as be
-import engine_native
-import bridge_to_engine as bridge
-import sim
+from mtg import engine_native
+from mtg import bridge_to_engine as bridge
+from mtg import sim
 from interpreter import card_corpus
 
 CH = []

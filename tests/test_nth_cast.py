@@ -19,7 +19,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-import driver
+from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []
 

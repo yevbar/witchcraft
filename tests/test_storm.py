@@ -21,9 +21,9 @@ for _p in (_r, os.path.join(_r, "packages")):
         sys.path.insert(0, _p)
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
-import sim
+from mtg import driver
+from mtg import bridge_to_engine as B
+from mtg import sim
 
 CORPUS = {c["name"]: c for c in card_corpus.load_cards()}
 DB = sim.load_db()

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import sys
 
-import sim
+from mtg import sim
 from interpreter import card_corpus
 from interpreter import ground
 
@@ -226,7 +226,7 @@ def card_profile(name: str, commander: bool = False) -> dict:
         role = "FILLER"
 
     # discoverable frontier: win-relevant clauses the engine couldn't read (would change this card's role).
-    import bridge_to_engine
+    from mtg import bridge_to_engine
     try:
         _, dropped = bridge_to_engine.card_facts(name, "p", "t", db, corpus)
     except Exception:

@@ -27,7 +27,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import re
 
 from interpreter import card_corpus
-import driver
+from mtg import driver
 import env
 from interpreter import ground
 from interpreter import transpile_card as T
@@ -148,7 +148,7 @@ def _real_card_tests() -> None:
     """End-to-end over REAL corpus cards: parse the oracle text, fold the parse facts into a db entry, run the
     bridge, and assert the right cycling_card + typecycling_card. (Uses the live corpus; skips if unavailable.)"""
     try:
-        import bridge_to_engine as B
+        from mtg import bridge_to_engine as B
         cards = {c["name"]: c for c in card_corpus.load_cards()}
     except Exception as e:
         check(f"SKIP real-card vertical (corpus unavailable: {type(e).__name__})", True)

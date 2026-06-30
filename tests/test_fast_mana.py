@@ -24,11 +24,11 @@ import contextlib
 import io
 
 from interpreter import card_corpus
-import driver
-import bridge_to_engine as B
+from mtg import driver
+from mtg import bridge_to_engine as B
 import effect_handlers
 from interpreter import ground
-import sim
+from mtg import sim
 
 effect_handlers.load()
 CORPUS = {c["name"]: c for c in card_corpus.load_cards()}
@@ -113,7 +113,7 @@ def _altmana_checks():
 
 
 def _frontier_mana_checks():
-    import bridge_to_engine as Bm
+    from mtg import bridge_to_engine as Bm
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     for nm in ("Vivi Ornitier", "Birgi, God of Storytelling // Harnfel, Horn of Bounty", "The One Ring"):
@@ -167,7 +167,7 @@ def _frontier_mana_checks():
     with contextlib.redirect_stdout(io.StringIO()):
         driver._spend_mana(ist, "me", "bolt")
     check("a NON-creature spell paid with Arena's mana is NOT flagged", ("bolt",) not in ist["_enters_with_haste"])
-    import bridge_to_engine as Bm2
+    from mtg import bridge_to_engine as Bm2
     _f, dr = Bm2.card_facts("Arena of Glory", "me", "x", sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()})
     check("Arena of Glory is CLEAN", dr == [])
 

@@ -77,7 +77,7 @@ def _combat_step_names():
     """Regression (F1): _COMBAT_STEPS must be the engine's canonical step names, not a drifted local copy.
     A typo'd "begin_combat"/non-existent "first_strike_combat_damage" silently no-op'd _quiesce on a real
     beginning_of_combat state (the hot declare_blockers path still worked, hiding it)."""
-    import driver
+    from mtg import driver
     check("_COMBAT_STEPS == the engine's canonical driver._COMBAT_STEPS", _COMBAT_STEPS == set(driver._COMBAT_STEPS))
     check("_COMBAT_STEPS covers beginning_of_combat (the previously-missed entry)",
           "beginning_of_combat" in _COMBAT_STEPS)

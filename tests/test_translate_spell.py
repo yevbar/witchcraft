@@ -17,8 +17,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import driver
-import bridge_to_engine as bridge
+from mtg import driver
+from mtg import bridge_to_engine as bridge
 
 
 PASS = FAIL = 0
@@ -72,7 +72,7 @@ def _derivation_checks():
 
 def _equivalence_checks():
     # ACROSS THE CORPUS: the datalog derivation == the OLD python bridge logic for the migrated spell slice.
-    import sim
+    from mtg import sim
     db = sim.load_db()
 
     def old_bridge_effect(verb, amt, tgt):
@@ -105,7 +105,7 @@ def _equivalence_checks():
 
 
 def _no_python_translation():
-    import sim
+    from mtg import sim
     from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}

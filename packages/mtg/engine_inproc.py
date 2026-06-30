@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import engine_native  # reuse _SRC / _edb / _wrapper / _souffle_include so the wrapped program is IDENTICAL
+from mtg import engine_native
 
 _CACHE_DIR = Path(tempfile.gettempdir())
 

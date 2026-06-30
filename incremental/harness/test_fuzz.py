@@ -97,8 +97,8 @@ def main():
         print("harness UNAVAILABLE — skipping")
         return 0
     try:
-        import engine_native
-        from driver import RULES
+        from mtg import engine_native
+        from mtg.driver import RULES
     except Exception as e:
         print(f"engine modules unavailable ({e}) — skipping")
         return 0

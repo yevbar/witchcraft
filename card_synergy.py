@@ -22,9 +22,9 @@ unlike a text-regex pass whose false positives you can't see.
 """
 from __future__ import annotations
 
-import bridge_to_engine as bridge
+from mtg import bridge_to_engine as bridge
 from interpreter import card_corpus
-import sim
+from mtg import sim
 
 _BUFF_VERBS = {"modify_pt", "grant_keyword"}
 
