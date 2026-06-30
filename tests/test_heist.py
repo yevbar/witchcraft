@@ -10,10 +10,10 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import card_corpus
-import ground
-from card_effects import parse_clause
-from transpile_card import transpile_unit
+from interpreter import card_corpus
+from interpreter import ground
+from interpreter.card_effects import parse_clause
+from interpreter.transpile_card import transpile_unit
 
 
 def test_heist_target_library():

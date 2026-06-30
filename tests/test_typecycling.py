@@ -20,11 +20,11 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import re
 
-import card_corpus
+from interpreter import card_corpus
 import driver
 import env
-import ground
-import transpile_card as T
+from interpreter import ground
+from interpreter import transpile_card as T
 from effect_handlers import library as _lib
 
 CHECKS: list[tuple[str, bool]] = []

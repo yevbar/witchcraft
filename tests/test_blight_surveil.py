@@ -10,8 +10,8 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import cost_lark
-from card_effects import parse_clause
+from interpreter import cost_lark
+from interpreter.card_effects import parse_clause
 
 
 def _t(e):

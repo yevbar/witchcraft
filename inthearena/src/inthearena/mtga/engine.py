@@ -69,7 +69,7 @@ def _engine_step(turn) -> str:
 
 
 def _slug(name: str) -> str:
-    import ground
+    from interpreter import ground
     return ground.slug(name)
 
 
@@ -80,7 +80,7 @@ def _card_rules_db():
     stays board-only (rule-less) and rules-aware scorers degrade gracefully."""
     try:
         import importlib
-        import card_corpus
+        from interpreter import card_corpus
         sim = importlib.import_module("sim")
         return sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
     except Exception:

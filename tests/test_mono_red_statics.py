@@ -14,10 +14,10 @@ Run: MTG_NO_SPACY=1 python3 test_mono_red_statics.py
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-import card_corpus
-import transpile_card
-import ground
-from card_effects import parse_clause
+from interpreter import card_corpus
+from interpreter import transpile_card
+from interpreter import ground
+from interpreter.card_effects import parse_clause
 
 PASS = FAIL = 0
 

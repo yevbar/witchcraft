@@ -131,7 +131,7 @@ def test_overspend_invariant() -> None:
 
 def test_counter_magic_frontier() -> None:
     import bridge_to_engine as B
-    import card_corpus
+    from interpreter import card_corpus
     import sim
     import effect_handlers
     effect_handlers.load()
@@ -177,7 +177,7 @@ def test_counter_magic_frontier() -> None:
 
 def test_sacrifice_activation_cost() -> None:
     import bridge_to_engine as B
-    import card_corpus
+    from interpreter import card_corpus
     import sim
     import effect_handlers
     effect_handlers.load()

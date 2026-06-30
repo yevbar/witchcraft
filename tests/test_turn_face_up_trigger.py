@@ -21,7 +21,8 @@ def ck(n, c): CH.append((n, bool(c)))
 
 
 def layer1_bridge():
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

@@ -73,7 +73,7 @@ def _engine_checks() -> None:
 
 def _bridge_checks() -> None:
     import sim
-    import card_corpus
+    from interpreter import card_corpus
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

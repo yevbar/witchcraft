@@ -44,107 +44,107 @@ def compile_check() -> bool:
           else "FAIL — some Datalog artifact does not compile")
     return ok
 
-import build_abilities
-import build_actions
-import build_cast
-import build_combat
-import build_combat_triggers
-import build_combat_phase
-import build_engine
-import build_keyword_actions
-import build_keyword_defs
-import build_keyword_effects
-import build_keyword_relations
-import build_layers
-import build_mana_symbols
-import build_casting
-import build_zones
-import build_turn_actions
-import build_lookback
-import build_supertypes
-import build_concepts
-import build_ending
-import build_starting
-import build_costs
-import build_dfc
-import build_targets
-import build_deck
-import build_symbols
-import build_objects
-import build_mana_rules
-import build_permanents
-import build_ability_function
-import build_copy
-import build_tokens
-import build_tba
-import build_terms
-import build_zone_props
-import build_split
-import build_layouts
-import build_replacement
-import build_concept_defs
-import build_ability_class
-import build_card_props
-import build_sba_extra
-import build_multiplayer
-import build_restrictions_extra
-import build_conditionals_extra
-import build_card_terms
-import build_definitions_extra
-import build_existential
-import build_card_misc
-import build_color
-import build_face_down
-import build_saga
-import build_stack
-import build_redundancy
-import build_keyword_action_index
-import build_keyword_ability_index
-import build_battle
-import build_name
-import build_ability_kinds
-import build_variants
-import build_card_types
-import build_action_kinds
-import build_protection
-import build_restrictions
-import build_conditionals
-import build_possessions
-import build_permissions
-import build_derivations
-import build_effects
-import build_relations
-import build_capabilities
-import build_obligations
-import build_existentials
-import build_copula_extras
-import build_action_defs
-import build_svo
-import build_can
-import build_keyword_action_triggers
-import build_statements
-import build_definitions
-import build_trigger_conditions
-import build_templates
-import build_markers
-import build_keyword_events
-import build_keyword_definitions
-import build_keyword_taxonomy
-import build_keywords
-import build_ontology
-import build_prohibitions
-import build_rules_index
-import build_sba
-import build_sba_demo
-import build_state
-import build_damage
-import build_enumerations
-import build_targeting
-import build_triggers
-import build_turn
-import build_token_defs
-import build_turn_structure
-import build_xref
+from interpreter import build_abilities
+from interpreter import build_actions
+from interpreter import build_cast
+from interpreter import build_combat
+from interpreter import build_combat_triggers
+from interpreter import build_combat_phase
+from interpreter import build_engine
+from interpreter import build_keyword_actions
+from interpreter import build_keyword_defs
+from interpreter import build_keyword_effects
+from interpreter import build_keyword_relations
+from interpreter import build_layers
+from interpreter import build_mana_symbols
+from interpreter import build_casting
+from interpreter import build_zones
+from interpreter import build_turn_actions
+from interpreter import build_lookback
+from interpreter import build_supertypes
+from interpreter import build_concepts
+from interpreter import build_ending
+from interpreter import build_starting
+from interpreter import build_costs
+from interpreter import build_dfc
+from interpreter import build_targets
+from interpreter import build_deck
+from interpreter import build_symbols
+from interpreter import build_objects
+from interpreter import build_mana_rules
+from interpreter import build_permanents
+from interpreter import build_ability_function
+from interpreter import build_copy
+from interpreter import build_tokens
+from interpreter import build_tba
+from interpreter import build_terms
+from interpreter import build_zone_props
+from interpreter import build_split
+from interpreter import build_layouts
+from interpreter import build_replacement
+from interpreter import build_concept_defs
+from interpreter import build_ability_class
+from interpreter import build_card_props
+from interpreter import build_sba_extra
+from interpreter import build_multiplayer
+from interpreter import build_restrictions_extra
+from interpreter import build_conditionals_extra
+from interpreter import build_card_terms
+from interpreter import build_definitions_extra
+from interpreter import build_existential
+from interpreter import build_card_misc
+from interpreter import build_color
+from interpreter import build_face_down
+from interpreter import build_saga
+from interpreter import build_stack
+from interpreter import build_redundancy
+from interpreter import build_keyword_action_index
+from interpreter import build_keyword_ability_index
+from interpreter import build_battle
+from interpreter import build_name
+from interpreter import build_ability_kinds
+from interpreter import build_variants
+from interpreter import build_card_types
+from interpreter import build_action_kinds
+from interpreter import build_protection
+from interpreter import build_restrictions
+from interpreter import build_conditionals
+from interpreter import build_possessions
+from interpreter import build_permissions
+from interpreter import build_derivations
+from interpreter import build_effects
+from interpreter import build_relations
+from interpreter import build_capabilities
+from interpreter import build_obligations
+from interpreter import build_existentials
+from interpreter import build_copula_extras
+from interpreter import build_action_defs
+from interpreter import build_svo
+from interpreter import build_can
+from interpreter import build_keyword_action_triggers
+from interpreter import build_statements
+from interpreter import build_definitions
+from interpreter import build_trigger_conditions
+from interpreter import build_templates
+from interpreter import build_markers
+from interpreter import build_keyword_events
+from interpreter import build_keyword_definitions
+from interpreter import build_keyword_taxonomy
+from interpreter import build_keywords
+from interpreter import build_ontology
+from interpreter import build_prohibitions
+from interpreter import build_rules_index
+from interpreter import build_sba
+from interpreter import build_sba_demo
+from interpreter import build_state
+from interpreter import build_damage
+from interpreter import build_enumerations
+from interpreter import build_targeting
+from interpreter import build_triggers
+from interpreter import build_turn
+from interpreter import build_token_defs
+from interpreter import build_turn_structure
+from interpreter import build_xref
 import datalog_gen
 
 GENERATED = [

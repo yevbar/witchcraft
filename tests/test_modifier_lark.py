@@ -12,9 +12,9 @@ from __future__ import annotations
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
 import re
-import card_corpus
-import modifier_lark as ml
-from transpile_card import _MODIFIERS
+from interpreter import card_corpus
+from interpreter import modifier_lark as ml
+from interpreter.transpile_card import _MODIFIERS
 
 CHECKS: list = []
 

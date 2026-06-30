@@ -17,9 +17,9 @@ import collections
 import os
 from multiprocessing import Pool
 
-import card_corpus
-import ground
-from transpile_card import transpile_unit
+from interpreter import card_corpus
+from interpreter import ground
+from interpreter.transpile_card import transpile_unit
 
 
 def _nproc(n):

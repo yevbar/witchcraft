@@ -11,7 +11,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-from card_effects import parse_clause
+from interpreter.card_effects import parse_clause
 
 
 def test_trailing_after_this_phase():

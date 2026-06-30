@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 
-import transpile
+from interpreter import transpile
 
 # transpile's rule verbs -> the card effect vocabulary (only where the lemma differs from the slug).
 _MAP = {"deal": "deal_damage", "gain": "gain_life", "lose": "lose_life"}
@@ -47,9 +47,9 @@ def _norm(verb: str) -> str:
 def validate(limit: int | None = None):
     """Cross-check curated card effects against the rules engine. Returns (confirmed, unconfirmed,
     conflicts[]) where a conflict is (card, clause, template_verb, engine_verb)."""
-    import card_corpus
-    import ground
-    from transpile_card import transpile_unit, _TRIG, _strip_ability_word
+    from interpreter import card_corpus
+    from interpreter import ground
+    from interpreter.transpile_card import transpile_unit, _TRIG, _strip_ability_word
 
     confirmed = unconfirmed = 0
     conflicts = []

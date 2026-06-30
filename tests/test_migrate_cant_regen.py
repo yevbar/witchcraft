@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-from card_effects import parse_effect
-from card_lark import parse_clause_lark
+from interpreter.card_effects import parse_effect
+from interpreter.card_lark import parse_clause_lark
 
 CHECKS: list = []
 

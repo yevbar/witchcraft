@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-from card_effects import parse_effect
-from card_lark import parse_clause_lark
+from interpreter.card_effects import parse_effect
+from interpreter.card_lark import parse_clause_lark
 
 CHECKS: list = []
 
@@ -54,7 +54,7 @@ def run() -> None:
 
     # the ARTICLE-LESS becomes forms now abstain in lark (the QUANT? broadening was reverted) but remain covered
     # end-to-end via the regex leaf — parse_clause still grounds them (output unchanged)
-    from card_effects import parse_clause
+    from interpreter.card_effects import parse_clause
     # the 'in addition' article-less form is still regex-only (lark abstains, parse_clause covers it)
     check("article-less in-addition regex-covered via parse_clause",
           parse_clause_lark("all lands are islands in addition to their other types") is None

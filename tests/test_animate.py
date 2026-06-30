@@ -107,7 +107,8 @@ def _switch_checks() -> None:
 
 
 def _bridge_check() -> None:
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

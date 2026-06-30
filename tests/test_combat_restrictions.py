@@ -162,7 +162,8 @@ def _bridge_encodes_self_scope() -> None:
     check("encoder ABSTAINS on target_creature (driver target-pick)", enc and enc("cant_be_blocked", 0, "target_creature", "-") is None)
     check("encoder ABSTAINS on anaphoric that_creature", enc and enc("cant_be_blocked", 0, "that_creature", "-") is None)
     # end-to-end through the bridge: a self-scope card no longer drops the clause
-    import sim, card_corpus, bridge_to_engine as bridge
+    from interpreter import card_corpus
+    import sim, bridge_to_engine as bridge
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     if "Aetherling" in corpus:
         _f, dropped = bridge.card_facts("Aetherling", "p", "t0", db, corpus)

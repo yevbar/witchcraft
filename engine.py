@@ -26,8 +26,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-import card_corpus
-import ground
+from interpreter import card_corpus
+from interpreter import ground
 import sim          # reuse the fact loader
 
 # basic-land subtype -> color it taps for (§305.6) — basic lands have no oracle text to interpret.

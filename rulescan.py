@@ -15,7 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from rules_parser import split
+from interpreter.rules_parser import split
 
 
 @lru_cache(maxsize=1)

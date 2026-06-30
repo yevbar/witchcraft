@@ -158,7 +158,8 @@ def _control_checks() -> None:
 
 
 def _bridge_checks() -> None:
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -198,7 +199,8 @@ def _attached_counter_checks() -> None:
     """§301/§303 'put a +1/+1 / -1/-1 counter on enchanted/equipped creature' -> add_counter_attached on the
     HOST (not the Aura/Equip itself, the pre-existing misresolution this fixes). Bridge emit + driver arm +
     the attach-by-sign host pick, plus the non-P/T / variable / non-attachment ABSTAINS."""
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

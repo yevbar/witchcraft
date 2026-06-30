@@ -10,7 +10,7 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-import card_corpus
+from interpreter import card_corpus
 
 
 def _units(name, text):

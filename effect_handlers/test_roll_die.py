@@ -90,7 +90,7 @@ def bridge_checks() -> None:
     # recover the real simple-number cards as ONE atomic roll_die effect; abstain on table/multi/targeted.
     try:
         import sim
-        import card_corpus
+        from interpreter import card_corpus
         import bridge_to_engine as B
         db = sim.load_db()
         corpus = {c["name"]: c for c in card_corpus.load_cards()}

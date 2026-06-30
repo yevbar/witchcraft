@@ -9,8 +9,8 @@ import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import os
 os.environ.setdefault("MTG_NO_SPACY", "1")
 
-from card_effects import parse_clause
-from transpile_card import _mode_option
+from interpreter.card_effects import parse_clause
+from interpreter.transpile_card import _mode_option
 
 
 def _t(e):

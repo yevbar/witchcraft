@@ -113,7 +113,8 @@ def _keyword_param_roundtrip() -> None:
     """§702.14 a PARAMETERIZED keyword (landwalk's land subtype) must survive the runtime path
     load_db -> card_facts, not just live in cards.dl. (load_db used to read printed_keyword but drop the
     companion keyword_param row, so the bridge emitted bare 'landwalk' with no land type.)"""
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     import bridge_to_engine as bridge
     db = sim.load_db(); corpus = {c["name"]: c for c in card_corpus.load_cards()}
     bog, _ = bridge.card_facts("Bog Wraith", "p1", "bw", db, corpus)

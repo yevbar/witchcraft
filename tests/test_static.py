@@ -190,7 +190,7 @@ def _bridge_checks() -> None:
     # in the AMOUNT column (an engine keyword) and whose raw target is one of the 4 UNFILTERED scopes, the
     # engine-DERIVED anthem (read back through has_keyword on a 3-creature board) must reach EXACTLY the
     # creatures the OLD python bridge's static_grant(scope) would have — proving datalog == bridge.
-    import ground
+    from interpreter import ground
     # which board members each old-bridge scope reaches: src=lord(own), ally=own, foe=opponent.
     _SCOPE_HITS = {"creatures_you_control": {"lord", "ally"}, "other_creatures_you_control": {"ally"},
                    "all_creatures": {"lord", "ally", "foe"}, "other_creatures": {"ally", "foe"}}
@@ -263,7 +263,7 @@ def sim_load():
 
 
 def card_corpus_load():
-    import card_corpus
+    from interpreter import card_corpus
     return card_corpus.load_cards()
 
 

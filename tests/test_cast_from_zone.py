@@ -171,7 +171,7 @@ def _observe_checks():
 def _corpus_checks():
     # end-to-end on the corpus: the cards that motivated this resolve CLEAN; the dynamic-bound card abstains.
     import bridge_to_engine as B
-    import card_corpus
+    from interpreter import card_corpus
     import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}

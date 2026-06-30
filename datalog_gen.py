@@ -17,7 +17,7 @@ from pathlib import Path
 from cost_grammar import (EnergySym, GenericSym, Hybrid, LifeSym, ManaSym,
                           SnowSym, VarSym, parse_cost)
 from preprocess import cost_token
-from rules_parser import split
+from interpreter.rules_parser import split
 
 DATALOG = Path("datalog")
 

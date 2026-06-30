@@ -55,7 +55,8 @@ def _engine_checks() -> None:
 
 
 def _bridge_checks() -> None:
-    import sim, card_corpus
+    from interpreter import card_corpus
+    import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
@@ -106,7 +107,7 @@ def _room_dyn_damage_checks() -> None:
     import contextlib
     import io
     import sim
-    import card_corpus
+    from interpreter import card_corpus
     import effect_handlers
     effect_handlers.load()
     db = sim.load_db()

@@ -147,7 +147,7 @@ def main():
     # --- (f) PRECISE MANA ABILITIES: rocks/dorks produce their REAL colored mana (§605/§106) ---
     # The bridge lexes each non-land mana source's oracle text into source_produces/source_wildcard.
     def outs(name):
-        import card_corpus
+        from interpreter import card_corpus
         c = {cc["name"]: cc for cc in card_corpus.load_cards()}.get(name, {})
         return list(B._mana_source_outputs(c))
 

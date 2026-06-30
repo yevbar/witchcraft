@@ -21,11 +21,11 @@ Run from the worktree: MTG_NO_SPACY=1 python3 test_turn_face_up_end_to_end.py
 """
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
-import build_engine as be
+from interpreter import build_engine as be
 import engine_native
 import bridge_to_engine as bridge
 import sim
-import card_corpus
+from interpreter import card_corpus
 
 CH = []
 def ck(n, c): CH.append((n, bool(c)))

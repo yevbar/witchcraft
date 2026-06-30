@@ -152,7 +152,8 @@ def _apply_checks() -> None:
 def _real_card_checks() -> None:
     """Faithful-or-abstain on REAL corpus cards via card_facts: the determinable fights emit a fight tuple;
     the choice/back-reference fights abstain (stay in the drop list)."""
-    import sim, card_corpus, bridge_to_engine as bridge
+    from interpreter import card_corpus
+    import sim, bridge_to_engine as bridge
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 

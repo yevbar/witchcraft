@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
 
-from card_lark import parse_clause_lark
-from card_effects import parse_clause
+from interpreter.card_lark import parse_clause_lark
+from interpreter.card_effects import parse_clause
 
 CHECKS: list = []
 
@@ -35,7 +35,7 @@ def _tup(e):
 
 def run() -> None:
     # extra_combat — the corpus forms ground via lark (ecclause); byte-identical to the still-present regex.
-    from card_effects import parse_effect
+    from interpreter.card_effects import parse_effect
     for s in ["after this phase, there is an additional combat phase",
               "after this main phase, there is an additional combat phase",
               "there is an additional combat phase"]:
