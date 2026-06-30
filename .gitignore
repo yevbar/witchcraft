@@ -24,3 +24,6 @@ datalog/cards.dl
 
 # ReBeL training output artifacts
 rebel_runs/
+
+# Locally-built / shipped engine binaries (the future per-arch wheel ships these; see mtg/_native.py)
+packages/mtg/_native/
