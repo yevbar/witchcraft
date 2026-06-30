@@ -25,6 +25,7 @@ import random
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
 from mtg._text import slug                              # name->id contract (was interpreter.slug)
@@ -49,8 +50,22 @@ _INLINE_VERBS = frozenset({
 })
 
 # the §702 keyword roster — lets grant_keyword pick the keyword out of whichever slot holds it
-# (the other slot carries the duration, e.g. "until_end_of_turn").
-_KEYWORDS = ground.keyword_abilities()
+# (the other slot carries the duration, e.g. "until_end_of_turn"). Read straight from the datalog
+# artifact (the same keyword_ability_index.dl that interpreter.ground.keyword_abilities() reads), so
+# engine.py needs no interpreter import — each keyword_ability_index(rule, name) fact's name, slugged.
+def _keyword_abilities() -> frozenset:
+    art = Path(__file__).resolve().parents[3] / "datalog" / "keyword_ability_index.dl"
+    out = set()
+    for line in art.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("keyword_ability_index("):
+            q = re.findall(r'"([^"]*)"', line)          # (rule, name) — the name is the 2nd quoted symbol
+            if len(q) >= 2:
+                out.add(slug(q[1]))
+    return frozenset(out)
+
+
+_KEYWORDS = _keyword_abilities()
 
 # permanent-type words that appear in target specs -> the Card.types token they select.
 _PERM_TYPES = {"creature": "Creature", "land": "Land", "artifact": "Artifact",
