@@ -44,9 +44,16 @@ losing their function — they *are* interpreter consumers. They are not the dri
 
 ## The plan, per symbol — "how/where"
 
-### A1. `ground.slug` → read the `name` relation (NO rebuild)
+### A1. `ground.slug` → `mtg._text.slug` — DONE (this branch, no rebuild)
 
-`cards.dl` already maps slug↔display via `name(id, name)`. The driver loads `cards.dl` anyway
+Implemented as a private `mtg._text.slug` (the build's name->id contract; generic text normalization,
+not card interpretation) replacing all `ground.slug` in `bridge_to_engine`/`engine/engine`/`game`,
+because `game.py` builds its map over the FULL corpus (35,033) while the `name` relation covers only the
+33,150 cards in the build — so the artifact-read would change coverage. `mtg._text.slug` is byte-identical
+to `interpreter.ground.slug`. `engine/engine.py` and `game.py` now import zero interpreter Python. (The
+pure artifact-read below stays available as a future refinement if `name` is emitted for all cards.)
+
+> Original artifact-read sketch (deferred): `cards.dl` maps slug↔display via `name(id, name)`. The driver loads `cards.dl` anyway
 (`mtg.sim.load_db()`), so build the inverse map once and look up there instead of re-slugging:
 
 - Add `mtg._corpus.name_to_id()` (or extend `sim`) → `{display_name: slug}` built from the `name`
@@ -67,22 +74,41 @@ losing their function — they *are* interpreter consumers. They are not the dri
 
 `_emit_mana_sources` re-parses each `"{cost}: Add {what}"` line with `_mana_production`. But
 `adds_mana(card, cost, produces)` already carries the resolved production for rocks/dorks
-(`llanowar_elves, "{T}", "green"`). Switch the source-row builder to iterate `adds_mana` from the
-loaded db:
+(`llanowar_elves, "{T}", "green"`). **FINDING (this branch): `adds_mana` is LOSSY on the production
+COUNT and so CANNOT replace `_mana_production` without a rebuild.** `_mana_production("{C}{C}")` ->
+`["colorless","colorless"]` (a multiset the pool needs), but `adds_mana("sol_ring","{T}","colorless")`
+stores a single descriptor — Sol Ring's *two* colorless is not recoverable. The pool model
+(`source_produces`/`source_wildcard` with per-color amounts) needs the count.
 
-- The production resolution (the interpreter-logic half) comes straight from `adds_mana.produces`.
-- The cost decomposition (`cost_generic`, `taps_self`, sac/{X} abstain) is mechanical string parsing
-  the driver can keep doing on `adds_mana.cost` — no interpreter needed.
-- **Verify coverage:** diff the `adds_mana` rows against what `_emit_mana_sources` currently emits over
-  the corpus (a one-off parity script). Any production shape `adds_mana` lacks but `_mana_production`
-  resolves is a **build-emit gap** → emit it into `cards.dl` (one rebuild), then read it.
+So this is a genuine **build-emit + rebuild** step (your domain), specified as:
 
-**Where:** `mtg/bridge_to_engine.py` (`_emit_mana_sources`, ~line 4090-4115). **Rebuild:** only for
-coverage gaps found by the parity diff.
+1. **Interpreter build:** emit the resolved production WITH multiplicity into `cards.dl` — either a new
+   `mana_source(card, cost, produces, n)` relation (one row per distinct descriptor with its count) or
+   add a count column to `adds_mana`. The values are exactly what `card_effects._mana_production(what)`
+   returns, grouped+counted, paired with the activation `cost` string. Emit from wherever `adds_mana`
+   is built (the mana-ability pass), reusing `_mana_production` at BUILD time so the runtime needs it no
+   longer.
+2. **You regenerate `cards.dl`.**
+3. **Driver read-side:** `_mana_source_outputs` reads `mana_source` rows from the loaded db (count ->
+   `fixed`/`wild`), keeping the mechanical `_parse_ability_cost` on the `cost` string. Land/quoted/{X}
+   filtering stays. Drop `from interpreter.card_effects import _mana_production`. Ship it behind a
+   fallback (use `mana_source` if the relation is present, else the current `_mana_production` path) so
+   the same code works before and after the rebuild and can be verified in your loop.
 
-### A3. `_amount` → read the baked amount tags (NO rebuild)
+**Where:** interpreter mana-ability emitter (build side); `mtg/bridge_to_engine.py`
+(`_mana_source_outputs`, ~line 4093-4133, read side). **Rebuild: REQUIRED.** This is the last interpreter
+import in the driver; once it lands the driver imports zero interpreter Python.
 
-The doubling tags (`twice_that_amount`, `that_amount_plus_1`) are already in the effect facts. The
+### A3. `_amount` → `mtg._text.amount` — DONE (this branch, no rebuild)
+
+CORRECTION to the original sketch: the one driver use of `_amount` is NOT a doubling-tag read — it
+converts the `enters_with_counters` amount, which `cards.dl` stores as a WORD
+(`enters_with_counters("clockwork_beast","1_0","seven")`), into an int. That's generic English number
+parsing, not card interpretation, so it moved to `mtg._text.amount` (byte-identical to
+`interpreter._amount`). The pure-artifact form would emit `n` as an int (a rebuild). Original (wrong)
+sketch follows for the record:
+
+> The doubling tags (`twice_that_amount`, `that_amount_plus_1`) are already in the effect facts. The
 driver's `_amount` call re-derives them from text; instead read the tag straight off the
 `card_effect`/`ability_modifier` payload it's already iterating. If a numeric word→int is genuinely
 needed at runtime for a value NOT in the facts, that is a build-emit gap (rebuild) — but the current
