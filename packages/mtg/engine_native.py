@@ -27,6 +27,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from mtg import _native
+
 _SRC = Path("datalog/engine_rules.dl")
 _CACHE_DIR = Path(tempfile.gettempdir())
 # The in-repo souffle fork. The recompute backends prefer it (it does standard, non-incremental codegen too),
@@ -114,6 +116,10 @@ def build() -> tuple:
         return _BUILD
     rules = _SRC.read_text()
     edb = _edb(rules)
+    pre = _native.engine_bin()                                # a shipped / hand-placed prebuilt exe?
+    if pre is not None:                                       # use it directly — no toolchain, no compile
+        _BUILD = (pre, edb)
+        return _BUILD
     src = _wrapper(rules, edb)
     binp = _CACHE_DIR / f"mtg_engine_{hashlib.sha1(src.encode()).hexdigest()[:12]}"
     if not binp.exists():

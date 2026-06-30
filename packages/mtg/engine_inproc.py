@@ -24,8 +24,32 @@ import tempfile
 from pathlib import Path
 
 from mtg import engine_native
+from mtg import _native
 
 _CACHE_DIR = Path(tempfile.gettempdir())
+
+
+def _load_lib(lib: Path, name: str):
+    """ctypes-load the engine .so, bind the shim signatures, and validate that its ProgramFactory matches
+    `name` (so a hand-placed/shipped .so built from a different engine_rules.dl is rejected, not silently
+    wrong). Returns the loaded CDLL, or None if it can't load or the factory name doesn't match."""
+    try:
+        cdll = ctypes.CDLL(str(lib))
+        cdll.mtg_create.restype = ctypes.c_void_p
+        cdll.mtg_create.argtypes = [ctypes.c_char_p]
+        cdll.mtg_run.restype = ctypes.c_void_p                   # void* so we can free the exact pointer
+        cdll.mtg_run.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        cdll.mtg_run_delta.restype = ctypes.c_void_p
+        cdll.mtg_run_delta.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
+        cdll.mtg_destroy.argtypes = [ctypes.c_void_p]
+        cdll.mtg_free.argtypes = [ctypes.c_void_p]
+    except OSError:
+        return None
+    h = cdll.mtg_create(name.encode())                          # validate the factory is registered under `name`
+    if not h:
+        return None                                            # mismatched/empty .so -> caller falls back
+    cdll.mtg_destroy(h)
+    return cdll
 
 # The C ABI shim: a live program instance.
 #  mtg_run(h, facts)              — FULL load: purge everything, insert all input facts, run, serialize.
@@ -201,6 +225,15 @@ def build() -> tuple | None:
     src = engine_native._wrapper(rules, edb)
     h = hashlib.sha1((src + _SHIM_CPP).encode()).hexdigest()[:12]  # shim in the hash -> a shim change rebuilds
     name = f"mtg_inproc_{h}"                                      # == the .dl stem == the ProgramFactory name
+
+    pre = _native.engine_so()                                    # a shipped / hand-placed prebuilt .so?
+    if pre is not None:
+        cdll = _load_lib(pre, name)                              # use it directly if its factory matches this .dl
+        if cdll is not None:
+            _LIB = (cdll, name, edb)
+            return _LIB
+        # mismatched prebuilt (built from a different engine_rules.dl) -> fall through to compile on demand
+
     lib = _CACHE_DIR / f"lib{name}.so"
     if not lib.exists():
         with tempfile.TemporaryDirectory() as d:
@@ -211,17 +244,8 @@ def build() -> tuple | None:
             if g.returncode != 0 or not gen.exists() or not _compile_lib(name, gen, lib):
                 _FAILED = True
                 return None
-    try:
-        cdll = ctypes.CDLL(str(lib))
-        cdll.mtg_create.restype = ctypes.c_void_p
-        cdll.mtg_create.argtypes = [ctypes.c_char_p]
-        cdll.mtg_run.restype = ctypes.c_void_p                   # void* so we can free the exact pointer
-        cdll.mtg_run.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        cdll.mtg_run_delta.restype = ctypes.c_void_p
-        cdll.mtg_run_delta.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
-        cdll.mtg_destroy.argtypes = [ctypes.c_void_p]
-        cdll.mtg_free.argtypes = [ctypes.c_void_p]
-    except OSError:
+    cdll = _load_lib(lib, name)
+    if cdll is None:
         _FAILED = True
         return None
     _LIB = (cdll, name, edb)
