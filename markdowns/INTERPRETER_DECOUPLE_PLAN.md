@@ -1,5 +1,14 @@
 # Plan: eliminate the `interpreter` dependency inside `mtg` (Increment 7)
 
+## STATUS: DONE — the mtg engine driver imports ZERO interpreter Python
+
+A1 (`ground.slug` → `mtg._text.slug`), A3 (`_amount` → `mtg._text.amount`), and A2
+(`_mana_production` → the `mana_source` artifact baked by `build_cards.py`) are all landed, plus the
+increment-6 data decouple (`card_corpus` → `mtg._corpus`). `test_no_interpreter_import` guards it.
+`mtg.analysis` (B) is exempt by design — interpreter-based analysis tools, an optional extra never imported
+by the core. **Remaining = packaging only** (the "complete shim + binary" install: `importlib.resources`
+for `datalog/`, bundle the souffle backend, wire the extras) — a separate effort, not a dependency issue.
+
 ## Goal / end-state
 
 `mtg` is the **driver** — it runs the Datalog/Soufflé build the way Python drives a Stockfish
@@ -70,7 +79,18 @@ pure artifact-read below stays available as a future refinement if `name` is emi
 **Where:** `mtg/_corpus.py` (new `name_to_id`), `mtg/bridge_to_engine.py`, `mtg/engine/engine.py`,
 `mtg/game.py`. **Rebuild:** none (unless we choose to emit `name` for vanillas).
 
-### A2. `_mana_production` → read `adds_mana` (likely NO rebuild)
+### A2. `_mana_production` → `mana_source` artifact — DONE (this branch; one rebuild)
+
+Implemented: `interpreter/build_cards.py` now bakes `mana_source(card, cost, produces, n)` (resolved
+production WITH count, reusing `_mana_production` at build time); `sim.load_db` parses it;
+`bridge_to_engine._mana_source_outputs` reads it (keeping the mechanical `_parse_ability_cost` + fixed/wild
+mapping); the `_mana_production` import is gone. Emit-per-row is set-equivalent to the old per-line yields
+downstream, and keeps Elfhame-Druid-style {G}/{G}{G} (green×1 AND ×2). cards.dl regenerated (gitignored).
+**Full-corpus engine-state parity is EXACT** (35032 identical; the 1 diff is an Un-set Land both paths skip).
+
+> Original sketch (wrong — adds_mana is lossy on count, see below):
+
+### A2 (original sketch). `_mana_production` → read `adds_mana`
 
 `_emit_mana_sources` re-parses each `"{cost}: Add {what}"` line with `_mana_production`. But
 `adds_mana(card, cost, produces)` already carries the resolved production for rocks/dorks
