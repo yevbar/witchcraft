@@ -2848,7 +2848,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("static_no_untap", (facts, nu))                   # driver-only; driver._locked_no_untap maps it to instances
     ewc = f.get("enters_with_counters")                       # §122 ETB replacement: enters with N +1/+1 counters
     if ewc:
-        from interpreter.card_effects import _amount as _amt_of          # word/number -> int ('a'->1, 'seven'->7), else dynamic
+        from mtg._text import amount as _amt_of          # word/number -> int ('a'->1, 'seven'->7), else dynamic (no interpreter)
         _kind, _amt = ewc
         _ek = {"1_1": "p1p1"}.get(_kind)                      # only the P/T-affecting +1/+1 kind is engine-resolvable
         _n = _amt_of(_amt)
