@@ -14,7 +14,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import deck_evaluator as D
+from mtg.analysis import deck_evaluator as D
 
 CHECKS: list[tuple[str, bool]] = []
 

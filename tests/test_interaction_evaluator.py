@@ -19,7 +19,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import interaction_evaluator as I
+from mtg.analysis import interaction_evaluator as I
 
 CHECKS: list[tuple[str, bool]] = []
 

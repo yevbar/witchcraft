@@ -59,6 +59,15 @@ BOUNDED: nodes = distinct cards (count-agnostic: 60-card constructed or 100-card
 
 from __future__ import annotations
 
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+
 import sys
 
 from mtg import sim

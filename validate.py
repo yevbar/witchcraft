@@ -22,6 +22,15 @@ Run: python3 build_cards.py && python3 validate.py
 
 from __future__ import annotations
 
+import os, sys  # put repo root + packages/ on sys.path (find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+
 import os
 import re
 import subprocess
@@ -173,7 +182,7 @@ def main(full: bool = False):
     print("   (rules side: run `python3 build.py` for determinism + every-artifact-compiles + conf=0)")
 
     print("\n4. FAITHFULNESS — card effects cross-checked against the RULES spaCy engine")
-    import card_spacy
+    from mtg.analysis import card_spacy
     conf, unconf, conflicts = card_spacy.validate(limit=6000)
     tot = conf + unconf or 1
     print(f"   confirmed by rules engine: {conf} ({100*conf//tot}%)   "

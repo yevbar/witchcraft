@@ -26,7 +26,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 import networkx as nx
 import igraph as ig
-import card_synergy as cs
+from mtg.analysis import card_synergy as cs
 
 t0 = time.perf_counter()
 g = cs.build_graph(kinds=("subtype",))
