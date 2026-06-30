@@ -58,8 +58,8 @@ def _slug_to_name() -> dict[str, str]:
     (e.g. 'jace_the_mind_sculptor' -> 'Jace, the Mind Sculptor', not a naive title-case). Built once and
     cached; empty (-> title-case fallback) if the corpus can't be loaded."""
     try:
-        from interpreter import card_corpus
-        from interpreter import ground
+        from mtg import _corpus as card_corpus          # the oracle-corpus artifact reader (no interpreter import)
+        from interpreter import ground                  # TODO(decouple): ground.slug — pending logic decouple
         return {ground.slug(c["name"]): c["name"] for c in card_corpus.load_cards()}
     except Exception:
         return {}

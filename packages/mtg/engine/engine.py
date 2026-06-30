@@ -26,8 +26,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from interpreter import card_corpus
-from interpreter import ground
+from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
+from interpreter import ground                          # TODO(decouple): ground.slug — pending logic decouple
 from mtg import sim
 
 # basic-land subtype -> color it taps for (§305.6) — basic lands have no oracle text to interpret.

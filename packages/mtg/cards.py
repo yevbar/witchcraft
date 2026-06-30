@@ -31,13 +31,13 @@ class CardCorpus:
     testable (`"Black Lotus" in cards`). The single instance exported as `mtg.cards`."""
 
     def _cards(self) -> list[dict]:
-        from interpreter import card_corpus
+        from mtg import _corpus                         # read the artifact directly (no interpreter import)
         try:
-            return card_corpus.load_cards()
+            return _corpus.load_cards()
         except FileNotFoundError as e:
             raise FileNotFoundError(
                 "card corpus not found (mtgjson/oracle_corpus.json). Build it once:\n"
-                "    python3 build_oracle_corpus.py   # needs mtgjson/AllPrintings.json\n"
+                "    python3 interpreter/build_oracle_corpus.py   # needs mtgjson/AllPrintings.json\n"
                 "or set $MTG_CORPUS to an existing oracle_corpus.json."
             ) from e
 

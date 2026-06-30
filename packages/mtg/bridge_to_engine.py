@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import re
 
-from interpreter import card_corpus
-from interpreter import ground
+from mtg import _corpus as card_corpus                  # the oracle-corpus artifact reader (no interpreter import)
+from interpreter import ground                          # TODO(decouple): ground.slug — pending logic decouple
 from mtg import sim
-from interpreter.card_effects import _mana_production
+from interpreter.card_effects import _mana_production   # TODO(decouple): bake into cards.dl (needs rebuild)
 
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
 _EVENT = {
