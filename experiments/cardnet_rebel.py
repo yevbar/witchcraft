@@ -10,6 +10,8 @@ ReBeL search is heavy on CPU; keep game counts small. Usage:
 """
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 import argparse
 import contextlib
 import io

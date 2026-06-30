@@ -17,6 +17,8 @@ Use DECKS[name] for a single 60, or pair two for a game:
 
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 
 def _build(lands: dict[str, int], spells: dict[str, int]) -> list[str]:
     """Expand {card: count} maps into a flat 60-card list; assert the count is exactly 60."""

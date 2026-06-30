@@ -16,6 +16,8 @@ or run as a script for a report:
 
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 import json
 import os
 from pathlib import Path
@@ -25,7 +27,7 @@ import ijson
 
 from interpreter import card_corpus
 
-_HERE = Path(__file__).resolve().parent
+_HERE = Path(__file__).resolve().parent.parent  # repo root (script lives in experiments/)
 _ALLPRINTINGS = _HERE / "mtgjson" / "AllPrintings.json"
 
 

@@ -10,6 +10,8 @@ Nodes are coloured by MTG colour identity; edges are red (grant_keyword) / blue 
 
 Needs networkx, igraph, matplotlib. Run: python3 render_full.py  ->  /tmp/all_cards_synergy.png
 """
+
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
 import time
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt

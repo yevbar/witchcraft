@@ -19,6 +19,8 @@ Everything is CPU-only and stdlib + numpy. No GPU, no network.
 
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 import argparse
 import json
 import os
@@ -28,7 +30,7 @@ import time
 
 def _default_out() -> str:
     """A writable default: ./rebel_runs/rebel_vnet under the repo root."""
-    root = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in experiments/)
     return os.path.join(root, "rebel_runs", "rebel_vnet")
 
 

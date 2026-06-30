@@ -15,6 +15,8 @@ Run: python3 bench_mtg.py        (needs datalog/cards.dl + a souffle toolchain f
 
 from __future__ import annotations
 
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+
 import time
 
 import bridge_to_engine as bridge
