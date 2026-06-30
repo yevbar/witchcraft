@@ -67,6 +67,9 @@ _FAN_FULL_WIDTH = 1200     # px: the full-hand span of card CENTRES (cards tight
 # drops the EDGES via the arc; this drops the WHOLE fan, scaling with the hand size (beyond a small hand).
 _FAN_N_DROP = 15           # px of extra downward hover per card past _FAN_N_BASE
 _FAN_N_BASE = 4            # hands this size or smaller need no extra drop (keeps small-hand behaviour unchanged)
+# The command-zone commander (rightmost of the N+2 rail) sits a touch LOWER than a true hand-fan edge card, so the
+# arc-only y landed on its TOP BORDER (just above the body) and the click didn't register. Drop onto the body.
+_COMMANDER_Y_DROP = 0.03   # frac-h to lower the commander click below the arc-edge y, onto the card body
 
 
 def _n_drop(n: int) -> int:
@@ -388,8 +391,11 @@ def commander_point(rect: Rect, n_hand: int) -> tuple:
     spacing = min(_FAN_STEP_MAX, _FAN_FULL_WIDTH / max(1, slots - 1))   # N-aware: tighter when the fan is full
     span = (slots - 1) * spacing
     xs = [int(cx - span / 2.0 + k * spacing) for k in range(slots)]
-    top_y = rect.y + int(0.855 * rect.h)                    # resting band; the commander is the rightmost (edge)
-    return xs[-1], _bowed_y(xs[-1], xs, top_y)              # card, so the arc already drops it — no extra _n_drop
+    top_y = rect.y + int(0.855 * rect.h)                    # resting band; the commander is the rightmost (edge) card
+    # The command-zone card sits a touch LOWER than a true hand-fan edge — the arc-only y landed right on its TOP
+    # BORDER (just above the body), so the click didn't register. Drop an extra _COMMANDER_Y_DROP onto the body.
+    y = _bowed_y(xs[-1], xs, top_y) + int(_COMMANDER_Y_DROP * rect.h)
+    return xs[-1], y
 
 
 def _name_anchors(view, seat: int, screen: list, named: list) -> list:

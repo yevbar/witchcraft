@@ -122,6 +122,17 @@ class EnginePolicy:
                            castable=castable, playable=playable, costs=costs)
             me = game.state.get("_me", "alice")              # OUR engine seat name (set by build_state), not a magic
             move = self._player.bind(game, me).choose_move(game)  # constant — generalises if the naming ever changes
+            # Stash the chosen DAMAGE spell's creature-damage for the SelectTargets that follows it. The engine
+            # casts UNTARGETED over the bridge, so burn_choice's kill-a-creature target is lost; we recompute the
+            # damage HERE (the card rule loads while the spell is in hand) and apply it in _targets_choice (where
+            # the spell is on the stack and the rule isn't readable). Keyed by instanceId so it can't misapply.
+            self._cast_burn = None
+            if getattr(move, "kind", None) == "cast":
+                from mtg.predicates import creature_damage
+                cid = getattr(getattr(move, "card", None), "id", None)
+                dmg, inst = creature_damage(game, cid), mtga_instance_id(cid)
+                if inst is not None and dmg:
+                    self._cast_burn = (inst, dmg)
             _log.info("  engine: %s chose %s%s", getattr(self._player, "name", "?"),
                       getattr(move, "kind", move),
                       f" {getattr(getattr(move, 'card', None), 'id', '')}".rstrip())
@@ -240,27 +251,75 @@ class EnginePolicy:
         return None                                          # targets / anything else -> decline
 
     def _targets_choice(self, d):
-        """Resolve MTGA's SelectTargets the way HeuristicPlayer.resolve_choice resolves it in the engine: when a
-        target slot can hit a PLAYER, aim at the OPPONENT. A player candidate is one that ISN'T a battlefield
-        permanent (its targetInstanceId isn't a known game object); the opponent is the player candidate whose
-        id isn't our seat. Returns a list of picks (one per required slot) for the executor — a player pick
-        carries `player=<seat>`, a permanent pick carries `instanceId`. A slot with no player candidate falls
-        back to the first legal candidate so play still progresses (creature-target spells aren't the focus
-        here yet). [] / no slots -> None (decline). This mirrors the engine rule but on MTGA's target dicts;
-        the engine bakes its own target into the cast move, so there's no engine move to translate here."""
+        """Resolve MTGA's SelectTargets. BURN FIRST: if the spell deals damage and a candidate is a KILLABLE
+        opponent creature, point it there (mirrors society_of_control's ladder — kill a threat before the face,
+        saving any second burn for the commander). Otherwise aim a player target at the OPPONENT (a player
+        candidate is one whose targetInstanceId isn't a battlefield object). Returns one pick per required slot —
+        a player pick carries `player=<seat>`, a permanent pick `instanceId`; [] / no slots -> None (decline).
+
+        The engine casts the spell UNTARGETED over the bridge (it doesn't enumerate per-target variants), so the
+        kill-a-creature choice that burn_choice would make at sorcery speed is reconstructed HERE instead."""
+        dmg = self._spell_creature_damage(d)               # how much this spell deals to a creature (None if not burn)
         picks = []
         for slot in (d.options or []):
             cands = (slot.get("targets") or []) if isinstance(slot, dict) else []
             if not cands:
                 continue
-            ids = [(c, c.get("targetInstanceId")) for c in cands if c.get("targetInstanceId") is not None]
-            players = [(c, tid) for (c, tid) in ids if tid not in d.view.objects]   # not a permanent -> a player
-            opp = next((tid for (c, tid) in players if tid != d.seat), None)
+            ids = [c.get("targetInstanceId") for c in cands if c.get("targetInstanceId") is not None]
+            opp = next((tid for tid in ids if tid not in d.view.objects and tid != d.seat), None)  # the opponent player
+            # LETHAL FACE wins: if pointing the burn at the opponent kills them, take it over any creature.
+            if dmg and opp is not None and (d.view.life.get(opp) is not None) and d.view.life.get(opp) <= dmg:
+                picks.append({"player": opp})
+                continue
+            victim = self._burn_victim(d.view, d.seat, ids, dmg) if dmg else None
+            if victim is not None:                          # else burn a killable opponent creature, NOT the face
+                picks.append({"instanceId": victim})
+                continue
             if opp is not None:
                 picks.append({"player": opp})
             elif ids:
-                picks.append({"instanceId": ids[0][1]})                             # creature/permanent target
+                picks.append({"instanceId": ids[0]})                                # fallback: first legal target
         return picks or None
+
+    @staticmethod
+    def _burn_victim(view, seat, ids, dmg):
+        """Best KILLABLE opponent creature among candidate instanceIds for a `dmg`-damage burn (toughness <= dmg,
+        opponent-controlled), or None. Priority mirrors society_of_control.burn_choice: the opponent's COMMANDER
+        first (it recurs from the command zone, kill it on sight), then highest POWER (the hardest clock)."""
+        best, best_key = None, None
+        for tid in ids:
+            o = view.objects.get(tid)
+            if o is None or not getattr(o, "is_creature", False) or o.controllerSeatId == seat:
+                continue
+            tough = o.t if o.t is not None else 99
+            if tough > dmg:                                 # not lethal to this creature
+                continue
+            is_cmd = o.grpId in getattr(view, "commander_grps", set())
+            key = (1 if is_cmd else 0, o.p or 0, tough)
+            if best_key is None or key > best_key:
+                best, best_key = tid, key
+        return best
+
+    def _spell_creature_damage(self, d):
+        """How much damage the spell being targeted deals to a CREATURE (None if not a damage spell / unknown).
+        Reads the value STASHED when the engine chose to cast it (the rule loads while it's in hand; at this
+        SelectTargets frame it's on the stack and unreadable). Matched by the source instanceId so it can't apply
+        to the wrong spell."""
+        cb = getattr(self, "_cast_burn", None)
+        src = self._select_source_id(d)
+        return cb[1] if (cb and src is not None and cb[0] == src) else None
+
+    @staticmethod
+    def _select_source_id(d):
+        """The source spell's instanceId for a SelectTargets decision — the `CardId` prompt parameter on a slot
+        (MTGA carries the casting spell there). None if absent."""
+        for slot in (d.options or []):
+            if not isinstance(slot, dict):
+                continue
+            for p in ((slot.get("prompt") or {}).get("parameters") or []):
+                if p.get("parameterName") == "CardId" and p.get("numberValue") is not None:
+                    return p["numberValue"]
+        return None
 
     def _translate(self, d, move):
         """Map a witchcraft engine `move` to the MTGA option for decision `d`. Returns the option (an `Action` /

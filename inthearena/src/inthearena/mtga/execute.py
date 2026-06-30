@@ -290,6 +290,13 @@ class GameExecutor:
                 res = self._click_player(seat, decision.seat)
             elif inst is not None:
                 res = self._click_object(inst, decision.view, "target")
+                if not res.done:
+                    # The name-OCR locate failed (the cursor just parked off-board and never clicked). The legal
+                    # targets are HIGHLIGHTED at the board's row geometry, so click the target's slot there —
+                    # ranked among the SAME-SIDE candidate creatures the decision offers (deterministic; no OCR).
+                    geo = self._click_target_by_geometry(inst, decision)
+                    if geo.done:
+                        res = geo
             else:
                 return ExecResult(False, "target has no instanceId or player")
             if not res.done:
@@ -322,3 +329,30 @@ class GameExecutor:
         self._act.hover(*pt)                               # focus + IOHID so the client registers the cursor…
         self._act.click()                                  # …then click the permanent
         return ExecResult(True, f"clicked {what} (object {instance_id})")
+
+    def _click_target_by_geometry(self, inst, decision) -> ExecResult:
+        """Click a creature TARGET by the board's row GEOMETRY (where MTGA highlights it), when the name-OCR
+        locate failed. Rank `inst` left-to-right (instanceId ascending) among the SAME-SIDE creature candidates
+        the SelectTargets decision offers — that's the legal-target set straight from the GRE, so the rank is
+        reliable even when `view.battlefield` doesn't model the creature. No-op (done=False) if it can't rank it."""
+        from .board import creature_row_point
+        view = decision.view
+        o = view.objects.get(inst)
+        rect = self._act.window_rect()
+        if o is None or rect is None or getattr(o, "controllerSeatId", None) is None:
+            return ExecResult(False, "target geometry: unknown creature")
+        side = o.controllerSeatId
+        cands = set()                                       # same-side creature candidates across all slots
+        for slot in (decision.options or []):
+            for c in ((slot.get("targets") or []) if isinstance(slot, dict) else []):
+                t = c.get("targetInstanceId")
+                to = view.objects.get(t)
+                if to is not None and getattr(to, "is_creature", False) and to.controllerSeatId == side:
+                    cands.add(t)
+        row = sorted(cands)
+        if inst not in row:
+            return ExecResult(False, "target geometry: not among same-side creature candidates")
+        x, y = creature_row_point(rect, row.index(inst), len(row), is_mine=(side == decision.seat))
+        self._act.hover(x, y)
+        self._act.click()
+        return ExecResult(True, f"clicked target by board geometry (slot {row.index(inst) + 1}/{len(row)})")
