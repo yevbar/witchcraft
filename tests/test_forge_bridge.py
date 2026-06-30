@@ -28,7 +28,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import json
 import threading
 
-import forge_bridge as fb
+from forge_integration import forge_bridge as fb
 
 CHECKS: list[tuple[str, bool]] = []
 

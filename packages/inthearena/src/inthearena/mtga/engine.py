@@ -81,7 +81,7 @@ def _card_rules_db():
     try:
         import importlib
         from interpreter import card_corpus
-        sim = importlib.import_module("sim")
+        sim = importlib.import_module("mtg.sim")
         return sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()}
     except Exception:
         return None

@@ -29,12 +29,12 @@ Setup (run from the inthearena/ directory):
 The default bot is `witchcraft` (the python-mtg engine, the only bot that BLOCKS), so RUN FROM THE REPO ROOT with
 the engine on the path or it falls back to `blind_rage`:
 
-Examples:
-    PYTHONPATH=inthearena/src:. python3 inthearena/examples/take_over.py            # LIVE: engine bot (blocks)
-    PYTHONPATH=inthearena/src:. python3 inthearena/examples/take_over.py --engine-player aggro   # the racer
-    PYTHONPATH=src python3 examples/take_over.py --bot blind_rage                   # no-engine aggro (never blocks)
-    PYTHONPATH=src python3 examples/take_over.py --no-bot                           # just get into a game
-    PYTHONPATH=src python3 examples/take_over.py --dry-run --view home              # preview the Home click
+Examples (run from the repo root; mtg now lives in packages/mtg, inthearena in packages/inthearena):
+    PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/examples/take_over.py          # LIVE: engine bot (blocks)
+    PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/examples/take_over.py --engine-player aggro   # the racer
+    PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/examples/take_over.py --bot blind_rage        # no-engine aggro (never blocks)
+    PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/examples/take_over.py --no-bot                # just get into a game
+    PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/examples/take_over.py --dry-run --view home   # preview the Home click
 """
 
 from __future__ import annotations
@@ -150,7 +150,9 @@ def _bootstrap_engine() -> bool:
         print(f"witchcraft: couldn't find the python-mtg engine (no datalog/engine_rules.dl above {here}); "
               "--bot witchcraft will fall back to blind_rage (no blocks/targets).")
         return False
-    sys.path.insert(0, str(root))
+    for _p in (str(root), str(root / "packages")):   # mtg now lives in packages/mtg/ (interpreter/datalog stay at root)
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
     os.chdir(root)
     try:
         import mtg  # noqa: F401

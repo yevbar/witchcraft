@@ -23,7 +23,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import forge_bridge as fb
+from forge_integration import forge_bridge as fb
 from mtg import driver
 
 CHECKS: list[tuple[str, bool]] = []

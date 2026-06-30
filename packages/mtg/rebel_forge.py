@@ -37,13 +37,13 @@ class NetPolicy:
     previously left the net seat with no coverage record at all)."""
 
     def __init__(self, value_fn, base=None):
-        import forge_bridge as fb
+        from forge_integration import forge_bridge as fb
         self.value_fn = value_fn
         self.base = base or fb.greedy_policy
         self.stats = {"decisions": 0, "play_decisions": 0, "net_chose_play": 0}
 
     def __call__(self, obs, key, options, default):
-        import forge_bridge as fb
+        from forge_integration import forge_bridge as fb
         self.stats["decisions"] += 1
         if key != "action":
             return self.base(obs, key, options, default)

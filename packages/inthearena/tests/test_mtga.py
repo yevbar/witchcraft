@@ -1,5 +1,5 @@
 """test_mtga.py — the MTGA GRE reader + AggroPolicy, on a synthetic log fixture (no private data needed).
-Run: PYTHONPATH=inthearena/src python3 inthearena/tests/test_mtga.py
+Run (from repo root): PYTHONPATH=packages/inthearena/src:packages:. python3 packages/inthearena/tests/test_mtga.py
 """
 from __future__ import annotations
 
