@@ -30,7 +30,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from pathlib import Path
 
-import rulescan
+from interpreter import rulescan
 from interpreter.dlgen import Program
 
 # (anchor phrase, context, value) — battle defense source (scoped to the Battle group; the printed

@@ -145,7 +145,7 @@ from interpreter import build_turn
 from interpreter import build_token_defs
 from interpreter import build_turn_structure
 from interpreter import build_xref
-import datalog_gen
+from interpreter import datalog_gen
 
 GENERATED = [
     "datalog/state.dl", "datalog/turn.dl", "datalog/cast.dl",

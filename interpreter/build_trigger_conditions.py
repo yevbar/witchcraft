@@ -25,7 +25,7 @@ from pathlib import Path
 
 from interpreter import transpile
 from interpreter.dlgen import Program
-from preprocess import preprocess
+from interpreter.preprocess import preprocess
 from interpreter.rules_parser import split
 from interpreter.transpile import _NLP, _normalize, _retag_game_nouns, _root, _child, _split_sentences
 

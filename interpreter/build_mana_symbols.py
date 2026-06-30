@@ -22,7 +22,7 @@ from pathlib import Path
 from interpreter.dlgen import Program
 from interpreter.rules_parser import split
 from interpreter.transpile import _normalize
-from preprocess import preprocess
+from interpreter.preprocess import preprocess
 
 _PAIR = re.compile(r"(cost\w+)(?: is| represents)? (white|blue|black|red|green|colorless)")
 

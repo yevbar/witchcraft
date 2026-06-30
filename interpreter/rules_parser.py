@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from models import Document, Group, GlossaryEntry, Metadata, Rule, Section, Subrule
+from interpreter.models import Document, Group, GlossaryEntry, Metadata, Rule, Section, Subrule
 
 
 # --- block classification ---------------------------------------------------
