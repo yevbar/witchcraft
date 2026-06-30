@@ -23,7 +23,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import re
 from pathlib import Path
 
-import rulescan
+from interpreter import rulescan
 from interpreter.dlgen import Program
 
 # (anchor phrase, characteristic, mode) — §709.4 split-card characteristic combination (Split Cards group).

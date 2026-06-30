@@ -20,7 +20,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from pathlib import Path
 
-import rulescan
+from interpreter import rulescan
 from interpreter.dlgen import Program
 
 # (anchor phrase, action) — what protection from a quality prevents (the DEBT rule).

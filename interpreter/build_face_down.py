@@ -26,7 +26,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 from pathlib import Path
 
 from interpreter.dlgen import Program
-import rulescan
+from interpreter import rulescan
 
 # The default characteristics §708 gives a face-down permanent, keyed to the single anchor
 # phrase that states them (scoped to the Face-Down group).

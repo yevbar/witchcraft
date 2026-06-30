@@ -28,7 +28,7 @@ from dataclasses import dataclass
 import spacy
 from lark import Lark, Transformer
 
-from preprocess import preprocess
+from interpreter.preprocess import preprocess
 
 _NLP = spacy.load("en_core_web_sm")
 

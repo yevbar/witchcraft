@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from models import Document
+from interpreter.models import Document
 from interpreter.rules_parser import split
 
 

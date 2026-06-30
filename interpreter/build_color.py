@@ -35,7 +35,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 from pathlib import Path
 
 from interpreter.dlgen import Program
-import rulescan
+from interpreter import rulescan
 
 # All scoped to the "Mana Cost and Color" group (§202).
 # (anchor phrase, source) — where an object's color is read from.

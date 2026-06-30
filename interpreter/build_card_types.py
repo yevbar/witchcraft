@@ -25,7 +25,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 
 from pathlib import Path
 
-import rulescan
+from interpreter import rulescan
 from interpreter.dlgen import Program
 
 _SUBTYPE_ANCHOR = "subtypes are always a single word and are listed after a long dash"

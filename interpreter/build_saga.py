@@ -31,7 +31,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 from pathlib import Path
 
 from interpreter.dlgen import Program
-import rulescan
+from interpreter import rulescan
 
 # All scoped to the "Saga Cards" group (§714).
 # the numeral map, keyed to the single anchor phrase that states it.

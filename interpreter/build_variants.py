@@ -25,7 +25,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import re
 from pathlib import Path
 
-import rulescan
+from interpreter import rulescan
 from interpreter.dlgen import Program
 from interpreter.rules_parser import split
 
