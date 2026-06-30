@@ -40,6 +40,35 @@ def mtga_instance_id(engine_id) -> Optional[int]:
     return int(tail) if tail.isdigit() else None
 
 
+def _normal_cast(options) -> dict:
+    """{instanceId -> the NORMAL (full-cost) cast Action} over an actions decision's options. MTGA lists a card
+    with a Warp / alternative cost as MULTIPLE cast actions for the same instanceId — the full cost and the
+    cheaper alt; the FULL cast is the highest mana value. We don't warp-cast (we keep the permanent), so we judge
+    affordability + curve cost by the full cast and ignore the cheaper alternative — a card affordable ONLY via
+    its alt cost is then not castable for us."""
+    by_inst: dict = {}
+    for a in options or []:
+        if getattr(a, "actionType", None) == "ActionType_Cast" and getattr(a, "instanceId", None) is not None:
+            cur = by_inst.get(a.instanceId)
+            if cur is None or a.mana_value > cur.mana_value:
+                by_inst[a.instanceId] = a
+    return by_inst
+
+
+def _playable(options, kind, land_dropped: bool):
+    """instanceIds of the lands MTGA offers to PLAY right now (an 'actions' decision only; None elsewhere, which
+    leaves the engine's lands ungated where no land decision is being made). EMPTY once a land was already dropped
+    this turn (`land_dropped`) — ONE LAND PER TURN: the live view can lag and keep offering the just-played land,
+    and a LANDS-first engine would re-pick that PHANTOM land, then flail in the hand hunting a card that's gone
+    (slow, and it can misclick a real spell — e.g. casting Arcane Signet while 'playing' a Mountain)."""
+    if kind != "actions":
+        return None
+    if land_dropped:
+        return set()
+    return {a.instanceId for a in (options or [])
+            if getattr(a, "actionType", None) == "ActionType_Play" and getattr(a, "instanceId", None) is not None}
+
+
 def _attacker_target(atk):
     """The player damage-recipient for an MTGA qualified attacker (what aggro aims at) — first player, else any."""
     recips = getattr(atk, "legalDamageRecipients", None) or []
@@ -73,21 +102,22 @@ class EnginePolicy:
             # found a tap plan). Feed those as the engine's castable set so `can_afford` fires and it surfaces the
             # casts (the engine has no mana model for a static snapshot / uncovered cards). The engine still picks
             # WHICH to cast; Arena stays the affordability ground truth.
-            castable = {a.instanceId for a in (d.options or [])
-                        if getattr(a, "actionType", None) == "ActionType_Cast"
-                        and getattr(a, "instanceId", None) is not None and getattr(a, "auto_payable", False)}
+            # WARP / alternative costs: MTGA lists such a card as TWO cast actions for one instanceId — the FULL
+            # cost and a cheaper alt (Warp). We DON'T warp-cast (policy: keep the permanent), so judge each card by
+            # its FULL (normal) cast only — `_normal_cast` picks the highest-cost option per instanceId. A card
+            # whose ONLY affordable path is the cheaper alt is then NOT castable for us (else the engine picks it,
+            # we click it, and the cast-mode modal's NORMAL choice is unaffordable — it stalls / mis-plays).
+            normal = _normal_cast(d.options)
+            castable = {i for i, a in normal.items() if a.auto_payable}
             # GATE LAND DROPS to what MTGA offers as Play, on an actions decision only — the live view can lag a
             # beat and still show a just-played land in hand, and Do.LANDS leads, so an ungated engine re-picks the
             # stale land forever and the bot passes the turn instead of casting. (Non-actions decisions don't offer
             # Plays, so `playable=None` there leaves lands ungated — irrelevant, no land decision is being made.)
-            playable = ({a.instanceId for a in (d.options or [])
-                         if getattr(a, "actionType", None) == "ActionType_Play"
-                         and getattr(a, "instanceId", None) is not None}
-                        if d.kind == "actions" else None)
-            # MANA VALUE (CMC) of each offered cast, so a curve-out player (deleuze) can deploy cheaper first.
-            costs = {a.instanceId: a.mana_value for a in (d.options or [])
-                     if getattr(a, "actionType", None) == "ActionType_Cast"
-                     and getattr(a, "instanceId", None) is not None and a.manaCost}
+            playable = _playable(d.options, d.kind, getattr(self, "_land_dropped", False))
+            # MANA VALUE (CMC) of each offered cast, so a curve-out player (deleuze) can deploy cheaper first. Use
+            # the FULL (normal) cost — never the cheaper Warp alt — so the curve isn't fooled into treating a
+            # warp-able card as a 1-drop.
+            costs = {i: a.mana_value for i, a in normal.items() if a.manaCost}
             game = to_game(d.view, d.seat, opponent_deck=self._opponent_deck, seed=self._seed,
                            castable=castable, playable=playable, costs=costs)
             me = game.state.get("_me", "alice")              # OUR engine seat name (set by build_state), not a magic

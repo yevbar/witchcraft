@@ -194,6 +194,7 @@ def _make_handle(execu, pol, log_path):
     NOTHING accumulates across a long run."""
     picked: dict = {}            # instanceId -> times chosen THIS turn (anti-fixation); cleared each turn
     turn_no = [None]
+    land_done = [False]          # have we CONFIRMED a land drop THIS turn? (one land/turn; the lagging view re-offers it)
     _FIXATED = 2                 # after this many picks of a card that keeps coming back, move on to another
 
     def next_playable(d, skip):
@@ -208,6 +209,11 @@ def _make_handle(execu, pol, log_path):
         if getattr(d.view.turn, "turnNumber", None) != turn_no[0]:   # new turn -> forget what we gave up on
             turn_no[0] = getattr(d.view.turn, "turnNumber", None)
             picked.clear()
+            land_done[0] = False                            # reset the per-turn land-drop guard
+        # ONE LAND PER TURN: tell the engine to stop offering lands once we've already dropped one this turn — the
+        # live view can lag and keep listing the just-played land, and a LANDS-first engine would re-pick that
+        # phantom land and flail (slow; can misclick a spell). (No-op for non-engine policies.)
+        setattr(pol, "_land_dropped", land_done[0])
         choice = pol.decide(d)
         inst = getattr(choice, "instanceId", None)
         at = getattr(choice, "actionType", None)
@@ -242,6 +248,8 @@ def _make_handle(execu, pol, log_path):
             if attempt + 1 < _ACTION_TRIES:
                 print(f"    -> no GRE response — the click didn't register, clicking again ({attempt + 1}/{_ACTION_TRIES})")
         dt = time.monotonic() - t0
+        if confirmed and at == "ActionType_Play":
+            land_done[0] = True                             # a land drop landed this turn -> no more lands (suppress the phantom re-pick)
         if not res.done:
             print(f"    -> shadowed ({dt:.1f}s): {res.note}")
         elif confirmed:
