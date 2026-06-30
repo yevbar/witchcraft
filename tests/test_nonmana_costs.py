@@ -4,7 +4,13 @@ costs, with the cost choice (which creature to sac / which card to discard) rout
 it is policy-drivable and correct in imperfect information. Verified in BOTH perfect and imperfect info.
 Run: python3 test_nonmana_costs.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from interpreter import card_corpus
 import sim, bridge_to_engine as bridge, driver, env, observe, effect_handlers
 effect_handlers.load()

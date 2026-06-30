@@ -2,7 +2,13 @@
 graveyard') on TRIGGERED abilities, now folded through the same _fold_dig + dig_to_hand architecture the
 spell/activated paths already use. Run: python3 test_dig.py"""
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from interpreter import card_corpus
 import sim, bridge_to_engine as bridge, driver, effect_handlers
 effect_handlers.load()

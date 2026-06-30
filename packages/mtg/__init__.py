@@ -22,11 +22,13 @@ from __future__ import annotations
 import os
 import sys
 
-# The repo root (this package's parent) holds the engine modules. Put it on the path so `import driver`
-# resolves no matter where Python was started — the one cwd-independence we can buy without restructuring.
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+# This package lives in packages/mtg/. Put both packages/ (so `mtg.*` resolves) and the repo root (which
+# holds interpreter/ and the cwd-relative datalog/ build) on the path, no matter where Python was started.
+_PKGS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # packages/
+_ROOT = os.path.dirname(_PKGS)                                        # repo root
+for _p in (_ROOT, _PKGS):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from .game import Game, DEMO_DECKS                                      # noqa: E402
 from .models import Move, Pass, Permanent, CardRef                      # noqa: E402

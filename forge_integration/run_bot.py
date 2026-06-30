@@ -11,7 +11,10 @@ import sys
 import os
 import signal
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
+for _p in (_root, os.path.join(_root, "packages")):                  # packages/ holds the mtg package
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 import forge_bridge as fb
 
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765

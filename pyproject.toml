@@ -1,37 +1,13 @@
-[build-system]
-requires = ["setuptools>=64"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "python-mtg"
-version = "0.1.0"
-description = "A python-chess-style API for an MTG rules engine interpreted from the Comprehensive Rules"
-readme = "mtg/README.md"
-requires-python = ">=3.9"
-license = "MIT"
-# Pure-Python and stdlib-only at the API layer; the engine backends shell out to a souffle build.
-dependencies = []
-
-# Parser/tooling side ONLY (card-text interpretation, the card_synergy buff graph) — deliberately NOT in
-# [project.dependencies], so `pip install python-mtg` stays stdlib-only for the published API. Install the
-# parser extras explicitly: `pip install python-mtg[parser]`.
-[project.optional-dependencies]
-parser = ["networkx"]
-# Visualization of the card_synergy graph (render_full.py): community layout + plotting. Tooling only.
-viz = ["networkx", "igraph", "matplotlib"]
-# Self-play learning: the numpy value net (rebel_train) and the PyTorch card-aware value net (cardnet).
-# torch is heavy and CPU-only here; the base package never imports it. `pip install python-mtg[learn]`.
-learn = ["numpy", "torch"]
-
-[project.urls]
-Homepage = "https://github.com/yevbar/mtg_parser"
-
-# SCAFFOLD ONLY — this declares the importable API package (imports as `mtg`). A real wheel also needs the
-# engine modules (driver, env, game, bridge_to_engine, engine_*) and the datalog/ data moved inside the
-# package, plus a native-build strategy for the souffle .so. See PACKAGING.md. Until then, run from the
-# repository root.
-[tool.setuptools]
-packages = ["mtg"]
-
-[tool.setuptools.package-data]
-mtg = ["decks/*.txt"]                       # bundled limited-style deck lists (load_deck)
+# witchcraft — monorepo root (not itself an installable package).
+#
+# Installable packages live under packages/:
+#   packages/mtg         — python-mtg: the engine driver + python-chess-style API
+#                          (see packages/mtg/pyproject.toml)
+#   packages/inthearena  — the MTG Arena bridge (see packages/inthearena/pyproject.toml)
+#
+# Repo-level (not packaged here):
+#   interpreter/  — the English -> Datalog transpiler (produces the souffle build)
+#   datalog/      — the generated Datalog build artifact that mtg drives
+#
+# Everything currently runs from the repo root via sys.path (install is deferred); each entry point puts
+# the repo root and packages/ on sys.path. See packages/mtg/pyproject.toml for the package build config.

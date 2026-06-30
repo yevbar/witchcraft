@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-mtg"
+version = "0.1.0"
+description = "A python-chess-style API + driver for an MTG rules engine (runs the Datalog/souffle build)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+# Pure-Python at the API layer; the engine backends drive a souffle build (the datalog/ artifact).
+# NOTE (deferred install): mtg currently also imports the English->Datalog `interpreter` package at build
+# time (bridge_to_engine/engine). Once the interpreter is itself packaged, declare it here as a dependency
+# (or a git dep on the private witchcraft repo). See the decouple follow-up. Install is deferred for now.
+dependencies = []
+
+[project.optional-dependencies]
+# Parser/tooling side (card-text interpretation, the card_synergy buff graph). Not needed for the base API.
+parser = ["networkx"]
+# Visualization of the card_synergy graph (render_full.py): community layout + plotting. Tooling only.
+viz = ["networkx", "igraph", "matplotlib"]
+# Self-play learning: the numpy value net (rebel_train) and the PyTorch card-aware value net (cardnet).
+learn = ["numpy", "torch"]
+
+[project.urls]
+Homepage = "https://github.com/yevbar/witchcraft"
+
+# The package directory IS packages/mtg/ (this file's directory), so map the `mtg` package to ".".
+# Subpackages (mtg.engine, mtg.analysis) are added as they land in later increments.
+[tool.setuptools]
+packages = ["mtg"]
+package-dir = { "mtg" = "." }
+
+[tool.setuptools.package-data]
+mtg = ["decks/*.txt"]                       # bundled limited-style deck lists (load_deck)

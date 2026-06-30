@@ -17,7 +17,13 @@ Use DECKS[name] for a single 60, or pair two for a game:
 
 from __future__ import annotations
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (run as script from experiments/)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 def _build(lands: dict[str, int], spells: dict[str, int]) -> list[str]:

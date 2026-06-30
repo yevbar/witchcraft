@@ -10,7 +10,13 @@ dynamic-amount and 'if you do, discover N' compound forms are different shapes a
 Run: MTG_NO_SPACY=1 python3 test_migrate_discover.py
 """
 
-import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on sys.path (test relocated into subfolder)
+import os, sys  # put repo root + packages/ on sys.path (file relocated; find root by the datalog/ marker)
+_r = os.path.dirname(os.path.abspath(__file__))
+while _r != os.path.dirname(_r) and not os.path.isdir(os.path.join(_r, "datalog")):
+    _r = os.path.dirname(_r)
+for _p in (_r, os.path.join(_r, "packages")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from interpreter.card_effects import parse_clause
 from interpreter.card_lark import parse_clause_lark
 CH=[]
