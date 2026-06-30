@@ -1703,6 +1703,39 @@ def _engine_policy_checks():
     check("EnginePolicy.decide maximizes X (choose_x -> CHOOSE_X_MAX sentinel)",
           ep.decide(dec_cx) is CHOOSE_X_MAX)
 
+    # WARP / alternative cost: MTGA lists such a card as TWO cast actions for one instanceId (full cost + cheaper
+    # Warp). We don't warp-cast, so judge each card by its FULL cast — a card affordable ONLY via Warp is NOT
+    # castable for us (else the engine picks it, we click, and the cast-mode modal's NORMAL choice is unaffordable).
+    from inthearena.mtga.engine_policy import _normal_cast
+    warp_only = [Action(actionType="ActionType_Cast", instanceId=51,
+                        manaCost=[{"color": ["ManaColor_Generic"], "count": 2}, {"color": ["ManaColor_Red"], "count": 1}]),  # full {2}{R}, no auto-tap -> unpayable
+                 Action(actionType="ActionType_Cast", instanceId=51, manaCost=[{"color": ["ManaColor_Red"], "count": 1}],
+                        autoTapSolution={"autoTapActions": []})]                                                            # Warp {R}, payable
+    nc = _normal_cast(warp_only)
+    check("warp: _normal_cast picks the FULL (highest-cost) option per instanceId", nc[51].mana_value == 3)
+    check("warp-only: a card affordable ONLY via Warp is NOT castable (its full cost is unpayable)",
+          51 not in {i for i, a in nc.items() if a.auto_payable})
+    both = [Action(actionType="ActionType_Cast", instanceId=52, autoTapSolution={"autoTapActions": []},
+                   manaCost=[{"color": ["ManaColor_Generic"], "count": 2}, {"color": ["ManaColor_Red"], "count": 1}]),       # full {2}{R}, payable
+            Action(actionType="ActionType_Cast", instanceId=52, manaCost=[{"color": ["ManaColor_Red"], "count": 1}],
+                   autoTapSolution={"autoTapActions": []})]                                                                 # Warp {R}, payable
+    nc2 = _normal_cast(both)
+    check("warp: when the FULL cost is payable, the card IS castable at its full CMC (not the 1-mana Warp)",
+          nc2[52].auto_payable and nc2[52].mana_value == 3)
+
+    # ONE LAND PER TURN: once a land has been dropped this turn, _playable is EMPTY — so a LANDS-first engine
+    # can't re-pick the just-played land that the lagging view keeps offering (the phantom-land flail that ran
+    # 15-27s and misclicked a spell). Before the drop, it offers the lands as normal.
+    from inthearena.mtga.engine_policy import _playable
+    land_opts = [Action(actionType="ActionType_Play", instanceId=345),
+                 Action(actionType="ActionType_Cast", instanceId=51, manaCost=[{"color": ["ManaColor_Red"], "count": 1}])]
+    check("_playable: before a land drop -> the offered land is playable",
+          _playable(land_opts, "actions", False) == {345})
+    check("_playable: AFTER a land drop this turn -> NO lands (suppress the phantom re-pick)",
+          _playable(land_opts, "actions", True) == set())
+    check("_playable: non-actions decision -> None (lands ungated, no land decision here)",
+          _playable(land_opts, "targets", False) is None)
+
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
     d_atk = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
@@ -2008,6 +2041,10 @@ def _board_checks():
         me = boardmod.player_point(rect, is_me=True)
         check("player_point: opponent avatar at TOP (the portrait, not the corner name), ours at the BOTTOM",
               op[1] < rect.h * 0.2 and me[1] > rect.h * 0.8 and op[0] > rect.w * 0.25)
+        # the portrait sits at top-CENTRE (~0.49w), not the far-left corner nameplate — the old 0.398 anchor was
+        # ~one avatar-width too far left and clicked OFF the portrait.
+        check("player_point: opponent avatar is the centre-top portrait (~0.49w), not left of it",
+              0.42 * rect.w < op[0] < 0.57 * rect.w and op[0] == me[0])
 
         # ORDINAL FALLBACK: when the name can't be OCR'd (declare-blockers floods our band with the enlarged
         # attacker's rules text), place the creature by its slot among our creatures — new permanents append on

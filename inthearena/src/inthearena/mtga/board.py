@@ -58,12 +58,14 @@ def board_rest_point(rect: Rect) -> tuple:
 # Where to click to TARGET a player (their AVATAR portrait, normalized to the window). NOT the name nameplate in
 # the corner — clicking the opponent's name ('Sparky', top-left) does NOT target them; the avatar is the round
 # character portrait left-of-centre at the TOP (opponent) / BOTTOM (us), beside the priority orb + life total.
-# Measured off a live 'Choose any target' capture (marker verified on the portrait): the opponent avatar centres
-# at norm (0.398, 0.05). Ours is the vertical mirror at the bottom (we never actually target ourselves — the
-# engine always aims a player target at the opponent — so its exact spot is only a sane default). A player isn't a
-# named battlefield permanent, so it can't go through the name-OCR ObjectLocator; this fixed anchor is the click.
-_PLAYER_ANCHOR_OPP = (0.398, 0.05)
-_PLAYER_ANCHOR_ME = (0.398, 0.95)
+# Re-measured off a live capture: the opponent's avatar PORTRAIT (the big character art at top-centre, beside the
+# life total — NOT the small corner nameplate) centres at norm (0.49, 0.07). The earlier (0.398, 0.05) was ~one
+# avatar-width too far LEFT and clicked off the portrait. Ours is the vertical mirror at the bottom (we never
+# actually target ourselves — the engine always aims a player target at the opponent — so its spot is only a sane
+# default). A player isn't a named battlefield permanent, so it can't go through the name-OCR ObjectLocator; this
+# fixed anchor is the click.
+_PLAYER_ANCHOR_OPP = (0.49, 0.07)
+_PLAYER_ANCHOR_ME = (0.49, 0.93)
 
 
 def player_point(rect: Rect, *, is_me: bool) -> tuple:
