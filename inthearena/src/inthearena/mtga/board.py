@@ -74,6 +74,18 @@ def player_point(rect: Rect, *, is_me: bool) -> tuple:
     return rect.x + int(ax * rect.w), rect.y + int(ay * rect.h)
 
 
+def creature_row_point(rect: Rect, rank: int, n: int, *, is_mine: bool) -> tuple:
+    """Screen point of the creature at left-to-right `rank` (0-based) in a row of `n` — the board's fixed row
+    geometry (centred, oldest-left/newest-right; the spacing tightens when the row is wide). This is exactly
+    where MTGA draws the legal-target HIGHLIGHTS, so clicking it lands on the highlighted box even when the name
+    can't be OCR'd. `is_mine` picks our row (lower) vs the opponent's (upper)."""
+    n = max(1, n)
+    s = min(_SLOT_MAX, _ROW_SPAN / n)
+    cx = _ROW_CX + (max(0, min(rank, n - 1)) - (n - 1) / 2.0) * s
+    cy = _ROW_Y["mine" if is_mine else "opp"]
+    return rect.x + int(cx * rect.w), rect.y + int(cy * rect.h)
+
+
 def locate_named_permanents(image, rect: Rect, *, y_band=_BOTH_Y) -> list:
     """[(name, x, y)] for every legible permanent name within `y_band` — screen coords, left-to-right."""
     if image is None or rect is None:
@@ -163,12 +175,8 @@ class BoardLocator:
         i, ids = self._rank(instance_id, view)
         if i is None:
             return None
-        n = len(ids)
         seat = view.objects[instance_id].controllerSeatId
-        s = min(_SLOT_MAX, _ROW_SPAN / n)                     # tighten the spacing when the row is wide
-        cx = _ROW_CX + (i - (n - 1) / 2.0) * s                # centre the row, oldest left -> newest right
-        cy = _ROW_Y["mine" if seat == self._me else "opp"]
-        return rect.x + int(cx * rect.w), rect.y + int(cy * rect.h)
+        return creature_row_point(rect, i, len(ids), is_mine=(seat == self._me))
 
     def locate(self, instance_id, view, image=None):
         """Screen point (x, y) of `instance_id` on the battlefield, by its card name; None if not legible."""

@@ -1146,8 +1146,8 @@ def _hand_checks():
     from types import SimpleNamespace as NS
     from inthearena.mtga import command_zone_members, commander_point, hand_members, play_hand_card
     cx_, x6 = rect.w // 2, commander_point(rect, 6)[0]
-    check("commander_point: rightmost of N+2, right of centre, in the hand band",
-          x6 > cx_ and 0.84 <= commander_point(rect, 6)[1] / rect.h <= 0.98
+    check("commander_point: rightmost of N+2, right of centre, on the card BODY (below its top border)",
+          x6 > cx_ and 0.94 <= commander_point(rect, 6)[1] / rect.h <= 0.98   # was 0.93 (top border) -> missed
           and commander_point(rect, 3)[0] < x6)          # fewer hand cards -> commander sits further left
 
     class _Z:
@@ -1736,6 +1736,32 @@ def _engine_policy_checks():
     check("_playable: non-actions decision -> None (lands ungated, no land decision here)",
           _playable(land_opts, "targets", False) is None)
 
+    # BURN TARGETING: the engine casts a damage spell UNTARGETED over the bridge, so its SelectTargets is resolved
+    # here — point it at a KILLABLE OPPONENT creature (society's burn priority), not blindly at the face. The
+    # spell's damage is the value STASHED when the engine chose to cast it (_cast_burn).
+    from types import SimpleNamespace as _NSb
+    def _ob(iid, grp, ctrl, p, t): return _NSb(instanceId=iid, grpId=grp, is_creature=True, controllerSeatId=ctrl, p=p, t=t)
+    bview = _NSb(objects={449: _ob(449, 96743, 1, 2, 2),     # opponent's Hateful Eidolon (1's), toughness 2 (killable by 3)
+                          560: _ob(560, 11111, 1, 5, 5),     # opponent's bigger creature, toughness 5 (NOT killable by 3)
+                          558: _ob(558, 97893, 2, 2, 3)},    # OUR commander (seat 2)
+                 commander_grps={97893}, life={1: 20, 2: 25})
+    src_slot = {"prompt": {"parameters": [{"parameterName": "CardId", "numberValue": 453}]},
+                "targets": [{"targetInstanceId": 1}, {"targetInstanceId": 2}, {"targetInstanceId": 449}]}
+    dburn = _NSb(kind="targets", options=[src_slot], seat=2, view=bview, req=None)
+    check("_select_source_id reads the casting spell from the slot CardId", EnginePolicy._select_source_id(dburn) == 453)
+    check("_burn_victim: killable OPPONENT creature, never our own / the unkillable / the face",
+          EnginePolicy._burn_victim(bview, 2, [1, 2, 449, 560, 558], 3) == 449
+          and EnginePolicy._burn_victim(bview, 2, [560], 3) is None)   # 5-toughness survives 3
+    epb = EnginePolicy()
+    epb._cast_burn = (453, 3)
+    check("_targets_choice burns a killable opponent creature over the face (the Lightning Strike misplay)",
+          epb._targets_choice(dburn) == [{"instanceId": 449}])
+    bview.life[1] = 3                                         # now the opponent is at 3 -> burning the FACE is lethal
+    check("_targets_choice takes a LETHAL face over killing a creature", epb._targets_choice(dburn) == [{"player": 1}])
+    bview.life[1] = 20
+    epb._cast_burn = None                                    # not a known burn -> the old behaviour (aim at the face)
+    check("_targets_choice with no burn stash -> aims at the opponent face", epb._targets_choice(dburn) == [{"player": 1}])
+
     # attackers: the engine's attacker set maps to those qualified attackers (executor does All Attack if all)
     qa = [Attacker(attackerInstanceId=11), Attacker(attackerInstanceId=12), Attacker(attackerInstanceId=13)]
     d_atk = Decision(kind="attackers", options=qa, seat=1, view=GameView(), req=None)
@@ -2045,6 +2071,37 @@ def _board_checks():
         # ~one avatar-width too far left and clicked OFF the portrait.
         check("player_point: opponent avatar is the centre-top portrait (~0.49w), not left of it",
               0.42 * rect.w < op[0] < 0.57 * rect.w and op[0] == me[0])
+
+        # CREATURE-TARGET GEOMETRY: the legal targets are highlighted at the board's row geometry, so a target
+        # the name-OCR can't place is clicked there (left-to-right by rank). Our row sits LOWER than the opponent's;
+        # ranks spread left-to-right and stay on the board.
+        crp = boardmod.creature_row_point
+        p0, p1, p2 = (crp(rect, k, 3, is_mine=True) for k in range(3))
+        check("creature_row_point: ranks go left-to-right, centred, on our (lower) row",
+              p0[0] < p1[0] < p2[0] and all(0.2 * rect.w < p[0] < 0.8 * rect.w for p in (p0, p1, p2))
+              and abs((p0[0] + p2[0]) / 2 - rect.w * 0.5) < 0.02 * rect.w and p1[1] > rect.h * 0.5)
+        check("creature_row_point: the opponent's row is HIGHER on screen than ours",
+              crp(rect, 0, 3, is_mine=False)[1] < crp(rect, 0, 3, is_mine=True)[1])
+
+        # _do_targets geometry FALLBACK: when the name-OCR locate fails (parks off-board, no click), the creature
+        # target is clicked by row geometry — ranked among the SAME-SIDE candidate creatures the decision offers.
+        from inthearena.mtga import GameExecutor as _GXt
+        from types import SimpleNamespace as _NSt
+        def _cr(iid, ctrl): return _NSt(instanceId=iid, is_creature=True, controllerSeatId=ctrl, grpId=iid, t=2, p=2)
+        tview = _NSt(objects={31: _cr(31, 2), 33: _cr(33, 2), 35: _cr(35, 2)},  # our 3 creatures (seat 2), L->R by id
+                     battlefield=lambda s=None: [], commander_grps=set(), life={1: 20, 2: 20})
+        tslot = {"targets": [{"targetInstanceId": 31}, {"targetInstanceId": 33}, {"targetInstanceId": 35}]}
+        tdec = _NSt(kind="targets", options=[tslot], seat=2, view=tview, req=None)
+
+        class _NoLoc:                          # an ObjectLocator that always FAILS to place (the live failure)
+            _me = 2
+            def locate(self, inst, view, image=None): return None
+        at = DryRunActuator(rect=rect, image=object())
+        gx = _GXt(at, object_locator=_NoLoc())
+        r = gx._do_targets(tdec, [{"instanceId": 35}])        # target our rightmost creature (rank 2/3)
+        rmost = crp(rect, 2, 3, is_mine=True)
+        check("_do_targets: name-locate fails -> clicks the target by board geometry (rightmost slot), not off-board",
+              r.done and bool(at.clicks) and abs(at.clicks[-1][0] - rmost[0]) <= 4 and at.clicks[-1][0] > rect.w * 0.55)
 
         # ORDINAL FALLBACK: when the name can't be OCR'd (declare-blockers floods our band with the enlarged
         # attacker's rules text), place the creature by its slot among our creatures — new permanents append on
