@@ -78,6 +78,21 @@ def _starting_hand_semantics() -> None:
     check("starting_hand -> None deals a normal hand", g2.hand_count(g2.players[0]) > 0)
 
 
+def _bare_spec_mirrors_to_all_seats() -> None:
+    """A bare (non-dict) starting_hand applies to EVERY seat, not just the first. Prove it with a deck that
+    has a single distinctive card: forcing it guarantees it in BOTH mirror hands (random would almost never
+    put the lone copy in both), so if both hands hold it, the force reached both seats."""
+    deck = [mountain] * 39 + [Card("Grizzly Bears")]                 # exactly one Grizzly Bears
+    g = mtg.Game.new(deck, starting_hand=lambda: [Card("Grizzly Bears")])
+    both = all(any(c.startswith("grizzly_bears") for c in g.hand(p)) for p in g.players)
+    check("a bare starting_hand forces the card into every seat's hand", both)
+
+    # a dict targets only the named seat — the other stays random (no guarantee / no error)
+    gd = mtg.Game.new(deck, starting_hand={"alice": lambda: [Card("Grizzly Bears")]})
+    check("a dict starting_hand forces only the named seat",
+          any(c.startswith("grizzly_bears") for c in gd.hand("alice")))
+
+
 def _forcing_a_card_not_in_deck_raises() -> None:
     """Forcing a card the seat doesn't own must fail loudly — a blue deck can't open on a Mountain."""
     try:
@@ -108,6 +123,7 @@ def run() -> None:
     _play_mountain_happy_path()
     _game_new_forms()
     _starting_hand_semantics()
+    _bare_spec_mirrors_to_all_seats()
     _forcing_a_card_not_in_deck_raises()
     _no_legal_move_raises_clearly()
     passed = sum(1 for _, ok in CHECKS if ok)

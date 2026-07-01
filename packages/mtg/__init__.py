@@ -15,9 +15,9 @@ force an opening hand, and name your moves by card:
     g.cast("Grizzly Bears")                     # cast a spell by name; ValueError if it isn't legal now
 
 `Game.new(*decks | seat=deck, ...)` loads decklists (name lists, `{name: count}`, `Card`s, or a file/path);
-`starting_hand` is a spec (or `{seat: spec}`) — a list of `Card`/names to guarantee in the opening hand, or
-a callable returning `Optional[list]` (None = a normal random hand). Forcing a card the seat doesn't own
-raises. `Card`, the five basic lands (`plains`/`island`/`swamp`/`mountain`/`forest`), and the `play`/`cast`
+`starting_hand` is a spec (applied to EVERY seat) or `{seat: spec}` (targets those seats, rest random) —
+a list of `Card`/names to guarantee in the opening hand, or a callable returning `Optional[list]` (None = a
+normal random hand). Forcing a card the seat doesn't own raises. `Card`, the five basic lands (`plains`/`island`/`swamp`/`mountain`/`forest`), and the `play`/`cast`
 move builders are top-level exports.
 
 The engine now lives INSIDE this package: the execution core (`mtg.driver`, `mtg.sim`, the `mtg.engine_*`
