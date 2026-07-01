@@ -6,6 +6,20 @@
         g.push(g.legal_moves[0])
     print(g.outcome())                          # ('alice', 'bob lost')
 
+Or drive it symbolically (python-chess's `board.push_san("e4")` analog) — build a game from decklists,
+force an opening hand, and name your moves by card:
+
+    from mtg import Card, mountain, play
+    g = mtg.Game.new([mountain] * 40, starting_hand=lambda: [mountain])   # a chosen opening hand
+    g.play(mountain)                            # play a land by Card (or g.push(play("Mountain")) by name)
+    g.cast("Grizzly Bears")                     # cast a spell by name; ValueError if it isn't legal now
+
+`Game.new(*decks | seat=deck, ...)` loads decklists (name lists, `{name: count}`, `Card`s, or a file/path);
+`starting_hand` is a spec (or `{seat: spec}`) — a list of `Card`/names to guarantee in the opening hand, or
+a callable returning `Optional[list]` (None = a normal random hand). Forcing a card the seat doesn't own
+raises. `Card`, the five basic lands (`plains`/`island`/`swamp`/`mountain`/`forest`), and the `play`/`cast`
+move builders are top-level exports.
+
 The engine now lives INSIDE this package: the execution core (`mtg.driver`, `mtg.sim`, the `mtg.engine_*`
 souffle backends, `mtg.bridge_to_engine`) and the agent-facing layer (`mtg.engine.env`, `mtg.engine.observe`,
 `mtg.engine.search`/`win_search`, `mtg.engine.game`, `mtg.engine.engine`). It drives the Datalog build the
@@ -44,6 +58,8 @@ import importlib  # noqa: E402
 _LAZY = {
     "Game": ".game", "DEMO_DECKS": ".game",
     "Move": ".models", "Pass": ".models", "Permanent": ".models", "CardRef": ".models",
+    "Card": ".models", "MoveSpec": ".models", "cast": ".models",
+    "plains": ".models", "island": ".models", "swamp": ".models", "mountain": ".models", "forest": ".models",
     "Player": ".players", "RandomPlayer": ".players", "GreedyPlayer": ".players", "play": ".players",
     "InformationPlayer": ".information",
     "play_forge": ".forge", "forge_available": ".forge", "forge_status": ".forge",
@@ -76,6 +92,7 @@ def __dir__():
 
 
 __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
+           "Card", "MoveSpec", "cast", "plains", "island", "swamp", "mountain", "forest",
            "Player", "RandomPlayer", "GreedyPlayer", "InformationPlayer", "play",
            "ReBeLPlayer", "heuristic_value", "cards", "CardCorpus",
            "play_forge", "forge_available", "forge_status", "benchmark", "benchmark_vs_forge",

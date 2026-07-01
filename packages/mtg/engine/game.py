@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 
 from mtg import driver
 from mtg.engine import env
@@ -130,6 +131,59 @@ def mulligan(state: dict, players: list[str], variant: str = "default") -> None:
             state.setdefault("_lib_order", {}).setdefault(p, []).append(card)   # to the true bottom
 
 
+# ---- forced opening hands (§103.4 — a chosen, not dealt, starting hand) --------------------------------
+
+def _instance_slug(state: dict, tid: str) -> str:
+    """The card slug an instance id belongs to — the authoritative `instance_of` mapping, else the id with
+    its trailing `_<n>` instance index stripped."""
+    io_map = dict(state.get("instance_of", set()))
+    return io_map.get(tid) or re.sub(r"_\d+$", "", tid)
+
+
+def force_starting_hand(state: dict, player: str, cards: list, variant: str = "default") -> None:
+    """Replace `player`'s opening hand so it CONTAINS `cards` (each a `Card` or a bare name), then fill the
+    rest of the hand at random up to the variant's hand size; the remaining deck becomes the (reshuffled)
+    library. Every named card must already be in that player's decklist — forcing a card they don't own
+    raises ValueError (so `starting_hand=lambda: [mountain]` on a blue deck fails loudly instead of
+    silently conjuring a Mountain). Draws through the seeded RNG, so a given seed still reproduces."""
+    from mtg._text import slug as _slug
+    hsize = driver._variant_hand_size(variant)
+    want = [c.name if hasattr(c, "name") else str(c) for c in cards]
+    if len(want) > hsize:
+        raise ValueError(f"starting_hand for {player!r} lists {len(want)} cards but the opening hand holds "
+                         f"{hsize} ({variant})")
+    # every instance this player owns across hand + library, grouped by card slug
+    owned: dict[str, list] = {}
+    pool: list[str] = []
+    for rel in ("in_hand", "in_library"):
+        for (p, tid) in state.get(rel, set()):
+            if p == player:
+                owned.setdefault(_instance_slug(state, tid), []).append(tid)
+                pool.append(tid)
+    forced: list[str] = []
+    used: set[str] = set()
+    for name in want:
+        s = _slug(name)
+        avail = [t for t in owned.get(s, []) if t not in used]
+        if not avail:
+            raise ValueError(
+                f"can't force {name!r} into {player!r}'s opening hand — it isn't in that player's deck. "
+                f"A starting_hand card must be present in the decklist you gave that seat.")
+        forced.append(avail[0])
+        used.add(avail[0])
+    rng = driver._rng(state)
+    rest = [t for t in pool if t not in used]
+    rng.shuffle(rest)
+    fill = hsize - len(forced)
+    hand_ids = forced + rest[:fill]
+    lib_ids = rest[fill:]
+    others_hand = {(p, c) for (p, c) in state.get("in_hand", set()) if p != player}
+    others_lib = {(p, c) for (p, c) in state.get("in_library", set()) if p != player}
+    state["in_hand"] = others_hand | {(player, c) for c in hand_ids}
+    state["in_library"] = others_lib | {(player, c) for c in lib_ids}
+    state.setdefault("_lib_order", {})[player] = list(lib_ids)
+
+
 # ---- game construction --------------------------------------------------------------------------------
 
 def _policy_dispatch(policies: dict):
@@ -144,14 +198,23 @@ def _policy_dispatch(policies: dict):
 
 
 def new_game(decks: dict, variant: str = "default", seed: int = 0, policies: dict | None = None,
-             commanders: dict | None = None) -> dict:
+             commanders: dict | None = None, starting_hands: dict | None = None) -> dict:
     """Build a ready-to-play game: real decks bridged + shuffled (seeded), per-variant life/hand from the
     rules, opening hands drawn, London mulligan run. If `policies` ({player: policy}) is given, install a
     dispatcher on the _choose seam so the driver's internal sub-choices follow each seat's policy. For
     Commander (§903), pass `commanders` ({player: [name]}) — each goes to the command zone (life 40 etc.
-    read from the rules via variant="commander")."""
+    read from the rules via variant="commander").
+
+    `starting_hands` ({player: spec}) forces chosen opening hands: each spec is either a list of Card/names
+    or a zero-arg callable returning `Optional[list]` — None means 'deal a random hand as usual', a list
+    means 'guarantee these cards in the opening hand' (filled to hand size, rest reshuffled to the library).
+    Applied AFTER the mulligan so it isn't reshuffled away; a forced card not in that seat's deck raises."""
     state = bridge.make_deck_state(decks, seed=seed, variant=variant, commanders=commanders)
     mulligan(state, list(decks), variant=variant)
+    for p, spec in (starting_hands or {}).items():
+        cards = spec() if callable(spec) else spec
+        if cards is not None:
+            force_starting_hand(state, p, cards, variant=variant)
     if policies:
         state["_policy"] = _policy_dispatch(policies)
     return state
