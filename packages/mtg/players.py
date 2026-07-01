@@ -267,16 +267,23 @@ class RandomPlayer(Player):
         return self._pick(view, options, default)
 
 
-def play(players: dict, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
+def play(players=None, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
          commanders: dict | None = None, incremental: bool = False, max_moves: int = 4000,
-         explicit_lands: bool = False, instant_speed: bool = False) -> "Game":
-    """Play a full game to a terminal state with each seat driven by its `Player`, returning the finished
-    `Game` (read `.outcome()` / `.winner()` / `.result()`). `players` is `{seat: Player}` (e.g.
-    `{"alice": RandomPlayer(), "bob": MyHeuristic()}`); a seat with no Player falls to the engine default.
+         explicit_lands: bool = False, instant_speed: bool = False):
+    """Two things, dispatched on the first argument:
 
-    Each Player drives BOTH its top-level moves (`choose_move`) and its internal sub-choices (the `decide`
-    seam, installed on the driver's `_policy` dispatch) — so a game plays exactly as the seated agents
-    decide, not a global policy. (London mulligan resolves with the engine default — keep — before play.)"""
+    * `play("Mountain")` / `play(Card(...))` — build a SYMBOLIC move (an `mtg.MoveSpec`) to push onto a
+      `Game`: `g.push(play("Mountain"))`. (A land is played, a spell is cast; use `mtg.cast` to require a
+      spell.) This is the free-function twin of `Game.play`.
+
+    * `play({seat: Player}, ...)` — run a FULL game to a terminal state with each seat driven by its
+      `Player`, returning the finished `Game` (read `.outcome()` / `.winner()` / `.result()`). A seat with
+      no Player falls to the engine default. Each Player drives BOTH its top-level moves (`choose_move`) and
+      its internal sub-choices (the `decide` seam, installed on the driver's `_policy` dispatch), so a game
+      plays exactly as the seated agents decide. (London mulligan resolves with the engine default — keep.)"""
+    from .models import Card, play as _play_spec
+    if isinstance(players, (str, Card)):                 # play("Mountain") — the move builder, not the runner
+        return _play_spec(players)
     policies = {seat: p.as_policy() for seat, p in players.items()}
     # a player that sequences its own lands (HeuristicPlayer) needs explicit_lands or its land logic is dead;
     # honour that here so the caller doesn't have to remember the flag (the explicit arg still forces it on).

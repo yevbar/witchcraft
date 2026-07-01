@@ -116,6 +116,119 @@ class CardRef(BaseModel):
         return self.id
 
 
+class Card:
+    """A card identified by its printed name — the value you hand to the deck / starting-hand builders and
+    the move helpers:
+
+        Card("Mountain")                       # a card by name
+        g.play(Card("Lightning Bolt"))         # play/cast it (a Card or a bare name both work)
+        Game.new([Card("Mountain")] * 40)      # a decklist of Cards
+
+    Basic lands are exported ready-made, so the common case reads cleanly — `from mtg import mountain`
+    gives `Card("Mountain")`. A Card is a light name wrapper (it does NOT touch the corpus): the real
+    validation happens where it matters — `starting_hand` checks deck membership, and `g.play(card)` checks
+    the card is a legal move right now. Two Cards are equal iff their names normalize (slug) to the same id."""
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str):
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"Card name must be a non-empty string, got {name!r}")
+        self.name = name
+
+    @property
+    def id(self) -> str:
+        """The card's slug — the engine's name->id form ('Grizzly Bears' -> 'grizzly_bears')."""
+        from mtg._text import slug
+        return slug(self.name)
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"Card({self.name!r})"
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Card) and self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
+def card_name(card) -> str:
+    """The printed name of a `Card` or a bare name string (the single place move/deck builders normalize
+    their card argument)."""
+    return card.name if isinstance(card, Card) else str(card)
+
+
+def name_matches_id(card_id: str, name: str) -> bool:
+    """Whether a card instance id (e.g. 'mountain_3') is an instance of the card called `name` ('Mountain').
+    The engine ids a card instance as `<slug>_<n>`, so the id is either the bare slug or the slug followed
+    by `_<digits>`. (A slug that itself ends in digits — rare — still matches: the trailing run after the
+    final '_' must be all digits.)"""
+    from mtg._text import slug
+    s = slug(name)
+    return card_id == s or (card_id.startswith(s + "_") and card_id[len(s) + 1:].isdigit())
+
+
+class MoveSpec:
+    """A SYMBOLIC move you build before you know the concrete legal `Move` — `play("Mountain")`,
+    `cast("Lightning Bolt")`. It names an intent (a kind + a card), not an engine action; `Game.push`
+    resolves it against the current `legal_moves` for you:
+
+        from mtg import play, cast
+        g.push(play("Mountain"))            # play resolves to the matching legal land drop / cast
+        g.push(cast(Card("Grizzly Bears"))) # cast resolves to the legal cast
+
+    Resolve one explicitly with `spec.resolve(game)` (returns a `Move`), or just push it. Raises a clear
+    ValueError if no matching move is legal in the current position."""
+
+    __slots__ = ("kinds", "card", "label")
+
+    def __init__(self, kinds: tuple, card, label: str):
+        self.kinds = tuple(kinds)          # the Move.kind values this spec accepts
+        self.card = card                   # a Card, a name string, or None (kind-only, e.g. pass)
+        self.label = label                 # for error messages ('play', 'cast', …)
+
+    def resolve(self, game) -> "Move":
+        """The current legal `Move` matching this spec, or a ValueError naming what WAS legal."""
+        name = card_name(self.card) if self.card is not None else None
+        for m in game.legal_moves:
+            if self.kinds and m.kind not in self.kinds:
+                continue
+            if name is None:
+                return m
+            if m.card is not None and name_matches_id(m.card.id, name):
+                return m
+        legal = [game.describe(m) for m in game.legal_moves][:8]
+        raise ValueError(f"no legal {self.label} for {name!r} right now — legal moves: {legal}")
+
+    def __repr__(self) -> str:
+        return f"<MoveSpec {self.label} {self.card!r}>"
+
+
+def play(card) -> MoveSpec:
+    """Build a symbolic 'play this card' move — a land is played, a spell is cast (CR 305 vs 601), so this
+    matches either a `play` or a `cast` legal move for `card`. `g.push(play("Mountain"))`."""
+    return MoveSpec(("play", "cast"), card, "play")
+
+
+def cast(card) -> MoveSpec:
+    """Build a symbolic 'cast this spell' move (matches a `cast` legal move only — not a land drop).
+    `g.push(cast("Lightning Bolt"))`."""
+    return MoveSpec(("cast",), card, "cast")
+
+
+# The five basic lands as ready-made Cards, so the common case needs no `Card(...)` call:
+# `from mtg import mountain; g.play(mountain)`. Basic lands have no oracle text — they're the natural
+# first thing you'd `play`, which is why they earn a direct export.
+plains = Card("Plains")
+island = Card("Island")
+swamp = Card("Swamp")
+mountain = Card("Mountain")
+forest = Card("Forest")
+
+
 _PASS = ("pass",)
 
 

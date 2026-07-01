@@ -43,7 +43,8 @@ from mtg import driver
 from mtg.engine import env
 from mtg.engine import game as _setup
 
-from .models import Move, Permanent, Priority, PriorityOption, ScoredOption
+from .models import (Card, Move, MoveSpec, Pass, Permanent, Priority, PriorityOption, ScoredOption,
+                     card_name, name_matches_id, cast, play)
 
 DEMO_DECKS = _setup.DECKS                         # Gruul vs Dimir, real cards — the default 1v1 matchup
 
@@ -161,7 +162,7 @@ class Game:
 
     def __init__(self, decks: dict | None = None, *, variant: str = "default", seed: int = 0,
                  commanders: dict | None = None, policies: dict | None = None, incremental: bool = False,
-                 explicit_lands: bool = False, instant_speed: bool = False):
+                 explicit_lands: bool = False, instant_speed: bool = False, starting_hand=None):
         """Build a ready-to-play game and advance to the first real decision.
 
         decks       {player: [card names]}. Defaults to the Gruul-vs-Dimir demo decks.
@@ -170,6 +171,12 @@ class Game:
         commanders  {player: [name]} for a §903 Commander game (use variant="commander").
         policies    {player: policy} to drive the driver's INTERNAL sub-choices (targets/modes/mulligan).
                     The top-level move is always yours via push(); policies only resolve nested choices.
+        starting_hand   force chosen opening hands (§103.4). Either a single spec (applied to the FIRST
+                    seat) or a {player: spec} dict; each spec is a list of Card/names or a zero-arg callable
+                    returning `Optional[list]` — None deals a normal random hand, a list guarantees those
+                    cards in the opening hand (filled to hand size, rest reshuffled to the library). A forced
+                    card not in that seat's deck raises ValueError. Example (a deterministic land drop):
+                    `Game.new([mountain] * 40, starting_hand=lambda: [mountain])` then `g.play(mountain)`.
         incremental select the in-process incremental engine backend (byte-identical; ~2x on large states,
                     neutral on small). Process-global and graceful — falls back if the fork isn't built.
                     `self.incremental` reports whether it actually engaged.
@@ -194,7 +201,9 @@ class Game:
         self.policies = policies
         self.incremental = _select_incremental() if incremental else False
         self._observer: str | None = None                # set on observation() views (a redacted, read-only Game)
-        state = _setup.new_game(decks, variant=variant, seed=seed, policies=policies, commanders=commanders)
+        starting_hands = self._norm_starting_hand(starting_hand, list(decks))
+        state = _setup.new_game(decks, variant=variant, seed=seed, policies=policies, commanders=commanders,
+                                starting_hands=starting_hands)
         if explicit_lands:
             state["_explicit_lands"] = True              # read by env.legal_actions / _develop_if_main / step
         if instant_speed:
@@ -203,6 +212,63 @@ class Game:
         self.explicit_lands = bool(self._state.get("_explicit_lands"))
         self.instant_speed = bool(self._state.get("_instant_speed"))
         self._history: list[tuple[dict, tuple]] = []     # (prior_state, move) for pop()
+
+    # ---- construction sugar (a factory that loads decklists for you) ------------------------------
+
+    _SEATS = ("alice", "bob", "carol", "dave", "erin", "frank")
+
+    @classmethod
+    def new(cls, *decks, starting_hand=None, **kw) -> "Game":
+        """Build a Game from decklists, loading each into card names for you — the ergonomic front door:
+
+            Game.new(mono_red, mono_blue)                       # two decks -> seats 'alice', 'bob'
+            Game.new(alice=mono_red, bob=mono_blue)             # name the seats explicitly
+            Game.new([mountain] * 40)                           # one deck -> a mirror match
+            Game.new(mono_red, mono_blue, seed=7, variant="two-player")
+
+        A deck may be a list of card names or `Card`s, a `{name/Card: count}` dict, or a decklist string /
+        path (loaded via `mtg.load_deck`). Reserved keyword args (seed, variant, commanders, policies,
+        incremental, explicit_lands, instant_speed, starting_hand) go to `Game(...)`; any OTHER keyword is
+        read as `seat=deck`. `starting_hand` forces opening hands — see `Game.__init__`."""
+        reserved = {"seed", "variant", "commanders", "policies", "incremental",
+                    "explicit_lands", "instant_speed"}
+        game_kw = {k: kw.pop(k) for k in list(kw) if k in reserved}
+        game_kw.setdefault("explicit_lands", True)        # so `g.play(land)` has a land drop to resolve
+        #                                                   (the bare Game() keeps auto-playing lands)
+        built: dict[str, list] = {}
+        for i, d in enumerate(decks):
+            built[cls._SEATS[i]] = cls._as_deck(d)
+        for seat, d in kw.items():                        # remaining keywords are seat=deck
+            built[seat] = cls._as_deck(d)
+        if not built:
+            raise ValueError("Game.new needs at least one deck (positional or seat=deck)")
+        if len(built) == 1:                               # a lone deck -> a mirror match, so it's playable
+            ((_seat, d),) = built.items()
+            built = {"alice": d, "bob": list(d)}
+        return cls(built, starting_hand=starting_hand, **game_kw)
+
+    @staticmethod
+    def _as_deck(d) -> list[str]:
+        """Coerce a deck argument into a flat list of card names — a name/`Card` list, a `{card: count}`
+        dict, or a decklist string / path (via `mtg.load_deck` for a path, `mtg.parse_deck` for text)."""
+        if isinstance(d, Card):
+            return [d.name]
+        if isinstance(d, str):
+            from mtg import decks as _decks
+            return _decks.load_deck(d) if os.path.exists(d) else _decks.parse_deck(d)
+        if isinstance(d, dict):
+            return [card_name(c) for c, k in d.items() for _ in range(int(k))]
+        return [card_name(c) for c in d]
+
+    @staticmethod
+    def _norm_starting_hand(starting_hand, players: list[str]) -> dict | None:
+        """Normalize the `starting_hand` argument to a `{player: spec}` dict for `new_game`. A bare
+        spec (callable/list) applies to the FIRST seat; a dict is passed through."""
+        if starting_hand is None:
+            return None
+        if isinstance(starting_hand, dict):
+            return starting_hand
+        return {players[0]: starting_hand}
 
     # ---- the move/turn surface --------------------------------------------------------------------
 
@@ -287,12 +353,98 @@ class Game:
         if self._observer is not None:
             raise RuntimeError("can't push on an observation() — it's a redacted, read-only view from "
                                f"{self._observer}'s seat. Drive the full game instead.")
+        if isinstance(move, MoveSpec):                   # a symbolic play("Mountain") — resolve to a legal Move
+            move = move.resolve(self)
         action = getattr(move, "raw", move)              # accept a Move or a bare action tuple
         if checked and action not in env.legal_actions(self._state):
             raise ValueError(f"illegal move: {move!r}")
         self._history.append((self._state, move))
         self._state = env.step(self._state, action)      # pure: leaves self._state's old object intact
         return move
+
+    # ---- symbolic moves (name/Card -> the matching legal move, pushed) ----------------------------
+
+    def play(self, card) -> Move:
+        """Play a land / cast a spell for `card` (a `Card` or a bare name) — resolves it to the matching
+        legal move now and pushes it. A land is played, a spell is cast (CR 305 vs 601), so this accepts
+        either; use `cast()` to require a spell. Raises ValueError if there's no legal play for that card in
+        the current position. `g.play("Mountain")` / `g.play(mountain)`."""
+        return self.push(play(card))
+
+    def cast(self, card) -> Move:
+        """Cast a spell for `card` (a `Card` or a bare name) — resolves to the legal `cast` move (not a land
+        drop) and pushes it. Raises ValueError if that spell isn't castable now."""
+        return self.push(cast(card))
+
+    def pass_(self) -> Move:
+        """Pass priority / take the do-nothing option at this decision (the literal pass if it's offered,
+        else the minimal move — e.g. declare no attackers / no blockers). Named `pass_` because `pass` is a
+        Python keyword. Raises ValueError only if there are no moves at all."""
+        mv = self.priority.skip()
+        if mv is None:
+            raise ValueError("nothing to pass — no legal moves in this position")
+        return self.push(mv, checked=False)
+
+    def attack(self, *cards) -> Move:
+        """Declare attackers at a declare-attackers decision. With no arguments, swing with everything (the
+        widest offered attack); with creatures named (Card / name / instance id), declare exactly those.
+        Raises ValueError if not at a declare-attackers step, or if no offered attack matches those exact
+        creatures."""
+        atk = [m for m in self.legal_moves if m.kind == "attack"]
+        if not atk:
+            raise ValueError("not at a declare-attackers decision")
+        if not cards:
+            return self.push(max(atk, key=lambda m: len(m.attackers)))
+        want = self._resolve_ids(cards, set().union(*(m.attackers for m in atk)), "attacker")
+        for m in atk:
+            if set(m.attackers) == want:
+                return self.push(m)
+        raise ValueError(f"no declare-attackers option with exactly {sorted(want)} — "
+                         f"offered: {[sorted(m.attackers) for m in atk]}")
+
+    def block(self, *pairs) -> Move:
+        """Declare blockers at a declare-blockers decision. Pass (blocker, attacker) pairs — as tuples
+        `g.block((wall, bear), (knight, ogre))` or, for a single block, the two flat `g.block(wall, bear)`.
+        With no arguments, declare no blocks. Each side is a Card / name / instance id. Raises ValueError if
+        not at a declare-blockers decision, or if no offered block matches exactly those pairs."""
+        blk = [m for m in self.legal_moves if m.kind == "block"]
+        if not blk:
+            raise ValueError("not at a declare-blockers decision")
+        if not pairs:
+            return self.push(min(blk, key=lambda m: len(m.blocks)))
+        if len(pairs) == 2 and not any(isinstance(p, (tuple, list)) for p in pairs):
+            pairs = (pairs,)                             # flat g.block(blocker, attacker) -> one pair
+        cand = set()
+        for m in blk:
+            cand |= {b for (b, _a) in m.blocks} | {a for (_b, a) in m.blocks}
+        want = set()
+        for b, a in pairs:
+            (bid,) = self._resolve_ids([b], cand, "blocker")
+            (aid,) = self._resolve_ids([a], cand, "attacker")
+            want.add((bid, aid))
+        for m in blk:
+            if set(m.blocks) == want:
+                return self.push(m)
+        raise ValueError(f"no declare-blockers option with exactly {sorted(want)} — "
+                         f"offered: {[sorted(m.blocks) for m in blk]}")
+
+    def _resolve_ids(self, cards, candidates: set, role: str) -> set:
+        """Map each Card/name/id in `cards` to a distinct instance id drawn from `candidates` (the ids that
+        actually appear in the offered combat options). An id passes through; a name/Card matches by slug.
+        Raises ValueError naming the unmatched card."""
+        chosen: set = set()
+        for c in cards:
+            key = card_name(c)
+            if key in candidates and key not in chosen:      # already an instance id
+                chosen.add(key)
+                continue
+            hit = next((cid for cid in sorted(candidates)
+                        if cid not in chosen and name_matches_id(cid, key)), None)
+            if hit is None:
+                raise ValueError(f"no available {role} matching {key!r} "
+                                 f"(candidates: {sorted(candidates - chosen)})")
+            chosen.add(hit)
+        return chosen
 
     def key(self) -> frozenset:
         """A hashable transposition key for the CURRENT position — the engine's canonical fact set
@@ -647,6 +799,8 @@ class Game:
         nm = namer or (lambda x: x)
         move = getattr(move, "raw", move)                # accept a Move or a bare action tuple
         kind = move[0]
+        if kind == "play":                                # §305 explicit land drop
+            return f"{move[1]}: play {nm(move[2])}"
         if kind == "cast":
             _, ap, spell, ch = move
             extra = "".join(f" {k}={v}" for k, v in sorted(ch.items())) if ch else ""
