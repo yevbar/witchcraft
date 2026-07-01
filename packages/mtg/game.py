@@ -171,12 +171,13 @@ class Game:
         commanders  {player: [name]} for a §903 Commander game (use variant="commander").
         policies    {player: policy} to drive the driver's INTERNAL sub-choices (targets/modes/mulligan).
                     The top-level move is always yours via push(); policies only resolve nested choices.
-        starting_hand   force chosen opening hands (§103.4). Either a single spec (applied to the FIRST
-                    seat) or a {player: spec} dict; each spec is a list of Card/names or a zero-arg callable
-                    returning `Optional[list]` — None deals a normal random hand, a list guarantees those
-                    cards in the opening hand (filled to hand size, rest reshuffled to the library). A forced
-                    card not in that seat's deck raises ValueError. Example (a deterministic land drop):
-                    `Game.new([mountain] * 40, starting_hand=lambda: [mountain])` then `g.play(mountain)`.
+        starting_hand   force chosen opening hands (§103.4). Either a single spec (applied to EVERY seat)
+                    or a {player: spec} dict (targets those seats, leaves the rest random); each spec is a
+                    list of Card/names or a zero-arg callable returning `Optional[list]` — None deals a
+                    normal random hand, a list guarantees those cards in the opening hand (filled to hand
+                    size, rest reshuffled to the library). A forced card not in that seat's deck raises
+                    ValueError. Example (a deterministic land drop): `Game.new([mountain] * 40,
+                    starting_hand=lambda: [mountain])` then `g.play(mountain)`.
         incremental select the in-process incremental engine backend (byte-identical; ~2x on large states,
                     neutral on small). Process-global and graceful — falls back if the fork isn't built.
                     `self.incremental` reports whether it actually engaged.
@@ -262,13 +263,14 @@ class Game:
 
     @staticmethod
     def _norm_starting_hand(starting_hand, players: list[str]) -> dict | None:
-        """Normalize the `starting_hand` argument to a `{player: spec}` dict for `new_game`. A bare
-        spec (callable/list) applies to the FIRST seat; a dict is passed through."""
+        """Normalize the `starting_hand` argument to a `{player: spec}` dict for `new_game`. A bare spec
+        (callable/list) applies to EVERY seat (so a mirror game forces both hands the same); a dict targets
+        specific seats and leaves the rest random."""
         if starting_hand is None:
             return None
         if isinstance(starting_hand, dict):
             return starting_hand
-        return {players[0]: starting_hand}
+        return {p: starting_hand for p in players}
 
     # ---- the move/turn surface --------------------------------------------------------------------
 
