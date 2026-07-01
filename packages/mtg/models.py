@@ -523,3 +523,8 @@ class ScoredOption:
         if self.floor is not None and score <= self.floor:
             return None
         return best
+
+
+# The codebase-wide short alias for PriorityOption — every player writes `PriorityOption as Do`, so export
+# `Do` directly too (`from mtg import Do`) to save the rename in the common case.
+Do = PriorityOption

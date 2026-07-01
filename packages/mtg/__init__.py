@@ -59,6 +59,7 @@ _LAZY = {
     "Game": ".game", "DEMO_DECKS": ".game",
     "Move": ".models", "Pass": ".models", "Permanent": ".models", "CardRef": ".models",
     "Card": ".models", "MoveSpec": ".models", "cast": ".models",
+    "PriorityOption": ".models", "Do": ".models",
     "plains": ".models", "island": ".models", "swamp": ".models", "mountain": ".models", "forest": ".models",
     "Player": ".players", "RandomPlayer": ".players", "GreedyPlayer": ".players", "play": ".players",
     "InformationPlayer": ".information",
@@ -92,7 +93,8 @@ def __dir__():
 
 
 __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
-           "Card", "MoveSpec", "cast", "plains", "island", "swamp", "mountain", "forest",
+           "Card", "MoveSpec", "cast", "PriorityOption", "Do",
+           "plains", "island", "swamp", "mountain", "forest",
            "Player", "RandomPlayer", "GreedyPlayer", "InformationPlayer", "play",
            "ReBeLPlayer", "heuristic_value", "cards", "CardCorpus",
            "play_forge", "forge_available", "forge_status", "benchmark", "benchmark_vs_forge",
