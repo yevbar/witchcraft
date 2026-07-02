@@ -1,0 +1,132 @@
+name: build & publish python-mtg
+
+# Builds a self-contained `python-mtg` wheel per platform (bundling the Datalog build, the oracle corpus,
+# and a per-arch compiled souffle engine .so) and publishes to PyPI — so `pip install python-mtg` works
+# with no souffle and no C++ toolchain on the user's machine.
+#
+# Triggers:
+#   * push a tag `v*`            -> build all platforms + publish to PyPI
+#   * manual "Run workflow"      -> build all platforms; publish only if you tick `publish`
+#
+# The two big DATA artifacts (datalog/cards.dl, mtgjson/oracle_corpus.json) are platform-independent and
+# gitignored, so they aren't in the checkout. Each job downloads them from a GitHub Release asset
+# (`mtg-data.tar.gz` on the `${DATA_RELEASE}` release) built locally by packaging/make_data_bundle.sh.
+# See packaging/PUBLISHING.md for the one-time PyPI token + data-release setup.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to PyPI (otherwise build-only dry run)"
+        type: boolean
+        default: false
+
+env:
+  DATA_RELEASE: data                 # the GitHub Release holding mtg-data.tar.gz (rolling; maintainer updates it)
+  MACOSX_DEPLOYMENT_TARGET: "11.0"    # the floor the macOS .so + wheel tag claim
+
+jobs:
+  wheels:
+    name: wheel · ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64,  os: macos-14,     plat: macosx_11_0_arm64 }
+          - { name: macos-x86_64, os: macos-13,     plat: macosx_11_0_x86_64 }
+          - { name: linux-x86_64, os: ubuntu-22.04, plat: linux_x86_64, manylinux: true }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive          # the souffle fork (third_party/souffle) — built for codegen
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch data artifacts (cards.dl + oracle_corpus.json)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$DATA_RELEASE" -p mtg-data.tar.gz -R "${{ github.repository }}"
+          tar xzf mtg-data.tar.gz          # drops datalog/cards.dl + mtgjson/oracle_corpus.json into place
+          test -f datalog/cards.dl && test -f mtgjson/oracle_corpus.json
+
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison flex cmake g++ libffi-dev zlib1g-dev patchelf
+          python -m pip install -U auditwheel
+
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bison flex       # souffle needs bison >=3.2; build_souffle.sh points cmake at brew bison
+
+      - name: Cache souffle fork build
+        uses: actions/cache@v4
+        with:
+          path: third_party/souffle/build
+          key: souffle-${{ matrix.name }}-${{ hashFiles('.gitmodules', 'incremental/build_souffle.sh') }}
+
+      - name: Build souffle fork (for codegen)
+        run: bash incremental/build_souffle.sh
+
+      - name: Stage data + compile the engine .so for this platform
+        run: python packaging/prepare_wheel.py
+
+      - name: Build wheel
+        run: |
+          python -m pip install -U pip build wheel
+          python -m pip wheel packages/mtg -w dist --no-deps
+          ls -l dist
+
+      - name: Retag to the platform (the wheel is py3-none, not pure — it carries a native .so)
+        run: python -m wheel tags --platform-tag "${{ matrix.plat }}" --remove dist/*.whl
+
+      - name: Repair to manylinux (Linux) — vendor libstdc++ etc. + set the manylinux tag
+        if: matrix.manylinux
+        run: |
+          auditwheel show dist/*.whl || true
+          auditwheel repair dist/*.whl -w wheelhouse
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
+          ls -l dist
+
+      - name: Smoke-test the built wheel in a clean venv
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          cd /tmp   # off the repo, so it must run from the installed package
+          /tmp/smoke/bin/python -c "import mtg; g=mtg.Game.new([mtg.mountain]*40, starting_hand=lambda:[mtg.mountain]); g.play(mtg.mountain); print('OK', mtg.engine_available(), g.describe(g.peek()))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+
+  publish:
+    name: publish to PyPI
+    needs: wheels
+    runs-on: ubuntu-latest
+    # publish on a version tag, or a manual run with the publish box ticked
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    environment: pypi         # protect the token behind a GitHub Environment (add reviewers if you want a gate)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheel-*
+          merge-multiple: true
+      - run: ls -l dist
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Token auth: add a PyPI project-scoped token as the `PYPI_API_TOKEN` secret (see PUBLISHING.md).
+          # Prefer Trusted Publishing (OIDC)? Delete this `password:` line, add `permissions: id-token: write`
+          # to this job, and register this workflow as a pending publisher on PyPI — no stored secret.
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist
