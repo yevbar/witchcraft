@@ -50,5 +50,6 @@ mtg = [
     "decks/*.txt",              # bundled limited-style deck lists (load_deck)
     "_datalog/*.dl",           # the compiled Datalog build the engine reads at runtime
     "_data/*.json",            # oracle_corpus.json (card characteristics)
-    "_native/*/*.so",          # the in-process engine, one per platform tag (e.g. darwin_arm64/)
+    "_native/*.so",            # the in-process engine, untagged (macOS universal2 — serves both arches)
+    "_native/*/*.so",          # or under a platform-tag dir (e.g. linux_x86_64/)
 ]
