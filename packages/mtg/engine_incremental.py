@@ -34,8 +34,23 @@ from pathlib import Path
 from mtg import engine_native
 
 _HARNESS_DIR = Path(__file__).resolve().parent.parent.parent / "incremental" / "harness"  # repo root (module in packages/mtg/)
-sys.path.insert(0, str(_HARNESS_DIR))
-import harness  # noqa: E402  (the in-process incremental ctypes bridge — the fork's --incremental .so)
+harness = None                 # the fork's --incremental ctypes bridge — loaded LAZILY (see _load_harness):
+#   it lives in the source tree (incremental/harness/), NOT the shipped wheel, so importing this module must
+#   not require it. available() returns False when it's absent and the driver falls back to the compiled .so.
+
+
+def _load_harness():
+    """Import the incremental `harness` bridge on demand; None if it isn't present (a shipped wheel)."""
+    global harness
+    if harness is None:
+        if str(_HARNESS_DIR) not in sys.path:
+            sys.path.insert(0, str(_HARNESS_DIR))
+        try:
+            import harness as _h
+            harness = _h
+        except Exception:
+            return None
+    return harness
 
 _H = None                     # the live Harness (one bootstrapped SouffleProgram, reused across moves)
 _LOADED: dict | None = None   # {rel: frozenset(rows)} currently resident in the instance
@@ -97,7 +112,8 @@ def _recompute_relations(src: str) -> set:
 
 
 def available() -> bool:
-    return harness.available()
+    h = _load_harness()
+    return bool(h) and h.available()
 
 
 def reset() -> None:

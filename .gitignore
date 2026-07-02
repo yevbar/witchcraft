@@ -27,6 +27,9 @@ rebel_runs/
 
 # Locally-built / shipped engine binaries (the future per-arch wheel ships these; see mtg/_native.py)
 packages/mtg/_native/
+# Wheel-staged runtime data (copied in by packaging/prepare_wheel.py; the wheel bundles these)
+packages/mtg/_datalog/
+packages/mtg/_data/
 
 # stray run logs (ReBeL/training output etc.) — never commit
 *.log

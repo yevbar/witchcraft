@@ -28,8 +28,9 @@ import tempfile
 from pathlib import Path
 
 from mtg import _native
+from mtg import _paths       # resolves datalog/ whether running from the repo or an installed wheel
 
-_SRC = Path("datalog/engine_rules.dl")
+_SRC = _paths.datalog("engine_rules.dl")
 _CACHE_DIR = Path(tempfile.gettempdir())
 # The in-repo souffle fork. The recompute backends prefer it (it does standard, non-incremental codegen too),
 # so the whole driver runs from one `build_souffle.sh` build — no separate SYSTEM souffle install needed.

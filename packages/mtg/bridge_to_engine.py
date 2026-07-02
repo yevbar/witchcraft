@@ -728,9 +728,9 @@ def _load_modeled_conds() -> frozenset:
     static_pt/static_grant rules gate on cond_met, so a static whose condition is here (and whose scope/payload
     are engine-expressible) is engine-OWNED — the bridge must NOT drop it."""
     import re as _re
-    from pathlib import Path as _Path
+    from mtg import _paths
     try:
-        txt = (_Path(__file__).parent.parent.parent / "datalog" / "engine_rules.dl").read_text(encoding="utf-8")
+        txt = _paths.datalog("engine_rules.dl").read_text(encoding="utf-8")
     except OSError:
         return frozenset()
     return frozenset(_re.findall(r'cond_met\(\s*S\s*,\s*"([^"]+)"\s*\)', txt))

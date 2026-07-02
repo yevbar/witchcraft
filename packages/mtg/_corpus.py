@@ -6,43 +6,17 @@ artifact reader (json.load + robust path resolution + signature caching) — the
 interpreter.card_corpus.load_cards() yields — with NO interpretation logic, so there is no risk of drift.
 
 The artifact is produced by the interpreter pipeline (interpreter/build_oracle_corpus.py, from MTGJSON
-AllPrintings.json) and is gitignored. If it's missing, build it once or point $MTG_CORPUS at a copy.
+AllPrintings.json), bundled into the wheel at build time, and gitignored in the source checkout. If it's
+missing there, build it once or point $MTG_CORPUS at a copy. Path resolution lives in mtg._paths.
 """
 from __future__ import annotations
 
 import json
 import os
-import subprocess
-from pathlib import Path
 
+from mtg import _paths
 
-def _resolve_corpus() -> Path:
-    """Locate mtgjson/oracle_corpus.json robustly (same policy as interpreter.card_corpus):
-      1. $MTG_CORPUS override; 2. the repo-root copy; 3. the MAIN worktree's copy (git worktree list);
-      4. else the repo-root path (so a genuinely-missing corpus still errors clearly)."""
-    env = os.environ.get("MTG_CORPUS")
-    if env:
-        return Path(env)
-    root = Path(__file__).resolve().parent.parent.parent      # repo root (module lives in packages/mtg/)
-    local = root / "mtgjson" / "oracle_corpus.json"
-    if local.exists():
-        return local
-    try:
-        r = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"],
-                           capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            main = next((l[len("worktree "):] for l in r.stdout.splitlines()
-                         if l.startswith("worktree ")), None)
-            if main:
-                cand = Path(main) / "mtgjson" / "oracle_corpus.json"
-                if cand.exists():
-                    return cand
-    except Exception:
-        pass
-    return local
-
-
-_CORPUS = _resolve_corpus()
+_CORPUS = _paths.corpus_path()     # env $MTG_CORPUS -> bundled (wheel) -> repo-root -> main worktree; see mtg._paths
 _CARDS_CACHE: dict = {}                                        # keyed on the artifact's (mtime, size)
 
 
