@@ -54,7 +54,8 @@ _INLINE_VERBS = frozenset({
 # artifact (the same keyword_ability_index.dl that interpreter.ground.keyword_abilities() reads), so
 # engine.py needs no interpreter import — each keyword_ability_index(rule, name) fact's name, slugged.
 def _keyword_abilities() -> frozenset:
-    art = Path(__file__).resolve().parents[3] / "datalog" / "keyword_ability_index.dl"
+    from mtg import _paths
+    art = _paths.datalog("keyword_ability_index.dl")
     out = set()
     for line in art.read_text(encoding="utf-8").splitlines():
         line = line.strip()

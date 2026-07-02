@@ -9,11 +9,19 @@ description = "A python-chess-style API + driver for an MTG rules engine (runs t
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-# Pure-Python at the API layer; the engine backends drive a souffle build (the datalog/ artifact).
-# NOTE (deferred install): mtg currently also imports the English->Datalog `interpreter` package at build
-# time (bridge_to_engine/engine). Once the interpreter is itself packaged, declare it here as a dependency
-# (or a git dep on the private witchcraft repo). See the decouple follow-up. Install is deferred for now.
-dependencies = []
+authors = [{ name = "yevbar" }]
+keywords = ["mtg", "magic", "the", "gathering", "rules-engine", "datalog", "souffle"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+]
+# The base API is a thin pydantic layer over an in-process compiled souffle .so run over the bundled Datalog
+# build. A wheel ships the .so + the datalog/ + corpus data (staged by packaging/prepare_wheel.py), so
+# `pip install python-mtg` works with no souffle/toolchain. (The parser side — mtg.analysis — needs the
+# separate `interpreter` package and isn't shipped in the wheel.)
+dependencies = ["pydantic>=2"]
 
 [project.optional-dependencies]
 # Parser/tooling side (card-text interpretation, the card_synergy buff graph). Not needed for the base API.
@@ -27,10 +35,20 @@ learn = ["numpy", "torch"]
 Homepage = "https://github.com/yevbar/witchcraft"
 
 # The package directory IS packages/mtg/ (this file's directory), so map the `mtg` package to ".".
-# Subpackages (mtg.engine, mtg.analysis) are added as they land in later increments.
+# mtg.analysis is intentionally NOT shipped — it imports the separate `interpreter` package.
+# effect_handlers/ + engine_handlers/ are TOP-LEVEL packages the engine imports by name (the driver's and
+# engine's pluggable verb registries); they live at the repo root, so map them via a relative package-dir.
+# (Tech debt: they'd ideally be vendored under mtg.* — tracked for a follow-up; top-level works for now.)
 [tool.setuptools]
-packages = ["mtg", "mtg.engine", "mtg.analysis"]
-package-dir = { "mtg" = "." }
+packages = ["mtg", "mtg.engine", "effect_handlers", "engine_handlers"]
+package-dir = { "mtg" = ".", "effect_handlers" = "../../effect_handlers", "engine_handlers" = "../../engine_handlers" }
 
 [tool.setuptools.package-data]
-mtg = ["decks/*.txt"]                       # bundled limited-style deck lists (load_deck)
+# Bundled at build time by packaging/prepare_wheel.py: the Datalog build, the oracle corpus, and the
+# per-arch compiled engine .so — so the installed wheel runs with no souffle / no C++ toolchain.
+mtg = [
+    "decks/*.txt",              # bundled limited-style deck lists (load_deck)
+    "_datalog/*.dl",           # the compiled Datalog build the engine reads at runtime
+    "_data/*.json",            # oracle_corpus.json (card characteristics)
+    "_native/*/*.so",          # the in-process engine, one per platform tag (e.g. darwin_arm64/)
+]

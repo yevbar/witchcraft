@@ -25,12 +25,13 @@ import sys
 from mtg import engine_native
 from mtg import engine_inproc
 from mtg import engine_incremental
+from mtg import _paths       # resolves datalog/ whether running from the repo or an installed wheel
 import effect_handlers      # pluggable effect verbs (effect_handlers/*.py); _apply_effects dispatches here
 
 _THIS = sys.modules[__name__]   # passed to effect-handler apply fns so they reach driver helpers w/o a cycle
 effect_handlers.load()
 
-RULES = Path("datalog/engine_rules.dl").read_text()
+RULES = _paths.datalog("engine_rules.dl").read_text()
 # relations the engine knows about; driver-only bookkeeping (in_library, ...) is not passed to souffle.
 # Derived from the engine's `.decl` schema via the single introspection layer (engine_schema), not a
 # second ad-hoc parse — so the shim's notion of the engine interface can't drift from the engine.
@@ -344,13 +345,13 @@ def _pay_optional_cost(state: dict, src: str, kind: str, amt: int, ctrl: str, dr
 # --- §103.4 per-variant game-setup numbers, READ from the interpreted rules (starting.dl), not
 # hardcoded here — so adding a variant to the rules interpretation is enough; the shim follows. ---
 def _variant_life(variant: str) -> int:
-    text = Path("datalog/starting.dl").read_text()
+    text = _paths.datalog("starting.dl").read_text()
     m = re.search(rf'starting_life\("{re.escape(variant)}", (\d+)\)', text)
     return int(m.group(1)) if m else DEFAULT_LIFE
 
 
 def _variant_hand_size(variant: str) -> int:
-    text = Path("datalog/starting.dl").read_text()
+    text = _paths.datalog("starting.dl").read_text()
     m = re.search(rf'starting_hand_size\("{re.escape(variant)}", (\d+)\)', text)
     return int(m.group(1)) if m else 7
 
@@ -610,7 +611,7 @@ def _adjust_life(state: dict, p: str, delta: int) -> int:
 # predefined token characteristics, parsed once from the transpiled §111.10 slice.
 def _load_token_defs() -> dict:
     defs: dict = {}
-    for line in Path("datalog/token_defs.dl").read_text().splitlines():
+    for line in _paths.datalog("token_defs.dl").read_text().splitlines():
         m = re.match(r'token_(pt|card_type)\("([^"]+)", "?([^",)]+)"?(?:, (\d+))?\)', line)
         if not m:
             continue
@@ -629,7 +630,7 @@ TOKEN_DEFS = _load_token_defs()
 def _load_grant_priority_steps() -> set:
     """The steps in which the active player receives priority (and so may cast) — read from
     the §5 turn-structure rules interpreted into turn_actions.dl, not hardcoded here."""
-    text = Path("datalog/turn_actions.dl").read_text()
+    text = _paths.datalog("turn_actions.dl").read_text()
     return set(re.findall(r'grants_priority\("([^"]+)"\)', text))
 
 
@@ -639,20 +640,20 @@ GRANTS_PRIORITY = _load_grant_priority_steps()
 def _load_draw_skip_variants() -> set:
     """Game variants whose first player skips the draw step of their first turn (§103.8),
     interpreted into starting.dl — not hardcoded here."""
-    text = Path("datalog/starting.dl").read_text()
+    text = _paths.datalog("starting.dl").read_text()
     return {v for v, s in re.findall(r'first_turn_draw_skip\("([^"]+)", "([^"]+)"\)', text) if s == "yes"}
 
 
 def _default_starting_life() -> int:
     """The default starting life total (§103.4), interpreted into starting.dl."""
-    text = Path("datalog/starting.dl").read_text()
+    text = _paths.datalog("starting.dl").read_text()
     return int(re.search(r'starting_life\("default", (\d+)\)', text).group(1))
 
 
 def _life_loss_threshold() -> int:
     """The life total at or below which a player loses (§104.3b / §704.5a), interpreted into
     ending.dl — the same loss_threshold the engine reads, not a hardcoded 0."""
-    text = Path("datalog/ending.dl").read_text()
+    text = _paths.datalog("ending.dl").read_text()
     return int(re.search(r'loss_threshold\("life_zero", (-?\d+)\)', text).group(1))
 
 
@@ -661,7 +662,7 @@ def _load_keyword_abilities() -> frozenset:
     keyword_ability_index.dl — the canonical keyword vocabulary. The engine's build-time
     conformance checks its test scenarios against this; the driver checks runtime states
     fed through engine_rules.dl (which carries no conformance) against the same roster."""
-    text = Path("datalog/keyword_ability_index.dl").read_text()
+    text = _paths.datalog("keyword_ability_index.dl").read_text()
     return frozenset(re.findall(r'keyword_ability_index\("[^"]+", "([^"]+)"\)', text))
 
 

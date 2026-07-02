@@ -29,7 +29,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "datalog" / "engine_rules.dl"  # repo root (module in packages/mtg/)
+from mtg import _paths       # resolves datalog/ whether running from the repo or an installed wheel
+
+_RULES_PATH = _paths.datalog("engine_rules.dl")
 _RULES = _RULES_PATH.read_text()
 
 
