@@ -4,24 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inthearena"
-version = "0.0.1"
+version = "0.1.0"
 description = "Research bridge for driving Magic: The Gathering agents from MTG Arena game logs (see DISCLAIMER.md)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [{ name = "yevbar" }]
-keywords = ["arena", "agents", "placeholder"]
+keywords = ["mtg", "magic", "arena", "mtga", "agents", "game-log"]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
 ]
-# the mtga bridge parses the GRE log into typed models
+# The base package parses the GRE log into typed models + runs pure-menu policies (e.g. AggroPolicy) — that's
+# pydantic only, so `pip install inthearena` stays universal. The heavier capabilities are opt-in extras
+# below; their imports are lazy, so the base package imports fine without them.
 dependencies = ["pydantic>=2"]
 
+[project.optional-dependencies]
+# Drive the `python-mtg` rules engine (EnginePolicy, to_game/suggest). An extra, not a base dep, because
+# python-mtg ships per-platform binary wheels (macOS + Linux x86_64) — keeping it optional lets the base
+# log-parsing package install anywhere. `pip install inthearena[engine]`.
+engine = ["python-mtg>=0.1.0"]
 # Opt-in ONLY: drive the live MTGA client (mouse/keyboard automation). This is against MTGA's Terms of Service
 # and can get an account banned (see DISCLAIMER.md). The base package never imports it; navigation defaults to
 # a no-op DryRunActuator. `pip install inthearena[act]`.
-[project.optional-dependencies]
 act = ["pyautogui"]
 # Opt-in: a small LOCAL vision model (moondream2 via transformers) to locate buttons on screen instead of
 # coordinate estimates. Runs offline on CPU/MPS; first use downloads the model (~3.7 GB) from the HF hub.
