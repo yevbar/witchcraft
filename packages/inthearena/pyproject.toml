@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]     # >=77 for PEP 639 (SPDX `license` + `license-files`)
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,6 +9,7 @@ description = "Research bridge for driving Magic: The Gathering agents from MTG 
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "yevbar" }]
 keywords = ["mtg", "magic", "arena", "mtga", "agents", "game-log"]
 classifiers = [
