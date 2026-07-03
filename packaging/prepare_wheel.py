@@ -17,6 +17,7 @@ CI runs this once per OS/arch in the build matrix before building the wheel.
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "packages" / "mtg"
 sys.path.insert(0, str(ROOT / "packages"))          # import mtg from the source tree
+
+
+def scrub_build_output() -> None:
+    """Remove stale setuptools output (build/, *.egg-info) so a rebuild can't ship a leftover artifact —
+    setuptools reuses build/lib, so an old per-arch .so lingering there would end up in the new wheel."""
+    for junk in [PKG / "build", *PKG.glob("*.egg-info")]:
+        shutil.rmtree(junk, ignore_errors=True)
 
 
 def stage_data() -> None:
@@ -48,18 +56,28 @@ def stage_data() -> None:
 
 
 def build_engine_so() -> Path:
-    """Compile the in-process engine .so for THIS platform into mtg/_native/<tag>/libmtg_engine.so, using
-    the same recipe mtg.engine_inproc uses at runtime (souffle codegen -> clang/g++ embedded shared lib)."""
+    """Compile the in-process engine .so and place it in the package, using the same recipe
+    mtg.engine_inproc uses at runtime (souffle codegen -> clang/g++ embedded shared lib).
+
+    macOS: build a UNIVERSAL2 (arm64 + x86_64) .so on whichever Mac runs this and place it UNTAGGED
+    (mtg/_native/libmtg_engine.so) — mtg._native's resolver falls back to the untagged path, so ONE fat
+    library serves both Apple Silicon and Intel from a single `macosx_*_universal2` wheel (no Intel runner).
+    Elsewhere (Linux): a single-arch .so under the platform-tag dir (mtg/_native/<tag>/)."""
     from mtg import _native, _paths, engine_inproc, engine_native
 
     rules = _paths.datalog("engine_rules.dl").read_text()     # reads the just-staged bundled copy
     edb = engine_native._edb(rules)
     src = engine_native._wrapper(rules, edb)
     name = f"mtg_inproc_{hashlib.sha1((src + engine_inproc._SHIM_CPP).encode()).hexdigest()[:12]}"
-    tag = _native.platform_tag()
-    out_dir = PKG / "_native" / tag
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / "libmtg_engine.so"
+
+    shutil.rmtree(PKG / "_native", ignore_errors=True)        # drop any stale (single-arch/dev) .so first
+    universal = sys.platform == "darwin"
+    if universal:
+        os.environ["MTG_SO_ARCHFLAGS"] = "-arch arm64 -arch x86_64"
+        out = PKG / "_native" / "libmtg_engine.so"            # untagged -> found on both mac arches
+    else:
+        out = PKG / "_native" / _native.platform_tag() / "libmtg_engine.so"
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as d:
         dl, gen = Path(d) / f"{name}.dl", Path(d) / f"{name}.cpp"
@@ -70,7 +88,8 @@ def build_engine_so() -> Path:
             raise SystemExit(f"souffle codegen failed:\n{g.stderr}")
         if not engine_inproc._compile_lib(name, gen, out):
             raise SystemExit("C++ compile of the engine .so failed (see compiler output above)")
-    print(f"  built engine .so ({out.stat().st_size / 1e6:.1f} MB, factory {name}) -> "
+    kind = "universal2" if universal else _native.platform_tag()
+    print(f"  built engine .so ({out.stat().st_size / 1e6:.1f} MB, {kind}, factory {name}) -> "
           f"{out.relative_to(ROOT)}")
     return out
 
@@ -92,6 +111,7 @@ def main() -> None:
     print("staging wheel data + engine .so for", end=" ")
     from mtg import _native
     print(_native.platform_tag())
+    scrub_build_output()
     stage_data()
     out = build_engine_so()
     verify(out)

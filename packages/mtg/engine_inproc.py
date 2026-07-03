@@ -190,13 +190,21 @@ def _compile_lib(name: str, gen_cpp: Path, lib: Path) -> bool:
     if inc is None:
         return False
     import shutil
-    cxx = shutil.which("g++") or shutil.which("clang++")
+    # MTG_SO_ARCHFLAGS lets the WHEEL build emit a multi-arch .so — macOS universal2 is "-arch arm64 -arch
+    # x86_64", so one Mac wheel serves both Apple Silicon and Intel (built on the fast arm64 runner). Apple
+    # clang does multi-arch; real GCC does not, so prefer clang++ when arch flags are present. Unset (the dev
+    # default) -> a normal single-arch build, unchanged.
+    archflags = os.environ.get("MTG_SO_ARCHFLAGS", "").split()
+    if archflags:
+        cxx = shutil.which("clang++") or shutil.which("g++")
+    else:
+        cxx = shutil.which("g++") or shutil.which("clang++")
     if cxx is None:
         return False
     shim = gen_cpp.with_name("mtg_inproc_shim.cpp")
     shim.write_text(_SHIM_CPP)
     cmd = [cxx, "-O2", "-std=c++17", "-fPIC", "-shared", "-D__EMBEDDED_SOUFFLE__",
-           f"-isystem{inc}", "-w", "-pthread",   # -w (not clang-only -Wno-everything) so GCC also stays quiet
+           f"-isystem{inc}", "-w", "-pthread", *archflags,   # -w (not clang-only) so GCC also stays quiet
            str(gen_cpp), str(shim), "-o", str(lib)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.returncode == 0 and lib.exists()
