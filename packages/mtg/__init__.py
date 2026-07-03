@@ -103,7 +103,7 @@ __all__ = ["Game", "DEMO_DECKS", "Move", "Pass", "Permanent", "CardRef",
            "is_planeswalker", "is_battle", "is_permanent", "is_mana_rock", "is_commander_cast",
            "is_draw_ability", "is_cantrip", "is_creature_damage", "creature_damage",
            "new_game", "self_play", "demo", "engine_available", "__version__"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def new_game(decks: dict | None = None, **kw) -> Game:
