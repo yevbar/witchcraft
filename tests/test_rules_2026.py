@@ -57,6 +57,8 @@ def parsed_card(text, mana='{2}{G}'):
                 f['abilities'][args[1]].setdefault('modifiers', set()).add(args[2])
             elif rel == 'card_effect':
                 f['abilities'][args[1]]['effects'].append((int(args[2]), *args[3:]))
+            elif rel == 'static':
+                f.setdefault('statics', []).append(args[1])
             elif rel == 'printed_keyword':
                 f.setdefault('keywords', set()).add(args[1])
             elif rel == 'teamwork':

@@ -309,6 +309,13 @@ def _escape(unit, ctx):
                          f'card_escape_exile("{cid}", {n})', *cost_facts], "escape")
 
 
+def _rules_2026_static(unit, ctx):
+    text = unit.raw.rstrip('.')
+    if re.fullmatch(r"If damage would be dealt to (?:~|.+?), instead that damage is dealt, but all other damage already dealt to (?:it|him|her|~) is healed", text, re.I):
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "heal_previous_damage")'], "heal_replacement")
+    return None
+
+
 def _power_up(unit, ctx):
     """CR 702.193: preserve the activation and its keyword-specific rules."""
     m = re.match(r"^Power-up\s+—\s+(.+)$", unit.raw, re.I)
@@ -2994,7 +3001,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_power_up, _teamwork, _kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
+_PATTERNS = [_rules_2026_static, _power_up, _teamwork, _kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
              _teamwork, _sticker, _assemble_contraption, _spellbook,
              _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,

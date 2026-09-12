@@ -238,6 +238,7 @@ INPUTS = [
     ("entered_this_turn", [("object", "symbol")]),
     ("power_up_used", [("ability", "symbol")]),
     ("marked_damage", [("object", "symbol"), ("n", "number")]),
+    ("heal_previous_damage", [("object", "symbol")]),
     ("combat_damage_applied", [("step", "symbol")]),
     ("enduring_story", [("player", "symbol")]),
     ("artifact_only_mana_source", [("source", "symbol")]),
@@ -735,7 +736,8 @@ def _rules(p: Program) -> None:
     p.rule("combat_marked(C, N)", ["creature(C)", '!combat_damage_applied("combat_damage")', "deals(_, C, _)", "N = sum X : { deals(S, C, X), !withering(S) }"])
     p.rule("marked(C, N)", ["creature(C)", "marked_damage(C, N)", "!combat_marked(C, _)"])
     p.rule("marked(C, N)", ["combat_marked(C, N)", "!marked_damage(C, _)"])
-    p.rule("marked(C, N + D)", ["combat_marked(C, N)", "marked_damage(C, D)"])
+    p.rule("marked(C, N + D)", ["combat_marked(C, N)", "marked_damage(C, D)", "!heal_previous_damage(C)"])
+    p.rule("marked(C, N)", ["combat_marked(C, N)", "heal_previous_damage(C)"])
     p.output("marked", "combat_marked")
     p.decl("combat_m1m1", [("c", "symbol"), ("n", "number")])
     p.rule("combat_m1m1(C, N)", ["creature(C)", "deals(S0, C, _)", "withering(S0)", "N = sum X : { deals(S, C, X), withering(S) }"])

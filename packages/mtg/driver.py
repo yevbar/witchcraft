@@ -3422,11 +3422,12 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
     opp = _others(state, ctrl)[0] if _others(state, ctrl) else None
 
     marked = dict(state.get("marked_damage", set()))
-    remaining = {c: t - marked.get(c, 0) for c, t in tough.items()}
+    healing = {c for c, in state.get("heal_previous_damage", set())}
+    remaining = {c: t - (0 if c in healing else marked.get(c, 0)) for c, t in tough.items()}
     tough = remaining
 
     def mark(c):
-        marked[c] = marked.get(c, 0) + n
+        marked[c] = (0 if c in healing else marked.get(c, 0)) + n
         state["marked_damage"] = set(marked.items())
 
     def kill(c):                                              # mark lethal damage -> §704.5g destroy

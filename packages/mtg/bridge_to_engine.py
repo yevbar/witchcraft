@@ -2584,6 +2584,8 @@ def _library_movement(cost, effects):
     for _, verb, amount, target, extra, _ in effects:
         if verb in moving:
             return True
+        if verb in {"put_on_top", "put_on_bottom"} and target not in {"them", "those_cards", "the_rest", "the_other_cards"}:
+            return True
         if verb in {"put", "put_in_graveyard", "return_to_library", "exile", "return_to_hand", "return_to_battlefield"} and "library" in f"{target} {extra}":
             return True
     return False
@@ -2894,6 +2896,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("cost_reducer", (tid, _cr[0], _cr[1]))        # (this permanent, amount, color/type/'any' filter)
         else:
             dropped.append(("cost_modifier", (_dir, _amt, _filt)))  # 'self'/tax/variable/subtype -> faithful abstain
+    if "heal_previous_damage" in f.get("statics", []):
+        add("heal_previous_damage", (tid,))
     etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
     if etap is not None:
         if etap == "-":                                       # unconditional -> the engine's repl_enters_tapped input

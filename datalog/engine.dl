@@ -84,6 +84,7 @@
 .decl entered_this_turn(object: symbol)
 .decl power_up_used(ability: symbol)
 .decl marked_damage(object: symbol, n: number)
+.decl heal_previous_damage(object: symbol)
 .decl combat_damage_applied(step: symbol)
 .decl enduring_story(player: symbol)
 .decl artifact_only_mana_source(source: symbol)
@@ -335,7 +336,8 @@ withering(S) :- has_keyword(S, "infect").
 combat_marked(C, N) :- creature(C), !combat_damage_applied("combat_damage"), deals(_, C, _), N = sum X : { deals(S, C, X), !withering(S) }.
 marked(C, N) :- creature(C), marked_damage(C, N), !combat_marked(C, _).
 marked(C, N) :- combat_marked(C, N), !marked_damage(C, _).
-marked(C, N + D) :- combat_marked(C, N), marked_damage(C, D).
+marked(C, N + D) :- combat_marked(C, N), marked_damage(C, D), !heal_previous_damage(C).
+marked(C, N) :- combat_marked(C, N), heal_previous_damage(C).
 .output marked
 .output combat_marked
 .decl combat_m1m1(c: symbol, n: number)
@@ -1252,7 +1254,7 @@ spell_damage(S, N, Kind) :- resolves_ability(S, Card, A), cast_using_teamwork(S)
 .output printed_subtype
 .output printed_color
 .output printed_keyword
-// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available cost_reducer mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword cycling_card card_subtype card_color cant card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter static_protect attached_to entered_this_turn power_up_used marked_damage combat_damage_applied enduring_story artifact_only_mana_source has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_turned_face_up just_p1p1_placed just_drew draw_ord just_cycled won_flip copied_spell just_gained_life gained_life_this_turn ev_search_library committed_crime you_do_pair you_do_cost did_optional teamwork_cost cast_using_teamwork prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
+// SHIM_INPUTS on_battlefield printed_type printed_control printed_color printed_subtype eff_copy eff_text_change eff_gain_control eff_add_type eff_remove_type eff_set_color is_player printed_power printed_toughness counter dyn_pt mod_power mod_toughness printed_keyword eff_grant_keyword eff_remove_keyword eff_set_power eff_set_toughness eff_switch_pt life poison is_commander commander_damage attacks blocks current_step active_player has_priority in_hand spell_type mana_cost mana_available cost_reducer mana_generic mana_pip mana_pool land_produces on_stack all_passed targets tapped has_trigger trigger_effect instance_of card_ability ability_trigger card_effect card_type card_power card_toughness card_keyword cycling_card card_subtype card_color cant card_escape_generic card_escape_pip card_escape_exile trigger_effect_pt trigger_effect_grant trigger_effect_destroy trigger_effect_exile trigger_effect_tap trigger_effect_untap trigger_effect_return trigger_target trigger_damage trigger_reanimate eff_mod_power eff_mod_toughness static_pt static_grant static_filter static_protect attached_to entered_this_turn power_up_used marked_damage heal_previous_damage combat_damage_applied enduring_story artifact_only_mana_source has_supertype sacrificed phased_out countered cast_spell cast_ord cast_nc_ord may_play free_if_commander free_grant pitch_cost just_entered just_tapped just_turned_face_up just_p1p1_placed just_drew draw_ord just_cycled won_flip copied_spell just_gained_life gained_life_this_turn ev_search_library committed_crime you_do_pair you_do_cost did_optional teamwork_cost cast_using_teamwork prevent_all_combat repl_prevent_damage repl_enters_tapped repl_enters_with_counter spell_color protection_from cant_be_targeted spell_mode chose_mode spell_effect spell_target spell_scope spell_damage spell_reanimate loy_cast until_eot is_keyword eff_lose_game eff_win_game in_library would_draw_from_empty library_win_repl
 
 // conformance
 .decl expect_dies(c: symbol)
