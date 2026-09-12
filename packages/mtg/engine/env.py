@@ -179,6 +179,10 @@ def _activate_choices(state: dict, ability_row: tuple) -> list[dict]:
     """Sub-choices for an activated ability: a creature-targeted ability (ctarget sentinel) enumerates its
     legal targets; everything else is a single no-choice activation."""
     eff, tgt = ability_row[4], ability_row[6]
+    if any(a == ability_row[0] and '{X}' in cost for a, cost, _ in state.get('ability_power_up', set())):
+        from mtg.rules_2026 import max_power_up_x
+        player = next(p for p, c in driver.run(state, ['controls'])['controls'] if c == ability_row[1])
+        return [{'power_up_x': x} for x in range(max_power_up_x(driver, state, ability_row[0], player) + 1)]
     if eff == 'crew':
         from mtg import crew
         src = ability_row[1]
@@ -567,6 +571,7 @@ def step(state: dict, action: tuple) -> dict:
             driver.cast_commander(s, ap, cmd, players)
         elif kind == "activate_mana":
             _, ap, source, color = action
+            s["has_priority"] = {(ap,)}
             driver.activate_priority_mana(s, ap, source, color)
         elif kind == "activate":
             _, ap, ab, choices = action

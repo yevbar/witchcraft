@@ -4,6 +4,24 @@ from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_power_up_x_choices_and_independent_stack_values(self):
+        from mtg.engine.env import _activate_choices
+        s = state(); creature(s, 'probe')
+        rows, drops = parsed_card('Power-up — {X}: Put X +1/+1 counters on ~.', mana='{1}')
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        s['power_up_extra_activation'] = {('probe',)}
+        D._set_floating(s, 'alice', {'blue': 5}); D._refresh_mana_pool(s, 'alice')
+        row = D._activatable(s, 'alice')[0]
+        self.assertEqual(_activate_choices(s, row), [{'power_up_x': n} for n in range(6)])
+        for x in (2, 3):
+            s['_forced'] = {'power_up_x': x}
+            rules_2026.pay_activation(D, s, 'alice', row)
+            D.put_activation(s, row[0], row[4], row[5], row[6], row[1], 'alice')
+        self.assertEqual(len(s['on_stack']), 2)
+        D._resolve_top(s); D._resolve_top(s)
+        self.assertIn(('probe', 'p1p1', 5), s['counter'])
+
     def test_teamwork_declined_does_not_require_rider_target(self):
         from mtg.engine.env import _cast_choices
         s = state()
@@ -20,9 +38,7 @@ class RulesGaps(unittest.TestCase):
         from mtg.card_copies import cast_copies
         s = state(); s['instance_of'] = {('original', 'card')}; s['card_type'] = {('card', 'sorcery')}
         decisions = iter([True, False, True])
-        s['_policy'] = lambda key, options, default: next(decisions) if key == 'cast_card_copy' else default
         # Use the common decision seam while leaving cast-trigger choices at their defaults.
-        real = D._choose
         with patch.object(D, '_choose', side_effect=lambda st, key, opts, default: next(decisions) if key == 'cast_card_copy' else default):
             made = cast_copies(D, s, ['original'] * 3, 'alice')
         self.assertEqual(len(made), 2)

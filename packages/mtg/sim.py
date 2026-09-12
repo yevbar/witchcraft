@@ -23,6 +23,11 @@ _DB_CACHE: dict = {}                                   # keyed on cards.dl's (mt
 
 
 def _args(s: str):
+    import json
+    try:
+        return [str(value) for value in json.loads("[" + s + "]")]
+    except (ValueError, TypeError):
+        pass
     # Split on commas OUTSIDE double quotes (a comma inside a quoted field — a multi-part cost like
     # "{T}, Sacrifice ~", or a card name like "Jaya, Fiery Negotiator" — is part of the value, not a
     # delimiter). The old `"[^"]*"|[^,]+` findall mis-split these: after a leading space the [^,]+ branch

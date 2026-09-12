@@ -801,6 +801,11 @@ fires(A, S) :- has_trigger(A, S, "equipped_combat_dmg_player"), ev_combat_dmg_pl
 fires(A, S) :- has_trigger(A, S, "enchanted_dies"), ev_dies(O), attached_to(S, O).
 // §603 'whenever equipped creature becomes tapped' (Hawkeye's Bow)
 fires(A, S) :- has_trigger(A, S, "equipped_becomes_tapped"), ev_tapped(O), attached_to(S, O).
+fires(A, S) :- has_trigger(A, S, "each_upkeep"), ev_upkeep(_).
+fires(A, S) :- has_trigger(A, S, "each_opponent_upkeep"), ev_upkeep(P), controls(Q, S), P != Q.
+fires(A, S) :- has_trigger(A, S, "attacks_or_blocks"), attacks(S, _).
+fires(A, S) :- has_trigger(A, S, "attacks_or_blocks"), blocks(S, _).
+fires(A, S) :- has_trigger(A, S, "you_draw_second"), ev_draw(P), controls(P, S), draw_ord(P, 2).
 fires(A, S) :- has_trigger(A, S, "upkeep"), ev_upkeep(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "end_step"), ev_end_step(P), controls(P, S).
 fires(A, S) :- has_trigger(A, S, "any_end_step"), ev_end_step(_).

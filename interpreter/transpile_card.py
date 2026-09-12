@@ -473,7 +473,7 @@ def _enum_split(sentence: str):
 
 
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|"
-                        r"waterbend|earthbend|airbend|collect)\b", re.I)
+                        r"waterbend|earthbend|airbend|collect|forage|blight)\b", re.I)
 
 
 # ability-modifier clauses — timing/frequency restrictions (§602.5/§603), not effects. Recognized and

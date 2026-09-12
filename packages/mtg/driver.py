@@ -1305,7 +1305,15 @@ def _apply_creature_effects(state: dict) -> None:
             _apply_target_verb(state, a, "trigger", verb, payload, tgt, ctrl, indestructible, owner_of)
     # §120 triggered direct damage (Flametongue Kavu): the driver picks the damage target it surfaced.
     for (a, s, n, kind, ctrl) in sorted(run(state, ["pending_damage"])["pending_damage"]):
-        _apply_damage(state, a, int(n), kind, ctrl, s)
+        event = (a, s, n, kind, ctrl)
+        resolving = state.setdefault('_resolving_trigger_damage', set())
+        if event in resolving:
+            continue
+        resolving.add(event)
+        try:
+            _apply_damage(state, a, int(n), kind, ctrl, s)
+        finally:
+            resolving.discard(event)
     # §701 triggered reanimation (Reya Dawnbringer): the driver moves the best graveyard creature. Guarded
     # against a re-derived trigger reanimating twice in one firing window (the move isn't self-idempotent).
     for (a, s, mode, ctrl) in sorted(run(state, ["pending_reanimate"])["pending_reanimate"]):
@@ -3804,6 +3812,12 @@ def put_activation(state, a, eff, amt, tgt, src, controller):
         fresh = a + '__' + str(state['_activation_seq'])
         state.setdefault('_crew_payment', {})[fresh] = state['_crew_payment'].pop(a)
         a = fresh
+    if ((a,) not in state.get('ability_mana', set()) and any(ability == a for ability, _, _ in state.get('ability_power_up', set()))) or any(obj == a for obj, _ in state.get('on_stack', set())):
+        state['_activation_seq'] = state.get('_activation_seq', 0) + 1
+        fresh = a + '__' + str(state['_activation_seq'])
+        state.setdefault('_power_up_x', {})[fresh] = state.get('_power_up_x', {}).get(a, 0)
+        state.setdefault('ability_effect_order', set()).update((fresh, *row[1:]) for row in list(state.get('ability_effect_order', set())) if row[0] == a)
+        a = fresh
     if (a,) in state.get('ability_mana', set()):
         ordered = sorted(r for r in state.get('ability_effect_order', set()) if r[0] == a)
         effects = [(e, int(n), t) for _, _, e, n, t in ordered] if ordered else [(eff, amt, tgt)]
@@ -3903,6 +3917,9 @@ def _resolve_top_impl(state: dict) -> None:
     if (top,) in out["enters_battlefield"]:                  # a permanent spell becomes a permanent
         print(f"    {top} resolves -> battlefield")
         state["on_battlefield"].add((top,))
+        if (top,) in state.get("_is_copy", set()):
+            state.setdefault("is_token", set()).add((top,))
+            state["_is_copy"].discard((top,))
         from mtg.rules_2026 import entered
         entered(state, top)
         from mtg import battles

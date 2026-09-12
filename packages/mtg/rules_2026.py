@@ -90,6 +90,19 @@ def entered(state, obj):
     state['power_up_activations'] = {r for r in state.get('power_up_activations', set()) if (r[0],) not in aids}
 
 
+def max_power_up_x(D, state, ability, player):
+    value = 0
+    while True:
+        generic, pips = power_up_cost(state, ability, player, value + 1)
+        if D._controls_any_source(state, player) or D._floating(state, player):
+            payable = D.mana_plan(state, player, pips, generic) is not None
+        else:
+            payable = generic + sum(pips.values()) <= next((n for p, n in state.get('mana_available', set()) if p == player), 0)
+        if not payable:
+            return value
+        value += 1
+
+
 def pay_activation(D, state, player, row):
     ability, src, cost, *_ = row
     if row[4] == "crew":
@@ -111,14 +124,7 @@ def pay_activation(D, state, player, row):
         raise ValueError('This Power-up ability has already been activated')
     printed_cost = next(c for a, c, printed in state.get('ability_power_up', set()) if a == ability)
     if '{X}' in printed_cost:
-        def payable(value):
-            g, ps = power_up_cost(state, ability, player, value)
-            if D._controls_any_source(state, player) or D._floating(state, player):
-                return D.mana_plan(state, player, ps, g) is not None
-            return g + sum(ps.values()) <= next((n for p, n in state.get('mana_available', set()) if p == player), 0)
-        maximum = 0
-        while payable(maximum + 1):
-            maximum += 1
+        maximum = max_power_up_x(D, state, ability, player)
         x = int(D._choose(state, 'power_up_x', tuple(range(maximum + 1)), maximum))
         if x < 0 or x > maximum:
             raise ValueError('Cannot pay Power-up X')

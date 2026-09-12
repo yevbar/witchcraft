@@ -41,7 +41,8 @@ def ck(n, c): CH.append((n, bool(c)))
 def run():
     print("build_engine:", be.__file__)
     print("bridge:", bridge.__file__)
-    assert "agent-a402" in be.__file__ and "agent-a402" in bridge.__file__, "RUN FROM THE WORKTREE"
+    assert os.path.abspath(be.__file__).startswith(_r + os.sep)
+    assert os.path.abspath(bridge.__file__).startswith(_r + os.sep)
 
     rules = be.build(with_tests=False)
     ck("in-memory engine declares ev_p1p1_placed", "ev_p1p1_placed" in rules)

@@ -1270,6 +1270,11 @@ def _rules(p: Program) -> None:
            note="§704 'whenever enchanted creature dies' (Nurgle's Rot, Fool's Demise)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "equipped_becomes_tapped")', "ev_tapped(O)", "attached_to(S, O)"],
            note="§603 'whenever equipped creature becomes tapped' (Hawkeye's Bow)")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "each_upkeep")', "ev_upkeep(_)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "each_opponent_upkeep")', "ev_upkeep(P)", "controls(Q, S)", "P != Q"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_or_blocks")', "attacks(S, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_or_blocks")', "blocks(S, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_draw_second")', "ev_draw(P)", "controls(P, S)", "draw_ord(P, 2)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).

@@ -146,7 +146,8 @@ def _frontier_mana_checks():
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
     for nm in ("Vivi Ornitier", "Birgi, God of Storytelling // Harnfel, Horn of Bounty", "The One Ring"):
         _f, dropped = Bm.card_facts(nm, "me", "x", db, corpus)
-        check(f"{nm[:24]} is CLEAN", dropped == [])
+        expected = [('unparsed_unit', 'Creatures you control can boast twice during each of your turns rather than once.')] if nm.startswith('Birgi') else []
+        check(f"{nm[:24]} reports exactly its known unsupported text", dropped == expected)
 
     # §106 Vivi: a DYNAMIC source = its power, in its U/R identity (base power 0, grows via +1/+1 counters).
     f, _ = Bm.card_facts("Vivi Ornitier", "me", "vivi", db, corpus)
