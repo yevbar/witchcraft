@@ -5,6 +5,7 @@ Shared by the imperative driver and the agent-facing environment.
 from __future__ import annotations
 
 import re
+from itertools import product
 
 _COLORS = dict(zip('WUBRGC', ('white', 'blue', 'black', 'red', 'green', 'colorless')))
 
@@ -22,21 +23,42 @@ def mana_symbols(text):
     return generic, pips
 
 
-def power_up_cost(state, ability):
+def _mana_options(text):
+    """Choose a half of each hybrid symbol before applying cost reductions."""
+    symbols = re.findall(r'\{([^}]+)\}', text or '')
+    choices = [symbol.split('/') for symbol in symbols]
+    return [mana_symbols(''.join('{' + symbol + '}' for symbol in option))
+            for option in product(*choices)]
+
+
+def power_up_cost(state, ability, player=None):
     spec = next(((cost, printed) for a, cost, printed in state.get('ability_power_up', set())
                  if a == ability), None)
     if spec is None:
         return None
-    generic, pips = mana_symbols(spec[0])
     src = next((row[1] for row in state.get('activated_ability', set()) if row[0] == ability), None)
-    if (src,) in state.get('entered_this_turn', set()):
-        reduction, colors = mana_symbols(spec[1])
-        for color, amount in colors.items():
-            same = min(pips.get(color, 0), amount)
-            pips[color] = pips.get(color, 0) - same
-            reduction += amount - same
-        generic = max(0, generic - reduction)
-    return generic, {c: n for c, n in pips.items() if n}
+    reductions = _mana_options(spec[1]) if (src,) in state.get('entered_this_turn', set()) else [(0, {})]
+    candidates = set()
+    for generic, original in _mana_options(spec[0]):
+        for reduction, colors in reductions:
+            pips = original.copy()
+            for color, amount in colors.items():
+                same = min(pips.get(color, 0), amount)
+                pips[color] = pips.get(color, 0) - same
+                reduction += amount - same
+            candidates.add((max(0, generic - reduction), tuple(sorted((c, n) for c, n in pips.items() if n))))
+    ordered = [(g, dict(p)) for g, p in sorted(candidates, key=lambda row: (row[0] + sum(n for c, n in row[1]), row))]
+    if player is not None:
+        from mtg import driver as D
+        for generic, pips in ordered:
+            if D._controls_any_source(state, player) or D._floating(state, player):
+                payable = D.mana_plan(state, player, pips, generic) is not None
+            else:
+                available = next((n for p, n in state.get('mana_available', set()) if p == player), 0)
+                payable = generic + sum(pips.values()) <= available
+            if payable:
+                return generic, pips
+    return ordered[0]
 
 
 def entered(state, obj):
@@ -54,7 +76,7 @@ def pay_activation(D, state, player, row):
         if sum(p == player for p, c in state.get("in_library", set())) < mill:
             raise ValueError("Cannot pay milling cost")
         D._apply_effects(state, {(ability, "mill", mill, "controller", src, player)})
-    special = power_up_cost(state, ability)
+    special = power_up_cost(state, ability, player)
     if special is None:
         cost = D._ability_eff_cost(state, ability, cost, player)
         if cost:

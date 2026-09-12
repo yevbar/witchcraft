@@ -1804,8 +1804,14 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     output' surface — every consequence the engine flags is handled here."""
     # derived relations are sets; iterate them sorted so behavior is canonical regardless of the
     # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
+    if ("combat_damage",) not in state.get("current_step", set()):
+        state.pop("combat_damage_applied", None)
     if out.get("combat_marked"):
-        state["marked_damage"] = {(c, int(n)) for c, n in out["marked"]}
+        damage = dict(state.get("marked_damage", set()))
+        damage.update((c, int(n)) for c, n in out["marked"])
+        state["marked_damage"] = set(damage.items())
+        # Keep combat events available to triggers without marking their damage twice.
+        state["combat_damage_applied"] = {("combat_damage",)}
     no_untap = _no_untap_set(state)                              # permanents that 'don't untap' (verb lock + static EDB)
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         if (c,) in no_untap:                                      # 'doesn't untap during its controller's untap step'
@@ -2498,6 +2504,7 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
     source (any-color / same-color bundle) — a fixed source produces its own color."""
     # §106.4 floating mana already in the pool pays first (Forge's payManaCostFromPool spends the pool before
     # tapping), so the SOURCE plan only needs to cover the remainder.
+    anyc = _spends_any_color(state, ap)
     need = dict(pips)
     ng = int(generic)
     floating = _floating(state, ap)
@@ -2539,7 +2546,7 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
         for colset in slots:                                 # single slots: pay a matching pip, else generic
             if avail <= 0:
                 break
-            hit = next((c for c in need if need[c] > 0 and c in colset), None)
+            hit = next((c for c in need if need[c] > 0 and (anyc or c in colset)), None)
             if hit is not None:
                 need[hit] -= 1; avail -= 1; contributed = True
                 if len(colset) > 1 and express is None:      # a wildcard slot -> express the chosen color
@@ -2551,7 +2558,7 @@ def mana_plan(state: dict, ap: str, pips: dict, generic: int):
         for colset, n in bundles:                            # a same-color bundle: all n -> ONE color
             if avail <= 0:
                 break
-            color = max((c for c in need if need[c] > 0 and c in colset), key=lambda c: need[c], default=None)
+            color = max((c for c in need if need[c] > 0 and (anyc or c in colset)), key=lambda c: need[c], default=None)
             if color is None and ng > 0:
                 color = next(iter(sorted(colset)))
             if color is None:
@@ -2631,8 +2638,15 @@ def _spend_mana_unrestricted(state: dict, ap: str, spell: str) -> None:
     if xk and not escaping:
         avail = next((m for (q, m) in state.get("mana_available", set()) if q == ap), 0)
         fixed = generic + sum(pips.values())
-        x = _choose(state, "x_value", None, max(0, (avail - fixed) // xk))
-        generic += xk * int(x)
+        maximum = max(0, (avail - fixed) // xk)
+        has_sources = _controls_any_source(state, ap) or bool(_floating(state, ap))
+        if has_sources:
+            while maximum and mana_plan(state, ap, pips, generic + xk * maximum) is None:
+                maximum -= 1
+        x = int(_choose(state, "x_value", None, maximum))
+        if x < 0 or x > maximum or (has_sources and mana_plan(state, ap, pips, generic + xk * x) is None):
+            raise ValueError("Cannot pay chosen X cost")
+        generic += xk * x
         state.setdefault("_spell_x", {})[spell] = int(x)
         if x:
             print(f"    {ap} chooses X={x} for {spell} (pays {xk * int(x)} more)")
@@ -4044,7 +4058,11 @@ def _activatable(state: dict, p: str) -> list:
                 continue
         elif (src,) not in bf or (p, src) not in ctrl:
             continue
-        special = rules_2026.power_up_cost(state, a)
+        try:
+            special = rules_2026.power_up_cost(state, a, p)
+        except ValueError:
+            # Unsupported symbols must not break enumeration of other actions.
+            continue
         if special is not None:
             if (a,) in state.get("power_up_used", set()):
                 continue

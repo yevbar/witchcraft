@@ -76,6 +76,23 @@ compiler on PATH, it passed engine availability, game creation/play, provenance,
 worthy, parsed Storied, and handler-loading checks. This installation check ran
 on the current Apple Silicon Mac; the Intel slice was built but not executed.
 
+## Local review fixes
+
+The follow-up review reproduced and repaired three runtime defects:
+
+- Hybrid Power-up costs now consider either half of each hybrid symbol for payment
+  and entry-turn reduction, choosing an affordable cost when one exists.
+- Persisted combat damage is no longer added a second time while combat triggers
+  resolve. Combat events remain available, and later combats still add new damage.
+- X spells choose a value supported by spendable mana, excluding Vibranium for
+  nonartifact spells. An explicitly chosen unaffordable X is rejected before payment.
+
+The rules integration suite now has 27 passing tests on both normal and incremental
+backends, including these reproductions,
+second-combat damage, both hybrid colors, and spending-as-any-color interactions.
+The two build-gate tests pass. Regenerated engine artifacts are deterministic and
+pass compilation and semantic conformance. This does not establish a green full suite.
+
 ## Local sanity check
 
 ```sh

@@ -68,6 +68,99 @@ def parsed_card(text, mana='{2}{G}'):
 
 
 class Rules2026(unittest.TestCase):
+    def test_hybrid_power_up_payment_and_entry_reduction(self):
+        for colors, cost, printed in [(('green', 'blue'), '{4}{G/U}', '{1}{G/U}'),
+                                      (('green', 'white'), '{6}{G/W}', '{2}{G/W}')]:
+            for color in colors:
+                for just_entered in (False, True):
+                    with self.subTest(cost=cost, color=color, entered=just_entered):
+                        rows, dropped = parsed_card('Power-up — ' + cost + ': Put a +1/+1 counter on ~.', printed)
+                        self.assertFalse(dropped)
+                        s = state(); creature(s, 'probe')
+                        for key, values in rows.items():
+                            s.setdefault(key, set()).update(values)
+                        if just_entered:
+                            rules_2026.entered(s, 'probe')
+                        expected = (3 if cost == '{4}{G/U}' else 4) if just_entered else (5 if cost == '{4}{G/U}' else 7)
+                        for n in range(expected):
+                            land = f'land{n}'
+                            s['on_battlefield'].add((land,))
+                            s['printed_type'].add((land, 'land'))
+                            s['printed_control'].add(('alice', land))
+                            s.setdefault('land_produces', set()).add((land, color))
+                        D._refresh_mana_pool(s, 'alice')
+                        legal = D._activatable(s, 'alice')
+                        self.assertEqual(len(legal), 1)
+                        rules_2026.pay_activation(D, s, 'alice', legal[0])
+                        self.assertEqual(len(s['tapped']), expected)
+                        self.assertFalse(D._activatable(s, 'alice'))
+
+    def test_hybrid_power_up_rejects_unmatched_mana(self):
+        rows, _ = parsed_card('Power-up — {4}{G/U}: Put a +1/+1 counter on ~.', '{1}{G/U}')
+        s = state(); creature(s, 'probe')
+        for key, values in rows.items():
+            s.setdefault(key, set()).update(values)
+        D._set_floating(s, 'alice', {'red': 5})
+        D._refresh_mana_pool(s, 'alice')
+        self.assertFalse(D._activatable(s, 'alice'))
+
+    def test_combat_draw_does_not_fire_phantom_death(self):
+        s = state(); creature(s, 'a'); creature(s, 'b', 'bob')
+        s.update(current_step={('combat_damage',)}, attacks={('a', 'bob')}, blocks={('b', 'a')},
+                 has_trigger={('death', 'a', 'dies_self'), ('hit', 'a', 'combat_damage_to_creature')},
+                 trigger_effect={('death', 'lose_life', 3, 'each_opponent'), ('hit', 'draw', 1, 'controller')},
+                 in_library={('alice', 'card')}, _lib_order={'alice': ['card']})
+        D._apply_outputs(s, D.run(s, D.OUTPUTS), 'alice')
+        self.assertIn(('alice', 'card'), s['in_hand'])
+        self.assertIn(('bob', 20), s['life'])
+        self.assertEqual(s['on_battlefield'], {('a',), ('b',)})
+        self.assertEqual(s['marked_damage'], {('a', 2), ('b', 2)})
+        self.assertFalse(D.run(s, ['zone_change'])['zone_change'])
+        # A later combat must still add new damage to what remains marked.
+        s['current_step'] = {('end_of_combat',)}
+        D._apply_outputs(s, D.run(s, D.OUTPUTS), 'alice')
+        s['current_step'] = {('combat_damage',)}
+        self.assertEqual(len(D.run(s, ['zone_change'])['zone_change']), 2)
+
+    def _vibranium_x_state(self, artifact=False):
+        s = state(); D._create_token(s, 'vibranium', 'alice', 3)
+        s['on_battlefield'].add(('mountain',))
+        s['printed_type'].add(('mountain', 'land'))
+        s['printed_control'].add(('alice', 'mountain'))
+        s['land_produces'] = {('mountain', 'red')}
+        s['in_hand'] = {('alice', 'spell')}
+        s['spell_type'] = {('spell', 'artifact' if artifact else 'sorcery')}
+        s['mana_generic'] = {('spell', 0)}
+        s['mana_pip'] = {('spell', 'red', 1)}
+        s['x_count'] = {('spell', 1)}
+        D._refresh_mana_pool(s, 'alice')
+        return s
+
+    def test_vibranium_x_uses_only_spendable_mana(self):
+        for artifact in (False, True):
+            s = self._vibranium_x_state(artifact)
+            D._spend_mana(s, 'alice', 'spell')
+            self.assertEqual(s['_spell_x']['spell'], 3 if artifact else 0)
+            self.assertEqual(len(s['tapped']), 4 if artifact else 1)
+
+    def test_x_payment_preserves_spend_as_any_color_permission(self):
+        s = self._vibranium_x_state()
+        s['land_produces'] = {('mountain', 'green')}
+        s['_spend_any_color'] = {('alice',)}
+        D._refresh_mana_pool(s, 'alice')
+        D._spend_mana(s, 'alice', 'spell')
+        self.assertEqual(s['_spell_x']['spell'], 0)
+        self.assertEqual(s['tapped'], {('mountain',)})
+
+    def test_vibranium_rejects_unpayable_chosen_x_before_payment(self):
+        from unittest.mock import patch
+        s = self._vibranium_x_state()
+        with patch.object(D, '_choose', return_value=3):
+            with self.assertRaisesRegex(ValueError, 'Cannot pay chosen X'):
+                D._spend_mana(s, 'alice', 'spell')
+        self.assertFalse(s['tapped'])
+        self.assertNotIn('_spell_x', s)
+
     def test_current_data_selected(self):
         self.assertEqual(_paths.datalog_dir().resolve(), (ROOT / 'datalog').resolve())
 

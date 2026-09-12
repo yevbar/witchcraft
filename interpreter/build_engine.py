@@ -238,6 +238,7 @@ INPUTS = [
     ("entered_this_turn", [("object", "symbol")]),
     ("power_up_used", [("ability", "symbol")]),
     ("marked_damage", [("object", "symbol"), ("n", "number")]),
+    ("combat_damage_applied", [("step", "symbol")]),
     ("enduring_story", [("player", "symbol")]),
     ("artifact_only_mana_source", [("source", "symbol")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
@@ -731,7 +732,7 @@ def _rules(p: Program) -> None:
     p.rule("withering(S)", ['has_keyword(S, "infect")'])
     p.decl("marked", [("c", "symbol"), ("n", "number")])
     p.decl("combat_marked", [("c", "symbol"), ("n", "number")])
-    p.rule("combat_marked(C, N)", ["creature(C)", "deals(_, C, _)", "N = sum X : { deals(S, C, X), !withering(S) }"])
+    p.rule("combat_marked(C, N)", ["creature(C)", '!combat_damage_applied("combat_damage")', "deals(_, C, _)", "N = sum X : { deals(S, C, X), !withering(S) }"])
     p.rule("marked(C, N)", ["creature(C)", "marked_damage(C, N)", "!combat_marked(C, _)"])
     p.rule("marked(C, N)", ["combat_marked(C, N)", "!marked_damage(C, _)"])
     p.rule("marked(C, N + D)", ["combat_marked(C, N)", "marked_damage(C, D)"])
