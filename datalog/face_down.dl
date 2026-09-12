@@ -12,7 +12,6 @@ face_down_default("name", "none").
 face_down_default("subtype", "none").
 face_down_default("mana_cost", "none").
 
-face_down_rule("cant_be_turned_face_down").
 face_down_rule("controller_may_look").
 face_down_rule("spells_cant_turn_face_up").
 face_down_rule("reveal_on_leaving_battlefield").

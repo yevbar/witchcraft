@@ -193,6 +193,9 @@ keyword_ability_index("702.189", "firebending").
 keyword_ability_index("702.190", "sneak").
 keyword_ability_index("702.191", "increment").
 keyword_ability_index("702.192", "paradigm").
+keyword_ability_index("702.193", "power-up").
+keyword_ability_index("702.194", "teamwork").
+keyword_ability_index("702.195", "storied").
 
 .output keyword_ability_index
 

@@ -28,8 +28,9 @@ action_kind("305.1", "special").
 action_kind("306.9", "state_based").
 action_kind("309.6", "state_based").
 action_kind("310.7", "state_based").
-action_kind("310.9", "state_based").
+action_kind("310.8", "state_based").
 action_kind("310.10", "state_based").
+action_kind("310.11", "state_based").
 action_kind("312.7", "state_based").
 action_kind("314.6", "state_based").
 action_kind("500.5", "turn_based").

@@ -2483,6 +2483,14 @@ def _nonmana_cost(cost) -> dict | None:
         if m:
             r["life"] += int(m.group(1))
             continue
+        m = re.match(r"^mill (a|an|\d+|\w+) cards?$", part, re.I)
+        if m:
+            tok = m.group(1).lower()
+            n = 1 if tok in ("a", "an") else _num(tok)
+            if n is None:
+                return None
+            r["mill"] = r.get("mill", 0) + n
+            continue
         m = re.match(r"^discard (a|an|\d+|\w+) cards?$", part, re.I)
         if m:
             tok = m.group(1).lower()
@@ -2545,7 +2553,7 @@ def _alt_mana_cost(cost) -> tuple | None:
 # but a §702 'gains double strike' grant now RESOLVES instead of dropping (Twinferno, Berserk-style pumps).
 _ENGINE_KEYWORDS = {"flying", "reach", "defender", "menace", "hexproof", "shroud", "indestructible",
                     "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste",
-                    "first_strike", "double_strike"}
+                    "first_strike", "double_strike", "storied"}
 
 # ONE WORLD — printed_* relations now DERIVED by the engine from the card-level card_* facts (translate.dl);
 # materialized back into raw state for the driver's direct (non-engine) reads of a card's printed identity.
@@ -2568,6 +2576,19 @@ def _materialize_printed(state: dict) -> None:
             state.setdefault(rel, set()).update(rows)
 
 
+def _library_movement(cost, effects):
+    """605.1a: inspect this ability's cost/effect, not unrelated replacement effects."""
+    if re.search(r"\b(?:mill|draw|library)\b", str(cost), re.I):
+        return True
+    moving = {"draw", "mill", "search", "search_library", "surveil", "explore", "connive", "recruit"}
+    for _, verb, amount, target, extra, _ in effects:
+        if verb in moving:
+            return True
+        if verb in {"put", "put_in_graveyard", "return_to_library", "exile", "return_to_hand", "return_to_battlefield"} and "library" in f"{target} {extra}":
+            return True
+    return False
+
+
 def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, effs) -> bool:
     """§605 — register an ACTIVATED mana ability whose effects are 'add_mana' clauses (Mox Opal's
     'Metalcraft — {T}: Add one mana of any color.', Cavern of Souls, Spire of Industry, Gemstone
@@ -2585,6 +2606,8 @@ def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, eff
     ACTIVATION detail we don't model — but the BASE mana production is faithful (the wildcard pool is a
     superset that can always pay the restricted demand). A non-color/variable production still abstains.
     Returns True iff at least one add_mana clause was registered (so the caller marks it handled)."""
+    if _library_movement("", effs):
+        return False
     fixed: dict[str, int] = {}
     wild: dict[str, int] = {}
     for (_seq, verb, amt, _tgt, extra, _cond) in effs:
@@ -2833,7 +2856,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # attached_to), not the artifact/enchantment itself. Detected from the §205.3 subtype line.
     attached_source = bool({"Aura", "Equipment", "Fortification"} & set(c.get("subtypes") or []))
 
+    activation_order = []
+    sequence_ids = set()
+
     def add(rel, row):
+        if rel == "activated_ability":
+            activation_order.append(row)
         out.setdefault(rel, set()).add(row)
 
     add("printed_control", (ctrl, tid))
@@ -3672,13 +3700,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
             paid = _activated_cost(ab.get("cost"))
-            life_n = discard_n = sac_filter = None
+            life_n = discard_n = sac_filter = mill_n = None
+            moves_library = _library_movement(ab.get("cost"), ab.get("effects", []))
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
                 # Sacrifice: Add 3' (Lion's Eye Diamond). Register it as a real mana source with its SPECIAL
                 # cost (paid by the driver when the source is used), instead of dropping the add_mana clause.
-                alt = _alt_mana_cost(ab.get("cost")) if any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
+                alt = _alt_mana_cost(ab.get("cost")) if not moves_library and any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
                 if alt is not None and _add_mana_source(add, tid, False, 0, False, ab.get("effects", [])):
                     add("source_special_cost", (tid, alt[0], alt[1]))
                     # the LED-style self-sacrifice rider belongs ONLY to the discard-hand cost (its 'Sacrifice ~'
@@ -3699,7 +3728,14 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 life_n = nm["life"] or None
                 discard_n = nm["discard"] or None
                 sac_filter = nm["sac_filter"]
+                mill_n = nm.get("mill") or None
             a = f"{tid}_{aid}"
+            if moves_library or "power_up" in ab.get("modifiers", set()):
+                sequence_ids.add(a)
+            if "power_up" in ab.get("modifiers", set()):
+                add("ability_power_up", (a, str(ab.get("cost", "")), str(c.get("manaCost", ""))))
+            if mill_n is not None:
+                add("ability_mill_cost", (a, mill_n))
             if life_n is not None:
                 add("ability_life_cost", (a, life_n))         # the driver pays N life to activate (Necropotence)
             if discard_n is not None:
@@ -3754,7 +3790,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §106 a DYNAMIC-amount any-combination mana ability ('{0}: Add X mana in any combination of {U}
             # and/or {R}, where X is Vivi's power' — Vivi Ornitier). Model it as a source that taps for `power`
             # mana of the card's COLOR IDENTITY (the tap approximates 'only once each turn'; the {0} cost is free).
-            if any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
+            if not moves_library and any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
                 cols = [_COLOR_NAME[ci] for ci in (c.get("colorIdentity") or []) if ci in _COLOR_NAME]
                 if cols:
                     add("mana_source", (tid,)); add("source_dyn_power", (tid,))
@@ -3762,7 +3798,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("source_dyn_color", (tid, col))
                     add("source_cost", (tid, 0, True))
                     emitted = mana_registered = True
-            if not mana_registered and any(e[1] == "add_mana" for e in act_effs):
+            if not moves_library and not mana_registered and any(e[1] == "add_mana" for e in act_effs):
                 is_land = "Land" in (c.get("types") or [])
                 if _add_mana_source(add, tid, is_land, paid[0], paid[1], act_effs):
                     emitted = mana_registered = True
@@ -3776,6 +3812,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("activated_ability", (a, tid, paid[0], taps, "mana_per_board_color", 0, "monocolored_you_control"))
                     emitted = True; continue
                 if verb == "add_mana":                        # the source's mana clauses
+                    if moves_library:
+                        resolved = _resolved_effect(verb, amt, tgt, extra, _cond)
+                        if resolved is not None:
+                            add("activated_ability", (a, tid, paid[0], taps, *resolved))
+                            emitted = True
+                            continue
                     if not mana_registered:                   # registration abstained -> drop as before
                         dropped.append(("effect", verb))
                     continue
@@ -4037,10 +4079,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     subs = {s.lower() for s in (c.get("subtypes") or [])}
     has_attached = any(r[-1] == "attached" for r in out.get("static_pt", set())) \
         or any(r[-1] == "attached" for r in out.get("static_grant", set()))
-    if "equipment" in subs and "equip" in (f.get("keywords") or set()) and has_attached:
+    if "equipment" in subs and "equip" in (f.get("keywords") or set()) and has_attached and not re.search(r"\bEquip worthy\b", c.get("text") or "", re.I):
         cost = _equip_cost(c.get("text"))
         if cost is not None:
             add("activated_ability", (f"{tid}_equip", tid, cost, "-", "equip", 0, "-"))
+    worthy_equip = re.search(r"\bEquip worthy\s+((?:\{[^}]+\})+)", c.get("text") or "", re.I)
+    if "equipment" in subs and worthy_equip:
+        paid = _activated_cost(worthy_equip.group(1))
+        if paid is not None:
+            add("activated_ability", (f"{tid}_equip_worthy", tid, paid[0], "-", "equip", 0, "worthy"))
+    for aid in sequence_ids:
+        rows = [r for r in activation_order if r[0] == aid]
+        if len(rows) > 1:
+            for i, r in enumerate(rows):
+                add("ability_effect_order", (aid, i, *r[4:]))
     return out, dropped
 
 

@@ -91,6 +91,10 @@ token("mutagen").
 token_color("mutagen", "colorless").
 token_card_type("mutagen", "artifact").
 token_subtype("mutagen", "mutagen").
+token("vibranium").
+token_color("vibranium", "colorless").
+token_card_type("vibranium", "artifact").
+token_subtype("vibranium", "vibranium").
 
 .output token
 .output token_pt

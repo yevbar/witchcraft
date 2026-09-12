@@ -544,8 +544,8 @@ def step(state: dict, action: tuple) -> dict:
             # mirror driver._activate_phase for a CHOSEN ability row, INCLUDING its §602.5 non-mana costs
             # (Pay N life / Discard N / Sacrifice this / Sacrifice a <X>) so the surface PAYS what it offers.
             a, src, cost, taps, eff, amt, tgt = ab
-            if int(cost):
-                driver._spend_ability_mana(s, ap, int(cost))
+            from mtg.rules_2026 import pay_activation
+            pay_activation(driver, s, ap, ab)
             life_cost = next((int(ln) for (aa, ln) in s.get("ability_life_cost", set()) if aa == a), 0)
             if life_cost:                                       # §118 'Pay N life' (Necropotence, Griselbrand)
                 driver._adjust_life(s, ap, -life_cost)

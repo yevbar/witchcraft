@@ -10,13 +10,14 @@ event_definition("do_only_once_turn", "controller", "take").
 event_definition("depend", "-", "apply").
 event_definition("explore", "process", "be").
 event_definition("amass", "process", "be").
-event_definition("connive", "process", "be").
+event_definition("connive", "process", "describe").
 event_definition("discover", "process", "be").
 event_definition("suspend", "-", "suspend").
 event_definition("champion", "-", "exile").
 event_definition("attack_alone", "-", "be").
 event_definition("evolve", "counter", "put").
 event_definition("crew_vehicle", "-", "tap").
+event_definition("crew", "creature", "tap").
 event_definition("embalm", "-", "create").
 event_definition("escape", "-", "resolve").
 event_definition("enlist", "player", "pay").

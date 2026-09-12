@@ -12,8 +12,10 @@ battle_subtype("Siege").
 battle_property("defense_is_a_characteristic").
 battle_property("enters_with_defense_counters").
 battle_property("damage_removes_defense_counters").
-battle_property("graveyard_at_zero_defense").
+battle_property("siege_graveyard_at_zero_without_pending_trigger").
+battle_property("non_siege_graveyard_at_zero").
 battle_property("has_protector").
+battle_property("untyped_protector_is_controller").
 battle_property("single_protector").
 battle_property("cant_be_attached").
 battle_property("siege_protector_from_opponents").
@@ -35,5 +37,5 @@ conformance_fail("property", P, "-") :- expect_property(P), !battle_property(P).
 expect_defense("on_battlefield", "defense_counters").
 expect_defense("not_on_battlefield", "printed").
 expect_subtype("Siege").
-expect_property("graveyard_at_zero_defense").
+expect_property("non_siege_graveyard_at_zero").
 expect_property("enters_with_defense_counters").

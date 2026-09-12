@@ -443,6 +443,8 @@ def _apply_return_as_enchantment(D, state, a, n, tgt, src, ctrl):
         return
     state["graveyard"].discard((src,))
     state.setdefault("on_battlefield", set()).add((src,))
+    from mtg.rules_2026 import entered
+    entered(state, src)
     state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != src} | {(ctrl, src)}
     eid = f"enduring__{src}"
     state.setdefault("eff_remove_type", set()).add((eid, src, "creature"))

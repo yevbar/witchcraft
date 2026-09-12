@@ -273,6 +273,7 @@ rule_unit("111.10s", "111", "subrule").
 rule_unit("111.10t", "111", "subrule").
 rule_unit("111.10u", "111", "subrule").
 rule_unit("111.10v", "111", "subrule").
+rule_unit("111.10w", "111", "subrule").
 rule_unit("111.11", "111", "rule").
 has_example("111.11").
 rule_unit("111.12", "111", "rule").
@@ -522,6 +523,7 @@ rule_unit("122.1f", "122", "subrule").
 rule_unit("122.1g", "122", "subrule").
 rule_unit("122.1h", "122", "subrule").
 rule_unit("122.1i", "122", "subrule").
+rule_unit("122.1j", "122", "subrule").
 rule_unit("122.2", "122", "rule").
 rule_unit("122.3", "122", "rule").
 rule_unit("122.4", "122", "rule").
@@ -839,18 +841,19 @@ rule_unit("310.5", "310", "rule").
 rule_unit("310.6", "310", "rule").
 rule_unit("310.7", "310", "rule").
 rule_unit("310.8", "310", "rule").
-rule_unit("310.8a", "310", "subrule").
-rule_unit("310.8b", "310", "subrule").
-rule_unit("310.8c", "310", "subrule").
-rule_unit("310.8d", "310", "subrule").
-rule_unit("310.8e", "310", "subrule").
-rule_unit("310.8f", "310", "subrule").
-rule_unit("310.8g", "310", "subrule").
 rule_unit("310.9", "310", "rule").
+rule_unit("310.9a", "310", "subrule").
+rule_unit("310.9b", "310", "subrule").
+rule_unit("310.9c", "310", "subrule").
+rule_unit("310.9d", "310", "subrule").
+rule_unit("310.9e", "310", "subrule").
+rule_unit("310.9f", "310", "subrule").
+rule_unit("310.9g", "310", "subrule").
 rule_unit("310.10", "310", "rule").
 rule_unit("310.11", "310", "rule").
-rule_unit("310.11a", "310", "subrule").
-rule_unit("310.11b", "310", "subrule").
+rule_unit("310.12", "310", "rule").
+rule_unit("310.12a", "310", "subrule").
+rule_unit("310.12b", "310", "subrule").
 rule_group("311", "3", "Planes").
 rule_unit("311.1", "311", "rule").
 rule_unit("311.2", "311", "rule").
@@ -1184,11 +1187,12 @@ rule_unit("601.3f", "601", "subrule").
 rule_unit("601.4", "601", "rule").
 has_example("601.4").
 rule_unit("601.5", "601", "rule").
-rule_unit("601.5a", "601", "subrule").
 rule_unit("601.6", "601", "rule").
 rule_unit("601.6a", "601", "subrule").
-rule_unit("601.6b", "601", "subrule").
 rule_unit("601.7", "601", "rule").
+rule_unit("601.7a", "601", "subrule").
+rule_unit("601.7b", "601", "subrule").
+rule_unit("601.8", "601", "rule").
 rule_group("602", "6", "Activating Activated Abilities").
 rule_unit("602.1", "602", "rule").
 rule_unit("602.1a", "602", "subrule").
@@ -1590,6 +1594,7 @@ rule_unit("700.13", "700", "rule").
 rule_unit("700.14", "700", "rule").
 has_example("700.14").
 rule_unit("700.15", "700", "rule").
+rule_unit("700.16", "700", "rule").
 rule_group("701", "7", "Keyword Actions").
 rule_unit("701.1", "701", "rule").
 rule_unit("701.2", "701", "rule").
@@ -1819,6 +1824,7 @@ rule_unit("701.50b", "701", "subrule").
 rule_unit("701.50c", "701", "subrule").
 rule_unit("701.50d", "701", "subrule").
 rule_unit("701.50e", "701", "subrule").
+rule_unit("701.50f", "701", "subrule").
 rule_unit("701.51", "701", "rule").
 rule_unit("701.51a", "701", "subrule").
 rule_unit("701.51b", "701", "subrule").
@@ -1890,6 +1896,10 @@ rule_unit("701.68a", "701", "subrule").
 rule_unit("701.68b", "701", "subrule").
 rule_unit("701.68c", "701", "subrule").
 rule_unit("701.68d", "701", "subrule").
+rule_unit("701.69", "701", "rule").
+rule_unit("701.69a", "701", "subrule").
+rule_unit("701.70", "701", "rule").
+rule_unit("701.70a", "701", "subrule").
 rule_group("702", "7", "Keyword Abilities").
 rule_unit("702.1", "702", "rule").
 rule_unit("702.1a", "702", "subrule").
@@ -2404,6 +2414,7 @@ rule_unit("702.122a", "702", "subrule").
 rule_unit("702.122b", "702", "subrule").
 rule_unit("702.122c", "702", "subrule").
 rule_unit("702.122d", "702", "subrule").
+rule_unit("702.122e", "702", "subrule").
 rule_unit("702.123", "702", "rule").
 rule_unit("702.123a", "702", "subrule").
 rule_unit("702.123b", "702", "subrule").
@@ -2670,6 +2681,17 @@ rule_unit("702.191a", "702", "subrule").
 rule_unit("702.191b", "702", "subrule").
 rule_unit("702.192", "702", "rule").
 rule_unit("702.192a", "702", "subrule").
+rule_unit("702.193", "702", "rule").
+rule_unit("702.193a", "702", "subrule").
+rule_unit("702.193b", "702", "subrule").
+rule_unit("702.194", "702", "rule").
+rule_unit("702.194a", "702", "subrule").
+rule_unit("702.194b", "702", "subrule").
+rule_unit("702.194c", "702", "subrule").
+rule_unit("702.195", "702", "rule").
+rule_unit("702.195a", "702", "subrule").
+rule_unit("702.195b", "702", "subrule").
+rule_unit("702.195c", "702", "subrule").
 rule_group("703", "7", "Turn-Based Actions").
 rule_unit("703.1", "703", "rule").
 rule_unit("703.1a", "703", "subrule").
@@ -2723,6 +2745,7 @@ rule_unit("704.5w", "704", "subrule").
 rule_unit("704.5x", "704", "subrule").
 rule_unit("704.5y", "704", "subrule").
 rule_unit("704.5z", "704", "subrule").
+rule_unit("704.5aa", "704", "subrule").
 rule_unit("704.6", "704", "rule").
 rule_unit("704.6a", "704", "subrule").
 rule_unit("704.6b", "704", "subrule").
@@ -2802,6 +2825,7 @@ rule_unit("707.10g", "707", "subrule").
 rule_unit("707.11", "707", "rule").
 has_example("707.11").
 rule_unit("707.12", "707", "rule").
+rule_unit("707.12a", "707", "subrule").
 rule_unit("707.13", "707", "rule").
 rule_unit("707.14", "707", "rule").
 rule_group("708", "7", "Face-Down Spells and Permanents").

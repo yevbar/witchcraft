@@ -67,6 +67,7 @@ action("player", "draw", "card").
 action("effect", "replace", "draw").
 action("effect", "result", "-").
 action("counter", "create", "effect").
+action("counter", "give", "-").
 action("effect", "continue", "-").
 action("version", "feature", "bar").
 action("player", "use", "component").

@@ -119,7 +119,18 @@ def distinct_rows():
 
 
 def order_rows():
-    return _scan(_ORDER)
+    # Locate the ordering exception by content; rule numbers change between editions.
+    rows = []
+    for section in split(Path("rules.txt").read_text(encoding="utf-8")).sections:
+        for group in section.groups:
+            if group.number not in {"601", "602"}:
+                continue
+            for rule in group.rules:
+                for entry in [rule] + rule.subrules:
+                    for _, pattern, first, second in _ORDER:
+                        if re.search(pattern, entry.text, re.I):
+                            rows.append((entry.number, pattern, first, second))
+    return rows
 
 
 def requires_rows():

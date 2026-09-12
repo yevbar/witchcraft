@@ -5,7 +5,7 @@
 .decl keyword_modifies_step(kw: symbol, step: symbol)
 .decl keyword_variant_of(variant: symbol, base: symbol)
 
-// --- 51 functions-in (where the keyword's ability is active) ---
+// --- 52 functions-in (where the keyword's ability is active) ---
 keyword_functions_in("flash", "playable").
 keyword_functions_in("cycling", "hand").
 keyword_functions_in("kicker", "stack").
@@ -57,6 +57,7 @@ keyword_functions_in("harmonize", "stack").
 keyword_functions_in("warp", "stack").
 keyword_functions_in("mayhem", "graveyard").
 keyword_functions_in("sneak", "stack").
+keyword_functions_in("teamwork", "stack").
 
 // --- 7 modifies-step (which turn step the keyword changes) ---
 keyword_modifies_step("double_strike", "combat_damage").
@@ -67,7 +68,7 @@ keyword_modifies_step("vigilance", "declare_attackers").
 keyword_modifies_step("banding", "combat").
 keyword_modifies_step("phasing", "untap").
 
-// --- 14 variant-of (keyword variant -> base keyword) ---
+// --- 15 variant-of (keyword variant -> base keyword) ---
 keyword_variant_of("venture_into_quality", "venture_into_the_dungeon").
 keyword_variant_of("connive_n", "connive").
 keyword_variant_of("equip_planeswalker", "equip").
@@ -79,6 +80,7 @@ keyword_variant_of("typecycling", "cycling").
 keyword_variant_of("multikicker", "kicker").
 keyword_variant_of("megamorph", "morph").
 keyword_variant_of("commander_ninjutsu", "ninjutsu").
+keyword_variant_of("bloodthirst_x", "bloodthirst").
 keyword_variant_of("devour_quality", "devour").
 keyword_variant_of("double_agenda", "hidden_agenda").
 keyword_variant_of("emerge_from_quality", "emerge").

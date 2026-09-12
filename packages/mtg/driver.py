@@ -356,7 +356,7 @@ def _variant_hand_size(variant: str) -> int:
     return int(m.group(1)) if m else 7
 
 OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
-           "combat_commander_damage", "combat_poison", "pending", "ev_combat_dmg_player"]
+           "combat_commander_damage", "combat_poison", "pending", "ev_combat_dmg_player", "marked", "combat_marked"]
 
 
 def _lit(x: object) -> str:
@@ -532,9 +532,18 @@ def _dyn_count(state: dict, tag: str, ctrl: str) -> int:
     return 0   # unrecognized tag -> abstain (no engine rule should produce one)
 
 
+def _remember_story(state: dict) -> None:
+    # Persist the designation before the next effect can change the qualifying board.
+    if not any("storied" in row for rel in ("printed_keyword", "card_keyword", "eff_grant_keyword")
+               for row in state.get(rel, set())):
+        return
+    state.setdefault("enduring_story", set()).update(run(state, ["has_enduring_story"])["has_enduring_story"])
+
+
 def _pending_both(state: dict) -> tuple:
     """The engine's current (pending, pending_dyn) — the fixed and the 'for each' triggered effects. The
     trigger chokepoints fire both together (a §603 trigger may have either kind of amount)."""
+    _remember_story(state)
     out = run(state, ["pending", "pending_dyn"])
     return out["pending"], out["pending_dyn"]
 
@@ -782,6 +791,7 @@ def _consume_regen_shield(state: dict, obj: str) -> bool:
     if (obj,) in state.get("cant_be_regenerated", set()):     # §701.15g — the shield can't save it
         return False
     state["_regen_shield"].discard((obj,))                    # §701.15c — used up
+    state["marked_damage"] = {r for r in state.get("marked_damage", set()) if r[0] != obj}
     _tap(state, obj)                                          # §701.15c (1) tap it
     # §701.15c (2) remove it from combat — drop any attack/block declaration mentioning it.
     state["attacks"] = {row for row in state.get("attacks", set()) if obj not in row}
@@ -869,7 +879,15 @@ def _create_token(state: dict, spec: str, controller: str, n: int) -> None:
         tid = f"{spec}#{state['_tok']}"
         state.setdefault("on_battlefield", set()).add((tid,))             # printed_* only; the engine
         state.setdefault("printed_control", set()).add((controller, tid)) # derives controls/has_type/creature
+        from mtg.rules_2026 import entered
+        entered(state, tid)
         state.setdefault("is_token", set()).add((tid,))                   # §111 token -> 'control a token' cond_met
+        if spec == "vibranium":
+            state.setdefault("printed_keyword", set()).add((tid, "indestructible"))
+            state.setdefault("mana_source", set()).add((tid,))
+            state.setdefault("source_produces", set()).add((tid, "colorless", 1))
+            state.setdefault("source_cost", set()).add((tid, 0, True))
+            state.setdefault("artifact_only_mana_source", set()).add((tid,))
         for t in d["types"]:
             state.setdefault("printed_type", set()).add((tid, t))
         for st in d.get("subtypes", []):                                  # §205.3 — so tribal lords reach tokens
@@ -950,6 +968,8 @@ def cast_face_down(state: dict, card: str, ctrl: str) -> bool:
     _spend_ability_mana(state, ctrl, 3)                       # §702.37e the face-down cast costs {3}
     state["in_hand"].discard((ctrl, card))
     state.setdefault("on_battlefield", set()).add((card,))
+    from mtg.rules_2026 import entered
+    entered(state, card)
     state.setdefault("printed_control", set()).add((ctrl, card))
     state.setdefault("face_down", set()).add((card,))         # §708.2 -> engine 2/2 colorless body
     state.setdefault("known", set()).add((ctrl, card))        # the controller knows what it cast
@@ -1047,6 +1067,8 @@ def _transform(state: dict, obj: str, ctrl: str) -> None:
     under `ctrl` — summoning sick, front-face counters cleared, with §306.5b starting loyalty: the back's
     printed loyalty PLUS one per instant/sorcery cast this turn (Ral, Leyline Prodigy's enters-with rider).
     Fires the §603 enters-the-battlefield window. A no-op if obj has no transform target."""
+    if (obj,) in state.get("face_down", set()):            # §712.15a cannot transform face down
+        return
     back = next((bs for (o, bs) in state.get("transform_target", set()) if o == obj), None)
     if back is None:
         return
@@ -1103,6 +1125,7 @@ def _apply_effects(state: dict, pending: set, pending_dyn: set | None = None) ->
     STRUCTURAL #3 — `pending_dyn` (optional): the DYNAMIC ('for each') trigger effects to resolve alongside
     (rows (a,eff,base,tag,tgt,src,ctrl)); each is scaled to a live count and routed back through this path.
     Trigger chokepoints pass the engine's current pending_dyn; diff sites pass the diff; spells pass None."""
+    _remember_story(state)
     if pending_dyn:
         _apply_dyn(state, pending_dyn)
     for (a, eff, amt, tgt, src, ctrl) in sorted(pending):
@@ -1175,6 +1198,7 @@ def _apply_effects(state: dict, pending: set, pending_dyn: set | None = None) ->
             h = effect_handlers.APPLY.get(eff)
             if h:
                 h(_THIS, state, a, n, tgt, src, ctrl)
+        _remember_story(state)
     _apply_creature_effects(state)                           # §603 creature-scoped P/T / grant / destroy
 
 
@@ -1780,6 +1804,8 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
     output' surface — every consequence the engine flags is handled here."""
     # derived relations are sets; iterate them sorted so behavior is canonical regardless of the
     # backend's row order (the souffle interpreter and the compiled binary emit sets in different orders).
+    if out.get("combat_marked"):
+        state["marked_damage"] = {(c, int(n)) for c, n in out["marked"]}
     no_untap = _no_untap_set(state)                              # permanents that 'don't untap' (verb lock + static EDB)
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         if (c,) in no_untap:                                      # 'doesn't untap during its controller's untap step'
@@ -1961,6 +1987,8 @@ def _source_units(state: dict, ap: str):
                   and not ((c, "creature") in is_creature and (c,) in sick)
                   and (c in precise or c in dyn_power or (c,) in state.get("mana_source", set())))
     for c in rest:
+        if state.get("_mana_spend_nonartifact") and (c,) in state.get("artifact_only_mana_source", set()):
+            continue
         if c in dyn_power:                                   # §106 X = the source's power, in its dynamic colors
             n = live_power.get(c, 0)
             cols = frozenset(dyn_colors.get(c)) if dyn_colors.get(c) else ANY
@@ -2034,6 +2062,8 @@ def _put_land_in_play(state: dict, ap: str, land: str) -> None:
     (_develop_mana) and the explicit ('play', ap, land) action (_play_land)."""
     state["in_hand"].discard((ap, land))
     state["on_battlefield"].add((land,))
+    from mtg.rules_2026 import entered
+    entered(state, land)
     state.setdefault("printed_control", set()).add((ap, land))
     print(f"    {ap} plays land {land}")
     # §603 LANDFALL — a played land enters without using the stack, so signal just_entered(land) so the
@@ -2325,6 +2355,16 @@ def _tap_all_for_mana(state: dict, ap: str) -> None:
     the bank carries to the next turn. No-op when ap has no untapped tapping source. A source that does NOT
     tap to make mana is left untouched (its potential keeps being recomputed each refresh), so only mana
     that was genuinely tapped is banked — never double-counted."""
+    restricted = state.get("artifact_only_mana_source", set()) - state.get("tapped", set())
+    state.setdefault("tapped", set()).update(restricted)
+    try:
+        _tap_all_unrestricted(state, ap)
+    finally:
+        state["tapped"].difference_update(restricted)
+    _refresh_mana_pool(state, ap)
+
+
+def _tap_all_unrestricted(state: dict, ap: str) -> None:
     units = list(_source_units(state, ap))
     tappers = {sid for (sid, _u, _cg, taps) in units if taps}
     if not tappers:
@@ -2547,6 +2587,18 @@ def _pay_pitch_cost(state: dict, ap: str, spell: str) -> None:
 
 
 def _spend_mana(state: dict, ap: str, spell: str) -> None:
+    previous = state.get("_mana_spend_nonartifact")
+    state["_mana_spend_nonartifact"] = spell != "__power_up_payment__" and (spell, "artifact") not in state.get("spell_type", set())
+    try:
+        _spend_mana_unrestricted(state, ap, spell)
+    finally:
+        if previous is None:
+            state.pop("_mana_spend_nonartifact", None)
+        else:
+            state["_mana_spend_nonartifact"] = previous
+
+
+def _spend_mana_unrestricted(state: dict, ap: str, spell: str) -> None:
     """Pay a spell's COLORED cost (§601.2g) by TAPPING untapped sources for their REAL mana. Each tapped
     source yields ALL its mana at once (§106.4: Sol Ring -> 2 colorless, a Signet -> its 2 colors after
     its {1}); we tap sources until every colored pip (from the right color, incl. wildcards) and the
@@ -3054,6 +3106,8 @@ def _reanimate_one(state: dict, label: str, ctrl: str, mode: str) -> None:
     state.setdefault("on_battlefield", set()).add((c,))
     state.setdefault("printed_control", set())                # §701 under the caster's control
     state["printed_control"] = {(p, x) for (p, x) in state["printed_control"] if x != c} | {(ctrl, c)}
+    from mtg.rules_2026 import entered
+    entered(state, c)
     state.setdefault("_sick", set()).add((c,))                # §302.6 summoning sickness
     if tapped:
         state.setdefault("tapped", set()).add((c,))
@@ -3180,6 +3234,8 @@ def _ramp_basic(state: dict, label: str, p: str) -> None:
     if p in state.get("_lib_order", {}):
         state["_lib_order"][p][:] = [x for x in state["_lib_order"][p] if x != take]
     state.setdefault("on_battlefield", set()).add((take,))    # untapped (Boseiju doesn't say tapped)
+    from mtg.rules_2026 import entered
+    entered(state, take)
     print(f"    channel {label}: {p} searches up basic land {take} -> battlefield")
     _shuffle_library(state, p)                                # §701.18 'then shuffle'
 
@@ -3309,7 +3365,7 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
     """§120 resolve one direct-damage effect whose target the engine can't choose. A creature target ->
     lethality (n >= final toughness, unless indestructible, destroys it); a player -> life loss; 'any
     target' -> kill a finishable threat, else go face. Shared by burn spells (label=spell) and triggered
-    damage (label=ability). (Non-lethal marked damage isn't persisted outside combat — a simplification.)"""
+    damage (label=ability). Damage remains marked until cleanup or healing."""
     out = run(state, ["controls", "creature", "power", "eff_toughness", "cant_be_destroyed"])
     indestructible = {c for (c,) in out["cant_be_destroyed"]}
     controls = {(p, c) for (p, c) in out["controls"]}
@@ -3321,7 +3377,16 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
     enemy = sorted(c for c in creatures if c in on_bf and c not in mine)
     opp = _others(state, ctrl)[0] if _others(state, ctrl) else None
 
+    marked = dict(state.get("marked_damage", set()))
+    remaining = {c: t - marked.get(c, 0) for c, t in tough.items()}
+    tough = remaining
+
+    def mark(c):
+        marked[c] = marked.get(c, 0) + n
+        state["marked_damage"] = set(marked.items())
+
     def kill(c):                                              # mark lethal damage -> §704.5g destroy
+        mark(c)
         if c in indestructible:
             print(f"      {label} deals damage to {c} but it can't be destroyed (indestructible)")
             return
@@ -3342,6 +3407,7 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
             if tough.get(redir, 1) <= n:                     # the creature takes the damage instead — lethal if it finishes it
                 kill(redir)
             else:
+                mark(redir)
                 print(f"      {label} deals {n} to {redir} (non-lethal)")
         else:
             print(f"      {label} deals {n} to {p} -> {_adjust_life(state, p, -n)} life")
@@ -3362,6 +3428,7 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
             if tough.get(tgt, 1) <= n:
                 kill(tgt)
             else:
+                mark(tgt)
                 print(f"      {label} deals {n} to {tgt} (non-lethal)")
     elif kind in ("creature_any", "creature_opponent"):
         tgt = best_killable() or (max(enemy, key=lambda c: powers.get(c, 0)) if enemy else None)
@@ -3374,6 +3441,7 @@ def _apply_damage(state: dict, label: str, n: int, kind: str, ctrl: str) -> None
             if tough.get(tgt, 1) <= n:
                 kill(tgt)
             else:
+                mark(tgt)
                 print(f"      {label} deals {n} to {tgt} (non-lethal)")
     elif kind == "any_target":                                # kill a real threat if we can, else go face
         tgt = best_killable()
@@ -3514,7 +3582,7 @@ def _attach_aura(state: dict, aura: str, ctrl: str) -> None:
         print(f"      {aura}: {ctrl} gains control of {host}")
 
 
-def _equip(state: dict, equipment: str, ctrl: str) -> None:
+def _equip(state: dict, equipment: str, ctrl: str, restriction: str = "-") -> None:
     """§301.5 attach (or move) an Equipment to the controller's strongest creature — its 'equipped creature'
     static buff then applies via attached_to. Equip buffs are beneficial, so it always goes on an own
     creature; an existing attachment is moved (§701.3)."""
@@ -3523,6 +3591,9 @@ def _equip(state: dict, equipment: str, ctrl: str) -> None:
     creatures = {c for (c,) in out["creature"]}
     on_bf = {c for (c,) in state.get("on_battlefield", set())}
     mine = [c for (p, c) in out["controls"] if p == ctrl and c in creatures and c in on_bf]
+    if restriction == "worthy":
+        worthy = {c for c, in run(state, ["worthy"])["worthy"]}
+        mine = [c for c in mine if c in worthy]
     if not mine:
         return
     host = max(mine, key=lambda c: powers.get(c, 0))
@@ -3597,6 +3668,29 @@ def _pay_escape_cost(state: dict, ap: str, spell: str) -> None:
     print(f"    {ap} escapes {spell}: exiles {min(n, len(gy))} other card(s) from the graveyard (§702.166)")
 
 
+def _resolve_activation_effect(state, top, eff, amt, tgt, src, actrl):
+    if eff == "ctarget":                                 # §115 single-target creature verb -> driver picks
+        verb, payload, cls = tgt.split("|")
+        _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
+    elif eff == "channel":                               # §702.x channel: a single-target verb + an opt. consolation
+        _resolve_channel(state, top, actrl, tgt)
+    elif eff == "cdamage":                               # §120 direct damage -> driver picks the target
+        _apply_damage(state, top, amt, tgt, actrl)
+    elif eff == "equip":                                 # §301.5 attach the Equipment to a creature
+        _equip(state, src, actrl, tgt)
+    elif eff == "reanimate":                             # §701 activated reanimator / from-hand cheat
+        _reanimate_one(state, top, actrl, tgt)
+    elif eff == "level_up":                              # §717 raise a Class's level, fire its 'becomes level N'
+        lvl = state.setdefault("_class_level", {})
+        lvl[src] = int(amt)
+        print(f"    {src} becomes level {amt}")
+        for (cid, n2, e2, a2, t2) in sorted(state.get("class_level_effect", set())):
+            if cid == src and int(n2) == int(amt):       # the level-N ability's effect resolves now
+                _apply_effects(state, {(f"{src}_lvl{amt}", e2, int(a2), t2, src, actrl)})
+    else:
+        _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
+
+
 def _resolve_top(state: dict) -> None:
     """§608 — resolve the top object of the stack once all players have passed. A spell that resolves
     enters the battlefield (permanent, applying §614 ETB replacements) or runs its effects then hits the
@@ -3615,26 +3709,10 @@ def _resolve_top(state: dict) -> None:
     if top in state.get("_ability_effect", {}):              # §602 a resolving activated ability (not a spell)
         eff, amt, tgt, src, actrl = state["_ability_effect"].pop(top)
         print(f"    {top} resolves (activated ability)")
-        if eff == "ctarget":                                 # §115 single-target creature verb -> driver picks
-            verb, payload, cls = tgt.split("|")
-            _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
-        elif eff == "channel":                               # §702.x channel: a single-target verb + an opt. consolation
-            _resolve_channel(state, top, actrl, tgt)
-        elif eff == "cdamage":                               # §120 direct damage -> driver picks the target
-            _apply_damage(state, top, amt, tgt, actrl)
-        elif eff == "equip":                                 # §301.5 attach the Equipment to a creature
-            _equip(state, src, actrl)
-        elif eff == "reanimate":                             # §701 activated reanimator / from-hand cheat
-            _reanimate_one(state, top, actrl, tgt)
-        elif eff == "level_up":                              # §717 raise a Class's level, fire its 'becomes level N'
-            lvl = state.setdefault("_class_level", {})
-            lvl[src] = int(amt)
-            print(f"    {src} becomes level {amt}")
-            for (cid, n2, e2, a2, t2) in sorted(state.get("class_level_effect", set())):
-                if cid == src and int(n2) == int(amt):       # the level-N ability's effect resolves now
-                    _apply_effects(state, {(f"{src}_lvl{amt}", e2, int(a2), t2, src, actrl)})
-        else:
-            _apply_effects(state, {(top, eff, amt, tgt, src, actrl)})
+        ordered = sorted(r for r in state.get("ability_effect_order", set()) if r[0] == top)
+        effects = [(e, int(n), t) for _, _, e, n, t in ordered] if ordered else [(eff, amt, tgt)]
+        for e, n, t in effects:
+            _resolve_activation_effect(state, top, e, n, t, src, actrl)
         return
     if any(top == ia for (ia, _c, _a) in state.get("loy_cast", set())):   # §606 a resolving LOYALTY ability
         print(f"    {top} resolves (loyalty ability)")
@@ -3652,6 +3730,8 @@ def _resolve_top(state: dict) -> None:
     if (top,) in out["enters_battlefield"]:                  # a permanent spell becomes a permanent
         print(f"    {top} resolves -> battlefield")
         state["on_battlefield"].add((top,))
+        from mtg.rules_2026 import entered
+        entered(state, top)
         state.setdefault("printed_control", set()).add((ctrl, top))
         state.setdefault("_sick", set()).add((top,))         # §302.6 summoning sickness until controller's next turn
         if (top,) in state.get("_enters_with_haste", set()):  # §106 cast with Arena of Glory's 'haste mana'
@@ -3951,19 +4031,36 @@ def _activatable(state: dict, p: str) -> list:
     tapped = state.get("tapped", set())
     sick = state.get("_sick", set())
     mana = next((m for (q, m) in state.get("mana_available", set()) if q == p), 0)
+    from mtg import rules_2026
     out = []
     for row in state.get("activated_ability", set()):
         a, src, cost, taps, eff, amt, tgt = row
+        ordered = sorted(r for r in state.get("ability_effect_order", set()) if r[0] == a)
+        if ordered and tuple(row[4:]) != tuple(ordered[0][2:]):
+            continue
         from_hand = (a,) in state.get("ability_from_hand", set())
         if from_hand:                                        # §702.x channel — activated from HAND, not the battlefield
             if (p, src) not in state.get("in_hand", set()):
                 continue
         elif (src,) not in bf or (p, src) not in ctrl:
             continue
-        if _ability_eff_cost(state, a, cost, p) > mana:
+        special = rules_2026.power_up_cost(state, a)
+        if special is not None:
+            if (a,) in state.get("power_up_used", set()):
+                continue
+            generic, pips = special
+            if _controls_any_source(state, p) or _floating(state, p):
+                if mana_plan(state, p, pips, generic) is None:
+                    continue
+            elif generic + sum(pips.values()) > mana:
+                continue
+        elif _ability_eff_cost(state, a, cost, p) > mana:
             continue
         if taps == "T" and ((src,) in tapped or (src,) in sick):
             continue                                         # can't pay {T}: already tapped or summoning sick
+        mill_cost = next((int(n) for aa, n in state.get("ability_mill_cost", set()) if aa == a), 0)
+        if sum(pp == p for pp, cc in state.get("in_library", set())) < mill_cost:
+            continue
         life_cost = next((int(ln) for (aa, ln) in state.get("ability_life_cost", set()) if aa == a), 0)
         if life_cost and next((v for (q, v) in state.get("life", set()) if q == p), 0) <= life_cost:
             continue                                         # §118.4 'Pay N life': can't pay if it wouldn't leave you ≥1
@@ -3973,6 +4070,14 @@ def _activatable(state: dict, p: str) -> list:
         sac_kind = next((k for (aa, k) in state.get("ability_sac_filter", set()) if aa == a), None)
         if sac_kind is not None and not _sac_candidates(state, p, sac_kind, src):
             continue                                         # §602.5 'Sacrifice a <X>': need a permanent to sacrifice
+        if eff == "equip" and tgt == "worthy":
+            if (p,) not in state.get("active_player", set()) or state.get("on_stack"):
+                continue
+            if not state.get("current_step", set()) & {("precombat_main",), ("postcombat_main",)}:
+                continue
+            worthy = {c for c, in run(state, ["worthy"])["worthy"]}
+            if not any(pp == p and c in worthy for pp, c in ctrl):
+                continue
         if eff == "equip":                                   # §301.5 only worth equipping if currently
             if any(a2 == src for (a2, _c) in state.get("attached_to", set())):
                 continue                                     # unattached (no re-equip churn) and ...
@@ -4014,9 +4119,8 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
     if chosen is None:
         return
     a, src, cost, taps, eff, amt, tgt = chosen
-    eff_cost = _ability_eff_cost(state, a, cost, ap)         # §118 after the channel '{1} less per legendary' reduction
-    if eff_cost:                                             # pay the mana part via the mana model
-        _spend_ability_mana(state, ap, eff_cost)
+    from mtg.rules_2026 import pay_activation
+    pay_activation(sys.modules[__name__], state, ap, chosen)
     if (a,) in state.get("ability_discard_self", set()):     # §702.x channel — 'Discard this card' is part of the cost
         state["in_hand"].discard((ap, src))
         state.setdefault(_discard_zone(state, ap), set()).add((src,))
@@ -4232,6 +4336,8 @@ def _cleanup_discard(state: dict, ap: str, max_hand: "int | None" = None) -> Non
 
 def _end_of_turn(state: dict) -> None:
     """§514.2 cleanup — until-end-of-turn continuous effects end (the driver removes them)."""
+    state["entered_this_turn"] = set()
+    state["marked_damage"] = set()
     ap = next(iter(state["active_player"]))[0]               # §514.1 active player discards to max hand size first
     _cleanup_discard(state, ap)
     ending = {e for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]}

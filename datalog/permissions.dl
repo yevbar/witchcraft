@@ -85,6 +85,7 @@ permission("ability", "refer", "qualified", "-").
 permission("owner", "cast", "condition", "-").
 permission("rule", "refer", "condition", "-").
 permission("ability", "modify", "by", "-").
+permission("ability", "refer", "condition", "-").
 permission("effect", "state", "qualified", "-").
 permission("player", "agree", "condition", "-").
 permission("effect", "include", "except", "-").

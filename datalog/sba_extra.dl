@@ -6,7 +6,8 @@
 state_based_check("creature", "deathtouch_damage", "destroyed").
 state_based_check("permanent", "counter_cap_exceeded", "excess_removed").
 state_based_check("saga", "final_chapter_reached", "sacrificed").
-state_based_check("battle", "defense_zero", "owners_graveyard").
+state_based_check("siege_battle", "defense_zero_without_pending_trigger", "owners_graveyard").
+state_based_check("non_siege_battle", "defense_zero", "owners_graveyard").
 state_based_check("phenomenon", "face_up_in_command", "controller_planeswalks").
 
 .output state_based_check
@@ -17,4 +18,5 @@ state_based_check("phenomenon", "face_up_in_command", "controller_planeswalks").
 conformance_fail("sba", S, T) :- expect_sba(S, T, O), !state_based_check(S, T, O).
 .output conformance_fail
 .printsize conformance_fail
-expect_sba("battle", "defense_zero", "owners_graveyard").
+expect_sba("siege_battle", "defense_zero_without_pending_trigger", "owners_graveyard").
+expect_sba("non_siege_battle", "defense_zero", "owners_graveyard").

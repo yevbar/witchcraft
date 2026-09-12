@@ -27,6 +27,7 @@ isa("wicked_role", "enchantment").   // 111.10q
 isa("young_hero_role", "enchantment").   // 111.10r
 isa("token_map", "artifact").   // 111.10s
 isa("token_junk", "artifact").   // 111.10t
+isa("vibranium", "artifact").   // 111.10w
 isa("spell", "card").   // 112.1
 isa("copy", "spell").   // 112.1a
 isa("controller", "player").   // 113.8
@@ -78,7 +79,7 @@ isa("plane_card", "plane").   // 701.31d
 isa("meld", "action").   // 701.42a
 isa("assemble", "action").   // 701.45a
 isa("venture", "variant").   // 701.49d
-isa("connive_n", "variant").   // 701.50e
+isa("connive_n", "variant").   // 701.50d
 isa("incubator_token", "token").   // 701.53b
 isa("ring_bearer", "designation").   // 701.54b
 isa("suspected", "designation").   // 701.60b
@@ -96,7 +97,7 @@ isa("multikicker", "variant").   // 702.33c
 isa("madness", "keyword").   // 702.35a
 isa("megamorph", "variant").   // 702.37b
 isa("commander_ninjutsu", "variant").   // 702.49d
-isa("bloodthirst_x", "bloodthirst").   // 702.54b
+isa("bloodthirst_x", "variant").   // 702.54b
 isa("replicate", "keyword").   // 702.56a
 isa("forecast_ability", "activated_ability").   // 702.57a
 isa("suspend", "keyword").   // 702.62a
@@ -109,7 +110,7 @@ isa("unleash", "keyword").   // 702.98a
 isa("double_agenda", "variant").   // 702.106f
 isa("partner_ability", "keyword_ability").   // 702.124a
 isa("blessing", "designation").   // 702.131c
-isa("boast_ability", "activated_ability").   // 702.142a
+isa("boast", "keyword").   // 702.142a
 isa("foretell", "keyword").   // 702.143a
 isa("cleave", "keyword").   // 702.148a
 isa("second_ability", "effect").   // 702.148b
@@ -119,9 +120,11 @@ isa("squad", "keyword").   // 702.157a
 isa("sector_designation", "designation").   // 702.158b
 isa("gift", "keyword").   // 702.174a
 isa("impending", "keyword").   // 702.176a
-isa("exhaust_ability", "activated_ability").   // 702.177a
+isa("exhaust", "keyword").   // 702.177a
 isa("speed_ability", "static_ability").   // 702.178a
 isa("sneak", "keyword").   // 702.190a
+isa("power_up", "keyword").   // 702.193a
+isa("enduring_story", "designation").   // 702.195b
 isa("based_action", "action").   // 703.1
 isa("based_action", "action").   // 704.1
 isa("split_card", "card").   // 709.2

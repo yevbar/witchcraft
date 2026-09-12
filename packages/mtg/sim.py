@@ -66,6 +66,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
         elif rel == "ability_cost":
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
+        elif rel == "ability_modifier":
+            db[a[0]]["abilities"][a[1]].setdefault("modifiers", set()).add(a[2])
         elif rel == "ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
         elif rel == "class_level":                           # §717 a Class's '{cost}: Level N' level-up step

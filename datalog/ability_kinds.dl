@@ -8,10 +8,12 @@
 mana_ability_criterion("activated", "no_target").
 mana_ability_criterion("activated", "could_add_mana").
 mana_ability_criterion("activated", "not_loyalty").
+mana_ability_criterion("activated", "no_library_movement").
 mana_ability_criterion("triggered", "no_target").
 mana_ability_criterion("triggered", "could_add_mana").
 mana_ability_criterion("triggered", "triggers_from_mana").
 
+mana_ability_rule("evaluate_self_replacement_only").
 mana_ability_rule("remains_if_cannot_produce").
 mana_ability_rule("activated_skips_stack").
 mana_ability_rule("no_reactivate_until_resolved").
@@ -34,6 +36,7 @@ conformance_fail("mana", P, "-") :- expect_mana(P), !mana_ability_rule(P).
 conformance_fail("loy", P, "-") :- expect_loy(P), !loyalty_ability_rule(P).
 .output conformance_fail
 .printsize conformance_fail
+expect_crit("activated", "no_library_movement").
 expect_crit("activated", "could_add_mana").
 expect_crit("activated", "not_loyalty").
 expect_mana("activated_skips_stack").

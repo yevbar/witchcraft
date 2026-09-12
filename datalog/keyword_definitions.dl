@@ -21,6 +21,7 @@ keyword_means("manifest", "dread", "Look at the top two cards of your library. M
 keyword_means("harness", "[this permanent]", "If this permanent isn’t harnessed, it becomes harnessed.").
 keyword_means("earthbend", "N", "Target land you control becomes a 0/0 land creature with haste in addition to its other types. Put N +1/+1 counters on it. When that land dies or is put into exile, return it to the battlefield tapped under your control.").
 keyword_means("waterbend", "[cost]", "Pay [cost]. For each generic mana in that cost, you may tap an untapped artifact or creature you control rather than pay that mana.").
+keyword_means("recruit", "", "Draw a card, then discard a card. If you discarded a nonland card this way, create a 1/1 white Human Soldier creature token.").
 keyword_means("equip", "[cost]", "[Cost]: Attach this permanent to target creature you control. Activate only as a sorcery.").
 keyword_means("equip", "planeswalker [cost]", "[Cost]: Attach this permanent to target planeswalker you control as though that planeswalker were a creature. Activate only as a sorcery.").
 keyword_means("flash", "", "You may play this card any time you could cast an instant.").
@@ -184,6 +185,8 @@ keyword_means("web", "-slinging [cost]", "You may cast this spell by paying [cos
 keyword_means("firebending", "N", "Whenever this creature attacks, add N {R}. Until end of combat, you don’t lose this mana as steps and phases end.").
 keyword_means("sneak", "[cost]", "Any time you could cast an instant during your declare blockers step, you may cast this spell by paying [cost] and returning an unblocked creature you control to its owner’s hand rather than paying this spell’s mana cost.").
 keyword_means("increment", "", "Whenever you cast a spell, if this permanent is a creature and the amount of mana spent to cast that spell is greater than this creature’s power or this creature’s toughness, put a +1/+1 counter on this creature.").
+keyword_means("power", "-up — [Cost]: [Effect]", "[Cost]: [Effect]. If this permanent entered this turn, this ability’s cost is reduced by this permanent’s mana cost. Activate this ability only once.").
+keyword_means("teamwork", "N", "As an additional cost to cast this spell, you may tap any number of creatures you control with total power N or more.").
 
 keyword_represents("buyback", 2, "static").
 keyword_represents("fading", 2, "unspecified").

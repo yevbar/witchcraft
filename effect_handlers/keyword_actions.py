@@ -70,7 +70,7 @@ def apply_connive(D, state, a, n, tgt, src, ctrl):
         state.setdefault(D._discard_zone(state, ctrl), set()).add((card,))
         if (card, "land") not in lands:
             nonland += 1
-    if nonland:
+    if nonland and (src,) in state.get("on_battlefield", set()):
         D._bump_counter(state, src, "p1p1", nonland)
     print(f"    {a}: {ctrl} connives {n} ({nonland} nonland discarded -> +1/+1 x{nonland} on {src})")
 

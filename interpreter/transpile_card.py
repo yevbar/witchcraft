@@ -309,6 +309,21 @@ def _escape(unit, ctx):
                          f'card_escape_exile("{cid}", {n})', *cost_facts], "escape")
 
 
+def _power_up(unit, ctx):
+    """CR 702.193: preserve the activation and its keyword-specific rules."""
+    m = re.match(r"^Power-up\s+—\s+(.+)$", unit.raw, re.I)
+    if not m:
+        return None
+    out = _activated(dataclasses.replace(unit, raw=m.group(1)), ctx)
+    if out is None:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    out.facts.append(f'ability_modifier("{ctx["id"]}", "{aid}", "power_up")')
+    out.facts.append(f'printed_keyword("{ctx["id"]}", "power_up")')
+    out.pattern = "power_up"
+    return out
+
+
 def _mana_ability(unit, ctx):
     """An activated mana ability '<cost>: Add <mana>.' (§605.1a — activated, no target, adds mana).
     Cost and produced mana are grounded (symbols via §107.4, colors via §105). Abstains on any
@@ -319,6 +334,9 @@ def _mana_ability(unit, ctx):
     if not m:
         return None
     cost = m.group("cost").strip()
+    # Library movement in the cost prevents mana-ability classification (605.1a).
+    if re.search(r"\b(?:mill|draw|library)\b", cost, re.I):
+        return None
     if "{" not in cost:                           # require a symbol-led cost ({T}, {1}{T}, …) — abstain on prose costs
         return None
     prod = _mana_production(m.group("what"))
@@ -2765,8 +2783,7 @@ def _poison_tolerance(unit, ctx):
 # ground on its own ABSTAINS (returns None) rather than emitting a partial fact.
 
 def _teamwork(unit, ctx):
-    """'Teamwork N' — the Unfinity keyword ability with a numeric parameter. NOT in this rules.txt KB,
-    so recorded descriptively as teamwork(card, N) rather than a grounded §702 keyword."""
+    """CR 702.194: retain the dedicated cost fact consumed by the engine bridge."""
     m = re.match(r"^Teamwork (\d+)\.?$", unit.raw, re.I)
     if not m:
         return None
@@ -2977,7 +2994,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
+_PATTERNS = [_power_up, _teamwork, _kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
              _teamwork, _sticker, _assemble_contraption, _spellbook,
              _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
@@ -3016,6 +3033,8 @@ def _strip_ability_word(raw: str) -> str:
 
 
 def _try_patterns(u, ctx):
+    if re.match(r"^Power-up\s+—", u.raw, re.I):
+        return _power_up(u, ctx)
     for fn in _PATTERNS:
         out = fn(u, ctx)
         if out:
@@ -3051,7 +3070,8 @@ def transpile_unit(unit, ctx) -> "CardOut | None":
     """Interpret one ability unit; first faithful pattern wins, else None (abstain).
     Fallback: a multi-sentence line whose EVERY sentence is independently a whole ability (e.g.
     '~ enters tapped. As it enters, choose a color.') — interpret each and merge, no half-credit."""
-    stripped = _strip_ability_word(unit.raw)
+    # Power-up is an actual keyword, not an ability word, even before vocabulary regeneration.
+    stripped = unit.raw if re.match(r"^Power-up\s+—", unit.raw, re.I) else _strip_ability_word(unit.raw)
     u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
     out = _try_patterns(u, ctx)
     if not out:

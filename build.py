@@ -28,19 +28,28 @@ def compile_check() -> bool:
     undeclared relation) — this turns 'valid souffle' into a verified build invariant."""
     souffle = shutil.which("souffle")
     if souffle is None:
-        print("WARNING: souffle not found — skipping compile gate")
-        return True
+        print("FAIL — souffle is required for the compile and conformance gate")
+        return False
     ok = True
     with tempfile.TemporaryDirectory() as out:
         for f in sorted(str(p) for p in Path("datalog").glob("*.dl")):
             if f in COMPILE_SKIP:
                 continue
-            r = subprocess.run([souffle, f, "-D", out], capture_output=True, text=True)
+            artifact_out = Path(out) / Path(f).stem
+            artifact_out.mkdir()
+            # cards.dl contains ~150k already-deduplicated ground facts. The optional
+            # clause minimizer compares them quadratically; it is not a validation pass.
+            flags = ["-z", "MinimiseProgramTransformer"] if Path(f).name == "cards.dl" else []
+            r = subprocess.run([souffle, *flags, f, "-D", str(artifact_out)], capture_output=True, text=True)
             if r.returncode != 0:
                 ok = ok and False
                 err = next((ln for ln in r.stderr.splitlines() if "Error" in ln), r.stderr.strip()[:120])
                 print(f"  COMPILE FAIL  {f}  ::  {err}")
-    print("OK — every standalone Datalog artifact compiles in souffle" if ok
+            failures = artifact_out / "conformance_fail.csv"
+            if failures.exists() and failures.read_text().strip():
+                ok = False
+                print(f"  CONFORMANCE FAIL  {f} :: {failures.read_text().strip()[:300]}")
+    print("OK — every standalone Datalog artifact compiles and passes conformance" if ok
           else "FAIL — some Datalog artifact does not compile")
     return ok
 
@@ -148,6 +157,7 @@ from interpreter import build_xref
 from interpreter import datalog_gen
 
 GENERATED = [
+    "datalog/rules_version.json",
     "datalog/state.dl", "datalog/turn.dl", "datalog/cast.dl",
     "datalog/combat.dl", "datalog/keywords.dl", "datalog/targeting.dl",
     "datalog/triggers.dl", "datalog/abilities.dl", "datalog/actions.dl",
@@ -174,6 +184,9 @@ GENERATED = [
 
 
 def regenerate() -> None:
+    # Refresh vocabulary before consumers (including modules that cache rule lookups).
+    build_keyword_action_index.main()
+    build_keyword_ability_index.main()
     build_state.main()
     build_turn.main()
     build_cast.main()
@@ -276,14 +289,18 @@ def regenerate() -> None:
     build_token_defs.main()
     build_sba_demo.main()
     datalog_gen.main()
+    from interpreter.build_rules_version import main as write_rules_version
+    write_rules_version()
 
 
 def main() -> int:
     regenerate()
-    first = {f: Path(f).read_bytes() for f in GENERATED}
+    generated = sorted(set(GENERATED) | {str(p) for p in Path("datalog").glob("*.dl")
+                                             if p.name != "cards.dl" and str(p) not in COMPILE_SKIP})
+    first = {f: Path(f).read_bytes() for f in generated}
     regenerate()
     ok = True
-    for f in GENERATED:
+    for f in generated:
         again = Path(f).read_bytes()
         digest = hashlib.sha256(again).hexdigest()[:12]
         deterministic = again == first[f]

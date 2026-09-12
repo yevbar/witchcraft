@@ -23,6 +23,7 @@ template_means("Manifest dread", "Look at the top two cards of your library. Man
 template_means("Harness [this permanent]", "If this permanent isn’t harnessed, it becomes harnessed").
 template_means("Earthbend N", "Target land you control becomes a 0/0 land creature with haste in addition to its other types. Put N +1/+1 counters on it. When that land dies or is put into exile, return it to the battlefield tapped under your control").
 template_means("Waterbend [cost]", "Pay [cost]. For each generic mana in that cost, you may tap an untapped artifact or creature you control rather than pay that mana").
+template_means("Recruit", "Draw a card, then discard a card. If you discarded a nonland card this way, create a 1/1 white Human Soldier creature token").
 template_means("Hexproof from [quality A] and from [quality B]", "hexproof from [quality A]").
 template_means("Hexproof from each [characteristic]", "hexproof from [quality A]").
 template_means("Protection from [quality A] and from [quality B]", "protection from [quality A]").
