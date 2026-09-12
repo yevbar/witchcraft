@@ -227,7 +227,7 @@ def build() -> tuple | None:
     # The other ~130 inputs are pure (input-only, not head/output) — they hold exactly what we insert, so an
     # UNCHANGED one is safe to keep loaded across the delta (the whole point: skip re-marshalling ~70% of facts).
     import re as _re
-    _heads = set(_re.findall(r"^(\w+)\([^)]*\)\s*:-", rules, _re.M))
+    _heads = engine_native._rule_heads(rules)
     _outs = set(_re.findall(r"^\.output\s+(\w+)", rules, _re.M))
     _NONKEEP = frozenset(set(edb) & (_heads | _outs))
     src = engine_native._wrapper(rules, edb)

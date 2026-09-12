@@ -48,13 +48,22 @@ _BUILD: tuple | None = None
 _WORK: tuple | None = None
 
 
+def _rule_heads(rules: str) -> set[str]:
+    """Read generated rule heads, including nested functors such as cat(...).
+
+    Generated clauses start at column zero; their bodies are indented. Matching
+    only up to the first closing parenthesis misclassifies functor heads as inputs.
+    """
+    return set(re.findall(r"^(\w+)\(.*\)\s*:-", rules, re.M))
+
+
 def _edb(rules: str) -> list[str]:
     """The EDB: relations the shim feeds. Relations declared but never a rule head, PLUS the shim-input
     relations the engine ALSO derives via a translation rule — a relation can be both `.input` and a rule
     head (souffle unions the supplied facts with the derived ones). The latter set is listed in the
     generated `// SHIM_INPUTS …` marker, keeping this in sync with build_engine's INPUTS."""
     decls = set(re.findall(r"^\.decl\s+(\w+)", rules, re.M))
-    heads = set(re.findall(r"^(\w+)\([^)]*\)\s*:-", rules, re.M))
+    heads = _rule_heads(rules)
     mark = re.search(r"^// SHIM_INPUTS (.+)$", rules, re.M)
     forced = set(mark.group(1).split()) if mark else set()
     return sorted((decls - heads) | (forced & decls))

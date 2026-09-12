@@ -62,6 +62,17 @@ STATES = [
 ]
 
 
+# A counter payload uses nested cat() in the head. Switching it off with the
+# same source/ability ids must not retain derived rows in the next evaluation.
+for counter_effect in (True, False, True, False):
+    STATES.append({
+        "instance_of": {("spell", "card")},
+        "card_ability": {("card", "a0", "spell")},
+        "card_effect": {("card", "a0", 0, "put_counter" if counter_effect else "draw",
+                         "2", "target_creature" if counter_effect else "you", "+1/+1" if counter_effect else "-", "-")},
+    })
+
+
 def run() -> None:
     if not engine_native.available():
         print("native engine UNAVAILABLE on this toolchain — skipping (interpreter fallback covers it)")
