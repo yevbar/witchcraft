@@ -2896,6 +2896,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("cost_reducer", (tid, _cr[0], _cr[1]))        # (this permanent, amount, color/type/'any' filter)
         else:
             dropped.append(("cost_modifier", (_dir, _amt, _filt)))  # 'self'/tax/variable/subtype -> faithful abstain
+    for modifier in f.get("statics", []):
+        if modifier == "power_up_extra_activation":
+            add("power_up_extra_activation", (tid,))
+        match = re.fullmatch(r"power_up_other_reduction_(\d+)", modifier)
+        if match:
+            add("power_up_other_reduction", (tid, int(match[1])))
     if "heal_previous_damage" in f.get("statics", []):
         add("heal_previous_damage", (tid,))
     etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
@@ -3703,9 +3709,11 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         elif kind == "activated":                            # §602 — a non-mana activated ability the AI can use
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
-            paid = _activated_cost(ab.get("cost"))
+            power_up = "power_up" in ab.get("modifiers", set())
+            paid = _activated_cost(str(ab.get("cost", "")).replace("{X}", "{0}") if power_up else ab.get("cost"))
             life_n = discard_n = sac_filter = mill_n = None
             moves_library = _library_movement(ab.get("cost"), ab.get("effects", []))
+            power_mana = power_up and not moves_library and any(e[1] == "add_mana" for e in ab.get("effects", [])) and not any("target" in str(e[3]) for e in ab.get("effects", []))
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
@@ -3736,6 +3744,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 sac_filter = nm["sac_filter"]
                 mill_n = nm.get("mill") or None
             a = f"{tid}_{aid}"
+            if power_mana:
+                add("ability_mana", (a,))
             if moves_library or "power_up" in ab.get("modifiers", set()):
                 sequence_ids.add(a)
             if "power_up" in ab.get("modifiers", set()):
@@ -3796,7 +3806,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §106 a DYNAMIC-amount any-combination mana ability ('{0}: Add X mana in any combination of {U}
             # and/or {R}, where X is Vivi's power' — Vivi Ornitier). Model it as a source that taps for `power`
             # mana of the card's COLOR IDENTITY (the tap approximates 'only once each turn'; the {0} cost is free).
-            if not moves_library and any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
+            if not moves_library and not power_up and any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
                 cols = [_COLOR_NAME[ci] for ci in (c.get("colorIdentity") or []) if ci in _COLOR_NAME]
                 if cols:
                     add("mana_source", (tid,)); add("source_dyn_power", (tid,))
@@ -3804,13 +3814,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("source_dyn_color", (tid, col))
                     add("source_cost", (tid, 0, True))
                     emitted = mana_registered = True
-            if not moves_library and not mana_registered and any(e[1] == "add_mana" for e in act_effs):
+            if not moves_library and not power_up and not mana_registered and any(e[1] == "add_mana" for e in act_effs):
                 is_land = "Land" in (c.get("types") or [])
                 if _add_mana_source(add, tid, is_land, paid[0], paid[1], act_effs):
                     emitted = mana_registered = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
                     continue
+                if power_up and str(amt) == "X":
+                    resolved = _resolved_effect(verb, 0, tgt, extra, _cond)
+                    if resolved is not None:
+                        eff, n, target = resolved
+                        add("activated_ability", (a, tid, paid[0], taps, "power_up_x:" + eff, 0, target))
+                        emitted = True
+                        continue
                 if verb == "add_mana" and str(amt) == "for_each_color_among_monocolored_permanents_you_control":
                     # §106 'for each color among monocolored permanents you control, add one mana of that color'
                     # (Tarnation Vista) -> one mana of EACH color present among the controller's MONOCOLORED
@@ -3818,7 +3835,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("activated_ability", (a, tid, paid[0], taps, "mana_per_board_color", 0, "monocolored_you_control"))
                     emitted = True; continue
                 if verb == "add_mana":                        # the source's mana clauses
-                    if moves_library:
+                    if moves_library or power_up:
                         resolved = _resolved_effect(verb, amt, tgt, extra, _cond)
                         if resolved is not None:
                             add("activated_ability", (a, tid, paid[0], taps, *resolved))

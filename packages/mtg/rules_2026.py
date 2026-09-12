@@ -31,16 +31,24 @@ def _mana_options(text):
             for option in product(*choices)]
 
 
-def power_up_cost(state, ability, player=None):
+def power_up_cost(state, ability, player=None, x=0):
     spec = next(((cost, printed) for a, cost, printed in state.get('ability_power_up', set())
                  if a == ability), None)
     if spec is None:
         return None
     src = next((row[1] for row in state.get('activated_ability', set()) if row[0] == ability), None)
     reductions = _mana_options(spec[1]) if (src,) in state.get('entered_this_turn', set()) else [(0, {})]
+    from mtg import driver as D
+    out = D.run(state, ['controls', 'creature'])
+    controls = {c: p for p, c in out['controls']}
+    controller = controls.get(src)
+    reduction_extra = sum(int(n) for obj, n in state.get('power_up_other_reduction', set())
+                          if obj != src and (src,) in out['creature'] and (obj,) in state.get('on_battlefield', set()) and controls.get(obj) == controller)
     candidates = set()
     for generic, original in _mana_options(spec[0]):
+        generic += spec[0].count('{X}') * x
         for reduction, colors in reductions:
+            reduction += reduction_extra
             pips = original.copy()
             for color, amount in colors.items():
                 same = min(pips.get(color, 0), amount)
@@ -61,12 +69,25 @@ def power_up_cost(state, ability, player=None):
     return ordered[0]
 
 
+def activation_count(state, ability):
+    return next((int(n) for a, n in state.get('power_up_activations', set()) if a == ability),
+                int((ability,) in state.get('power_up_used', set())))
+
+
+def activation_allowed(D, state, ability, player):
+    controls = {c for p, c in D.run(state, ['controls'])['controls'] if p == player}
+    extra = sum(obj in controls and (obj,) in state.get('on_battlefield', set())
+                for obj, in state.get('power_up_extra_activation', set()))
+    return activation_count(state, ability) < 1 + extra
+
+
 def entered(state, obj):
     """A zone change creates a fresh object, including a fresh once-only activation."""
     state.setdefault('entered_this_turn', set()).add((obj,))
     state['marked_damage'] = {r for r in state.get('marked_damage', set()) if r[0] != obj}
     aids = {(row[0],) for row in state.get('activated_ability', set()) if row[1] == obj}
     state['power_up_used'] = state.get('power_up_used', set()) - aids
+    state['power_up_activations'] = {r for r in state.get('power_up_activations', set()) if (r[0],) not in aids}
 
 
 def pay_activation(D, state, player, row):
@@ -82,8 +103,23 @@ def pay_activation(D, state, player, row):
         if cost:
             D._spend_ability_mana(state, player, cost)
         return
-    if (ability,) in state.get('power_up_used', set()):
+    if not activation_allowed(D, state, ability, player):
         raise ValueError('This Power-up ability has already been activated')
+    printed_cost = next(c for a, c, printed in state.get('ability_power_up', set()) if a == ability)
+    if '{X}' in printed_cost:
+        def payable(value):
+            g, ps = power_up_cost(state, ability, player, value)
+            if D._controls_any_source(state, player) or D._floating(state, player):
+                return D.mana_plan(state, player, ps, g) is not None
+            return g + sum(ps.values()) <= next((n for p, n in state.get('mana_available', set()) if p == player), 0)
+        maximum = 0
+        while payable(maximum + 1):
+            maximum += 1
+        x = int(D._choose(state, 'power_up_x', tuple(range(maximum + 1)), maximum))
+        if x < 0 or x > maximum:
+            raise ValueError('Cannot pay Power-up X')
+        state.setdefault('_power_up_x', {})[ability] = x
+        special = power_up_cost(state, ability, player, x)
     generic, pips = special
     if D._controls_any_source(state, player) or D._floating(state, player):
         if D.mana_plan(state, player, pips, generic) is None:
@@ -108,4 +144,6 @@ def pay_activation(D, state, player, row):
             raise ValueError('Cannot pay Power-up cost')
         D._spend_ability_mana(state, player, total)
     # This is an activation restriction, even when the ability is countered.
+    count = activation_count(state, ability) + 1
+    state['power_up_activations'] = {r for r in state.get('power_up_activations', set()) if r[0] != ability} | {(ability, count)}
     state.setdefault('power_up_used', set()).add((ability,))

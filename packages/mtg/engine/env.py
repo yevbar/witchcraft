@@ -565,8 +565,7 @@ def step(state: dict, action: tuple) -> dict:
                 victim = driver._choose(s, "sacrifice", sorted(cands), cands[0]) if cands else None
                 if victim is not None:
                     driver._sacrifice(s, victim)
-            s.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
-            driver._stack_push(s, a, ap)
+            driver.put_activation(s, a, eff, amt, tgt, src, ap)
             driver._resolve_stack(s, ap, players)
             s["_forced"] = {}
         elif kind == "cast_face_down":                          # §702.37/§702.166 cast a morph/disguise card face down

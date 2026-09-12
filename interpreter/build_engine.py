@@ -237,6 +237,7 @@ INPUTS = [
     ("attached_to", [("permanent", "symbol"), ("creature", "symbol")]),
     ("entered_this_turn", [("object", "symbol")]),
     ("power_up_used", [("ability", "symbol")]),
+    ("power_up_activations", [("ability", "symbol"), ("n", "number")]),
     ("marked_damage", [("object", "symbol"), ("n", "number")]),
     ("heal_previous_damage", [("object", "symbol")]),
     ("combat_damage_applied", [("step", "symbol")]),

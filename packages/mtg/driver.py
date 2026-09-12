@@ -3713,7 +3713,21 @@ def _pay_escape_cost(state: dict, ap: str, spell: str) -> None:
     print(f"    {ap} escapes {spell}: exiles {min(n, len(gy))} other card(s) from the graveyard (§702.166)")
 
 
+def put_activation(state, a, eff, amt, tgt, src, controller):
+    if (a,) in state.get('ability_mana', set()):
+        ordered = sorted(r for r in state.get('ability_effect_order', set()) if r[0] == a)
+        effects = [(e, int(n), t) for _, _, e, n, t in ordered] if ordered else [(eff, amt, tgt)]
+        for e, n, t in effects:
+            _resolve_activation_effect(state, a, e, n, t, src, controller)
+    else:
+        state.setdefault('_ability_effect', {})[a] = (eff, int(amt), tgt, src, controller)
+        _stack_push(state, a, controller)
+
+
 def _resolve_activation_effect(state, top, eff, amt, tgt, src, actrl):
+    if eff.startswith("power_up_x:"):
+        eff = eff.split(":", 1)[1]
+        amt = state.get("_power_up_x", {}).get(top, 0)
     if eff == "ctarget":                                 # §115 single-target creature verb -> driver picks
         verb, payload, cls = tgt.split("|")
         _resolve_one_target(state, top, "ability", actrl, verb, payload, cls)
@@ -4095,7 +4109,7 @@ def _activatable(state: dict, p: str) -> list:
             # Unsupported symbols must not break enumeration of other actions.
             continue
         if special is not None:
-            if (a,) in state.get("power_up_used", set()):
+            if not rules_2026.activation_allowed(sys.modules[__name__], state, a, p):
                 continue
             generic, pips = special
             if _controls_any_source(state, p) or _floating(state, p):
@@ -4195,8 +4209,7 @@ def _activate_phase(state: dict, ap: str, players: list) -> None:
         if victim is not None:
             print(f"    {ap} sacrifices {victim} ({sac_kind}) to activate {a}")
             _sacrifice(state, victim)
-    state.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
-    _stack_push(state, a, ap)
+    put_activation(state, a, eff, amt, tgt, src, ap)
     print(f"    {ap} activates {a} ({src}: {eff} {amt})")
     _resolve_stack(state, ap, players)
 

@@ -311,6 +311,11 @@ def _escape(unit, ctx):
 
 def _rules_2026_static(unit, ctx):
     text = unit.raw.rstrip('.')
+    if re.fullmatch(r"Each power-up ability of permanents you control can be activated an additional time", text, re.I):
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "power_up_extra_activation")'], "power_up_limit")
+    reduction = re.fullmatch(r"Power-up abilities of other creatures you control cost \{(\d+)\} less to activate", text, re.I)
+    if reduction:
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "power_up_other_reduction_{reduction[1]}")'], "power_up_reduction")
     if re.fullmatch(r"If damage would be dealt to (?:~|.+?), instead that damage is dealt, but all other damage already dealt to (?:it|him|her|~) is healed", text, re.I):
         return CardOut(ctx["id"], [f'static("{ctx["id"]}", "heal_previous_damage")'], "heal_replacement")
     return None
