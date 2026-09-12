@@ -2860,6 +2860,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     # attached_to), not the artifact/enchantment itself. Detected from the §205.3 subtype line.
     attached_source = bool({"Aura", "Equipment", "Fortification"} & set(c.get("subtypes") or []))
 
+    if c.get("layout") in {"transform", "modal_dfc", "meld", "double_faced_token"}:
+        out.setdefault("cannot_turn_face_down", set()).add((tid,))
     activation_order = []
     sequence_ids = set()
 

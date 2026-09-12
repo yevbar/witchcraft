@@ -107,6 +107,7 @@ from interpreter.build_ending import thresholds as _loss_thresholds  # noqa: E40
 STEPS = flat_steps()
 
 INPUTS = [
+    ("face_down", [("c", "symbol")]),
     ("on_battlefield", [("c", "symbol")]),          # the zone the driver mutates
     ("printed_type", [("c", "symbol"), ("t", "symbol")]),       # §613 layer-system BASE characteristics
     ("printed_control", [("p", "symbol"), ("c", "symbol")]),
@@ -573,9 +574,12 @@ def _rules(p: Program) -> None:
                      ("subtype", "printed_subtype"), ("power", "printed_power"), ("toughness", "printed_toughness")]:
         typ = "number" if ch in ("power", "toughness") else "symbol"
         p.decl(f"copiable_{ch}", [("c", "symbol"), ("v", typ)])
-        p.rule(f"copiable_{ch}(C, V)", ["copy_of(C, O)", f"{base}(O, V)"])
-        p.rule(f"copiable_{ch}(C, V)", [f"{base}(C, V)", "!copy_of(C, _)"])
+        p.rule(f"copiable_{ch}(C, V)", ["copy_of(C, O)", f"{base}(O, V)", "!face_down(C)"])
+        p.rule(f"copiable_{ch}(C, V)", [f"{base}(C, V)", "!copy_of(C, _)", "!face_down(C)"])
     p.blank()
+    p.rule('copiable_type(C, "creature")', ["face_down(C)"])
+    p.rule("copiable_power(C, 2)", ["face_down(C)"])
+    p.rule("copiable_toughness(C, 2)", ["face_down(C)"])
     p.comment("§613 layer 2 — control: the latest control-changing effect overrides the printed controller.")
     p.decl("control_ts", [("c", "symbol"), ("ts", "number")])
     p.rule("control_ts(C, M)", ["eff_gain_control(_, _, C, _)", "M = max T : { eff_gain_control(_, _, C, T) }"])

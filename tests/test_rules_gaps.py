@@ -4,6 +4,33 @@ from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_illegal_face_down_preserves_characteristics_including_merged_parts(self):
+        import copy
+        for relation, rows in [('cannot_turn_face_down', {('hero',)}),
+                               ('transform_target', {('hero', 'back')})]:
+            s = state(); creature(s, 'hero'); s[relation] = rows
+            before = copy.deepcopy(s)
+            self.assertFalse(D.turn_face_down(s, 'hero'))
+            self.assertEqual(s, before)
+        s = state(); creature(s, 'hero')
+        s['merged_component'] = {('hero', 'dfc')}; s['cannot_turn_face_down'] = {('dfc',)}
+        before = copy.deepcopy(s)
+        self.assertFalse(D.turn_face_down(s, 'hero'))
+        self.assertEqual(s, before)
+        s['merged_component'] = set()
+        self.assertTrue(D.turn_face_down(s, 'hero'))
+        self.assertEqual({(c, int(n)) for c, n in D.run(s, ['eff_toughness'])['eff_toughness']}, {('hero', 2)})
+
+    def test_granted_storied_persists_before_next_effect(self):
+        s = state(); creature(s, 'hero')
+        s['static_grant'] = {('hero', 'storied', 'self')}
+        for c in ('a', 'b', 'c'):
+            s['on_battlefield'].add((c,)); s['printed_control'].add(('alice', c))
+            s['printed_type'].add((c, 'artifact'))
+        D._pending_both(s)
+        s['on_battlefield'] = set(); s['static_grant'] = set()
+        self.assertIn(('alice',), D.run(s, ['has_enduring_story'])['has_enduring_story'])
+
     def test_connive_positive_event_after_impossible_actions_and_zero(self):
         s = state(); creature(s, 'probe')
         rows, drops = parsed_card('Whenever ~ connives, you gain 1 life.')

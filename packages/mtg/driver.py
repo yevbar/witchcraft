@@ -534,7 +534,7 @@ def _dyn_count(state: dict, tag: str, ctrl: str) -> int:
 
 def _remember_story(state: dict) -> None:
     # Persist the designation before the next effect can change the qualifying board.
-    if not any("storied" in row for rel in ("printed_keyword", "card_keyword", "eff_grant_keyword")
+    if not any("storied" in row for rel in ("printed_keyword", "card_keyword", "eff_grant_keyword", "static_grant", "card_effect")
                for row in state.get(rel, set())):
         return
     state.setdefault("enduring_story", set()).update(run(state, ["has_enduring_story"])["has_enduring_story"])
@@ -932,6 +932,19 @@ def turn_up_cost(state: dict, card: str) -> int:
             return _cost_value(p)
     mv = next((n for (i, n) in state.get("mana_cost", set()) if i == card), None)
     return int(mv) if mv is not None else 0
+
+
+def turn_face_down(state: dict, card: str) -> bool:
+    """§712.16/730.2j: an unsuccessful instruction changes no characteristics."""
+    if (card,) not in state.get("on_battlefield", set()):
+        return False
+    components = {part for obj, part in state.get("merged_component", set()) if obj == card} | {card}
+    forbidden = {obj for obj, in state.get("cannot_turn_face_down", set())}
+    forbidden.update(obj for obj, _ in state.get("transform_target", set()))
+    if components & forbidden:
+        return False
+    state.setdefault("face_down", set()).add((card,))
+    return True
 
 
 def turn_face_up(state: dict, card: str) -> bool:

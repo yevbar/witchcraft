@@ -54,3 +54,15 @@ def apply_manifest(D, state, a, n, tgt, src, ctrl):
         if kt and card in kt:
             kt.remove(card)
     print(f"    {a}: {ctrl} manifests {n} (face down 2/2)")
+
+
+@encoder("turn_face_down")
+def encode_turn_face_down(verb, amt, tgt, extra):
+    if str(tgt) in {"self", "it"}:
+        return ("turn_face_down", 1, "self")
+    return None
+
+
+@applier("turn_face_down")
+def apply_turn_face_down(D, state, a, n, tgt, src, ctrl):
+    D.turn_face_down(state, src)
