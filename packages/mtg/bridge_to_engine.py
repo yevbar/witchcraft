@@ -204,6 +204,8 @@ _EVENT = {
     # a card' to the slug "you_cycle". The any-player variant ("a_player_cycles_a_card", Astral Slide) is NOT
     # mapped here — it would need an any-controller fires rule + cross-player tracking; faithful abstain.
     "you_cycle": "you_cycle",
+    "connives": "connives_self",
+    "a_creature_you_control_connives": "your_creature_connives",
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class).
     # CONTROLLER-scoped: fires only when the source's controller gains life (distinct from 'a player gains
     # life'). The driver records the gaining player into just_gained_life whenever a player's life INCREASES
@@ -2852,7 +2854,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     facts = slug(name)
     f = db.get(facts, {})
     out: dict[str, set] = {}
-    dropped: list = []
+    dropped: list = [("unparsed_unit", raw) for _seq, raw in f.get("unparsed", [])]
     # §301/§303 — is this card an ATTACHMENT (Aura / Equipment / Fortification)? Its triggered abilities'
     # 'it'/'self' references point at the ATTACHED creature, so a counter 'on it' lands on the host (read via
     # attached_to), not the artifact/enchantment itself. Detected from the §205.3 subtype line.

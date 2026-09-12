@@ -18,6 +18,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import json
 import collections
 import os
 import re
@@ -78,6 +79,7 @@ def _process_chunk(cards_chunk):
             o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
             if not o:
                 full = False
+                facts.append(f'card_unparsed("{cid}", {seq}, {json.dumps(u.raw, ensure_ascii=False)})')
                 continue
             bp[o.pattern] += 1
             emitted = True
@@ -129,6 +131,7 @@ def build() -> tuple[str, dict]:
     p.comment("cards.dl — grounded card-oracle facts, interpreted from MTGJSON oracle text. GENERATED.")
     p.comment("Every relation grounds in rules.txt: printed_keyword -> §702; mana_ability -> §605/§107.")
     p.blank()
+    p.decl("card_unparsed", [("card", "symbol"), ("seq", "number"), ("text", "symbol")])
     p.decl("name", [("id", "symbol"), ("name", "symbol")])
     p.decl("printed_keyword", [("card", "symbol"), ("keyword", "symbol")])
     p.decl("keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])

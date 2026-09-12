@@ -64,6 +64,8 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("mana_source", []).append((a[1], a[2], int(a[3])))
         elif rel == "card_ability":
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
+        elif rel == "card_unparsed":
+            db.setdefault(a[0], {}).setdefault("unparsed", []).append((int(a[1]), a[2]))
         elif rel == "ability_cost":
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
         elif rel == "ability_modifier":

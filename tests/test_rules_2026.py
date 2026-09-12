@@ -51,6 +51,8 @@ def parsed_card(text, mana='{2}{G}'):
             args = sim._args(fact.split("(", 1)[1][:-1])
             if rel == 'card_ability':
                 f['abilities'].setdefault(args[1], {}).update(kind=args[2], effects=[])
+            elif rel == 'ability_trigger':
+                f['abilities'][args[1]]['trigger'] = args[2]
             elif rel == 'ability_cost':
                 f['abilities'][args[1]]['cost'] = args[2]
             elif rel == 'ability_modifier':

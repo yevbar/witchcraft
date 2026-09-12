@@ -1,8 +1,43 @@
 """Regression coverage for the rules-update audit. Run directly with Python."""
 import unittest
+from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_connive_positive_event_after_impossible_actions_and_zero(self):
+        s = state(); creature(s, 'probe')
+        rows, drops = parsed_card('Whenever ~ connives, you gain 1 life.')
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        effect_handlers.load()
+        with patch.object(D, '_draw'):
+            effect_handlers.APPLY['connive'](D, s, 'a', 0, 'self', 'probe', 'alice')
+            self.assertIn(('alice', 20), s['life'])
+            effect_handlers.APPLY['connive'](D, s, 'a', 1, 'self', 'probe', 'alice')
+        self.assertIn(('alice', 21), s['life'])
+        self.assertFalse(s['just_connived'])
+
+    def test_connive_apnap_uses_captured_controller_for_departed_source(self):
+        from effect_handlers.keyword_actions import connive_many
+        s = state(); s['active_player'] = {('bob',)}
+        s['_turn_order'] = ['alice', 'bob']
+        calls = []
+        with patch.object(D, '_draw', side_effect=lambda state, p: calls.append(p)):
+            connive_many(D, s, 'a', 1, [('gone', 'alice'), ('also_gone', 'bob')])
+        self.assertEqual(calls, ['bob', 'alice'])
+        self.assertFalse(s['counter'])
+
+    def test_unparsed_card_units_are_reported(self):
+        from interpreter.build_cards import _process_chunk
+        from mtg import bridge_to_engine as bridge
+        card = {'name': 'Probe', 'types': ['Creature'], 'text': 'This is deliberately unsupported oracle prose.'}
+        result = _process_chunk([card])[0]
+        self.assertFalse(result[-1])
+        self.assertTrue(any(row.startswith('card_unparsed(') for row in result[2]))
+        _, drops = bridge.card_facts('Probe', 'alice', 'probe',
+                                    {'probe': {'unparsed': [(0, card['text'])]}}, {'Probe': card})
+        self.assertIn(('unparsed_unit', card['text']), drops)
+
     def test_power_up_x_selects_pays_and_resolves(self):
         for entered, expected in [(False, 3), (True, 5)]:
             s = state(); creature(s, 'probe')

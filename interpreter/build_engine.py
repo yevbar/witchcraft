@@ -270,6 +270,7 @@ INPUTS = [
     ("just_p1p1_placed", [("c", "symbol")]),                      # §603/§122 a creature one or more +1/+1 counters were just put on — counter-placement triggers
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
+    ("just_connived", [("obj", "symbol"), ("p", "symbol")]),
     ("just_cycled", [("p", "symbol")]),                          # §702.29 a player who just cycled a card — cycling triggers
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
@@ -1118,6 +1119,8 @@ def _rules(p: Program) -> None:
     # Decree of Justice, Dismantling Wave) — the controller cycled a card. The cycling ACTION itself ends in
     # a draw, so the §603 you_draw watchers above also fire; this rule fires the dedicated cycle payoffs.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cycle")', "ev_cycle(P)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "connives_self")', "just_connived(S, _)", "on_battlefield(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_connives")', "just_connived(_, P)", "controls(P, S)", "on_battlefield(S)"])
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.
     p.rule("fires(A, S)", ['has_trigger(A, S, "won_coin_flip")', "ev_won_flip(P)", "controls(P, S)"])
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class) —
