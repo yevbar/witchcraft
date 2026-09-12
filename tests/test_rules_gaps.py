@@ -4,6 +4,59 @@ from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_battle_zero_defense_sba_and_protector_combat(self):
+        from mtg import battles
+        s = state(); creature(s, 'attacker'); creature(s, 'blocker', 'bob')
+        s['on_battlefield'].add(('battle',)); s['printed_type'].add(('battle', 'battle'))
+        s['printed_control'].add(('alice', 'battle'))
+        self.assertIn(('battle', 'battlefield', 'graveyard'), D.run(s, ['zone_change'])['zone_change'])
+        s['printed_subtype'].add(('battle', 'siege')); s['counter'] = {('battle', 'defense', 3)}
+        s['battle_protector'] = {('battle', 'bob')}
+        s['current_step'] = {('combat_damage',)}; s['attacks'] = {('attacker', 'battle')}
+        out = D.run(s, ['battle_damage'])
+        self.assertEqual({(b, int(n)) for b, n in out['battle_damage']}, {('battle', 2)})
+        battles.damage(D, s, 'battle', 3)
+        self.assertFalse(D.run(s, ['zone_change'])['zone_change'])
+        self.assertIn(('battle',), s['battle_trigger_pending'])
+        battles.set_protector(s, 'battle', 'alice')
+        self.assertEqual(s['attacks'], {('attacker', '__removed_from_combat__')})
+        self.assertFalse(D.run(s, ['battle_damage'])['battle_damage'])
+        D._resolve_top(s)
+        self.assertIn(('battle',), s['exile'])
+
+    def test_siege_back_cast_and_countered_defeat(self):
+        from mtg import battles
+        for countered in (False, True):
+            s = state(); s['on_battlefield'].add(('battle',))
+            s['printed_type'].add(('battle', 'battle')); s['printed_subtype'].add(('battle', 'siege'))
+            s['printed_control'].add(('alice', 'battle')); s['counter'] = {('battle', 'defense', 1)}
+            s['instance_of'] = {('battle', 'front')}; s['transform_target'] = {('battle', 'back')}
+            s['card_type'] = {('back', 'creature')}; s['card_power'] = {('back', 4)}; s['card_toughness'] = {('back', 4)}
+            battles.damage(D, s, 'battle', 1)
+            if countered:
+                D._stack_remove(s, 'battle__siege_defeat')
+                self.assertIn(('battle', 'battlefield', 'graveyard'), D.run(s, ['zone_change'])['zone_change'])
+            else:
+                D._resolve_top(s)
+                self.assertTrue(any(o == 'battle' for o, _ in s['on_stack']))
+                self.assertEqual(s['_cast_count'], 1)
+                D._resolve_top(s)
+                self.assertIn(('battle',), s['on_battlefield'])
+                self.assertIn(('battle', 'back'), s['instance_of'])
+
+    def test_battle_entry_defense_and_protector(self):
+        from mtg import battles
+        s = state(); s['on_battlefield'].add(('battle',))
+        s['printed_type'].add(('battle', 'battle')); s['printed_subtype'].add(('battle', 'siege'))
+        s['printed_control'].add(('alice', 'battle'))
+        s['instance_of'] = {('battle', 'front')}; s['card_defense'] = {('front', 5)}
+        battles.enter(D, s, 'battle')
+        self.assertIn(('battle', 'defense', 5), s['counter'])
+        self.assertIn(('battle', 'bob'), s['battle_protector'])
+        creature(s, 'attacker'); creature(s, 'wrong_blocker')
+        s['attacks'] = {('attacker', 'battle')}; s['blocks'] = {('wrong_blocker', 'attacker')}
+        self.assertIn(('wrong_blocker', 'attacker'), D.run(s, ['illegal_block'])['illegal_block'])
+
     def test_illegal_face_down_preserves_characteristics_including_merged_parts(self):
         import copy
         for relation, rows in [('cannot_turn_face_down', {('hero',)}),

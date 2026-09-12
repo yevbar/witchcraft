@@ -3020,6 +3020,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_power", (facts, int(p)))
     if str(t or "").lstrip("-").isdigit():
         add("card_toughness", (facts, int(t)))
+    if str(c.get("defense", "")).isdigit():
+        add("card_defense", (facts, int(c["defense"])))
     if str(c.get("loyalty") or "").isdigit():                # §306.5b a planeswalker's printed starting loyalty
         add("card_loyalty", (facts, int(c["loyalty"])))      # (driver-side: set as loyalty counters on enter)
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard

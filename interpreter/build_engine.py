@@ -107,6 +107,8 @@ from interpreter.build_ending import thresholds as _loss_thresholds  # noqa: E40
 STEPS = flat_steps()
 
 INPUTS = [
+    ("battle_protector", [("battle", "symbol"), ("p", "symbol")]),
+    ("battle_trigger_pending", [("battle", "symbol")]),
     ("face_down", [("c", "symbol")]),
     ("on_battlefield", [("c", "symbol")]),          # the zone the driver mutates
     ("printed_type", [("c", "symbol"), ("t", "symbol")]),       # §613 layer-system BASE characteristics
@@ -721,6 +723,10 @@ def _rules(p: Program) -> None:
     p.comment("§510 — combat, gated by the combat damage step (turn <-> combat).")
     p.comment("Combat respects the transpiled illegal_block: an illegal block neither stops")
     p.comment("the attacker nor exchanges damage, so the attacker hits the player instead.")
+    p.decl("battle", [("c", "symbol")])
+    p.rule("battle(C)", ["on_battlefield(C)", 'has_type(C, "battle")'])
+    p.rule("illegal_block(B, A)", ["blocks(B, A)", "attacks(A, T)", "battle(T)", "battle_protector(T, P)", "controls(Q, B)", "P != Q"])
+    p.rule("cant_attack(C)", ["creature(C)", "battle(C)"])
     p.decl("combat_now", [])
     p.rule("combat_now()", ['current_step("combat_damage")'])
     p.decl("blocked", [("a", "symbol")])
@@ -734,6 +740,11 @@ def _rules(p: Program) -> None:
     p.rule("deals(B, A, N)", ["combat_now()", "blocks(B, A)", "!illegal_block(B, A)", "!cant_attack(A)", "!prevented(B, A)", "power(B, N)"])
     p.rule("deals(A, D, N)", ["combat_now()", "attacks(A, D)", "is_player(D)", "!blocked(A)", "!cant_attack(A)", "!prevented(A, D)", "power(A, N)"], note="a creature that can't attack (§702.3b) or whose damage is prevented (§615) deals none")
     p.blank()
+    p.rule("deals(A, B, N)", ["combat_now()", "attacks(A, B)", "battle(B)", "battle_protector(B, P)", "controls(Q, A)", "P != Q", "!blocked(A)", "!cant_attack(A)", "!prevented(A, B)", "power(A, N)"])
+    p.rule("prevented(S, B)", ["prevent_all_combat(_)", "creature(S)", "battle(B)"])
+    p.decl("battle_damage", [("battle", "symbol"), ("n", "number")])
+    p.rule("battle_damage(B, N)", ["battle(B)", "deals(_, B, _)", '!combat_damage_applied("combat_damage")', "N = sum X : { deals(_, B, X) }"])
+    p.output("battle", "battle_damage", "subtype")
     p.decl("withering", [("s", "symbol")])
     p.rule("withering(S)", ['has_keyword(S, "wither")'])
     p.rule("withering(S)", ['has_keyword(S, "infect")'])
@@ -813,6 +824,11 @@ def _rules(p: Program) -> None:
     p.decl("zone_move_proposed", [("o", "symbol"), ("f", "symbol"), ("t", "symbol")])
     for _num, dl in _transpiled("701", {"701.8a"}):
         p.raw(dl.replace("zone_change(", "zone_move_proposed(", 1))
+    p.decl("battle_zero", [("c", "symbol")])
+    p.rule("battle_zero(C)", ["battle(C)", '!counter(C, "defense", _)'])
+    p.rule("battle_zero(C)", ["battle(C)", 'counter(C, "defense", N)', "N <= 0"])
+    p.rule('zone_move_proposed(C, "battlefield", "graveyard")', ["battle_zero(C)", '!subtype(C, "siege")'])
+    p.rule('zone_move_proposed(C, "battlefield", "graveyard")', ["battle_zero(C)", 'subtype(C, "siege")', "!battle_trigger_pending(C)"])
     p.decl("blocked_move", [("o", "symbol"), ("f", "symbol"), ("t", "symbol")])
     p.rule("blocked_move(O, F, T)", ["zone_move_proposed(O, F, T)", "has_type(O, Ty)", "cant_leave(Ty, F)"], note="§400.4b")
     p.rule("blocked_move(O, F, T)", ["zone_move_proposed(O, F, T)", "has_type(O, Ty)", "cant_enter(Ty, T)"], note="§400.4a")

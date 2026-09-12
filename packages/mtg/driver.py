@@ -355,7 +355,7 @@ def _variant_hand_size(variant: str) -> int:
     m = re.search(rf'starting_hand_size\("{re.escape(variant)}", (\d+)\)', text)
     return int(m.group(1)) if m else 7
 
-OUTPUTS = ["to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
+OUTPUTS = ["battle_damage","to_untap", "to_draw", "zone_change", "loses_game", "wins_game", "advance_to", "player_damage",
            "combat_commander_damage", "combat_poison", "pending", "ev_combat_dmg_player", "marked", "combat_marked"]
 
 
@@ -1659,7 +1659,10 @@ def declare_attackers(state: dict, ap: str) -> None:
     # options=None (a SET-valued choice, not an atom) — legality is enforced by the `c in eligible` clamp.
     chosen = _choose(state, "attackers", None, frozenset(eligible))
     attackers = sorted(c for c in eligible if c in chosen)
-    state["attacks"] = {(c, opp) for c in attackers}
+    from mtg import battles
+    battles.repair_protectors(sys.modules[__name__], state)
+    choices = [opp] + sorted(b for b, p in state.get('battle_protector', set()) if p != ap and (b,) in state.get('on_battlefield', set()))
+    state["attacks"] = {(c, _choose(state, 'attack_target_' + c, choices, opp)) for c in attackers}
     if attackers:
         print(f"    {ap} attacks {opp} with {', '.join(attackers)}")
 
@@ -1825,6 +1828,12 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         state["marked_damage"] = set(damage.items())
         # Keep combat events available to triggers without marking their damage twice.
         state["combat_damage_applied"] = {("combat_damage",)}
+    from mtg import battles
+    for battle, n in out.get('battle_damage', set()):
+        battles.damage(sys.modules[__name__], state, battle, int(n))
+    if out.get('battle_damage'):
+        state['combat_damage_applied'] = {('combat_damage',)}
+    battles.repair_protectors(sys.modules[__name__], state)
     no_untap = _no_untap_set(state)                              # permanents that 'don't untap' (verb lock + static EDB)
     for (c,) in sorted(out["to_untap"]):                         # §502.3 untap
         if (c,) in no_untap:                                      # 'doesn't untap during its controller's untap step'
@@ -1849,7 +1858,7 @@ def _apply_outputs(state: dict, out: dict, ap: str) -> str | None:
         # §701.15 REGENERATION — a battlefield->graveyard destruction may be replaced by a regen shield
         # (tap + remove from combat, NOT destroyed). Consult BEFORE leaving the battlefield, like cant_be_
         # destroyed gates `dies` in the engine; if the shield fires, the permanent stays put.
-        if (frm, to) == ("battlefield", "graveyard") and _consume_regen_shield(state, c):
+        if (frm, to) == ("battlefield", "graveyard") and (c,) in run(state, ["dies"])["dies"] and _consume_regen_shield(state, c):
             continue
         state.setdefault(ZONE[frm], set()).discard((c,))
         # §903.9 / §704.5 commander replacement: a commander headed to graveyard/exile (or hand/library)
@@ -2830,6 +2839,9 @@ def _stack_push(state: dict, obj: str, controller: str) -> None:
 
 
 def _stack_remove(state: dict, obj: str) -> None:
+    info = state.get('_ability_effect', {}).get(obj)
+    if info and info[0] == 'siege_defeat':
+        state.get('battle_trigger_pending', set()).discard((info[3],))
     state["on_stack"] = {(o, p) for (o, p) in state.get("on_stack", set()) if o != obj}
     state.get("_stack_info", {}).pop(obj, None)
 
@@ -3738,6 +3750,10 @@ def put_activation(state, a, eff, amt, tgt, src, controller):
 
 
 def _resolve_activation_effect(state, top, eff, amt, tgt, src, actrl):
+    if eff == 'siege_defeat':
+        from mtg import battles
+        battles.resolve_defeat(sys.modules[__name__], state, src, actrl)
+        return
     if eff.startswith("power_up_x:"):
         eff = eff.split(":", 1)[1]
         amt = state.get("_power_up_x", {}).get(top, 0)
@@ -3804,6 +3820,8 @@ def _resolve_top(state: dict) -> None:
         state["on_battlefield"].add((top,))
         from mtg.rules_2026 import entered
         entered(state, top)
+        from mtg import battles
+        battles.enter(sys.modules[__name__], state, top)
         state.setdefault("printed_control", set()).add((ctrl, top))
         state.setdefault("_sick", set()).add((top,))         # §302.6 summoning sickness until controller's next turn
         if (top,) in state.get("_enters_with_haste", set()):  # §106 cast with Arena of Glory's 'haste mana'

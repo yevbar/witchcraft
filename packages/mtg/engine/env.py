@@ -385,7 +385,16 @@ def legal_actions(state: dict) -> list[tuple]:
     ap = _active(state)
     step = _step(state)
     if step == "declare_attackers":
-        return [("attack", s) for s in _attack_options(state, ap)]
+        from itertools import product
+        targets = _others(state, ap) + sorted(b for b, p in state.get('battle_protector', set()) if p != ap and (b,) in state.get('on_battlefield', set()))
+        options = []
+        for attackers in _attack_options(state, ap):
+            if len(targets) <= 1:
+                options.append(('attack', attackers))
+            else:
+                for assignment in product(targets, repeat=len(attackers)):
+                    options.append(('attack', attackers, tuple(zip(sorted(attackers), assignment))))
+        return options
     if step == "declare_blockers":
         return [("block", b) for b in _block_options(state, _others(state, ap)[0])]
     if step in _MAIN:                                          # full sorcery-speed window
@@ -589,6 +598,8 @@ def step(state: dict, action: tuple) -> dict:
             driver._tap_all_for_mana(s, ap)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
+            if len(action) > 2:
+                s["_forced"].update({"attack_target_" + a: t for a, t in action[2]})
             _advance_one(s)
             s["_forced"] = {}
         elif kind == "block":
