@@ -39,12 +39,14 @@ _CRIT_PHRASES = [
     ("require a target", "no_target"),
     ("could add mana to a player", "could_add_mana"),
     ("not a loyalty ability", "not_loyalty"),
+    ("cost and effect don’t move any card to or from a library", "no_library_movement"),
     ("triggers from the activation or resolution", "triggers_from_mana"),
 ]
 
 # (anchor phrase, property) — §605 special rules (scoped to Mana Abilities; the activated/triggered
 # skips-stack anchors name the ability kind so they don't both match each other's rule).
 _MANA_RULES = [
+    ("other than self-replacement effects", "evaluate_self_replacement_only"),
     ("remains a mana ability even if", "remains_if_cannot_produce"),
     ("An activated mana ability", "activated_skips_stack"),
     ("until it has resolved", "no_reactivate_until_resolved"),
@@ -124,7 +126,7 @@ def build() -> tuple[str, dict]:
          ("mana", "expect_mana(P)", "miss", "mana_ability_rule(P)"),
          ("loy", "expect_loy(P)", "miss", "loyalty_ability_rule(P)")],
     )
-    for atom in ['expect_crit("activated", "could_add_mana")', 'expect_crit("activated", "not_loyalty")']:
+    for atom in ['expect_crit("activated", "no_library_movement")', 'expect_crit("activated", "could_add_mana")', 'expect_crit("activated", "not_loyalty")']:
         p.fact(atom)
     for atom in ['expect_mana("activated_skips_stack")', 'expect_mana("triggered_skips_stack")']:
         p.fact(atom)

@@ -5,7 +5,7 @@
 .decl keyword_class(kw: symbol, cls: symbol)
 .decl keyword_appears_on(kw: symbol, card_type: symbol)
 
-// --- 133 via spaCy "X is a Y ability" ---
+// --- 134 via spaCy "X is a Y ability" ---
 keyword_class("deathtouch", "static").   // 702.2a
 keyword_class("defender", "static").   // 702.3a
 keyword_class("double_strike", "static").   // 702.4a
@@ -139,8 +139,9 @@ keyword_class("station", "activated").   // 702.184a
 keyword_class("mayhem", "static").   // 702.187a
 keyword_class("firebending", "triggered").   // 702.189a
 keyword_class("increment", "triggered").   // 702.191a
+keyword_class("storied", "static").   // 702.195a
 
-// --- 62 via the verb-group classifier (represents/special-kind/keyword-that-functions) ---
+// --- 64 via the verb-group classifier (represents/special-kind/keyword-that-functions) ---
 keyword_class("fading", "composite").
 keyword_class("madness", "triggered").
 keyword_class("amplify", "static").
@@ -203,6 +204,8 @@ keyword_class("web_slinging", "static").
 keyword_class("sneak", "static").
 keyword_class("paradigm", "spell").
 keyword_class("paradigm", "triggered").
+keyword_class("power_up", "activated").
+keyword_class("teamwork", "static").
 
 // --- 21 appearance facts (appears-on/found-on) ---
 keyword_appears_on("buyback", "instant").

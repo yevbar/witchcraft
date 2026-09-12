@@ -1,10 +1,7 @@
 """test_power_up.py — the Marvel Super Heroes "Power-up" keyword ability is engine-clean END-TO-END.
 
-A Power-up ability is printed "Power-up — {cost}: <effect>." (§602 activated ability with a flavor-label
-prefix). The STRUCTURAL layer strips the "Power-up —" label (transpile_card._strip_ability_word, the
-generic §207.2c ability-word stripper) so the "{cost}: <effect>" parses through the existing _activated
-handler, and the effect leaves (put_counter / create_token) route through the card_effects HYBRID — no
-new interpretation regex. The bridge then translates the activated ability, and the driver resolves it.
+A Power-up ability retains its keyword modifier while its body uses the activated-ability parser.
+The bridge preserves the printed costs for runtime reduction and the once-only activation restriction.
 
 This test runs the WHOLE chain per card (parse -> bridge -> driver activation) WITHOUT needing a cards.dl
 regen: it hand-builds the per-card db `f` dict from the transpile facts (the same shape sim.load_db
@@ -67,6 +64,8 @@ def _transpile_card(card: dict):
             abilities[a[1]] = {"kind": a[2], "effects": []}
         elif rel == "ability_cost":
             abilities[a[1]]["cost"] = a[2]
+        elif rel == "ability_modifier":
+            abilities[a[1]].setdefault("modifiers", set()).add(a[2])
         elif rel == "ability_trigger":
             abilities[a[1]]["trigger"] = a[2]
         elif rel == "card_effect":
@@ -112,8 +111,8 @@ def _parse_checks() -> None:
 # ---- (2) STRUCTURE: the 'Power-up —' label is what's stripped (not a coincidence of the cost text) ---
 def _label_checks() -> None:
     raw = "Power-up — {3}{G}: Put two +1/+1 counters on ~."
-    check("'_strip_ability_word' removes the 'Power-up —' label structurally",
-          tc._strip_ability_word(raw) == "{3}{G}: Put two +1/+1 counters on ~.")
+    check("Power-up is retained as a keyword, not erased as an ability word",
+          tc._strip_ability_word(raw) == raw)
 
 
 # ---- (3) BRIDGE: the activated counter-placement translates (no drop on the core) -------------------

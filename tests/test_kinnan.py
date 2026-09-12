@@ -72,7 +72,8 @@ def run() -> None:
           and ("pc1",) in es["graveyard"])                  # not your own graveyard
 
     # Kinnan, Bonder Prodigy — {5}{G}{U}: look at the top 5, put a NON-HUMAN creature onto the battlefield.
-    check("Kinnan is CLEAN", dropped("Kinnan, Bonder Prodigy") == [])
+    check("Kinnan reports its unsupported mana trigger", dropped("Kinnan, Bonder Prodigy") == [
+        ('unparsed_unit', 'Whenever you tap a nonland permanent for mana, add one mana of any type that permanent produced.')])
     kf, _ = B.card_facts("Kinnan, Bonder Prodigy", "p", "kin", db, corpus)
     check("Kinnan's dig folds to dig_to_battlefield (non-Human, top 5)",
           ("kin_a1", "kin", 7, "-", "dig_to_battlefield", 5, "non_human_creature") in kf.get("activated_ability", set()))

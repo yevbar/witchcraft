@@ -51,7 +51,9 @@ _PROPS = [
     ("Defense is a characteristic that battles have", "defense_is_a_characteristic"),
     ("enters with a number of defense counters", "enters_with_defense_counters"),
     ("defense counters being removed", "damage_removes_defense_counters"),
-    ("defense is 0", "graveyard_at_zero_defense"),
+    ("If a Siege battle’s defense is 0", "siege_graveyard_at_zero_without_pending_trigger"),
+    ("If a non-Siege battle’s defense is 0", "non_siege_graveyard_at_zero"),
+    ("If it has no battle types, only its controller can be its protector", "untyped_protector_is_controller"),
     ("Each battle has a player designated as its protector", "has_protector"),
     ("only one protector at a time", "single_protector"),
     ("be attached to players or permanents", "cant_be_attached"),
@@ -110,7 +112,7 @@ def build() -> tuple[str, dict]:
                  'expect_defense("not_on_battlefield", "printed")']:
         p.fact(atom)
     p.fact('expect_subtype("Siege")')
-    for atom in ['expect_property("graveyard_at_zero_defense")',
+    for atom in ['expect_property("non_siege_graveyard_at_zero")',
                  'expect_property("enters_with_defense_counters")']:
         p.fact(atom)
     return p.text(), {"defense": len(defense), "subtypes": len(subtypes), "props": len(props)}

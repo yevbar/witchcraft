@@ -110,8 +110,15 @@ def validate_outputs_consumed() -> dict:
     schema. Both driver.py (the player) AND env.py (the referee built on it, which probes engine outputs to
     enumerate legal combat actions — e.g. illegal_block, may_attack, must_attack) are output consumers."""
     here = Path(__file__).parent                                    # packages/mtg/ (holds driver.py)
-    src = (here / "driver.py").read_text() + "\n" + (here / "engine" / "env.py").read_text()
-    reads = set(re.findall(r'"(\w+)"', src))            # any quoted relation the driver/referee mentions
+    import ast
+    files = list(here.glob('*.py')) + list((here / 'engine').glob('*.py'))
+    handlers = here.parent.parent / 'effect_handlers'
+    if not handlers.exists():
+        handlers = here.parent / 'effect_handlers'
+    files += list(handlers.glob('*.py'))
+    reads = {node.value for path in files if path.name != 'engine_schema.py'
+             for node in ast.walk(ast.parse(path.read_text()))
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)}            # any quoted relation the driver/referee mentions
     outs = outputs()
     return {"outputs": sorted(outs), "unread": sorted(outs - reads)}
 

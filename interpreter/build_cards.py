@@ -18,6 +18,7 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import json
 import collections
 import os
 import re
@@ -46,6 +47,13 @@ def _mana_source_facts(cid: str, c: dict) -> list[str]:
     out: list[str] = []
     for m in _MANA_LINE.finditer(text):
         cost, what = m.group("cost").strip(), m.group("what").strip()
+        line = text[m.start():].split("\n", 1)[0]
+        if re.search(r"\b(?:mill|draw|library)\b", cost, re.I):
+            continue
+        # Do not classify a compound ability from its Add clause alone.
+        tail = line[line.find(".") + 1:].strip()
+        if tail and re.search(r"\b(?:draw|mill|exile|put|return|search|surveil|connive|recruit)\b", tail, re.I):
+            continue
         if '"' in (text[max(0, m.start() - 1):m.start()] or ""):
             continue                                          # inside a granted/quoted ability
         prod = _mana_production(what)
@@ -71,6 +79,7 @@ def _process_chunk(cards_chunk):
             o = transpile_unit(u, {"id": cid, "card": c, "seq": seq})
             if not o:
                 full = False
+                facts.append(f'card_unparsed("{cid}", {seq}, {json.dumps(u.raw, ensure_ascii=False)})')
                 continue
             bp[o.pattern] += 1
             emitted = True
@@ -122,6 +131,7 @@ def build() -> tuple[str, dict]:
     p.comment("cards.dl — grounded card-oracle facts, interpreted from MTGJSON oracle text. GENERATED.")
     p.comment("Every relation grounds in rules.txt: printed_keyword -> §702; mana_ability -> §605/§107.")
     p.blank()
+    p.decl("card_unparsed", [("card", "symbol"), ("seq", "number"), ("text", "symbol")])
     p.decl("name", [("id", "symbol"), ("name", "symbol")])
     p.decl("printed_keyword", [("card", "symbol"), ("keyword", "symbol")])
     p.decl("keyword_param", [("card", "symbol"), ("keyword", "symbol"), ("arg", "symbol")])
@@ -133,6 +143,11 @@ def build() -> tuple[str, dict]:
     p.decl("card_ability", [("card", "symbol"), ("aid", "symbol"), ("kind", "symbol")])
     p.decl("ability_cost", [("card", "symbol"), ("aid", "symbol"), ("cost", "symbol")])
     p.decl("ability_trigger", [("card", "symbol"), ("aid", "symbol"), ("event", "symbol")])
+    p.decl("roll_range", [("card", "symbol"), ("aid", "symbol"), ("lo", "symbol"), ("hi", "symbol")])
+    p.decl("card_escape_generic", [("card", "symbol"), ("n", "number")])
+    p.decl("card_escape_pip", [("card", "symbol"), ("color", "symbol"), ("n", "number")])
+    p.decl("card_escape_exile", [("card", "symbol"), ("n", "number")])
+    p.decl("damage_plus", [("card", "symbol"), ("source", "symbol"), ("amount", "number"), ("target", "symbol")])
     p.decl("ability_modifier", [("card", "symbol"), ("aid", "symbol"), ("modifier", "symbol")])
     p.decl("card_effect", [("card", "symbol"), ("aid", "symbol"), ("seq", "number"),
                       ("verb", "symbol"), ("amount", "symbol"), ("target", "symbol"),

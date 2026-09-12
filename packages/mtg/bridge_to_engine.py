@@ -204,6 +204,9 @@ _EVENT = {
     # a card' to the slug "you_cycle". The any-player variant ("a_player_cycles_a_card", Astral Slide) is NOT
     # mapped here — it would need an any-controller fires rule + cross-player tracking; faithful abstain.
     "you_cycle": "you_cycle",
+    "becomes_crewed": "becomes_crewed",
+    "connives": "connives_self",
+    "a_creature_you_control_connives": "your_creature_connives",
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class).
     # CONTROLLER-scoped: fires only when the source's controller gains life (distinct from 'a player gains
     # life'). The driver records the gaining player into just_gained_life whenever a player's life INCREASES
@@ -2483,6 +2486,14 @@ def _nonmana_cost(cost) -> dict | None:
         if m:
             r["life"] += int(m.group(1))
             continue
+        m = re.match(r"^mill (a|an|\d+|\w+) cards?$", part, re.I)
+        if m:
+            tok = m.group(1).lower()
+            n = 1 if tok in ("a", "an") else _num(tok)
+            if n is None:
+                return None
+            r["mill"] = r.get("mill", 0) + n
+            continue
         m = re.match(r"^discard (a|an|\d+|\w+) cards?$", part, re.I)
         if m:
             tok = m.group(1).lower()
@@ -2526,7 +2537,7 @@ def _alt_mana_cost(cost) -> tuple | None:
         return ("pay_life", int(m.group(1)))
     if re.match(r"^Exile (~|this card|this creature|this artifact) from your hand$", s, re.I):
         return ("exile_hand", 0)
-    if re.match(r"^Discard your hand$", s, re.I):
+    if re.match(r"^Discard your hand(?:, Sacrifice (?:~|this (?:artifact|creature|permanent)))?$", s, re.I):
         return ("discard_hand", 0)
     rc = re.match(r"^Remove (\w+) ([+-]1/[+-]1) counters? from (~|this creature|this artifact|it)$", s, re.I)
     if rc and rc.group(1).lower() in _NUMWORD:                # §605 Runaway Steam-Kin counter-removal mana cost
@@ -2545,7 +2556,7 @@ def _alt_mana_cost(cost) -> tuple | None:
 # but a §702 'gains double strike' grant now RESOLVES instead of dropping (Twinferno, Berserk-style pumps).
 _ENGINE_KEYWORDS = {"flying", "reach", "defender", "menace", "hexproof", "shroud", "indestructible",
                     "infect", "wither", "vigilance", "lifelink", "deathtouch", "trample", "haste",
-                    "first_strike", "double_strike"}
+                    "first_strike", "double_strike", "storied"}
 
 # ONE WORLD — printed_* relations now DERIVED by the engine from the card-level card_* facts (translate.dl);
 # materialized back into raw state for the driver's direct (non-engine) reads of a card's printed identity.
@@ -2568,6 +2579,21 @@ def _materialize_printed(state: dict) -> None:
             state.setdefault(rel, set()).update(rows)
 
 
+def _library_movement(cost, effects):
+    """605.1a: inspect this ability's cost/effect, not unrelated replacement effects."""
+    if re.search(r"\b(?:mill|draw|library)\b", str(cost), re.I):
+        return True
+    moving = {"draw", "mill", "search", "search_library", "surveil", "explore", "connive", "recruit"}
+    for _, verb, amount, target, extra, _ in effects:
+        if verb in moving:
+            return True
+        if verb in {"put_on_top", "put_on_bottom"} and target not in {"them", "those_cards", "the_rest", "the_other_cards"}:
+            return True
+        if verb in {"put", "put_in_graveyard", "return_to_library", "exile", "return_to_hand", "return_to_battlefield"} and "library" in f"{target} {extra}":
+            return True
+    return False
+
+
 def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, effs) -> bool:
     """§605 — register an ACTIVATED mana ability whose effects are 'add_mana' clauses (Mox Opal's
     'Metalcraft — {T}: Add one mana of any color.', Cavern of Souls, Spire of Industry, Gemstone
@@ -2585,6 +2611,8 @@ def _add_mana_source(add, tid: str, is_land: bool, generic: int, taps: bool, eff
     ACTIVATION detail we don't model — but the BASE mana production is faithful (the wildcard pool is a
     superset that can always pay the restricted demand). A non-color/variable production still abstains.
     Returns True iff at least one add_mana clause was registered (so the caller marks it handled)."""
+    if _library_movement("", effs):
+        return False
     fixed: dict[str, int] = {}
     wild: dict[str, int] = {}
     for (_seq, verb, amt, _tgt, extra, _cond) in effs:
@@ -2827,13 +2855,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     facts = slug(name)
     f = db.get(facts, {})
     out: dict[str, set] = {}
-    dropped: list = []
+    dropped: list = [("unparsed_unit", raw) for _seq, raw in f.get("unparsed", [])]
     # §301/§303 — is this card an ATTACHMENT (Aura / Equipment / Fortification)? Its triggered abilities'
     # 'it'/'self' references point at the ATTACHED creature, so a counter 'on it' lands on the host (read via
     # attached_to), not the artifact/enchantment itself. Detected from the §205.3 subtype line.
     attached_source = bool({"Aura", "Equipment", "Fortification"} & set(c.get("subtypes") or []))
 
+    if c.get("layout") in {"transform", "modal_dfc", "meld", "double_faced_token"}:
+        out.setdefault("cannot_turn_face_down", set()).add((tid,))
+    activation_order = []
+    sequence_ids = set()
+
     def add(rel, row):
+        if rel == "activated_ability":
+            activation_order.append(row)
         out.setdefault(rel, set()).add(row)
 
     add("printed_control", (ctrl, tid))
@@ -2866,6 +2901,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("cost_reducer", (tid, _cr[0], _cr[1]))        # (this permanent, amount, color/type/'any' filter)
         else:
             dropped.append(("cost_modifier", (_dir, _amt, _filt)))  # 'self'/tax/variable/subtype -> faithful abstain
+    if "creature_flash_if_legendary" in f.get("statics", []):
+        add("creature_flash_if_legendary", (tid,))
+    for modifier in f.get("statics", []):
+        if modifier == "power_up_extra_activation":
+            add("power_up_extra_activation", (tid,))
+        match = re.fullmatch(r"power_up_other_reduction_(\d+)", modifier)
+        if match:
+            add("power_up_other_reduction", (tid, int(match[1])))
+    if "heal_previous_damage" in f.get("statics", []):
+        add("heal_previous_damage", (tid,))
     etap = f.get("enters_tapped")                             # §614 ETB replacement: this permanent enters tapped
     if etap is not None:
         if etap == "-":                                       # unconditional -> the engine's repl_enters_tapped input
@@ -2946,11 +2991,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             d = _loyalty_delta(ab.get("cost"))               # the signed loyalty cost (driver-side: offer + pay)
             if d is not None:
                 add("loyalty_ability", (facts, aid, d))
+        for modifier in ab.get('modifiers', set()):
+            if modifier.startswith('crew_subtype_'):
+                add('crew_trigger_subtype', (f'{tid}_{aid}', modifier.removeprefix('crew_subtype_')))
         if ab.get("trigger"):
             if aid in you_do_pairs:                            # §603.2c a tractable 'If you do' consequent: rewrite the
                 ante_aid, (ckind, camt) = you_do_pairs[aid]    # synthetic 'you_do' phrase -> the event_map'd 'you_did'
                 add("ability_trigger", (facts, aid, "you_did"))   # so the consequent's effects derive their trigger_* /
                 cons_ia, ante_ia = f"{tid}_{aid}", f"{tid}_{ante_aid}"   # pending_* rows like any other triggered ability,
+                if "repeat_payment" in f["abilities"][ante_aid].get("modifiers", set()):
+                    add("you_do_repeat", (ante_ia,))
                 add("you_do_pair", (cons_ia, ante_ia))         # and the engine fires() gates it on did_optional(ante_IA).
                 add("you_do_cost", (ante_ia, ckind, int(camt)))   # the driver OFFERS this optional cost (default decline).
             else:
@@ -2978,6 +3028,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         add("card_power", (facts, int(p)))
     if str(t or "").lstrip("-").isdigit():
         add("card_toughness", (facts, int(t)))
+    if str(c.get("defense", "")).isdigit():
+        add("card_defense", (facts, int(c["defense"])))
     if str(c.get("loyalty") or "").isdigit():                # §306.5b a planeswalker's printed starting loyalty
         add("card_loyalty", (facts, int(c["loyalty"])))      # (driver-side: set as loyalty counters on enter)
     for kw in f.get("keywords", set()):                      # engine derives printed_keyword via engine_keyword guard
@@ -2985,6 +3037,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     cyc_params = sorted(p for (k, p) in f.get("keyword_param", set()) if k == "cycling")
     for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
         add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
+        if kw == "crew" and str(param).isdigit():
+            add("activated_ability", (tid + "_crew", tid, 0, "-", "crew", int(param), "self"))
         if kw == "protection":                               # §702.16 protection FROM a colour -> the engine's
             cols = _protection_colors(param)                 # protection_from input (illegal_target gates Col spells).
             if cols:                                         # The engine models the TARGETING half of protection; the
@@ -3671,16 +3725,21 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
         elif kind == "activated":                            # §602 — a non-mana activated ability the AI can use
             if f.get("mana", {}).get(aid) is not None:
                 continue                                      # a mana ability ('{T}: Add') is handled by the mana model
-            paid = _activated_cost(ab.get("cost"))
-            life_n = discard_n = sac_filter = None
+            power_up = "power_up" in ab.get("modifiers", set())
+            paid = _activated_cost(str(ab.get("cost", "")).replace("{X}", "{0}") if power_up else ab.get("cost"))
+            life_n = discard_n = sac_filter = mill_n = None
+            moves_library = _library_movement(ab.get("cost"), ab.get("effects", []))
+            power_mana = power_up and not moves_library and any(e[1] == "add_mana" for e in ab.get("effects", [])) and not any("target" in str(e[3]) for e in ab.get("effects", []))
             if paid is None:
                 # §605 an ALT-COST mana ability the parser couldn't pay as generic+tap: 'Pay N life: Add R'
                 # (Treasonous Ogre), 'Exile ~ from your hand: Add R' (Spirit Guides), 'Discard your hand,
                 # Sacrifice: Add 3' (Lion's Eye Diamond). Register it as a real mana source with its SPECIAL
                 # cost (paid by the driver when the source is used), instead of dropping the add_mana clause.
-                alt = _alt_mana_cost(ab.get("cost")) if any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
+                alt = _alt_mana_cost(ab.get("cost")) if not moves_library and any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
                 if alt is not None and _add_mana_source(add, tid, False, 0, False, ab.get("effects", [])):
                     add("source_special_cost", (tid, alt[0], alt[1]))
+                    if "activate_only_as_an_instant" in ab.get("modifiers", set()):
+                        add("source_priority_only", (tid,))
                     # the LED-style self-sacrifice rider belongs ONLY to the discard-hand cost (its 'Sacrifice ~'
                     # rides the card text); don't fire it for OTHER alt costs (Cabbage's text mentions 'sacrifice
                     # a Food', which must NOT make the Cabbage itself a one-shot sacrifice source).
@@ -3699,7 +3758,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 life_n = nm["life"] or None
                 discard_n = nm["discard"] or None
                 sac_filter = nm["sac_filter"]
+                mill_n = nm.get("mill") or None
             a = f"{tid}_{aid}"
+            if power_mana:
+                add("ability_mana", (a,))
+            if moves_library or "power_up" in ab.get("modifiers", set()):
+                sequence_ids.add(a)
+            if "power_up" in ab.get("modifiers", set()):
+                add("ability_power_up", (a, str(ab.get("cost", "")), str(c.get("manaCost", ""))))
+            if mill_n is not None:
+                add("ability_mill_cost", (a, mill_n))
             if life_n is not None:
                 add("ability_life_cost", (a, life_n))         # the driver pays N life to activate (Necropotence)
             if discard_n is not None:
@@ -3754,7 +3822,7 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             # §106 a DYNAMIC-amount any-combination mana ability ('{0}: Add X mana in any combination of {U}
             # and/or {R}, where X is Vivi's power' — Vivi Ornitier). Model it as a source that taps for `power`
             # mana of the card's COLOR IDENTITY (the tap approximates 'only once each turn'; the {0} cost is free).
-            if any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
+            if not moves_library and not power_up and any(e[1] == "add_mana" and "any_combination" in str(e[4]) for e in act_effs):
                 cols = [_COLOR_NAME[ci] for ci in (c.get("colorIdentity") or []) if ci in _COLOR_NAME]
                 if cols:
                     add("mana_source", (tid,)); add("source_dyn_power", (tid,))
@@ -3762,13 +3830,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                         add("source_dyn_color", (tid, col))
                     add("source_cost", (tid, 0, True))
                     emitted = mana_registered = True
-            if not mana_registered and any(e[1] == "add_mana" for e in act_effs):
+            if not moves_library and not power_up and not mana_registered and any(e[1] == "add_mana" for e in act_effs):
                 is_land = "Land" in (c.get("types") or [])
                 if _add_mana_source(add, tid, is_land, paid[0], paid[1], act_effs):
                     emitted = mana_registered = True
             for _idx, (_seq, verb, amt, tgt, extra, _cond) in enumerate(act_effs):
                 if _idx in act_skip:                          # consumed by a folded search_to_<dest> above
                     continue
+                if power_up and str(amt) == "X":
+                    resolved = _resolved_effect(verb, 0, tgt, extra, _cond)
+                    if resolved is not None:
+                        eff, n, target = resolved
+                        add("activated_ability", (a, tid, paid[0], taps, "power_up_x:" + eff, 0, target))
+                        emitted = True
+                        continue
                 if verb == "add_mana" and str(amt) == "for_each_color_among_monocolored_permanents_you_control":
                     # §106 'for each color among monocolored permanents you control, add one mana of that color'
                     # (Tarnation Vista) -> one mana of EACH color present among the controller's MONOCOLORED
@@ -3776,6 +3851,12 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                     add("activated_ability", (a, tid, paid[0], taps, "mana_per_board_color", 0, "monocolored_you_control"))
                     emitted = True; continue
                 if verb == "add_mana":                        # the source's mana clauses
+                    if moves_library or power_up:
+                        resolved = _resolved_effect(verb, amt, tgt, extra, _cond)
+                        if resolved is not None:
+                            add("activated_ability", (a, tid, paid[0], taps, *resolved))
+                            emitted = True
+                            continue
                     if not mana_registered:                   # registration abstained -> drop as before
                         dropped.append(("effect", verb))
                     continue
@@ -4037,10 +4118,20 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     subs = {s.lower() for s in (c.get("subtypes") or [])}
     has_attached = any(r[-1] == "attached" for r in out.get("static_pt", set())) \
         or any(r[-1] == "attached" for r in out.get("static_grant", set()))
-    if "equipment" in subs and "equip" in (f.get("keywords") or set()) and has_attached:
+    if "equipment" in subs and "equip" in (f.get("keywords") or set()) and has_attached and not re.search(r"\bEquip worthy\b", c.get("text") or "", re.I):
         cost = _equip_cost(c.get("text"))
         if cost is not None:
             add("activated_ability", (f"{tid}_equip", tid, cost, "-", "equip", 0, "-"))
+    worthy_equip = re.search(r"\bEquip worthy\s+((?:\{[^}]+\})+)", c.get("text") or "", re.I)
+    if "equipment" in subs and worthy_equip:
+        paid = _activated_cost(worthy_equip.group(1))
+        if paid is not None:
+            add("activated_ability", (f"{tid}_equip_worthy", tid, paid[0], "-", "equip", 0, "worthy"))
+    for aid in sequence_ids:
+        rows = [r for r in activation_order if r[0] == aid]
+        if len(rows) > 1:
+            for i, r in enumerate(rows):
+                add("ability_effect_order", (aid, i, *r[4:]))
     return out, dropped
 
 

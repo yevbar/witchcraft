@@ -284,6 +284,10 @@ class Move(BaseModel):
         if kind == "cast_commander":
             _, player, name = action
             return cls.model_construct(kind=kind, raw=action, player=player, card=ref(name))
+        if kind == "activate_mana":
+            _, player, source, color = action
+            return cls.model_construct(kind=kind, raw=action, player=player, card=ref(source),
+                                       choices={"color": color})
         if kind == "activate":
             _, player, ab, choices = action
             return cls.model_construct(kind=kind, raw=action, player=player, card=ref(ab[1]),

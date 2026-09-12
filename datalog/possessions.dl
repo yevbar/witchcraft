@@ -70,6 +70,7 @@ has_property("vehicles", "ability", "yes").
 has_property("permanent", "ability", "yes").
 has_property("creature", "ability", "yes").
 has_property("saga", "ability", "yes").
+has_property("battle", "defense", "yes").
 has_property("copy", "source", "yes").
 has_property("spell", "characteristic", "no").
 has_property("card", "face", "yes").

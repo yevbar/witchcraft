@@ -107,6 +107,15 @@ from interpreter.build_ending import thresholds as _loss_thresholds  # noqa: E40
 STEPS = flat_steps()
 
 INPUTS = [
+    ("creature_flash_if_legendary", [("s", "symbol")]),
+    ("crew_trigger_subtype", [("a", "symbol"), ("st", "symbol")]),
+    ("just_crewed", [("c", "symbol")]),
+    ("crewed_by", [("v", "symbol"), ("c", "symbol")]),
+    ("crew_power", [("v", "symbol"), ("c", "symbol"), ("n", "number")]),
+    ("crew_subtype", [("v", "symbol"), ("c", "symbol"), ("st", "symbol")]),
+    ("battle_protector", [("battle", "symbol"), ("p", "symbol")]),
+    ("battle_trigger_pending", [("battle", "symbol")]),
+    ("face_down", [("c", "symbol")]),
     ("on_battlefield", [("c", "symbol")]),          # the zone the driver mutates
     ("printed_type", [("c", "symbol"), ("t", "symbol")]),       # §613 layer-system BASE characteristics
     ("printed_control", [("p", "symbol"), ("c", "symbol")]),
@@ -235,6 +244,14 @@ INPUTS = [
     # §301/§303 ATTACHMENT — which creature an Aura/Equipment is attached to (the driver maintains it). A
     # static buff scoped to 'enchanted_creature'/'equipped_creature' applies to that creature (scope=attached).
     ("attached_to", [("permanent", "symbol"), ("creature", "symbol")]),
+    ("entered_this_turn", [("object", "symbol")]),
+    ("power_up_used", [("ability", "symbol")]),
+    ("power_up_activations", [("ability", "symbol"), ("n", "number")]),
+    ("marked_damage", [("object", "symbol"), ("n", "number")]),
+    ("heal_previous_damage", [("object", "symbol")]),
+    ("combat_damage_applied", [("step", "symbol")]),
+    ("enduring_story", [("player", "symbol")]),
+    ("artifact_only_mana_source", [("source", "symbol")]),
     # §603.10 look-back events the engine doesn't otherwise derive (driver/scenario supplies them).
     ("has_supertype", [("o", "symbol"), ("sup", "symbol")]),      # §205.4 supertypes (legendary etc.)
     ("sacrificed", [("o", "symbol")]),                            # §603.10a a permanent was sacrificed
@@ -262,6 +279,7 @@ INPUTS = [
     ("just_p1p1_placed", [("c", "symbol")]),                      # §603/§122 a creature one or more +1/+1 counters were just put on — counter-placement triggers
     ("just_drew", [("p", "symbol")]),                             # §603 a player who just drew a card — draw triggers
     ("draw_ord", [("p", "symbol"), ("n", "number")]),            # the per-(player,turn) ordinal of just_drew's draw
+    ("just_connived", [("obj", "symbol"), ("p", "symbol")]),
     ("just_cycled", [("p", "symbol")]),                          # §702.29 a player who just cycled a card — cycling triggers
     ("won_flip", [("p", "symbol")]),                             # §705 a player who just WON a coin flip — flip triggers
     ("copied_spell", [("p", "symbol")]),                         # §707 a player who just copied a spell — magecraft
@@ -564,9 +582,12 @@ def _rules(p: Program) -> None:
                      ("subtype", "printed_subtype"), ("power", "printed_power"), ("toughness", "printed_toughness")]:
         typ = "number" if ch in ("power", "toughness") else "symbol"
         p.decl(f"copiable_{ch}", [("c", "symbol"), ("v", typ)])
-        p.rule(f"copiable_{ch}(C, V)", ["copy_of(C, O)", f"{base}(O, V)"])
-        p.rule(f"copiable_{ch}(C, V)", [f"{base}(C, V)", "!copy_of(C, _)"])
+        p.rule(f"copiable_{ch}(C, V)", ["copy_of(C, O)", f"{base}(O, V)", "!face_down(C)"])
+        p.rule(f"copiable_{ch}(C, V)", [f"{base}(C, V)", "!copy_of(C, _)", "!face_down(C)"])
     p.blank()
+    p.rule('copiable_type(C, "creature")', ["face_down(C)"])
+    p.rule("copiable_power(C, 2)", ["face_down(C)"])
+    p.rule("copiable_toughness(C, 2)", ["face_down(C)"])
     p.comment("§613 layer 2 — control: the latest control-changing effect overrides the printed controller.")
     p.decl("control_ts", [("c", "symbol"), ("ts", "number")])
     p.rule("control_ts(C, M)", ["eff_gain_control(_, _, C, _)", "M = max T : { eff_gain_control(_, _, C, T) }"])
@@ -672,8 +693,10 @@ def _rules(p: Program) -> None:
     p.comment("mod_power/mod_toughness are the bare (persistent) inputs; eff_mod_* carry an id so a")
     p.comment("triggered 'until end of turn' pump can be cleared at cleanup; static_mod_* are anthem/lord")
     p.comment("continuous effects — all feed the same layer sum.")
+    p.decl("hone_bonus", [("c", "symbol"), ("equipment", "symbol"), ("n", "number")])
+    p.rule("hone_bonus(C, E, N)", ["attached_to(E, C)", "on_battlefield(E)", 'subtype(E, "equipment")', 'counter(E, "hone", N)', "creature(C)"])
     p.decl("pt7c_power", [("c", "symbol"), ("n", "number")])
-    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "S2 = sum X : { static_mod_power(_, C, X) }", "D = sum X : { dyn_mod_power(C, X) }", "N = B + P - M + E + G + S2 + D"])
+    p.rule("pt7c_power(C, N)", ["base_power(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_power(C, X) }", "G = sum X : { eff_mod_power(_, C, X) }", "S2 = sum X : { static_mod_power(_, C, X) }", "D = sum X : { dyn_mod_power(C, X) }", 'H = sum X : { hone_bonus(C, _, X) }', "N = B + P - M + E + G + S2 + D + H"])
     p.decl("pt7c_toughness", [("c", "symbol"), ("n", "number")])
     p.rule("pt7c_toughness(C, N)", ["base_toughness(C, B)", 'P = sum X : { counter(C, "p1p1", X) }', 'M = sum X : { counter(C, "m1m1", X) }', "E = sum X : { mod_toughness(C, X) }", "G = sum X : { eff_mod_toughness(_, C, X) }", "S2 = sum X : { static_mod_toughness(_, C, X) }", "D = sum X : { dyn_mod_toughness(C, X) }", "N = B + P - M + E + G + S2 + D"])
     p.comment("§613.4 layer 7d — switch: P/T swap; two switches cancel, so apply parity of the count.")
@@ -706,6 +729,10 @@ def _rules(p: Program) -> None:
     p.comment("§510 — combat, gated by the combat damage step (turn <-> combat).")
     p.comment("Combat respects the transpiled illegal_block: an illegal block neither stops")
     p.comment("the attacker nor exchanges damage, so the attacker hits the player instead.")
+    p.decl("battle", [("c", "symbol")])
+    p.rule("battle(C)", ["on_battlefield(C)", 'has_type(C, "battle")'])
+    p.rule("illegal_block(B, A)", ["blocks(B, A)", "attacks(A, T)", "battle(T)", "battle_protector(T, P)", "controls(Q, B)", "P != Q"])
+    p.rule("cant_attack(C)", ["creature(C)", "battle(C)"])
     p.decl("combat_now", [])
     p.rule("combat_now()", ['current_step("combat_damage")'])
     p.decl("blocked", [("a", "symbol")])
@@ -719,11 +746,22 @@ def _rules(p: Program) -> None:
     p.rule("deals(B, A, N)", ["combat_now()", "blocks(B, A)", "!illegal_block(B, A)", "!cant_attack(A)", "!prevented(B, A)", "power(B, N)"])
     p.rule("deals(A, D, N)", ["combat_now()", "attacks(A, D)", "is_player(D)", "!blocked(A)", "!cant_attack(A)", "!prevented(A, D)", "power(A, N)"], note="a creature that can't attack (§702.3b) or whose damage is prevented (§615) deals none")
     p.blank()
+    p.rule("deals(A, B, N)", ["combat_now()", "attacks(A, B)", "battle(B)", "battle_protector(B, P)", "controls(Q, A)", "P != Q", "!blocked(A)", "!cant_attack(A)", "!prevented(A, B)", "power(A, N)"])
+    p.rule("prevented(S, B)", ["prevent_all_combat(_)", "creature(S)", "battle(B)"])
+    p.decl("battle_damage", [("battle", "symbol"), ("n", "number")])
+    p.rule("battle_damage(B, N)", ["battle(B)", "deals(_, B, _)", '!combat_damage_applied("combat_damage")', "N = sum X : { deals(_, B, X) }"])
+    p.output("battle", "battle_damage", "subtype")
     p.decl("withering", [("s", "symbol")])
     p.rule("withering(S)", ['has_keyword(S, "wither")'])
     p.rule("withering(S)", ['has_keyword(S, "infect")'])
     p.decl("marked", [("c", "symbol"), ("n", "number")])
-    p.rule("marked(C, N)", ["creature(C)", "deals(_, C, _)", "N = sum X : { deals(S, C, X), !withering(S) }"])
+    p.decl("combat_marked", [("c", "symbol"), ("n", "number")])
+    p.rule("combat_marked(C, N)", ["creature(C)", '!combat_damage_applied("combat_damage")', "deals(_, C, _)", "N = sum X : { deals(S, C, X), !withering(S) }"])
+    p.rule("marked(C, N)", ["creature(C)", "marked_damage(C, N)", "!combat_marked(C, _)"])
+    p.rule("marked(C, N)", ["combat_marked(C, N)", "!marked_damage(C, _)"])
+    p.rule("marked(C, N + D)", ["combat_marked(C, N)", "marked_damage(C, D)", "!heal_previous_damage(C)"])
+    p.rule("marked(C, N)", ["combat_marked(C, N)", "heal_previous_damage(C)"])
+    p.output("marked", "combat_marked")
     p.decl("combat_m1m1", [("c", "symbol"), ("n", "number")])
     p.rule("combat_m1m1(C, N)", ["creature(C)", "deals(S0, C, _)", "withering(S0)", "N = sum X : { deals(S, C, X), withering(S) }"])
     p.decl("combat_poison", [("p", "symbol"), ("n", "number")])
@@ -792,6 +830,11 @@ def _rules(p: Program) -> None:
     p.decl("zone_move_proposed", [("o", "symbol"), ("f", "symbol"), ("t", "symbol")])
     for _num, dl in _transpiled("701", {"701.8a"}):
         p.raw(dl.replace("zone_change(", "zone_move_proposed(", 1))
+    p.decl("battle_zero", [("c", "symbol")])
+    p.rule("battle_zero(C)", ["battle(C)", '!counter(C, "defense", _)'])
+    p.rule("battle_zero(C)", ["battle(C)", 'counter(C, "defense", N)', "N <= 0"])
+    p.rule('zone_move_proposed(C, "battlefield", "graveyard")', ["battle_zero(C)", '!subtype(C, "siege")'])
+    p.rule('zone_move_proposed(C, "battlefield", "graveyard")', ["battle_zero(C)", 'subtype(C, "siege")', "!battle_trigger_pending(C)"])
     p.decl("blocked_move", [("o", "symbol"), ("f", "symbol"), ("t", "symbol")])
     p.rule("blocked_move(O, F, T)", ["zone_move_proposed(O, F, T)", "has_type(O, Ty)", "cant_leave(Ty, F)"], note="§400.4b")
     p.rule("blocked_move(O, F, T)", ["zone_move_proposed(O, F, T)", "has_type(O, Ty)", "cant_enter(Ty, T)"], note="§400.4a")
@@ -860,6 +903,10 @@ def _rules(p: Program) -> None:
                                "in_hand(P, O)", "O != S", "printed_color(O, Col)"])
     p.rule("free_cast(P, S)", ["pitch_cost(S, Col, \"not_your_turn\")", "playable_source(P, S)",
                                "in_hand(P, O)", "O != S", "printed_color(O, Col)", "!active_player(P)"])
+    p.decl("reserved_mana", [("p", "symbol"), ("s", "symbol"), ("n", "number")])
+    p.rule("reserved_mana(P, S, 0)", ["playable_source(P, S)", 'spell_type(S, "artifact")'])
+    p.rule("reserved_mana(P, S, N)", ["playable_source(P, S)", '!spell_type(S, "artifact")', "N = count : { artifact_only_mana_source(C), controls(P, C), on_battlefield(C), !tapped(C) }"])
+    p.rule("pip_shortfall(P, S)", ["playable_source(P, S)", 'pip_need(S, "colorless", N)', 'Have = sum X : { mana_pool(P, "colorless", X) }', "reserved_mana(P, S, R)", "Have - R < N"])
     p.decl("can_afford", [("p", "symbol"), ("s", "symbol")])
     p.rule("can_afford(P, S)", ["free_cast(P, S)"], note="§118.9 an alternative free cost is always affordable")
     # §118.7 STATIC COST REDUCTION — a spell S matches a cost_reducer's filter F (a color via spell_color, a
@@ -876,9 +923,9 @@ def _rules(p: Program) -> None:
     p.rule("cost_reduce_total(P, S, Tot)", ["playable_source(P, S)",
            "Tot = sum N : { cost_reducer(R, N, F), controls(P, R), spell_matches_filter(S, F) }"],
            note="§118.7 total generic reduction P gets casting S (0 when no reducer P controls matches)")
-    p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "cost_reduce_total(P, S, R)", "pool_total(P, M)", "M >= C - R", "!pip_shortfall(P, S)"],
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "has_colored_cost(S)", "colored_total(S, C)", "cost_reduce_total(P, S, R)", "pool_total(P, M)", "reserved_mana(P, S, Reserved)", "M - Reserved >= C - R", "!pip_shortfall(P, S)"],
            note="§106/§202 colored payment exists (less the §118.7 static reduction; pip_shortfall keeps the colored floor)")
-    p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "cost_reduce_total(P, S, R)", "mana_available(P, M)", "M >= C - R"],
+    p.rule("can_afford(P, S)", ["playable_source(P, S)", "!has_colored_cost(S)", "mana_cost(S, C)", "cost_reduce_total(P, S, R)", "mana_available(P, M)", "reserved_mana(P, S, Reserved)", "M - Reserved >= C - R"],
            note="legacy flat-mana fallback when no colored cost is supplied (less the static reduction)")
     p.decl("illegal_target", [("s", "symbol"), ("t", "symbol")])
     p.rule("illegal_target(S, T)", ["targets(S, T)", 'has_keyword(T, "shroud")'], note="§702.18")
@@ -892,6 +939,16 @@ def _rules(p: Program) -> None:
     p.comment("§205.4 supertype semantics, INTERPRETED from rules.txt by build_supertypes (supertype_rule).")
     p.decl("supertype_rule", [("supertype", "symbol"), ("subject", "symbol"), ("rule", "symbol")])
     p.facts(_supertype_rule_facts())
+    p.decl("worthy", [("c", "symbol")])
+    for col in ("red", "white"):
+        p.rule("worthy(C)", ["creature(C)", "legendary(C)", '!subtype(C, "villain")', f'color(C, "{col}")'])
+    p.decl("story_permanent", [("p", "symbol"), ("c", "symbol")])
+    for predicate in ('has_type(C, "artifact")', 'subtype(C, "saga")', 'legendary(C)'):
+        p.rule("story_permanent(P, C)", ["controls(P, C)", "on_battlefield(C)", predicate])
+    p.decl("has_enduring_story", [("p", "symbol")])
+    p.rule("has_enduring_story(P)", ["enduring_story(P)"])
+    p.rule("has_enduring_story(P)", ["controls(P, S)", "on_battlefield(S)", 'has_keyword(S, "storied")', "N = count : { story_permanent(P, C) }", "N >= 3"])
+    p.output("worthy", "has_enduring_story")
     p.decl("legendary", [("o", "symbol")])
     p.rule("legendary(O)", ["has_supertype(O, Sup)", 'supertype_rule(Sup, "permanent", "legend_rule")'])
     p.comment("§205.4e legendary-spell casting restriction: a legendary instant or sorcery (a spell whose")
@@ -908,7 +965,11 @@ def _rules(p: Program) -> None:
     p.comment("speed 'instant' -> any priority; 'sorcery' -> active player, a main phase, empty stack.")
     p.decl("cast_permission", [("type", "symbol"), ("action", "symbol"), ("speed", "symbol")])
     p.facts([f'cast_permission("{t}", "{a}", "{sp}")' for _n, t, a, sp in _casting_perms()])
+    p.decl("flash_permission", [("p", "symbol"), ("s", "symbol")])
+    p.rule("flash_permission(P, S)", ["playable_source(P, S)", 'has_keyword(S, "flash")'])
+    p.rule("flash_permission(P, S)", ["playable_source(P, S)", 'spell_type(S, "creature")', "creature_flash_if_legendary(E)", "on_battlefield(E)", "controls(P, E)", "controls(P, C)", "on_battlefield(C)", "creature(C)", 'has_supertype(C, "legendary")'])
     p.decl("can_cast", [("p", "symbol"), ("s", "symbol")])
+    p.rule("can_cast(P, S)", ["flash_permission(P, S)", "has_priority(P)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "instant")', "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "active_player(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "sorcery")', "current_step(St)", "main_phase(St)", "!on_stack(_, _)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.blank()
@@ -1088,6 +1149,10 @@ def _rules(p: Program) -> None:
     # Decree of Justice, Dismantling Wave) — the controller cycled a card. The cycling ACTION itself ends in
     # a draw, so the §603 you_draw watchers above also fire; this rule fires the dedicated cycle payoffs.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cycle")', "ev_cycle(P)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_crewed")', "just_crewed(S)", "crew_trigger_subtype(A, St)", "crew_subtype(S, _, St)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_crewed")', "just_crewed(S)", "!crew_trigger_subtype(A, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "connives_self")', "just_connived(S, _)", "on_battlefield(S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_connives")', "just_connived(_, P)", "controls(P, S)", "on_battlefield(S)"])
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.
     p.rule("fires(A, S)", ['has_trigger(A, S, "won_coin_flip")', "ev_won_flip(P)", "controls(P, S)"])
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class) —
@@ -1205,6 +1270,11 @@ def _rules(p: Program) -> None:
            note="§704 'whenever enchanted creature dies' (Nurgle's Rot, Fool's Demise)")
     p.rule("fires(A, S)", ['has_trigger(A, S, "equipped_becomes_tapped")', "ev_tapped(O)", "attached_to(S, O)"],
            note="§603 'whenever equipped creature becomes tapped' (Hawkeye's Bow)")
+    p.rule("fires(A, S)", ['has_trigger(A, S, "each_upkeep")', "ev_upkeep(_)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "each_opponent_upkeep")', "ev_upkeep(P)", "controls(Q, S)", "P != Q"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_or_blocks")', "attacks(S, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "attacks_or_blocks")', "blocks(S, _)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "you_draw_second")', "ev_draw(P)", "controls(P, S)", "draw_ord(P, 2)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "upkeep")', "ev_upkeep(P)", "controls(P, S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "end_step")', "ev_end_step(P)", "controls(P, S)"])
     # §603 'at the beginning of THE end step' (no 'your') — fires on ANY player's end step (Underworld Breach).
@@ -1583,6 +1653,8 @@ def _emit_translate(p) -> None:
     p.comment("player's life increases and cleared at §514.2 cleanup — the per-TURN analogue of the per-")
     p.comment("resolution just_gained_life window the §603 'whenever you gain life' triggers read).")
     p.decl("cond_met", [("source", "symbol"), ("cond", "symbol")])
+    p.rule('cond_met(S, "you_have_an_enduring_story")', ["controls(P, S)", "has_enduring_story(P)"])
+    p.rule('cond_met(S, "as_long_as_you_have_an_enduring_story")', ["controls(P, S)", "has_enduring_story(P)"])
     p.rule('cond_met(S, "as_long_as_you_gained_life_this_turn")',
            ["instance_of(S, _)", "controls(P, S)", "gained_life_this_turn(P)"])
     # §611.2 'during your turn' — the static holds while S's controller is the active player (Razorkin

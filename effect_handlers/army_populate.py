@@ -192,7 +192,8 @@ def _apply_explore(D, state, a, n, tgt, src, ctrl):
         print(f"    {a}: {src} explores -> reveals {top} (land) into {ctrl}'s hand")
         return
     # not a land: +1/+1 counter on the explorer, then MAY bin the revealed card (default keep on top).
-    D._bump_counter(state, src, "p1p1", 1)
+    if (src,) in state.get("on_battlefield", set()):
+        D._bump_counter(state, src, "p1p1", 1)
     bin_it = D._choose(state, "explore_bin", [True, False], False)
     if bin_it:
         order.pop(0)

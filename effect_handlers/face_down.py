@@ -44,6 +44,8 @@ def apply_manifest(D, state, a, n, tgt, src, ctrl):
             break
         state["in_library"].discard((ctrl, card))
         state.setdefault("on_battlefield", set()).add((card,))
+        from mtg.rules_2026 import entered
+        entered(state, card)
         state.setdefault("printed_control", set()).add((ctrl, card))
         state.setdefault("face_down", set()).add((card,))        # §708.2 -> engine derives a 2/2 colorless body
         state.setdefault("known", set()).add((ctrl, card))       # the controller knows what it manifested
@@ -52,3 +54,15 @@ def apply_manifest(D, state, a, n, tgt, src, ctrl):
         if kt and card in kt:
             kt.remove(card)
     print(f"    {a}: {ctrl} manifests {n} (face down 2/2)")
+
+
+@encoder("turn_face_down")
+def encode_turn_face_down(verb, amt, tgt, extra):
+    if str(tgt) in {"self", "it"}:
+        return ("turn_face_down", 1, "self")
+    return None
+
+
+@applier("turn_face_down")
+def apply_turn_face_down(D, state, a, n, tgt, src, ctrl):
+    D.turn_face_down(state, src)

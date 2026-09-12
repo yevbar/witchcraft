@@ -35,8 +35,8 @@ def test_existing_designations_unchanged():
 
 
 def test_ungrounded_status_still_abstains():
-    # 'prepared' is not in the rules vocab -> abstain (not added to the BECOMESDESIG closed list)
-    assert parse_clause("~ becomes prepared") is None
+    # Prepared is grounded by the August 2026 rules.
+    assert _t(parse_clause("~ becomes prepared")) == ("becomes", "-", "self", "prepared", "-")
     # 'monstrous' likewise not a becomes-designation here
     assert parse_clause("~ becomes monstrous") is None
 

@@ -33,7 +33,8 @@ _PATTERNS = [
     ("702.2b", re.compile(r"A (?P<subj>creature)\b.*?dealt damage by a source with deathtouch.*?\bis (?P<outcome>destroyed)\b", re.I | re.S), "deathtouch_damage"),
     ("704.5r", re.compile(r"If a (?P<subj>permanent)\b.*?can.t have more than N counters.*?are (?P<outcome>removed)\b", re.I | re.S), "counter_cap_exceeded"),
     ("704.5s", re.compile(r"lore counters on a (?P<subj>Saga)\b.*?final chapter number.*?(?P<outcome>sacrifices) it", re.I | re.S), "final_chapter_reached"),
-    ("704.5v", re.compile(r"If a (?P<subj>battle) has defense 0\b.*?(?P<outcome>put into) its owner.s graveyard", re.I | re.S), "defense_zero"),
+    ("704.5v", re.compile(r"If a (?P<subj>Siege battle) has defense 0\b.*?(?P<outcome>put into) its owner.s graveyard", re.I | re.S), "defense_zero_without_pending_trigger"),
+    ("704.5w", re.compile(r"If a (?P<subj>non-Siege battle) has defense 0\b.*?(?P<outcome>put into) its owner.s graveyard", re.I | re.S), "defense_zero"),
     ("704.6f", re.compile(r"if a (?P<subj>phenomenon) card is face up in the command zone\b.*?planar controller (?P<outcome>planeswalks)", re.I | re.S), "face_up_in_command"),
 ]
 
@@ -50,7 +51,7 @@ def extract() -> list[tuple[str, str, str, str]]:
         m = pat.search(text.get(num, ""))
         if m:
             outcome = _OUTCOME_SLUG.get(m.group("outcome").lower(), m.group("outcome").lower())
-            rows.append((num, m.group("subj").lower(), trigger, outcome))
+            rows.append((num, m.group("subj").lower().replace("-", "_").replace(" ", "_"), trigger, outcome))
     return rows
 
 
@@ -75,7 +76,8 @@ def build() -> tuple[str, dict]:
     p.conformance(
         [("expect_sba", [("subject", "symbol"), ("trigger", "symbol"), ("outcome", "symbol")])],
         [("sba", "expect_sba(S, T, O)", "miss", "state_based_check(S, T, O)")])
-    p.fact('expect_sba("battle", "defense_zero", "owners_graveyard")')
+    p.fact('expect_sba("siege_battle", "defense_zero_without_pending_trigger", "owners_graveyard")')
+    p.fact('expect_sba("non_siege_battle", "defense_zero", "owners_graveyard")')
     return p.text(), {"total": len(rows)}
 
 

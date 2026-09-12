@@ -155,23 +155,24 @@ def main():
     def outs(name):
         from interpreter import card_corpus
         c = {cc["name"]: cc for cc in card_corpus.load_cards()}.get(name, {})
-        return list(B._mana_source_outputs(c))
+        return set((g, t, sac, special, tuple(sorted(fixed.items())), tuple(sorted(wild.items())))
+                   for g, t, sac, special, fixed, wild in B._mana_source_outputs(c))
 
-    # the tuple shape is (cost_generic, taps_self, sac_self, fixed, wild) — sac_self marks one-shot fast mana.
-    check("Sol Ring lexes to 2 colorless ({C}{C})",
-          outs("Sol Ring") == [(0, True, False, {"colorless": 2}, {})])
-    check("Mana Crypt lexes to 2 colorless (non-first oracle line)",
-          outs("Mana Crypt") == [(0, True, False, {"colorless": 2}, {})])
-    check("Grim Monolith lexes to 3 colorless ({C}{C}{C})",
-          outs("Grim Monolith") == [(0, True, False, {"colorless": 3}, {})])
-    check("Llanowar Elves lexes to 1 green", outs("Llanowar Elves") == [(0, True, False, {"green": 1}, {})])
-    check("Birds of Paradise lexes to any-color wildcard",
-          outs("Birds of Paradise") == [(0, True, False, {}, {"any_color": 1})])
-    check("Dimir Signet lexes to blue+black costing {1}",
-          outs("Dimir Signet") == [(1, True, False, {"blue": 1, "black": 1}, {})])
-    # Jeweled Lotus now lexes (sac-cost fast mana): {T}, Sacrifice -> 3 mana of any ONE color, sac_self=True.
-    check("Jeweled Lotus lexes to a sac-self any-one-color burst",
-          outs("Jeweled Lotus") == [(0, True, True, {}, {"any_one_color": 3})])
+    # Each generated production row has a special-cost slot. A multicolor ability
+    # produces separate rows, which _register_colored combines for the driver.
+    for name, generic, taps, sacrifice, fixed, wild in [
+        ("Sol Ring", 0, True, False, (("colorless", 2),), ()),
+        ("Mana Crypt", 0, True, False, (("colorless", 2),), ()),
+        ("Grim Monolith", 0, True, False, (("colorless", 3),), ()),
+        ("Llanowar Elves", 0, True, False, (("green", 1),), ()),
+        ("Birds of Paradise", 0, True, False, (), (("any_color", 1),)),
+        ("Jeweled Lotus", 0, True, True, (), (("any_one_color", 3),)),
+    ]:
+        check(f"{name}: generated mana production and costs",
+              outs(name) == {(generic, taps, sacrifice, None, fixed, wild)})
+    check("Dimir Signet: blue and black production rows share the {1}, {T} cost",
+          outs("Dimir Signet") == {(1, True, False, None, (("blue", 1),), ()),
+                                  (1, True, False, None, (("black", 1),), ())})
 
     # a state helper that puts the named permanents on alice's battlefield with a spell in hand.
     def board(perms, spell):

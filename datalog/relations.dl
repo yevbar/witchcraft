@@ -42,6 +42,7 @@ relation("term", "refer", "object").
 relation("card", "refer", "party").
 relation("outlaw", "refer", "object").
 relation("card", "refer", "outlaws").
+relation("card", "refer", "creature").
 relation("spell", "refer", "permanent").
 relation("phrase", "refer", "creature").
 relation("travel", "mean", "time").
@@ -77,6 +78,7 @@ relation("effect", "refer", "speed").
 relation("warp", "represent", "ability").
 relation("effect", "refer", "card").
 relation("paradigm", "represent", "ability").
+relation("teamwork", "represent", "ability").
 relation("game", "include", "action").
 relation("ability", "include", "table").
 relation("effect", "include", "text").

@@ -35,6 +35,8 @@ def encode_investigate(verb, amt, tgt, extra):
 
 @encoder("connive")
 def encode_connive(verb, amt, tgt, extra):
+    if str(tgt) in ("each_creature_you_control", "creatures_you_control", "all_creatures"):
+        return ("connive_all", _int(amt, 1), str(tgt))
     # §701.50 'it connives [N]' — the SELF case (the source creature connives).
     if str(tgt) in ("self", "it"):
         return ("connive", _int(amt, 1), "self")
@@ -57,6 +59,8 @@ def apply_connive(D, state, a, n, tgt, src, ctrl):
     goes on the creature for each NONLAND card discarded this way. The discard is the controller's CHOICE
     from its own hand (via _choose — drivable by a policy, which in imperfect info sees its own hand); the
     drawn cards and the discard-to-graveyard are resolved on the true state by the referee."""
+    if n <= 0:
+        return
     for _ in range(n):
         D._draw(state, ctrl)
     lands = state.get("spell_type", set()) | state.get("printed_type", set())
@@ -70,9 +74,39 @@ def apply_connive(D, state, a, n, tgt, src, ctrl):
         state.setdefault(D._discard_zone(state, ctrl), set()).add((card,))
         if (card, "land") not in lands:
             nonland += 1
-    if nonland:
+    if nonland and (src,) in state.get("on_battlefield", set()):
         D._bump_counter(state, src, "p1p1", nonland)
     print(f"    {a}: {ctrl} connives {n} ({nonland} nonland discarded -> +1/+1 x{nonland} on {src})")
+
+    before, before_dyn = D._pending_both(state)
+    state["just_connived"] = {(src, ctrl)}
+    try:
+        pending = D._pending_both(state)
+    finally:
+        state["just_connived"] = set()
+    D._apply_effects(state, pending[0] - before, pending[1] - before_dyn)
+
+
+def connive_many(D, state, a, n, objects):
+    """Objects carry their controller at instruction time, including departed objects' LKI."""
+    seats = state.get("_turn_order") or sorted(p for p, in state.get("is_player", set()))
+    active = next((p for p, in state.get("active_player", set())), seats[0])
+    at = seats.index(active) if active in seats else 0
+    for player in seats[at:] + seats[:at]:
+        remaining = sorted(obj for obj, ctrl in objects if ctrl == player)
+        while remaining:
+            obj = D._choose(state, "connive_order", remaining, remaining[0])
+            remaining.remove(obj)
+            apply_connive(D, state, a, n, "self", obj, player)
+
+
+@applier("connive_all")
+def apply_connive_all(D, state, a, n, tgt, src, ctrl):
+    out = D.run(state, ["controls", "creature"])
+    creatures = {c for c, in out["creature"]}
+    objects = [(c, p) for p, c in out["controls"] if c in creatures and
+               (tgt == "all_creatures" or p == ctrl)]
+    connive_many(D, state, a, n, objects)
 
 
 @applier("connive_target")
@@ -82,30 +116,31 @@ def apply_connive_target(D, state, a, n, tgt, src, ctrl):
     strongest, a deterministic beneficial choice — and connives IT (the chosen creature, not the source):
     draw N, discard N, a +1/+1 counter on that creature per nonland discarded. Same draw/discard/counter
     model as apply_connive, but the counter lands on the chosen target. No legal creature -> a faithful no-op."""
-    out = D.run(state, ["controls", "creature", "power"])
+    out = D.run(state, ["controls", "creature", "power", "subtype", "has_keyword", "cant_be_targeted"])
     creatures = {c for (c,) in out["creature"]}
     powers = {c: int(x) for (c, x) in out["power"]}
-    subs = state.get("card_subtype", set())
+    subs = out["subtype"]
     mine = [c for (p, c) in out["controls"] if p == ctrl and c in creatures]
     if str(tgt) != "any":
         mine = [c for c in mine if (c, str(tgt)) in subs]     # the named creature subtype (villain/hero/…)
+    illegal = {c for c, kw in out["has_keyword"] if kw == "shroud"}
+    illegal.update(c for c, in out["cant_be_targeted"])
+    mine = [c for c in mine if c not in illegal]
     if not mine:
         print(f"    {a}: {ctrl} has no {tgt} creature to connive")
         return
     target = max(mine, key=lambda c: powers.get(c, 0))
-    lands = state.get("spell_type", set()) | state.get("printed_type", set())
-    for _ in range(n):
-        D._draw(state, ctrl)
-    nonland = 0
-    for _ in range(n):
-        hand = sorted(c for (p, c) in state.get("in_hand", set()) if p == ctrl)
-        if not hand:
-            break
-        card = D._choose(state, "connive_discard", hand, hand[0])
-        state["in_hand"].discard((ctrl, card))
-        state.setdefault(D._discard_zone(state, ctrl), set()).add((card,))
-        if (card, "land") not in lands:
-            nonland += 1
-    if nonland:
-        D._bump_counter(state, target, "p1p1", nonland)
-    print(f"    {a}: {ctrl} has {target} connive {n} ({nonland} nonland -> +1/+1 x{nonland} on {target})")
+    apply_connive(D, state, a, n, "self", target, ctrl)
+
+
+@encoder('copy_card_may_cast')
+def encode_card_copies(verb, amt, tgt, extra):
+    if str(tgt) == 'self':
+        return ('copy_card_may_cast', _int(amt, 1), 'self')
+    return None
+
+
+@applier('copy_card_may_cast')
+def apply_card_copies(D, state, a, n, tgt, src, ctrl):
+    from mtg.card_copies import cast_copies
+    cast_copies(D, state, [src] * n, ctrl)

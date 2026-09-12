@@ -141,24 +141,37 @@ def _cast_choices(state: dict, spell: str) -> list[dict]:
     the engine surfaced (spell_mode / spell_target / spell_effect_mode ctarget / name_exile_lib). A spell
     with none yields one empty dict. The target set is PER-MODE: a mode requiring a target with none legal is
     skipped (not the whole spell), and modes that need no target carry none."""
-    modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell) or [None]
+    modes = sorted(m for s, m in state.get('spell_mode', set()) if s == spell) or [None]
     names = _name_choices(state, spell)
+    teamwork = next((int(n) for s, n in state.get('teamwork_cost', set()) if s == spell), None)
+    payments = [False]
+    if teamwork is not None:
+        out = driver.run(state, ['controls', 'power', 'creature'])
+        powers = {c: int(n) for c, n in out['power']}
+        creatures = {c for c, in out['creature']}
+        available = sum(max(0, powers.get(c, 0)) for p, c in out['controls'] if p == _active(state)
+                        and c in creatures and (c,) in state.get('on_battlefield', set()) and (c,) not in state.get('tapped', set()))
+        if available >= teamwork:
+            payments.append(True)
     choices = []
-    for m in modes:
-        tcls = _mode_target_class(state, spell, m)
-        targets = _target_options(state, tcls) if tcls else [None]
-        if not targets:                              # this mode needs a target but none is legal -> skip it
-            continue
-        for t in targets:
-            for nm in names:
-                c = {}
-                if m is not None:
-                    c["mode"] = m
-                if t is not None:
-                    c["target"] = t
-                if nm is not None:
-                    c["name"] = nm
-                choices.append(c)
+    for paid in payments:
+        probe = driver.clone_state(state)
+        probe['on_stack'] = {(spell, 0)}; probe['all_passed'] = {('yes',)}
+        probe['cast_using_teamwork'] = {(spell,)} if paid else set()
+        for mode in modes:
+            probe['chose_mode'] = {(spell, mode)} if mode is not None else set()
+            cls = _mode_target_class(probe, spell, mode)
+            if cls is None:
+                cls = next((cl for s, _, _, cl in driver.run(probe, ['spell_target'])['spell_target'] if s == spell), None)
+            targets = _target_options(state, cls) if cls else [None]
+            for target in targets:
+                for name in names:
+                    choice = {}
+                    if mode is not None: choice['mode'] = mode
+                    if target is not None: choice['target'] = target
+                    if name is not None: choice['name'] = name
+                    if teamwork is not None: choice['teamwork'] = paid
+                    choices.append(choice)
     return choices
 
 
@@ -166,6 +179,15 @@ def _activate_choices(state: dict, ability_row: tuple) -> list[dict]:
     """Sub-choices for an activated ability: a creature-targeted ability (ctarget sentinel) enumerates its
     legal targets; everything else is a single no-choice activation."""
     eff, tgt = ability_row[4], ability_row[6]
+    if any(a == ability_row[0] and '{X}' in cost for a, cost, _ in state.get('ability_power_up', set())):
+        from mtg.rules_2026 import max_power_up_x
+        player = next(p for p, c in driver.run(state, ['controls'])['controls'] if c == ability_row[1])
+        return [{'power_up_x': x} for x in range(max_power_up_x(driver, state, ability_row[0], player) + 1)]
+    if eff == 'crew':
+        from mtg import crew
+        src = ability_row[1]
+        player = next(p for p, c in driver.run(state, ['controls'])['controls'] if c == src)
+        return [{'crew': group} for group in crew.choices(driver, state, player, int(ability_row[5]))]
     if eff == "ctarget":
         cls = str(tgt).split("|")[-1]
         opts = _target_options(state, cls)
@@ -364,7 +386,7 @@ def _priority_actions(state: dict, ap: str) -> list[tuple]:
     castable = sorted(s for (p, s) in driver.run(probe, ["can_cast"])["can_cast"] if p == ap)
     explicit = state.get("_explicit_lands")
     land_t = state.get("spell_type", set())
-    actions: list[tuple] = []
+    actions: list[tuple] = driver.priority_mana_actions(probe, ap)
     for spell in castable:
         if explicit and (spell, "land") in land_t:            # lands are offered as ('play', …), not cast
             continue
@@ -385,7 +407,16 @@ def legal_actions(state: dict) -> list[tuple]:
     ap = _active(state)
     step = _step(state)
     if step == "declare_attackers":
-        return [("attack", s) for s in _attack_options(state, ap)]
+        from itertools import product
+        targets = _others(state, ap) + sorted(b for b, p in state.get('battle_protector', set()) if p != ap and (b,) in state.get('on_battlefield', set()))
+        options = []
+        for attackers in _attack_options(state, ap):
+            if len(targets) <= 1:
+                options.append(('attack', attackers))
+            else:
+                for assignment in product(targets, repeat=len(attackers)):
+                    options.append(('attack', attackers, tuple(zip(sorted(attackers), assignment))))
+        return options
     if step == "declare_blockers":
         return [("block", b) for b in _block_options(state, _others(state, ap)[0])]
     if step in _MAIN:                                          # full sorcery-speed window
@@ -538,14 +569,18 @@ def step(state: dict, action: tuple) -> dict:
             _, ap, cmd = action
             driver._develop_mana(s, ap)                         # §305 land drop + mana (mirrors _cast_phase entry)
             driver.cast_commander(s, ap, cmd, players)
+        elif kind == "activate_mana":
+            _, ap, source, color = action
+            s["has_priority"] = {(ap,)}
+            driver.activate_priority_mana(s, ap, source, color)
         elif kind == "activate":
             _, ap, ab, choices = action
-            s["_forced"] = {"target": choices["target"]} if "target" in choices else {}
+            s["_forced"] = dict(choices)
             # mirror driver._activate_phase for a CHOSEN ability row, INCLUDING its §602.5 non-mana costs
             # (Pay N life / Discard N / Sacrifice this / Sacrifice a <X>) so the surface PAYS what it offers.
             a, src, cost, taps, eff, amt, tgt = ab
-            if int(cost):
-                driver._spend_ability_mana(s, ap, int(cost))
+            from mtg.rules_2026 import pay_activation
+            pay_activation(driver, s, ap, ab)
             life_cost = next((int(ln) for (aa, ln) in s.get("ability_life_cost", set()) if aa == a), 0)
             if life_cost:                                       # §118 'Pay N life' (Necropotence, Griselbrand)
                 driver._adjust_life(s, ap, -life_cost)
@@ -562,8 +597,7 @@ def step(state: dict, action: tuple) -> dict:
                 victim = driver._choose(s, "sacrifice", sorted(cands), cands[0]) if cands else None
                 if victim is not None:
                     driver._sacrifice(s, victim)
-            s.setdefault("_ability_effect", {})[a] = (eff, int(amt), tgt, src, ap)
-            driver._stack_push(s, a, ap)
+            driver.put_activation(s, a, eff, amt, tgt, src, ap)
             driver._resolve_stack(s, ap, players)
             s["_forced"] = {}
         elif kind == "cast_face_down":                          # §702.37/§702.166 cast a morph/disguise card face down
@@ -587,6 +621,8 @@ def step(state: dict, action: tuple) -> dict:
             driver._tap_all_for_mana(s, ap)
         elif kind == "attack":
             s["_forced"] = {"attackers": action[1]}
+            if len(action) > 2:
+                s["_forced"].update({"attack_target_" + a: t for a, t in action[2]})
             _advance_one(s)
             s["_forced"] = {}
         elif kind == "block":

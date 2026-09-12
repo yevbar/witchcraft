@@ -6,10 +6,10 @@ mtg drives a Datalog/souffle build: at runtime it reads the compiled rule files 
 those live at the repo root; in a wheel they're bundled INSIDE the package (copied there at build time).
 These resolvers hide that difference — every module addresses an artifact by name, not by a hardcoded path.
 
-Resolution order (first hit wins), matching mtg._native's policy for the compiled binary:
+Resolution order (first hit wins):
   1. env override      — $MTG_DATALOG (a datalog dir) / $MTG_CORPUS (a corpus file)
-  2. bundled           — mtg/_datalog/ , mtg/_data/oracle_corpus.json          (what a wheel ships)
-  3. source checkout   — <repo-root>/datalog , <repo-root>/mtgjson/oracle_corpus.json
+  2. source checkout for Datalog, bundled data for the oracle corpus
+  3. bundled Datalog in an installed wheel, local oracle corpus in a checkout
   4. (corpus only) the MAIN worktree's copy, so a git worktree without its own corpus still resolves.
 """
 from __future__ import annotations
@@ -27,6 +27,9 @@ def datalog_dir() -> Path:
     env = os.environ.get("MTG_DATALOG")
     if env:
         return Path(env).expanduser()
+    # In a source checkout, staging a wheel must not shadow the next rules rebuild.
+    if (_ROOT / "interpreter" / "rules_parser.py").is_file() and (_ROOT / "datalog").is_dir():
+        return _ROOT / "datalog"
     bundled = _PKG / "_datalog"
     if bundled.is_dir():
         return bundled

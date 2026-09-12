@@ -67,6 +67,8 @@ def encode_gain_control(verb, amt, tgt, extra):
     machinery the applier + control-Aura share; abstain on anything not a clean, choice-free creature target
     with a faithfully-revertable (or permanent) duration. payload = '<class>|<dur>|<flags>' — flags always
     '-' here (untap/haste riders are folded spell-side by bridge_to_engine._fold_threaten)."""
+    if str(tgt) == "target_noncreature_spell":
+        return ("gain_control_spell", 0, "noncreature")
     cls = _steal_target_class(tgt)
     if cls is None:
         return None
@@ -133,3 +135,17 @@ def apply_gain_control(D, state, a, n, tgt, src, ctrl):
         if "haste" in flagset:
             state.setdefault("until_eot", set()).add((haste_eid,))
     print(f"    {a}: {ctrl} gains control of {target}{note}{'' if dur == 'eot' else ' (permanently)'}")
+
+
+@applier('gain_control_spell')
+def apply_gain_control_spell(D, state, a, n, tgt, src, ctrl):
+    creatures = {c for c, t in state.get('spell_type', set()) if t == 'creature'}
+    candidates = [c for c, pos in sorted(state.get('on_stack', set()), key=lambda r: -r[1])
+                  if c != src and c not in creatures and c not in state.get('_ability_effect', {})]
+    if not candidates:
+        return
+    target = D._choose(state, 'target_spell', candidates, candidates[0])
+    state.setdefault('_stack_info', {})[target] = ctrl
+    state['printed_control'] = {r for r in state.get('printed_control', set()) if r[1] != target} | {(ctrl, target)}
+    if D._choose(state, 'new_targets', (False, True), True):
+        state.setdefault('_redirect', {})[target] = ctrl

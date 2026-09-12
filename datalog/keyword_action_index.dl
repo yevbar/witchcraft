@@ -71,6 +71,8 @@ keyword_action_index("701.65", "airbend").
 keyword_action_index("701.66", "earthbend").
 keyword_action_index("701.67", "waterbend").
 keyword_action_index("701.68", "blight").
+keyword_action_index("701.69", "heal").
+keyword_action_index("701.70", "recruit").
 
 keyword_action_definition("701.2a", "activate").
 keyword_action_definition("701.3a", "attach").
@@ -137,6 +139,8 @@ keyword_action_definition("701.65a", "airbend").
 keyword_action_definition("701.66a", "earthbend").
 keyword_action_definition("701.67a", "waterbend").
 keyword_action_definition("701.68a", "blight").
+keyword_action_definition("701.69a", "heal").
+keyword_action_definition("701.70a", "recruit").
 
 .output keyword_action_index
 .output keyword_action_definition

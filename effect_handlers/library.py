@@ -667,6 +667,8 @@ def _apply_thrasios_dig(D, state, a, n, tgt, src, ctrl):
         if top in order:
             order.remove(top)
         state.setdefault("on_battlefield", set()).add((top,))
+        from mtg.rules_2026 import entered
+        entered(state, top)
         state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != top} | {(ctrl, top)}
         state.setdefault("tapped", set()).add((top,))
         print(f"    {a}: {ctrl} reveals {top} (land) -> the battlefield tapped")
@@ -716,6 +718,8 @@ def _apply_dig_to_battlefield(D, state, a, n, tgt, src, ctrl):
             order.remove(c)
     if pick is not None:
         state.setdefault("on_battlefield", set()).add((pick,))
+        from mtg.rules_2026 import entered
+        entered(state, pick)
         state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
         state.setdefault("_sick", set()).add((pick,))
     for c in top:                                             # the rest go to the bottom (in canonical order)
@@ -870,6 +874,8 @@ def _apply_transmute_artifact(D, state, a, n, tgt, src, ctrl):
 
     def _to_battlefield():
         state.setdefault("on_battlefield", set()).add((pick,))
+        from mtg.rules_2026 import entered
+        entered(state, pick)
         state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
         if (pick, "creature") in ptype:                       # §302.6 an artifact creature enters summoning sick
             state.setdefault("_sick", set()).add((pick,))
@@ -907,6 +913,8 @@ def _apply_reanimate_permanent(D, state, a, n, tgt, src, ctrl):
     pick = max(cands, key=lambda c: (mv.get(c, 0), c))
     state["graveyard"].discard((pick,))
     state.setdefault("on_battlefield", set()).add((pick,))
+    from mtg.rules_2026 import entered
+    entered(state, pick)
     state["printed_control"] = {(p, x) for (p, x) in state.get("printed_control", set()) if x != pick} | {(ctrl, pick)}
     if (pick, "creature") in ptype:
         state.setdefault("_sick", set()).add((pick,))
@@ -1311,6 +1319,8 @@ def _place_card(state: dict, a: str, ctrl: str, card: str, dest: str) -> None:
         print(f"    trigger {a}: {ctrl} puts {card} into hand")
     elif dest in ("battlefield", "battlefield_tapped"):
         state.setdefault("on_battlefield", set()).add((card,))
+        from mtg.rules_2026 import entered
+        entered(state, card)
         # §701 the searched card enters under the controller's control (untapped unless the clause says tapped).
         pc = state.setdefault("printed_control", set())
         state["printed_control"] = {(p, x) for (p, x) in pc if x != card} | {(ctrl, card)}

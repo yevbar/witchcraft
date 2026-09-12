@@ -17,6 +17,7 @@ CI runs this once per OS/arch in the build matrix before building the wheel.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -38,6 +39,11 @@ def scrub_build_output() -> None:
 
 def stage_data() -> None:
     """Copy the Datalog build + the oracle corpus into the package."""
+    manifest = ROOT / "datalog" / "rules_version.json"
+    metadata = json.loads(manifest.read_text())
+    for name, key in (("rules.txt", "source_sha256"), ("datalog/engine_rules.dl", "engine_sha256")):
+        if hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != metadata[key]:
+            raise RuntimeError(f"Stale generated rules: {name}; run build.py before staging")
     dl_dst = PKG / "_datalog"
     shutil.rmtree(dl_dst, ignore_errors=True)
     dl_dst.mkdir(parents=True)
@@ -45,6 +51,7 @@ def stage_data() -> None:
     for f in sorted((ROOT / "datalog").glob("*.dl")):
         shutil.copy2(f, dl_dst / f.name)
         n += 1
+    shutil.copy2(manifest, dl_dst / manifest.name)
     print(f"  staged {n} datalog files -> {dl_dst.relative_to(ROOT)}")
 
     data_dst = PKG / "_data"

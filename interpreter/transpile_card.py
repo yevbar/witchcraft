@@ -309,6 +309,62 @@ def _escape(unit, ctx):
                          f'card_escape_exile("{cid}", {n})', *cost_facts], "escape")
 
 
+def _rules_2026_static(unit, ctx):
+    text = unit.raw.rstrip('.')
+    copies = re.fullmatch(r"Copy this card (\d+) times\. You may cast (?:the copies|those copies) without paying their mana costs", text, re.I)
+    if copies:
+        cid, aid = ctx['id'], f'a{ctx.get("seq", 0)}'
+        return CardOut(cid, [f'card_ability("{cid}", "{aid}", "spell")',
+                            f'card_effect("{cid}", "{aid}", 0, "copy_card_may_cast", "{copies[1]}", "self", "-", "-")'], 'card_copies')
+
+    repeat = re.fullmatch(r"(When(?:ever)?|At) (.+?), you may pay \{(\d+)\} any number of times\. When you do, (.+)", text, re.I)
+    if repeat:
+        cid, aid = ctx['id'], f'a{ctx.get("seq", 0)}'
+        effects = _parse_body(repeat[4])
+        if effects:
+            rows = [f'card_ability("{cid}", "{aid}_0", "triggered")',
+                    f'ability_trigger("{cid}", "{aid}_0", "{ground.slug(repeat[2])}")',
+                    f'ability_modifier("{cid}", "{aid}_0", "repeat_payment")',
+                    f'card_effect("{cid}", "{aid}_0", 0, "pay", "{repeat[3]}", "you", "-", "may")',
+                    f'card_ability("{cid}", "{aid}_1", "triggered")',
+                    f'ability_trigger("{cid}", "{aid}_1", "you_do")']
+            return CardOut(cid, rows + _effect_facts(cid, aid + '_1', effects), 'repeat_payment')
+
+    if re.fullmatch(r"You may cast creature spells as though they had flash if you control a legendary creature", text, re.I):
+        return CardOut(ctx['id'], [f'static("{ctx["id"]}", "creature_flash_if_legendary")'], 'conditional_flash')
+
+    crew = re.fullmatch(r"Whenever ~ becomes crewed, if it was crewed by (?:a|an) (\w+), (.+)", text, re.I)
+    if crew:
+        out = _triggered(dataclasses.replace(unit, raw="Whenever ~ becomes crewed, " + crew[2]), ctx)
+        if out:
+            out.facts.append(f'ability_modifier("{ctx["id"]}", "a{ctx.get("seq", 0)}", "crew_subtype_{crew[1].lower()}")')
+        return out
+
+    if re.fullmatch(r"Each power-up ability of permanents you control can be activated an additional time", text, re.I):
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "power_up_extra_activation")'], "power_up_limit")
+    reduction = re.fullmatch(r"Power-up abilities of other creatures you control cost \{(\d+)\} less to activate", text, re.I)
+    if reduction:
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "power_up_other_reduction_{reduction[1]}")'], "power_up_reduction")
+    if re.fullmatch(r"If damage would be dealt to (?:~|.+?), instead that damage is dealt, but all other damage already dealt to (?:it|him|her|~) is healed", text, re.I):
+        return CardOut(ctx["id"], [f'static("{ctx["id"]}", "heal_previous_damage")'], "heal_replacement")
+    return None
+
+
+def _power_up(unit, ctx):
+    """CR 702.193: preserve the activation and its keyword-specific rules."""
+    m = re.match(r"^Power-up\s+—\s+(.+)$", unit.raw, re.I)
+    if not m:
+        return None
+    out = _activated(dataclasses.replace(unit, raw=m.group(1)), ctx)
+    if out is None:
+        return None
+    aid = f"a{ctx.get('seq', 0)}"
+    out.facts.append(f'ability_modifier("{ctx["id"]}", "{aid}", "power_up")')
+    out.facts.append(f'printed_keyword("{ctx["id"]}", "power_up")')
+    out.pattern = "power_up"
+    return out
+
+
 def _mana_ability(unit, ctx):
     """An activated mana ability '<cost>: Add <mana>.' (§605.1a — activated, no target, adds mana).
     Cost and produced mana are grounded (symbols via §107.4, colors via §105). Abstains on any
@@ -319,6 +375,9 @@ def _mana_ability(unit, ctx):
     if not m:
         return None
     cost = m.group("cost").strip()
+    # Library movement in the cost prevents mana-ability classification (605.1a).
+    if re.search(r"\b(?:mill|draw|library)\b", cost, re.I):
+        return None
     if "{" not in cost:                           # require a symbol-led cost ({T}, {1}{T}, …) — abstain on prose costs
         return None
     prod = _mana_production(m.group("what"))
@@ -414,7 +473,7 @@ def _enum_split(sentence: str):
 
 
 _COST_VERB = re.compile(r"^(sacrifice|discard|pay|exile|tap|untap|remove|return|reveal|mill|put|exert|"
-                        r"waterbend|earthbend|airbend|collect)\b", re.I)
+                        r"waterbend|earthbend|airbend|collect|forage|blight)\b", re.I)
 
 
 # ability-modifier clauses — timing/frequency restrictions (§602.5/§603), not effects. Recognized and
@@ -2765,8 +2824,7 @@ def _poison_tolerance(unit, ctx):
 # ground on its own ABSTAINS (returns None) rather than emitting a partial fact.
 
 def _teamwork(unit, ctx):
-    """'Teamwork N' — the Unfinity keyword ability with a numeric parameter. NOT in this rules.txt KB,
-    so recorded descriptively as teamwork(card, N) rather than a grounded §702 keyword."""
+    """CR 702.194: retain the dedicated cost fact consumed by the engine bridge."""
     m = re.match(r"^Teamwork (\d+)\.?$", unit.raw, re.I)
     if not m:
         return None
@@ -2977,7 +3035,7 @@ def _static_conjuncts(unit, ctx):
     return CardOut(ctx["id"], facts, "static_grant")
 
 
-_PATTERNS = [_kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
+_PATTERNS = [_rules_2026_static, _power_up, _teamwork, _kw_line, _typecycling, _prototype, _escape, _kw_param, _specialize, _ticket_pt,
              _teamwork, _sticker, _assemble_contraption, _spellbook,
              _starting_intensity, _intensify_static, _augment, _poison_tolerance, _ready_to_run,
              _leveler, _station_band, _painland, _enters_prepared, _can_block_additional,
@@ -3016,6 +3074,8 @@ def _strip_ability_word(raw: str) -> str:
 
 
 def _try_patterns(u, ctx):
+    if re.match(r"^Power-up\s+—", u.raw, re.I):
+        return _power_up(u, ctx)
     for fn in _PATTERNS:
         out = fn(u, ctx)
         if out:
@@ -3051,7 +3111,8 @@ def transpile_unit(unit, ctx) -> "CardOut | None":
     """Interpret one ability unit; first faithful pattern wins, else None (abstain).
     Fallback: a multi-sentence line whose EVERY sentence is independently a whole ability (e.g.
     '~ enters tapped. As it enters, choose a color.') — interpret each and merge, no half-credit."""
-    stripped = _strip_ability_word(unit.raw)
+    # Power-up is an actual keyword, not an ability word, even before vocabulary regeneration.
+    stripped = unit.raw if re.match(r"^Power-up\s+—", unit.raw, re.I) else _strip_ability_word(unit.raw)
     u = unit if stripped == unit.raw else dataclasses.replace(unit, raw=stripped)
     out = _try_patterns(u, ctx)
     if not out:

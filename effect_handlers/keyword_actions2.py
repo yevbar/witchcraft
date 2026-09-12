@@ -133,6 +133,8 @@ def _manifest_card(state: dict, ctrl: str, card: str) -> None:
     """§708.2 put `card` onto the battlefield FACE DOWN as a 2/2 (face_down.py's manifest body): face_down
     (engine derives the 2/2 colorless body) + known(ctrl) (the controller knows the real card) + _sick."""
     state.setdefault("on_battlefield", set()).add((card,))
+    from mtg.rules_2026 import entered
+    entered(state, card)
     state.setdefault("printed_control", set()).add((ctrl, card))
     state.setdefault("face_down", set()).add((card,))
     state.setdefault("known", set()).add((ctrl, card))

@@ -23,6 +23,11 @@ _DB_CACHE: dict = {}                                   # keyed on cards.dl's (mt
 
 
 def _args(s: str):
+    import json
+    try:
+        return [str(value) for value in json.loads("[" + s + "]")]
+    except (ValueError, TypeError):
+        pass
     # Split on commas OUTSIDE double quotes (a comma inside a quoted field — a multi-part cost like
     # "{T}, Sacrifice ~", or a card name like "Jaya, Fiery Negotiator" — is part of the value, not a
     # delimiter). The old `"[^"]*"|[^,]+` findall mis-split these: after a leading space the [^,]+ branch
@@ -64,8 +69,12 @@ def load_db():
             db.setdefault(a[0], {}).setdefault("mana_source", []).append((a[1], a[2], int(a[3])))
         elif rel == "card_ability":
             db.setdefault(a[0], {}).setdefault("abilities", {})[a[1]] = {"kind": a[2], "effects": []}
+        elif rel == "card_unparsed":
+            db.setdefault(a[0], {}).setdefault("unparsed", []).append((int(a[1]), a[2]))
         elif rel == "ability_cost":
             db[a[0]]["abilities"][a[1]]["cost"] = a[2]
+        elif rel == "ability_modifier":
+            db[a[0]]["abilities"][a[1]].setdefault("modifiers", set()).add(a[2])
         elif rel == "ability_trigger":
             db[a[0]]["abilities"][a[1]]["trigger"] = a[2]
         elif rel == "class_level":                           # §717 a Class's '{cost}: Level N' level-up step
