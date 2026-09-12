@@ -204,6 +204,7 @@ _EVENT = {
     # a card' to the slug "you_cycle". The any-player variant ("a_player_cycles_a_card", Astral Slide) is NOT
     # mapped here — it would need an any-controller fires rule + cross-player tracking; faithful abstain.
     "you_cycle": "you_cycle",
+    "becomes_crewed": "becomes_crewed",
     "connives": "connives_self",
     "a_creature_you_control_connives": "your_creature_connives",
     # §603 'whenever YOU gain life' (Celestial Unicorn, Ajani's Pridemate, Archangel of Thune, Cleric Class).
@@ -2900,6 +2901,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             add("cost_reducer", (tid, _cr[0], _cr[1]))        # (this permanent, amount, color/type/'any' filter)
         else:
             dropped.append(("cost_modifier", (_dir, _amt, _filt)))  # 'self'/tax/variable/subtype -> faithful abstain
+    if "creature_flash_if_legendary" in f.get("statics", []):
+        add("creature_flash_if_legendary", (tid,))
     for modifier in f.get("statics", []):
         if modifier == "power_up_extra_activation":
             add("power_up_extra_activation", (tid,))
@@ -2988,11 +2991,16 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
             d = _loyalty_delta(ab.get("cost"))               # the signed loyalty cost (driver-side: offer + pay)
             if d is not None:
                 add("loyalty_ability", (facts, aid, d))
+        for modifier in ab.get('modifiers', set()):
+            if modifier.startswith('crew_subtype_'):
+                add('crew_trigger_subtype', (f'{tid}_{aid}', modifier.removeprefix('crew_subtype_')))
         if ab.get("trigger"):
             if aid in you_do_pairs:                            # §603.2c a tractable 'If you do' consequent: rewrite the
                 ante_aid, (ckind, camt) = you_do_pairs[aid]    # synthetic 'you_do' phrase -> the event_map'd 'you_did'
                 add("ability_trigger", (facts, aid, "you_did"))   # so the consequent's effects derive their trigger_* /
                 cons_ia, ante_ia = f"{tid}_{aid}", f"{tid}_{ante_aid}"   # pending_* rows like any other triggered ability,
+                if "repeat_payment" in f["abilities"][ante_aid].get("modifiers", set()):
+                    add("you_do_repeat", (ante_ia,))
                 add("you_do_pair", (cons_ia, ante_ia))         # and the engine fires() gates it on did_optional(ante_IA).
                 add("you_do_cost", (ante_ia, ckind, int(camt)))   # the driver OFFERS this optional cost (default decline).
             else:
@@ -3029,6 +3037,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
     cyc_params = sorted(p for (k, p) in f.get("keyword_param", set()) if k == "cycling")
     for kw, param in f.get("keyword_param", set()):          # §702.14 carry the keyword's arg (landwalk's land
         add("keyword_param", (facts, kw, param))             # subtype, cycling cost, …) so evasion/etc. stays faithful
+        if kw == "crew" and str(param).isdigit():
+            add("activated_ability", (tid + "_crew", tid, 0, "-", "crew", int(param), "self"))
         if kw == "protection":                               # §702.16 protection FROM a colour -> the engine's
             cols = _protection_colors(param)                 # protection_from input (illegal_target gates Col spells).
             if cols:                                         # The engine models the TARGETING half of protection; the

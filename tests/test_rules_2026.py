@@ -39,8 +39,8 @@ def creature(s, name, player='alice'):
     s['printed_toughness'].add((name, 3))
 
 
-def parsed_card(text, mana='{2}{G}'):
-    card = {'name': 'Probe', 'types': ['Creature'], 'text': text, 'manaCost': mana}
+def parsed_card(text, mana='{2}{G}', types=None):
+    card = {'name': 'Probe', 'types': types or ['Creature'], 'text': text, 'manaCost': mana}
     f = {'abilities': {}}
     for i, unit in enumerate(units_of(card)):
         out = transpile_unit(unit, {'id': 'probe', 'card': card, 'seq': i})

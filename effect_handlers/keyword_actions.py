@@ -131,3 +131,16 @@ def apply_connive_target(D, state, a, n, tgt, src, ctrl):
         return
     target = max(mine, key=lambda c: powers.get(c, 0))
     apply_connive(D, state, a, n, "self", target, ctrl)
+
+
+@encoder('copy_card_may_cast')
+def encode_card_copies(verb, amt, tgt, extra):
+    if str(tgt) == 'self':
+        return ('copy_card_may_cast', _int(amt, 1), 'self')
+    return None
+
+
+@applier('copy_card_may_cast')
+def apply_card_copies(D, state, a, n, tgt, src, ctrl):
+    from mtg.card_copies import cast_copies
+    cast_copies(D, state, [src] * n, ctrl)

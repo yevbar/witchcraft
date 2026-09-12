@@ -92,6 +92,10 @@ def entered(state, obj):
 
 def pay_activation(D, state, player, row):
     ability, src, cost, *_ = row
+    if row[4] == "crew":
+        from mtg import crew
+        crew.pay(D, state, ability, player, int(row[5]))
+        return
     mill = next((int(n) for a, n in state.get("ability_mill_cost", set()) if a == ability), 0)
     if mill:
         if sum(p == player for p, c in state.get("in_library", set())) < mill:

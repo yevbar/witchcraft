@@ -107,6 +107,12 @@ from interpreter.build_ending import thresholds as _loss_thresholds  # noqa: E40
 STEPS = flat_steps()
 
 INPUTS = [
+    ("creature_flash_if_legendary", [("s", "symbol")]),
+    ("crew_trigger_subtype", [("a", "symbol"), ("st", "symbol")]),
+    ("just_crewed", [("c", "symbol")]),
+    ("crewed_by", [("v", "symbol"), ("c", "symbol")]),
+    ("crew_power", [("v", "symbol"), ("c", "symbol"), ("n", "number")]),
+    ("crew_subtype", [("v", "symbol"), ("c", "symbol"), ("st", "symbol")]),
     ("battle_protector", [("battle", "symbol"), ("p", "symbol")]),
     ("battle_trigger_pending", [("battle", "symbol")]),
     ("face_down", [("c", "symbol")]),
@@ -959,7 +965,11 @@ def _rules(p: Program) -> None:
     p.comment("speed 'instant' -> any priority; 'sorcery' -> active player, a main phase, empty stack.")
     p.decl("cast_permission", [("type", "symbol"), ("action", "symbol"), ("speed", "symbol")])
     p.facts([f'cast_permission("{t}", "{a}", "{sp}")' for _n, t, a, sp in _casting_perms()])
+    p.decl("flash_permission", [("p", "symbol"), ("s", "symbol")])
+    p.rule("flash_permission(P, S)", ["playable_source(P, S)", 'has_keyword(S, "flash")'])
+    p.rule("flash_permission(P, S)", ["playable_source(P, S)", 'spell_type(S, "creature")', "creature_flash_if_legendary(E)", "on_battlefield(E)", "controls(P, E)", "controls(P, C)", "on_battlefield(C)", "creature(C)", 'has_supertype(C, "legendary")'])
     p.decl("can_cast", [("p", "symbol"), ("s", "symbol")])
+    p.rule("can_cast(P, S)", ["flash_permission(P, S)", "has_priority(P)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "instant")', "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.rule("can_cast(P, S)", ["playable_source(P, S)", "has_priority(P)", "active_player(P)", "spell_type(S, T)", 'cast_permission(T, "cast", "sorcery")', "current_step(St)", "main_phase(St)", "!on_stack(_, _)", "can_afford(P, S)", "target_ok(S)", "!cant_cast_legend(P, S)"])
     p.blank()
@@ -1139,6 +1149,8 @@ def _rules(p: Program) -> None:
     # Decree of Justice, Dismantling Wave) — the controller cycled a card. The cycling ACTION itself ends in
     # a draw, so the §603 you_draw watchers above also fire; this rule fires the dedicated cycle payoffs.
     p.rule("fires(A, S)", ['has_trigger(A, S, "you_cycle")', "ev_cycle(P)", "controls(P, S)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_crewed")', "just_crewed(S)", "crew_trigger_subtype(A, St)", "crew_subtype(S, _, St)"])
+    p.rule("fires(A, S)", ['has_trigger(A, S, "becomes_crewed")', "just_crewed(S)", "!crew_trigger_subtype(A, _)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "connives_self")', "just_connived(S, _)", "on_battlefield(S)"])
     p.rule("fires(A, S)", ['has_trigger(A, S, "your_creature_connives")', "just_connived(_, P)", "controls(P, S)", "on_battlefield(S)"])
     # §705 'whenever you win a coin flip' (Tavern Scoundrel) — the controller just won a flip.

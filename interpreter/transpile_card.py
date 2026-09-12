@@ -311,6 +311,35 @@ def _escape(unit, ctx):
 
 def _rules_2026_static(unit, ctx):
     text = unit.raw.rstrip('.')
+    copies = re.fullmatch(r"Copy this card (\d+) times\. You may cast (?:the copies|those copies) without paying their mana costs", text, re.I)
+    if copies:
+        cid, aid = ctx['id'], f'a{ctx.get("seq", 0)}'
+        return CardOut(cid, [f'card_ability("{cid}", "{aid}", "spell")',
+                            f'card_effect("{cid}", "{aid}", 0, "copy_card_may_cast", "{copies[1]}", "self", "-", "-")'], 'card_copies')
+
+    repeat = re.fullmatch(r"(When(?:ever)?|At) (.+?), you may pay \{(\d+)\} any number of times\. When you do, (.+)", text, re.I)
+    if repeat:
+        cid, aid = ctx['id'], f'a{ctx.get("seq", 0)}'
+        effects = _parse_body(repeat[4])
+        if effects:
+            rows = [f'card_ability("{cid}", "{aid}_0", "triggered")',
+                    f'ability_trigger("{cid}", "{aid}_0", "{ground.slug(repeat[2])}")',
+                    f'ability_modifier("{cid}", "{aid}_0", "repeat_payment")',
+                    f'card_effect("{cid}", "{aid}_0", 0, "pay", "{repeat[3]}", "you", "-", "may")',
+                    f'card_ability("{cid}", "{aid}_1", "triggered")',
+                    f'ability_trigger("{cid}", "{aid}_1", "you_do")']
+            return CardOut(cid, rows + _effect_facts(cid, aid + '_1', effects), 'repeat_payment')
+
+    if re.fullmatch(r"You may cast creature spells as though they had flash if you control a legendary creature", text, re.I):
+        return CardOut(ctx['id'], [f'static("{ctx["id"]}", "creature_flash_if_legendary")'], 'conditional_flash')
+
+    crew = re.fullmatch(r"Whenever ~ becomes crewed, if it was crewed by (?:a|an) (\w+), (.+)", text, re.I)
+    if crew:
+        out = _triggered(dataclasses.replace(unit, raw="Whenever ~ becomes crewed, " + crew[2]), ctx)
+        if out:
+            out.facts.append(f'ability_modifier("{ctx["id"]}", "a{ctx.get("seq", 0)}", "crew_subtype_{crew[1].lower()}")')
+        return out
+
     if re.fullmatch(r"Each power-up ability of permanents you control can be activated an additional time", text, re.I):
         return CardOut(ctx["id"], [f'static("{ctx["id"]}", "power_up_extra_activation")'], "power_up_limit")
     reduction = re.fullmatch(r"Power-up abilities of other creatures you control cost \{(\d+)\} less to activate", text, re.I)

@@ -141,24 +141,37 @@ def _cast_choices(state: dict, spell: str) -> list[dict]:
     the engine surfaced (spell_mode / spell_target / spell_effect_mode ctarget / name_exile_lib). A spell
     with none yields one empty dict. The target set is PER-MODE: a mode requiring a target with none legal is
     skipped (not the whole spell), and modes that need no target carry none."""
-    modes = sorted(m for (s, m) in state.get("spell_mode", set()) if s == spell) or [None]
+    modes = sorted(m for s, m in state.get('spell_mode', set()) if s == spell) or [None]
     names = _name_choices(state, spell)
+    teamwork = next((int(n) for s, n in state.get('teamwork_cost', set()) if s == spell), None)
+    payments = [False]
+    if teamwork is not None:
+        out = driver.run(state, ['controls', 'power', 'creature'])
+        powers = {c: int(n) for c, n in out['power']}
+        creatures = {c for c, in out['creature']}
+        available = sum(max(0, powers.get(c, 0)) for p, c in out['controls'] if p == _active(state)
+                        and c in creatures and (c,) in state.get('on_battlefield', set()) and (c,) not in state.get('tapped', set()))
+        if available >= teamwork:
+            payments.append(True)
     choices = []
-    for m in modes:
-        tcls = _mode_target_class(state, spell, m)
-        targets = _target_options(state, tcls) if tcls else [None]
-        if not targets:                              # this mode needs a target but none is legal -> skip it
-            continue
-        for t in targets:
-            for nm in names:
-                c = {}
-                if m is not None:
-                    c["mode"] = m
-                if t is not None:
-                    c["target"] = t
-                if nm is not None:
-                    c["name"] = nm
-                choices.append(c)
+    for paid in payments:
+        probe = driver.clone_state(state)
+        probe['on_stack'] = {(spell, 0)}; probe['all_passed'] = {('yes',)}
+        probe['cast_using_teamwork'] = {(spell,)} if paid else set()
+        for mode in modes:
+            probe['chose_mode'] = {(spell, mode)} if mode is not None else set()
+            cls = _mode_target_class(probe, spell, mode)
+            if cls is None:
+                cls = next((cl for s, _, _, cl in driver.run(probe, ['spell_target'])['spell_target'] if s == spell), None)
+            targets = _target_options(state, cls) if cls else [None]
+            for target in targets:
+                for name in names:
+                    choice = {}
+                    if mode is not None: choice['mode'] = mode
+                    if target is not None: choice['target'] = target
+                    if name is not None: choice['name'] = name
+                    if teamwork is not None: choice['teamwork'] = paid
+                    choices.append(choice)
     return choices
 
 
@@ -166,6 +179,11 @@ def _activate_choices(state: dict, ability_row: tuple) -> list[dict]:
     """Sub-choices for an activated ability: a creature-targeted ability (ctarget sentinel) enumerates its
     legal targets; everything else is a single no-choice activation."""
     eff, tgt = ability_row[4], ability_row[6]
+    if eff == 'crew':
+        from mtg import crew
+        src = ability_row[1]
+        player = next(p for p, c in driver.run(state, ['controls'])['controls'] if c == src)
+        return [{'crew': group} for group in crew.choices(driver, state, player, int(ability_row[5]))]
     if eff == "ctarget":
         cls = str(tgt).split("|")[-1]
         opts = _target_options(state, cls)
@@ -552,7 +570,7 @@ def step(state: dict, action: tuple) -> dict:
             driver.activate_priority_mana(s, ap, source, color)
         elif kind == "activate":
             _, ap, ab, choices = action
-            s["_forced"] = {"target": choices["target"]} if "target" in choices else {}
+            s["_forced"] = dict(choices)
             # mirror driver._activate_phase for a CHOSEN ability row, INCLUDING its §602.5 non-mana costs
             # (Pay N life / Discard N / Sacrifice this / Sacrifice a <X>) so the surface PAYS what it offers.
             a, src, cost, taps, eff, amt, tgt = ab

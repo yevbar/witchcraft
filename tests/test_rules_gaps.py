@@ -4,6 +4,128 @@ from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_teamwork_declined_does_not_require_rider_target(self):
+        from mtg.engine.env import _cast_choices
+        s = state()
+        rows, drops = parsed_card('Teamwork 2\nDraw a card. If this spell was cast using teamwork, put a +1/+1 counter on target creature.', types=['Sorcery'])
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        self.assertEqual(_cast_choices(s, 'probe'), [{'teamwork': False}])
+        creature(s, 'hero')
+        choices = _cast_choices(s, 'probe')
+        self.assertIn({'teamwork': False}, choices)
+        self.assertIn({'teamwork': True, 'target': 'hero'}, choices)
+
+    def test_card_copies_choose_cast_independently(self):
+        from mtg.card_copies import cast_copies
+        s = state(); s['instance_of'] = {('original', 'card')}; s['card_type'] = {('card', 'sorcery')}
+        decisions = iter([True, False, True])
+        s['_policy'] = lambda key, options, default: next(decisions) if key == 'cast_card_copy' else default
+        # Use the common decision seam while leaving cast-trigger choices at their defaults.
+        real = D._choose
+        with patch.object(D, '_choose', side_effect=lambda st, key, opts, default: next(decisions) if key == 'cast_card_copy' else default):
+            made = cast_copies(D, s, ['original'] * 3, 'alice')
+        self.assertEqual(len(made), 2)
+        self.assertEqual(len(s['on_stack']), 2)
+        self.assertEqual(s['_cast_count'], 2)
+        self.assertFalse(s['exile'])
+
+    def test_departed_players_last_turn_expires_at_their_scheduled_turn(self):
+        from mtg import turn_history as history
+        s = state(); s['is_player'].add(('carol',)); s['_turn_order'] = ['alice', 'bob', 'carol']
+        history.record(s, 'bob', 'cast', 'spell'); history.finish(s, 'bob')
+        history.leave(s, 'bob')
+        self.assertTrue(history.last_turn(s, 'bob'))
+        self.assertEqual(D._next_active_player(s, 'carol', ['alice', 'carol']), 'alice')
+        self.assertTrue(history.last_turn(s, 'bob'))
+        self.assertEqual(D._next_active_player(s, 'alice', ['alice', 'carol']), 'carol')
+        self.assertFalse(history.last_turn(s, 'bob'))
+        self.assertIn(('bob', 'cast', 'spell'), s['_game_actions'])
+
+    def test_departed_damage_source_uses_last_keywords_and_controller(self):
+        for keyword in ('deathtouch', 'lifelink', 'wither', 'infect'):
+            s = state(); creature(s, 'source'); creature(s, 'target', 'bob')
+            s['eff_grant_keyword'] = {('grant', 'source', keyword)}
+            D._sacrifice(s, 'source')
+            s['eff_grant_keyword'] = set()
+            D._apply_damage(s, 'ability', 1, 'creature_fixed:target', 'alice', 'source')
+            if keyword == 'deathtouch':
+                self.assertNotIn(('target',), s['on_battlefield'])
+            elif keyword == 'lifelink':
+                self.assertIn(('alice', 21), s['life'])
+            else:
+                self.assertIn(('target', 'm1m1', 1), s['counter'])
+                self.assertNotIn(('target', 1), s.get('marked_damage', set()))
+        D._apply_damage(s, 'ability', 2, 'face', 'alice', 'source')
+        self.assertIn(('bob', 2), s['poison'])
+        self.assertIn(('bob', 20), s['life'])
+
+    def test_multiple_optional_payments_trigger_reflexive_once(self):
+        s = state(); creature(s, 'probe')
+        rows, drops = parsed_card('At the beginning of your upkeep, you may pay {1} any number of times. When you do, you gain 1 life.')
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        s['current_step'] = {('upkeep',)}
+        D._set_floating(s, 'alice', {'blue': 3}); D._refresh_mana_pool(s, 'alice')
+        s['_forced'] = {'you_do_pay_count': 3}
+        D._fire_you_do_costs(s)
+        self.assertIn(('alice', 21), s['life'])
+        self.assertFalse(D._floating(s, 'alice'))
+
+    def test_conditional_flash_survives_permission_lost_during_payment(self):
+        s = state(); creature(s, 'legend'); s['has_supertype'] = {('legend', 'legendary')}
+        rows, drops = parsed_card('You may cast creature spells as though they had flash if you control a legendary creature.')
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        s['on_battlefield'].add(('probe',)); s['active_player'] = {('bob',)}
+        s['in_hand'] = {('alice', 'spell')}; s['spell_type'] = {('spell', 'creature')}
+        s['mana_cost'] = {('spell', 0)}; s['mana_available'] = {('alice', 0)}
+        self.assertIn(('alice', 'spell'), D.run(s, ['can_cast'])['can_cast'])
+        def pay(state, player, spell):
+            D._sacrifice(state, 'legend')
+        with patch.object(D, '_spend_mana', side_effect=pay):
+            D._cast_spell(s, 'alice', 'spell', ['alice', 'bob'])
+        self.assertIn(('spell',), s['on_battlefield'])
+        self.assertNotIn(('legend',), s['on_battlefield'])
+
+    def test_crew_intervening_if_only_checks_this_activation(self):
+        from mtg import crew
+        s = state(); creature(s, 'dwarf'); creature(s, 'elf'); creature(s, 'probe')
+        s['printed_subtype'] = {('dwarf', 'dwarf'), ('elf', 'elf')}
+        rows, drops = parsed_card('Whenever ~ becomes crewed, if it was crewed by a Dwarf, you gain 1 life.')
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        for c in ('dwarf', 'elf'):
+            s['_forced'] = {'crew': frozenset({c})}
+            crew.pay(D, s, 'activation', 'alice', 2)
+            crew.resolve(D, s, 'activation', 'probe', 'alice')
+        self.assertIn(('alice', 21), s['life'])
+
+    def test_crew_activations_pay_and_keep_separate_attribution(self):
+        from mtg import crew
+        s = state(); creature(s, 'one'); creature(s, 'two')
+        rows, drops = parsed_card('Crew 2', types=['Artifact'])
+        self.assertFalse(drops)
+        for k, v in rows.items(): s.setdefault(k, set()).update(v)
+        s['on_battlefield'].add(('probe',))
+        s['printed_type'] = {r for r in s['printed_type'] if r[0] != 'probe'} | {('probe', 'artifact')}
+        s['printed_power'].add(('probe', 4)); s['printed_toughness'].add(('probe', 4))
+        self.assertTrue(D._activatable(s, 'alice'))
+        for chosen in ('one', 'two'):
+            row = D._activatable(s, 'alice')[0]
+            s['_forced'] = {'crew': frozenset({chosen})}
+            rules_2026.pay_activation(D, s, 'alice', row)
+            D.put_activation(s, row[0], row[4], row[5], row[6], row[1], 'alice')
+        self.assertEqual(len(s['on_stack']), 2)
+        self.assertEqual({next(iter(v['creatures'])) for v in s['_crew_payment'].values()}, {'one', 'two'})
+        self.assertFalse(D._activatable(s, 'alice'))
+        D._resolve_top(s)
+        self.assertIn(('probe',), D.run(s, ['creature'])['creature'])
+        self.assertEqual(len(s['_crew_payment']), 1)
+        D._resolve_top(s)
+        self.assertFalse(s['_crew_payment'])
+        self.assertFalse(s['crewed_by'])
+
     def test_battle_zero_defense_sba_and_protector_combat(self):
         from mtg import battles
         s = state(); creature(s, 'attacker'); creature(s, 'blocker', 'bob')
