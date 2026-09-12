@@ -364,7 +364,7 @@ def _priority_actions(state: dict, ap: str) -> list[tuple]:
     castable = sorted(s for (p, s) in driver.run(probe, ["can_cast"])["can_cast"] if p == ap)
     explicit = state.get("_explicit_lands")
     land_t = state.get("spell_type", set())
-    actions: list[tuple] = []
+    actions: list[tuple] = driver.priority_mana_actions(probe, ap)
     for spell in castable:
         if explicit and (spell, "land") in land_t:            # lands are offered as ('play', …), not cast
             continue
@@ -538,6 +538,9 @@ def step(state: dict, action: tuple) -> dict:
             _, ap, cmd = action
             driver._develop_mana(s, ap)                         # §305 land drop + mana (mirrors _cast_phase entry)
             driver.cast_commander(s, ap, cmd, players)
+        elif kind == "activate_mana":
+            _, ap, source, color = action
+            driver.activate_priority_mana(s, ap, source, color)
         elif kind == "activate":
             _, ap, ab, choices = action
             s["_forced"] = {"target": choices["target"]} if "target" in choices else {}

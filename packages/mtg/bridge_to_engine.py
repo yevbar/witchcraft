@@ -2534,7 +2534,7 @@ def _alt_mana_cost(cost) -> tuple | None:
         return ("pay_life", int(m.group(1)))
     if re.match(r"^Exile (~|this card|this creature|this artifact) from your hand$", s, re.I):
         return ("exile_hand", 0)
-    if re.match(r"^Discard your hand$", s, re.I):
+    if re.match(r"^Discard your hand(?:, Sacrifice (?:~|this (?:artifact|creature|permanent)))?$", s, re.I):
         return ("discard_hand", 0)
     rc = re.match(r"^Remove (\w+) ([+-]1/[+-]1) counters? from (~|this creature|this artifact|it)$", s, re.I)
     if rc and rc.group(1).lower() in _NUMWORD:                # §605 Runaway Steam-Kin counter-removal mana cost
@@ -3710,6 +3710,8 @@ def card_facts(name: str, ctrl: str, tid: str, db: dict, corpus: dict) -> tuple[
                 alt = _alt_mana_cost(ab.get("cost")) if not moves_library and any(e[1] == "add_mana" for e in ab.get("effects", [])) else None
                 if alt is not None and _add_mana_source(add, tid, False, 0, False, ab.get("effects", [])):
                     add("source_special_cost", (tid, alt[0], alt[1]))
+                    if "activate_only_as_an_instant" in ab.get("modifiers", set()):
+                        add("source_priority_only", (tid,))
                     # the LED-style self-sacrifice rider belongs ONLY to the discard-hand cost (its 'Sacrifice ~'
                     # rides the card text); don't fire it for OTHER alt costs (Cabbage's text mentions 'sacrifice
                     # a Food', which must NOT make the Cabbage itself a one-shot sacrifice source).

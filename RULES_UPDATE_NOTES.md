@@ -93,6 +93,25 @@ second-combat damage, both hybrid colors, and spending-as-any-color interactions
 The two build-gate tests pass. Regenerated engine artifacts are deterministic and
 pass compilation and semantic conformance. This does not establish a green full suite.
 
+## Mana-check follow-up
+
+The colored-mana suite now passes 37/37 checks. Its seven failures were stale
+expectations for the generated mana-source format: the special-cost field was
+missing, and Dimir Signet's separate production rows were expected as one row.
+
+The fast-mana suite now passes 46/46 checks. Lion's Eye Diamond's combined discard
+and sacrifice cost is recognized. Its mana is available through an explicit
+`activate_mana` action with priority; it cannot fund a spell being cast from hand.
+Activation discards the entire hand, sacrifices the artifact, and immediately
+floats three mana of the chosen color without adding a stack object. Tests also
+cover spending that mana on a card playable from exile and preserving the parent
+state through the environment's pure transition.
+
+Arena of Glory's old whole-card “CLEAN” assertion was incorrect: conditional tapped
+entry and the exert activation remain explicitly unsupported. The replacement
+checks require those exact reports and ensure the ordinary mana ability does not
+incorrectly grant haste. This follow-up does not claim complete Arena support.
+
 ## Local sanity check
 
 ```sh

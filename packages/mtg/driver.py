@@ -2011,6 +2011,8 @@ def _source_units(state: dict, ap: str):
     in_hand = state.get("in_hand", set())
     counters = state.get("counter", set())
     for (t, kind, _amt) in sorted(special_cost):
+        if (t,) in state.get("source_priority_only", set()):
+            continue  # Must activate with priority, before beginning to cast a spell.
         if t not in precise:
             continue
         if kind == "exile_hand":
@@ -2395,6 +2397,34 @@ def _sacrifice_source(state: dict, sid: str) -> None:
     state.get("on_battlefield", set()).discard((sid,))
     state.setdefault("graveyard", set()).add((sid,))
     state.get("tapped", set()).discard((sid,))
+
+
+def priority_mana_actions(state: dict, player: str) -> list:
+    """Mana sources restricted to priority windows, such as Lion's Eye Diamond."""
+    if (player,) not in state.get("has_priority", set()):
+        return []
+    actions = []
+    for source, in sorted(state.get("source_priority_only", set())):
+        if (source,) not in state.get("on_battlefield", set()) or (player, source) not in state.get("printed_control", set()):
+            continue
+        for src, kind, amount in state.get("source_wildcard", set()):
+            if src == source and kind == "any_one_color":
+                actions.extend(("activate_mana", player, source, color) for color in _WUBRG)
+    return actions
+
+
+def activate_priority_mana(state: dict, player: str, source: str, color: str) -> None:
+    """Pay the source's costs, then resolve its mana ability without using the stack."""
+    if ("activate_mana", player, source, color) not in priority_mana_actions(state, player):
+        raise ValueError("Mana ability requires priority and a controlled source")
+    cost = next((kind, n) for src, kind, n in state.get("source_special_cost", set()) if src == source)
+    amount = sum(int(n) for src, kind, n in state.get("source_wildcard", set())
+                 if src == source and kind == "any_one_color")
+    _pay_special_source_cost(state, player, source, cost)
+    if (source,) in state.get("source_sacrifice", set()):
+        _sacrifice_source(state, source)
+    _add_floating(state, player, {color: amount})
+    _refresh_mana_pool(state, player)
 
 
 def _pay_special_source_cost(state: dict, ap: str, sid: str, cost: tuple) -> None:

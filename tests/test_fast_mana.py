@@ -95,15 +95,43 @@ def _altmana_checks():
           (ids["Simian Spirit Guide"],) in st.get("exile", set())
           and ("alice", ids["Simian Spirit Guide"]) not in st.get("in_hand", set()))
 
-    # Lion's Eye Diamond ('Discard your hand, Sacrifice: Add 3 of any one color') pays a {U}{U} spell,
-    # discarding the rest of the hand and sacrificing itself.
-    st, ids = _state(["Lion's Eye Diamond"], ["Thassa's Oracle", "Brainstorm"])
-    check("Thassa's Oracle ({U}{U}) castable off Lion's Eye Diamond", _castable(st, ids["Thassa's Oracle"]))
-    led, brainstorm = ids["Lion's Eye Diamond"], ids["Brainstorm"]
-    driver._cast_spell(st, "alice", ids["Thassa's Oracle"], ["alice", "bob"])
-    check("Lion's Eye Diamond is sacrificed when used", (led,) in st.get("graveyard", set()))
-    check("Lion's Eye Diamond discards the rest of the hand",
-          ("alice", brainstorm) not in st.get("in_hand", set()) and (brainstorm,) in st.get("graveyard", set()))
+    # Lion's Eye Diamond requires priority: it cannot be activated in the middle
+    # of casting a spell from hand. Its legal activation discards that spell too.
+    from mtg.engine import env
+    from mtg.models import Move
+    st, ids = _state(["Lion's Eye Diamond"], ["Thassa's Oracle", "Brainstorm"], lib=("Brainstorm",) * 6)
+    # Keep a playable card outside the hand so env.step stops in this priority
+    # window after activation rather than auto-advancing and emptying the pool.
+    exiled = next(c for p, c in st['in_library'] if p == 'alice')
+    st['in_library'].discard(('alice', exiled))
+    st['_lib_order']['alice'].remove(exiled)
+    st.setdefault('exile', set()).add((exiled,))
+    st.setdefault('may_play', set()).add(('alice', exiled))
+    led, oracle, brainstorm = ids["Lion's Eye Diamond"], ids["Thassa's Oracle"], ids["Brainstorm"]
+    check("Lion's Eye Diamond cannot fund casting Oracle from hand", not _castable(st, oracle))
+    action = ("activate_mana", "alice", led, "blue")
+    check("Lion's Eye Diamond offers an explicit mana activation", action in env.legal_actions(st))
+    move = Move.of(action)
+    check("mana activation exposes source and chosen color", move.card.id == led and move.choices == {"color": "blue"})
+    after = env.step(st, action)
+    check("Lion's Eye Diamond is sacrificed when activated", (led,) in after.get("graveyard", set()))
+    check("Lion's Eye Diamond discards the entire hand, including Oracle",
+          not after['in_hand'] and {(oracle,), (brainstorm,)} <= after.get('graveyard', set()))
+    check("Lion's Eye Diamond immediately floats three blue without a stack object",
+          driver._floating(after, "alice") == {"blue": 3} and not after.get('on_stack'))
+    check("mana activation leaves the parent state unchanged", (led,) in st['on_battlefield'] and len(st['in_hand']) == 2)
+    check("a sacrificed Diamond cannot activate again", action not in env.legal_actions(after))
+    no_priority = {**st, 'has_priority': {('bob',)}}
+    check("Diamond activation requires its controller to have priority", not driver.priority_mana_actions(no_priority, 'alice'))
+
+    # Floating the mana first CAN pay for a card playable from exile.
+    st['in_hand'].discard(('alice', oracle))
+    st.setdefault('exile', set()).add((oracle,))
+    st.setdefault('may_play', set()).add(('alice', oracle))
+    driver.activate_priority_mana(st, 'alice', led, 'blue')
+    check("Diamond's floated mana can fund Oracle from exile", _castable(st, oracle))
+    driver._cast_spell(st, 'alice', oracle, ['alice', 'bob'])
+    check("casting Oracle spends two of Diamond's three blue", driver._floating(st, 'alice') == {'blue': 1})
 
     # last-resort ordering: with a Mountain available, a {R} spell uses the LAND, not Treasonous Ogre's life.
     st, ids = _state(["Treasonous Ogre", "Mountain"], ["Lightning Bolt"])
@@ -169,7 +197,11 @@ def _frontier_mana_checks():
     check("a NON-creature spell paid with Arena's mana is NOT flagged", ("bolt",) not in ist["_enters_with_haste"])
     from mtg import bridge_to_engine as Bm2
     _f, dr = Bm2.card_facts("Arena of Glory", "me", "x", sim.load_db(), {c["name"]: c for c in card_corpus.load_cards()})
-    check("Arena of Glory is CLEAN", dr == [])
+    check("Arena reports its unsupported conditional entry and exert cost explicitly",
+          set(dr) == {("enters_tapped", "unless_you_control_a_mountain"),
+                      ("activated_cost", "{R}, {T}, Exert ~")})
+    check("Arena's ordinary red-mana ability does not incorrectly grant haste",
+          not _f.get("source_haste_rider"))
 
     # §605 Runaway Steam-Kin: 'Remove three +1/+1 counters from ~: Add {R}{R}{R}' — a counter-removal mana
     # source. With 3 counters it taps for RRR (removing them); with fewer it is NOT a usable source.
