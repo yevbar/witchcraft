@@ -117,9 +117,9 @@ def _abstain_checks() -> None:
     f, dropped = bridge.card_facts("Gravedigger", "alice", "x", db, corpus)
     check("graveyard return_to_hand abstains (no trigger_effect_return)",
           not f.get("trigger_effect_return"))
-    check("graveyard return_to_hand reported as a drop",
-          any(k == "effect" and d == "return_to_hand" for k, d in dropped)
-          or any(k == "scope" for k, d in dropped))
+    check("graveyard return uses the regrowth handler",
+          ("x_a0", "regrowth", 0, "creature") in f.get("trigger_effect", set()) and not dropped)
+
 
 
 def run() -> None:

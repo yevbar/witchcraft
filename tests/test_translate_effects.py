@@ -20,9 +20,8 @@ for _p in (_r, os.path.join(_r, "packages")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from mtg import souffle_eval
+from mtg import driver
 from mtg import bridge_to_engine as bridge
-from mtg.driver import RULES
 
 # the three verbs / engine effect-names this slice owns. We filter both the old-bridge and the
 # datalog-derived rows to these so the comparison ignores rows other branches still own.
@@ -49,7 +48,7 @@ def _old_spell_rows(f) -> set:
     return rows
 
 
-def _old_trigger_rows(f) -> set:
+def _old_trigger_rows(f, triggers) -> set:
     """The trigger_effect rows the OLD bridge generic tail would have emitted for the 3 owned verbs, keyed
     by the instance ability id f'{tid}_{aid}'. The triggered branch only reaches the generic tail when the
     trigger maps to an engine event (_EVENT) — mirror that gate; cond is ignored by the generic tail."""
@@ -58,7 +57,8 @@ def _old_trigger_rows(f) -> set:
     for aid, ab in f.get("abilities", {}).items():
         if aid in modes or ab.get("kind") != "triggered":
             continue
-        if bridge._EVENT.get(ab.get("trigger")) is None:     # unmapped trigger -> branch 'continue's, no tail
+        # The bridge normalizes paired "when you do" consequents to the you_did event.
+        if bridge._EVENT.get(triggers.get(aid, ab.get("trigger"))) is None:     # unmapped trigger -> branch 'continue's, no tail
             continue
         a = f"x_{aid}"
         for (_seq, verb, amt, tgt, extra, _cond) in ab.get("effects", []):
@@ -70,46 +70,36 @@ def _old_trigger_rows(f) -> set:
     return rows
 
 
-# the REAL engine rules + a .output for trigger_effect (which the committed engine doesn't surface, but the
-# rule is in RULES). Evaluated through souffle_eval — the COMPILED native binary first (the souffle
-# interpreter's compiled mode is broken on some installs), returning None for the handful of cards whose
-# 'put_counter X' clause aborts EITHER backend in an unrelated §122 to_number, so the caller skips them.
-_PROG = RULES + "\n.output trigger_effect\n"
-
 
 def _datalog_rows(state: dict):
     """Feed the card's parse facts to the engine, read the DATALOG-derived spell_effect / trigger_effect rows
-    for this instance ('x'), filtered to the 3 owned engine effect-names. None if the backend aborts (skip)."""
-    out = souffle_eval.eval_state(_PROG, state)
-    if out is None:
-        return None
+    for this instance ('x'), filtered to the 3 owned engine effect-names."""
+    out = driver.run(state, ["spell_effect", "trigger_effect"])
     sp = {r for r in out.get("spell_effect", set()) if r[0] == "x" and r[1] in _OWNED_EFF}
     tr = {r for r in out.get("trigger_effect", set()) if r[0].startswith("x_") and r[1] in _OWNED_EFF}
     return sp, tr
 
 
 def run() -> None:
-    from interpreter import card_corpus
+    from interpreter import ground, card_corpus
     from mtg import sim
     db = sim.load_db()
     corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
     checks = 0
     mismatches = 0
-    skipped = 0
     n_counter = n_fog = n_create = 0
     n_tcounter = n_tfog = n_tcreate = 0
 
     for name in corpus:
-        try:
-            f_state, _ = bridge.card_facts(name, "alice", "x", db, corpus)
-        except Exception:
-            continue
+        f_state, _ = bridge.card_facts(name, "alice", "x", db, corpus)
         # the bridge's per-card interpreted facts (abilities/effects/modes) — the dict sim.load_db()['<slug>']
-        facts = db.get(bridge.ground.slug(name), {})
+        facts = db.get(ground.slug(name), {})
 
         old_sp = _old_spell_rows(facts)
-        old_tr = _old_trigger_rows(facts)
+        front_cards = {card for obj, card in f_state.get("instance_of", set()) if obj == "x"}
+        old_tr = _old_trigger_rows(facts, {a: phrase for card, a, phrase in f_state.get("ability_trigger", set())
+                                         if card in front_cards})
 
         # only pay for an engine eval when the parse facts even contain an owned verb (most cards don't).
         verbs = {v for (_c, _a, _i, v, *_r) in f_state.get("card_effect", set())}
@@ -117,9 +107,6 @@ def run() -> None:
             st = {k: f_state[k] for k in ("instance_of", "card_ability", "card_effect", "ability_trigger") if k in f_state}
             st["is_player"] = {("alice",), ("bob",)}
             res = _datalog_rows(st)
-            if res is None:                                   # backend aborted on this card (§122 to_number) -> skip
-                skipped += 1
-                continue
             dl_sp, dl_tr = res
         else:
             dl_sp, dl_tr = set(), set()
@@ -146,8 +133,6 @@ def run() -> None:
 
     print(f"\nspell   : counter={n_counter}  fog={n_fog}  create_token={n_create}")
     print(f"trigger : counter={n_tcounter}  fog={n_tfog}  create_token={n_tcreate}")
-    if skipped:
-        print(f"({skipped} cards skipped — souffle backend aborted on an unrelated §122 to_number)")
     print(f"{checks - mismatches}/{checks} checks passed  ({mismatches} mismatches)")
     if mismatches:
         raise SystemExit(1)

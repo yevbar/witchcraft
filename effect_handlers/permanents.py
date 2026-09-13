@@ -481,3 +481,18 @@ def _apply_cant_be_blocked(D, state, a, n, tgt, src, ctrl):
     A spell with a 'self' target (no battlefield creature) just writes a row that matches no attacker — inert."""
     state.setdefault("cant_be_blocked", set()).add((str(src),))
     print(f"    {a}: {src} can't be blocked this turn")
+
+
+@encoder("cant_be_countered")
+def _encode_cant_be_countered(verb, amt, tgt, extra):
+    if tgt == "spells_you_control" and extra == "-":
+        return ("protect_spells", 0, "controller")
+    return None
+
+
+@applier("protect_spells")
+def _apply_protect_spells(D, state, a, n, tgt, src, ctrl):
+    # A player-scoped effect includes spells cast later in the same turn.
+    eid = f"{a}__protect_spells"
+    state.setdefault("eff_uncounterable_player", set()).add((eid, ctrl))
+    state.setdefault("until_eot", set()).add((eid,))

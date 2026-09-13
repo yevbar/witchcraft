@@ -107,6 +107,17 @@ from interpreter.build_ending import thresholds as _loss_thresholds  # noqa: E40
 STEPS = flat_steps()
 
 INPUTS = [
+    ("graveyard", [("c", "symbol")]),
+    ("loses_abilities", [("c", "symbol")]),
+    ("goaded", [("c", "symbol")]),
+    ("must_attack", [("c", "symbol")]),
+    ("must_block", [("c", "symbol")]),
+    ("must_be_blocked", [("c", "symbol")]),
+    ("lure", [("c", "symbol")]),
+    ("detained", [("c", "symbol")]),
+    ("cant_be_blocked", [("c", "symbol")]),
+    ("cant_block", [("c", "symbol")]),
+
     ("creature_flash_if_legendary", [("s", "symbol")]),
     ("crew_trigger_subtype", [("a", "symbol"), ("st", "symbol")]),
     ("just_crewed", [("c", "symbol")]),
@@ -614,10 +625,10 @@ def _rules(p: Program) -> None:
     p.blank()
     p.comment("§613 layer 6 — abilities: copiable keywords plus granted, minus removed.")
     p.decl("has_keyword", [("c", "symbol"), ("kw", "symbol")])
-    p.rule("has_keyword(C, K)", ["copiable_keyword(C, K)", "!eff_remove_keyword(_, C, K)"])
-    p.rule("has_keyword(C, K)", ["eff_grant_keyword(_, C, K)", "!eff_remove_keyword(_, C, K)"])
-    p.rule("has_keyword(C, K)", ["static_grant_kw(_, C, K)", "!eff_remove_keyword(_, C, K)"], note="§611.2 static anthem/lord keyword grant")
-    p.rule("has_keyword(C, K)", ["counter(C, K, N)", "N >= 1", "is_keyword(K)", "!eff_remove_keyword(_, C, K)"], note="§122.1b keyword counter")
+    p.rule("has_keyword(C, K)", ["copiable_keyword(C, K)", "!eff_remove_keyword(_, C, K)", "!loses_abilities(C)"])
+    p.rule("has_keyword(C, K)", ["eff_grant_keyword(_, C, K)", "!eff_remove_keyword(_, C, K)", "!loses_abilities(C)"])
+    p.rule("has_keyword(C, K)", ["static_grant_kw(_, C, K)", "!eff_remove_keyword(_, C, K)", "!loses_abilities(C)"], note="§611.2 static anthem/lord keyword grant")
+    p.rule("has_keyword(C, K)", ["counter(C, K, N)", "N >= 1", "is_keyword(K)", "!eff_remove_keyword(_, C, K)", "!loses_abilities(C)"], note="§122.1b keyword counter")
     p.blank()
     p.comment("§702 keyword vocabulary — the interpreted keyword-ability roster (build_keyword_ability_index).")
     p.comment("The engine DEPENDS on this: every keyword it grants must be a defined §702 ability (see unknown_keyword conformance).")
@@ -655,6 +666,10 @@ def _rules(p: Program) -> None:
     p.rule("filter_ok(S, C)", ["static_filter(S, \"subtype\", V)", "subtype(C, V)"])
     p.rule("filter_ok(S, C)", ["static_filter(S, \"type\", V)", "has_type(C, V)"])
     p.rule("filter_ok(S, C)", ["static_filter(S, \"color\", V)", "color(C, V)"])
+    p.rule('filter_ok(S, C)', ['static_filter(S, "supertype", V)', 'has_supertype(C, V)'])
+    p.rule('filter_ok(S, C)', ['static_filter(S, "multicolored", _)', 'color(C, X)', 'color(C, Y)', 'X != Y'])
+    p.rule('filter_ok(S, C)', ['static_filter(S, "keyword", K)', 'has_keyword(C, K)'])
+    p.rule('filter_ok(S, C)', ['static_filter(S, "counter", K)', 'counter(C, K, N)', 'N > 0'])
     p.decl("anthem_creature", [("source", "symbol"), ("creature", "symbol")])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "filter_ok(S, C)"])
     p.rule("anthem_creature(S, C)", ["static_src(S, \"other_creatures_you_control\")", "on_battlefield(S)", "controls(P, S)", "controls(P, C)", "creature(C)", "C != S", "filter_ok(S, C)"])
@@ -725,6 +740,22 @@ def _rules(p: Program) -> None:
            note="the BLOCKER can't block")
     p.rule("illegal_block(B, A)", ["blocks(B, A)", "instance_of(A, Card)", 'cant(Card, "self", "be_blocked")'],
            note="the ATTACKER can't be blocked")
+    # Public combat restrictions may be supplied by effects or derived from static abilities.
+    p.decl("static_combat_subject", [("source", "symbol"), ("target", "symbol"), ("creature", "symbol")])
+    p.rule('static_combat_subject(S, "self", S)', ['on_battlefield(S)', 'creature(S)'])
+    for target in ("enchanted_creature", "equipped_creature"):
+        p.rule(f'static_combat_subject(S, "{target}", C)', ['on_battlefield(S)', 'attached_to(S, C)', 'creature(C)'])
+    for verb in ("cant_attack", "cant_block", "cant_be_blocked", "must_attack", "must_block", "must_be_blocked", "lure"):
+        p.rule(f'{verb}(C)', ['instance_of(S, Card)', 'card_ability(Card, A, "static")',
+                              f'card_effect(Card, A, _, "{verb}", _, Target, _, "-")',
+                              'static_combat_subject(S, Target, C)', '!loses_abilities(S)'])
+    p.rule('must_attack(C)', ['goaded(C)'])
+    p.rule('must_be_blocked(C)', ['lure(C)'])
+    p.rule('cant_attack(C)', ['detained(C)'])
+    p.rule('cant_attack(C)', ['instance_of(C, Card)', 'cant(Card, "self", "attack")'])
+    p.rule('illegal_block(B, A)', ['blocks(B, A)', 'cant_be_blocked(A)'])
+    p.rule('illegal_block(B, A)', ['blocks(B, A)', 'cant_block(B)'])
+    p.rule('illegal_block(B, A)', ['blocks(B, A)', 'detained(B)'])
     p.blank()
     p.comment("§510 — combat, gated by the combat damage step (turn <-> combat).")
     p.comment("Combat respects the transpiled illegal_block: an illegal block neither stops")
@@ -1317,6 +1348,14 @@ def _rules(p: Program) -> None:
     p.comment("given the firing source (and so its controller). self -> the source; creatures_you_control ->")
     p.comment("every creature the source's controller controls; all_creatures -> every creature on the battlefield.")
     p.decl("scope_creature", [("ability", "symbol"), ("source", "symbol"), ("creature", "symbol")])
+    p.rule('scope_creature(A, S, C)', ['fires(A, S)', 'scope_of(A, "other_creatures_you_control")', 'controls(P, S)', 'controls(P, C)', 'creature(C)', 'C != S'])
+    p.rule('scope_creature(A, S, C)', ['fires(A, S)', 'scope_of(A, "creatures_your_opponents_control")', 'controls(P, S)', 'controls(Q, C)', 'P != Q', 'creature(C)'])
+    for scope, typ in (("all_artifacts", "artifact"), ("all_enchantments", "enchantment"),
+                       ("all_lands", "land"), ("all_planeswalkers", "planeswalker")):
+        p.rule('scope_creature(A, S, C)', ['fires(A, S)', f'scope_of(A, "{scope}")', 'on_battlefield(C)', f'has_type(C, "{typ}")'])
+    p.rule('scope_creature(A, S, C)', ['fires(A, S)', 'scope_of(A, "all_permanents")', 'on_battlefield(C)'])
+    p.rule('scope_creature(A, S, C)', ['fires(A, S)', 'scope_of(A, "all_nonland_permanents")', 'on_battlefield(C)', '!has_type(C, "land")'])
+    p.rule('scope_creature(A, S, C)', ['fires(A, S)', 'scope_of(A, "own_nonland_perms")', 'on_battlefield(C)', 'controls(P, S)', 'controls(P, C)', '!has_type(C, "land")'])
     p.rule("scope_creature(A, S, S)", ["fires(A, S)", "scope_of(A, \"self\")", "creature(S)"])
     p.rule("scope_creature(A, S, C)", ["fires(A, S)", "scope_of(A, \"creatures_you_control\")", "controls(P, S)", "controls(P, C)", "creature(C)"])
     p.rule("scope_creature(A, S, C)", ["fires(A, S)", "scope_of(A, \"all_creatures\")", "creature(C)"])
@@ -1361,7 +1400,7 @@ def _rules(p: Program) -> None:
     p.blank()
     _emit_translate(p)
     p.blank()
-    p.output("power", "dies", "loses_game", "wins_game", "can_cast", "free_cast", "has_escape", "escape_exile",
+    p.output("trigger_effect", "ev_combat_dmg_player", "goaded", "must_attack", "must_block", "must_be_blocked", "lure", "detained", "cant_be_blocked", "cant_block", "loses_abilities", "power", "dies", "loses_game", "wins_game", "can_cast", "free_cast", "has_escape", "escape_exile",
              "escape_pip", "escape_generic", "enters_battlefield", "advance_to",
              "cant_attack", "illegal_block", "cant_be_destroyed", "zone_change", "to_untap", "to_draw",
              "may_attack", "player_damage", "fires", "pending", "enters_tapped", "enters_with_counter",
@@ -1449,7 +1488,7 @@ def _anthem_filter_facts() -> list[str]:
     from mtg import bridge_to_engine as _b
     corpus = {c["name"]: c for c in _cc.load_cards()}
     db = _sim.load_db()
-    out: dict[str, tuple[str, str, str]] = {}
+    out: dict[str, tuple[str, str, str]] = dict(_b._ANTHEM_EXTRA)
     for name in corpus:
         e = db.get(_ground.slug(name)) or {}
         for ab in (e.get("abilities") or {}).values():
@@ -1636,6 +1675,23 @@ def _emit_translate(p) -> None:
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "anthem_scope(Target, Scope)"])
+    p.decl("lose_ab_scope", [("target", "symbol"), ("scope", "symbol")])
+    for target, scope in (("all_creatures", "all_creatures"), ("each_creature", "all_creatures"),
+                          ("all_other_creatures", "all_other_creatures"), ("creatures_you_control", "creatures_you_control"),
+                          ("creatures_your_opponents_control", "creatures_your_opponents_control")):
+        p.facts([f'lose_ab_scope("{target}", "{scope}")'])
+    p.decl("lose_ab_src", [("source", "symbol"), ("scope", "symbol")])
+    p.rule('lose_ab_src(S, Scope)', ['instance_of(S, Card)', 'on_battlefield(S)',
+             'card_ability(Card, A, "static")', 'card_effect(Card, A, _, "lose_abilities", _, Target, "-", "-")',
+             'lose_ab_scope(Target, Scope)'])
+    p.rule('loses_abilities(C)', ['lose_ab_src(_, "all_creatures")', 'creature(C)'])
+    p.rule('loses_abilities(C)', ['lose_ab_src(S, "all_other_creatures")', 'creature(C)', 'C != S'])
+    p.rule('loses_abilities(C)', ['lose_ab_src(S, "creatures_you_control")', 'controls(P, S)', 'controls(P, C)', 'creature(C)'])
+    p.rule('loses_abilities(C)', ['lose_ab_src(S, "creatures_your_opponents_control")', 'controls(P, S)', 'controls(Q, C)', 'P != Q', 'creature(C)'])
+    for cond in ("-", "until_end_of_turn"):
+        payload = 'cat(Scope, "|eot")' if cond == "until_end_of_turn" else "Scope"
+        p.rule(f'spell_effect(S, "lose_abilities_scope", 0, {payload})', ['resolves_ability(S, Card, A)',
+                 f'card_effect(Card, A, _, "lose_abilities", _, Target, "-", "{cond}")', 'lose_ab_scope(Target, Scope)'])
     # ----- §611.2 CONDITIONAL static abilities ('… AS LONG AS <cond>') — SOI 'Infusion' family. -----------
     p.comment("ONE WORLD: §611.2 a CONDITIONAL static P/T or keyword grant ('This creature gets +2/+0 as long")
     p.comment("as you gained life this turn' — SOI Infusion). Same shape as the unconditional static_pt/")
@@ -1660,6 +1716,13 @@ def _emit_translate(p) -> None:
     # §611.2 'during your turn' — the static holds while S's controller is the active player (Razorkin
     # Needlehead 'has first strike during your turn'). Makes 'during_your_turn' a modeled cond, so the bridge
     # leaves such a self-static to the engine's conditional static_grant rule.
+    p.decl("controlled_artifact_count", [("p", "symbol"), ("n", "number")])
+    p.rule('controlled_artifact_count(P, N)', ['is_player(P)', 'N = count : { controls(P, C), on_battlefield(C), has_type(C, "artifact") }'])
+    p.decl("owned_graveyard_count", [("p", "symbol"), ("n", "number")])
+    p.rule('owned_graveyard_count(P, N)', ['is_player(P)', 'N = count : { graveyard(C), printed_control(P, C) }'])
+    p.rule('cond_met(S, "as_long_as_you_control_an_artifact")', ['controls(P, S)', 'controlled_artifact_count(P, N)', 'N >= 1'])
+    p.rule('cond_met(S, "as_long_as_you_control_three_or_more_artifacts")', ['controls(P, S)', 'controlled_artifact_count(P, N)', 'N >= 3'])
+    p.rule('cond_met(S, "as_long_as_there_are_seven_or_more_cards_in_your_graveyard")', ['controls(P, S)', 'owned_graveyard_count(P, N)', 'N >= 7'])
     p.rule('cond_met(S, "during_your_turn")', ["instance_of(S, _)", "controls(P, S)", "active_player(P)"])
     p.rule("static_pt(S, Dp, Dt, Scope)",
            ["instance_of(S, Card)", 'card_ability(Card, A, "static")',
@@ -1823,10 +1886,12 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("creature_scope = the bridge's _scope() board scopes: self / creatures_you_control / all_creatures")
     p.comment("(all_other_creatures -> all_creatures). A single 'target creature' has NO creature_scope (abstains).")
     p.decl("creature_scope", [("tgt", "symbol"), ("scope", "symbol")])
-    p.facts(['creature_scope("self", "self")', 'creature_scope("it", "self")',
-             'creature_scope("creatures_you_control", "creatures_you_control")',
-             'creature_scope("all_creatures", "all_creatures")',
-             'creature_scope("all_other_creatures", "all_creatures")'])
+    scope_targets = ("self", "it", "creatures_you_control", "each_creature_you_control",
+                     "all_creatures_you_control", "other_creatures_you_control", "all_creatures",
+                     "all_other_creatures", "each_creature", "creatures_your_opponents_control",
+                     "all_nonland_permanents_you_control", "nonland_permanents_you_control",
+                     "all_nonland_permanents", "all_artifacts", "all_enchantments", "all_lands", "all_planeswalkers", "all_permanents")
+    p.facts([f'creature_scope("{t}", "{_b._scope(t)}")' for t in scope_targets])
     p.comment("signed_pt / bare_pt = the pt_value foundation split by STRING FORM: a SIGNED '+N/+N' / '-N/-N'")
     p.comment("(the bridge's _parse_pt / modify_pt) vs a BARE 'N/M' (the bridge's _animation_pt / 'becomes a P/T")
     p.comment("creature'). Both join pt_value for the parsed (dp, dt); the match filter selects the form. The two")
@@ -1896,13 +1961,10 @@ def _emit_translate_triggered_target(p) -> None:
     p.comment("board_scope = the board-wide creature scopes the engine resolves (the spell slice of bridge._scope:")
     p.comment("creatures_you_control + all_creatures + all_other_creatures->all_creatures; self is NOT a spell scope).")
     p.decl("board_scope", [("tgt", "symbol"), ("scope", "symbol")])
-    p.facts(['board_scope("creatures_you_control", "creatures_you_control")',
-             'board_scope("all_creatures", "all_creatures")',
-             'board_scope("all_other_creatures", "all_creatures")',
-             # §613 a NONLAND-PERMANENT board scope (Dramatic Reversal: untap all nonland permanents you
-             # control). The driver expands own_nonland_perms to permanents (not just creatures) on resolve.
-             'board_scope("all_nonland_permanents_you_control", "own_nonland_perms")',
-             'board_scope("nonland_permanents_you_control", "own_nonland_perms")'])
+    board_targets = (*_b._BOARD_SCOPES, "all_other_creatures", "each_creature", "each_creature_you_control",
+                     "all_creatures_you_control", "all_nonland_permanents_you_control", "nonland_permanents_you_control")
+    p.facts([f'board_scope("{t}", "{_b._scope(t)}")' for t in board_targets if _b._scope(t) is not None])
+
     p.comment("zone_move_verb = the §701 creature zone moves whose engine (verb, payload) is (verb, '-') —")
     p.comment("destroy/exile/tap/untap/return_to_hand (was bridge._creature_verb_payload's fallthrough).")
     p.decl("zone_move_verb", [("verb", "symbol")])
@@ -1966,6 +2028,20 @@ def _emit_translate_triggered_target(p) -> None:
             'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "-")',
             "pt_value(Amount, Dp, Dt)", "board_scope(Target, Scope)",
             'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+
+    # A leading "Until end of turn," is a duration, not a condition on whether
+    # the spell resolves. These consumers already attach cleanup markers.
+    for relation, target_rel, target_col in (("spell_scope", "board_scope", "Scope"),
+                                             ("spell_target", "target_class", "Cls")):
+        p.rule(f'{relation}(S, "modify_pt", Payload, {target_col})',
+               ['resolves_ability(S, Card, A)',
+                'card_effect(Card, A, _, "modify_pt", Amount, Target, _, "until_end_of_turn")',
+                'pt_value(Amount, Dp, Dt)', f'{target_rel}(Target, {target_col})',
+                'Payload = cat(to_string(Dp), cat("/", to_string(Dt)))'])
+        p.rule(f'{relation}(S, "grant", Kw, {target_col})',
+               ['resolves_ability(S, Card, A)',
+                'card_effect(Card, A, _, "grant_keyword", _, Target, Kw, "until_end_of_turn")',
+                'engine_keyword(Kw)', f'{target_rel}(Target, {target_col})'])
 
     p.comment("DERIVE spell_damage — §120 direct damage from a burn instant/sorcery. n = the numeric amount,")
     p.comment("kind = damage_kind(target) (creature lethality / face life loss / sweeper). Variable/restricted abstain.")

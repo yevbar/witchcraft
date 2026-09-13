@@ -17,7 +17,7 @@ for _p in (_r, os.path.join(_r, "packages")):
 import contextlib
 import io
 
-from interpreter import card_corpus
+from interpreter import ground, card_corpus
 from mtg import driver
 from mtg import bridge_to_engine as B
 import effect_handlers
@@ -59,7 +59,7 @@ def run() -> None:
     check("back face is in the oracle corpus", bool(back) and back.get("face") == "back")
     check("back face is a planeswalker with starting loyalty 2",
           bool(back) and "Planeswalker" in (back.get("types") or []) and str(back.get("loyalty")) == "2")
-    bdb = db.get(B.ground.slug("Ral, Leyline Prodigy"), {})
+    bdb = db.get(ground.slug("Ral, Leyline Prodigy"), {})
     check("back face's loyalty abilities are interpreted in cards.dl",
           any(a.get("kind") == "loyalty" for a in (bdb.get("abilities") or {}).values()))
 

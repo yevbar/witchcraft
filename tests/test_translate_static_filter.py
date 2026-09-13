@@ -128,6 +128,8 @@ def run() -> None:
     slugs: set[str] = set()
     mism = 0
     for name in corpus:
+        if {"Instant", "Sorcery"} & set(corpus[name].get("types", [])):
+            continue  # The bridge correctly treats these temporary buffs as spell effects.
         e = db.get(ground.slug(name)) or {}
         pt, gr, fl = _bridge_owned(e, corpus)
         for ab in (e.get("abilities") or {}).values():

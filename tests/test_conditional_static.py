@@ -30,7 +30,9 @@ db = sim.load_db()
 corpus = {c["name"]: c for c in card_corpus.load_cards()}
 
 # (1) the modeled-condition set loads from the engine file --------------------------------------------
-check("modeled conditions loaded from engine_rules.dl", len(bridge._MODELED_CONDS) >= 50)
+check("modeled conditions loaded from engine_rules.dl", {"during_your_turn", "as_long_as_you_gained_life_this_turn",
+       "as_long_as_you_control_three_or_more_artifacts",
+       "as_long_as_there_are_seven_or_more_cards_in_your_graveyard"} <= bridge._MODELED_CONDS)
 check("a known modeled condition is present", "as_long_as_you_control_an_artifact" in bridge._MODELED_CONDS)
 
 # (2) the engine actually buffs a conditional self-static when the condition holds ---------------------
@@ -84,6 +86,25 @@ s = {"is_player": {("alice",), ("bob",)}, "on_battlefield": {("me",), ("art",)},
 obs = observe.observe(s, "bob")
 check("imperfect info: the conditional buff holds on the opponent's observed view",
       {c: int(p) for (c, p) in driver.run(obs, ["power"])["power"]}.get("me") == 3)
+
+# Thresholds count the controller's relevant zone and re-evaluate after removal.
+for cond, zone, threshold in (
+    ("as_long_as_you_control_three_or_more_artifacts", "on_battlefield", 3),
+    ("as_long_as_there_are_seven_or_more_cards_in_your_graveyard", "graveyard", 7),
+):
+    for count in (threshold - 1, threshold, threshold + 1):
+        st = {"is_player": {("alice",), ("bob",)}, "on_battlefield": {("me",)},
+              "printed_control": {("alice", "me")}, "printed_type": {("me", "creature")},
+              "printed_power": {("me", 2)}, "printed_toughness": {("me", 2)},
+              "instance_of": {("me", "threshold_card")}, "card_ability": {("threshold_card", "a", "static")},
+              "card_effect": {("threshold_card", "a", 0, "modify_pt", "+2/+2", "self", "-", cond)}}
+        for i in range(count + 2):
+            c = f"item{i}"
+            st.setdefault(zone, set()).add((c,))
+            st["printed_control"].add(("alice" if i < count else "bob", c))
+            st["printed_type"].add((c, "artifact"))
+        check(f"{zone} threshold at {count} (opponent's cards excluded)",
+              ("me", str(4 if count >= threshold else 2)) in driver.run(st, ["power"])["power"])
 
 print(f"\n{_P[1]}/{_P[0]} checks passed")
 if _P[1] != _P[0]:

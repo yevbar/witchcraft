@@ -4,6 +4,43 @@ from unittest.mock import patch
 from test_rules_2026 import state, creature, parsed_card, D, rules_2026, effect_handlers
 
 class RulesGaps(unittest.TestCase):
+    def test_leading_duration_team_buff_is_a_spell(self):
+        rows, drops = parsed_card('Until end of turn, creatures you control get +1/+1 and gain trample and infect.', types=['Sorcery'])
+        self.assertFalse(drops)
+        self.assertTrue(all(kind == 'spell' for _, _, kind in rows['card_ability']))
+        effects = D.run(rows, ['spell_scope'])['spell_scope']
+        self.assertIn(('probe', 'modify_pt', '1/1', 'creatures_you_control'), effects)
+        self.assertIn(('probe', 'grant', 'infect', 'creatures_you_control'), effects)
+        self.assertIn(('probe', 'grant', 'trample', 'creatures_you_control'), effects)
+
+    def test_triggered_permanent_scope_selects_noncreature_artifacts(self):
+        s = state(); creature(s, 'source'); creature(s, 'survivor', 'bob')
+        for obj, typ in [('rock', 'artifact'), ('land', 'land')]:
+            s['on_battlefield'].add((obj,)); s['printed_type'].add((obj, typ))
+            s['printed_control'].add(('bob', obj))
+        s['current_step'] = {('upkeep',)}
+        s['has_trigger'] = {('wipe', 'source', 'upkeep')}
+        s['trigger_effect_destroy'] = {('wipe', 'all_artifacts')}
+        pending = D.run(s, ['pending_destroy'])['pending_destroy']
+        self.assertEqual(pending, {('wipe', 'rock', 'alice')})
+        D._apply_creature_effects(s)
+        self.assertNotIn(('rock',), s['on_battlefield'])
+        self.assertIn(('land',), s['on_battlefield'])
+        self.assertIn(('survivor',), s['on_battlefield'])
+
+    def test_temporary_board_ability_loss_expires(self):
+        s = state(); creature(s, 'source')
+        s['printed_keyword'] = {('source', 'flying')}
+        s['instance_of'] = {('spell', 'strip')}
+        s['card_ability'] = {('strip', 'a', 'spell')}
+        s['card_effect'] = {('strip', 'a', 0, 'lose_abilities', '-', 'all_creatures', '-', 'until_end_of_turn')}
+        effects = D.run(s, ['spell_effect'])['spell_effect']
+        self.assertIn(('spell', 'lose_abilities_scope', '0', 'all_creatures|eot'), effects)
+        effect_handlers.APPLY['lose_abilities_scope'](D, s, 'spell', 0, 'all_creatures|eot', 'spell', 'alice')
+        self.assertNotIn(('source', 'flying'), D.run(s, ['has_keyword'])['has_keyword'])
+        D._end_of_turn(s)
+        self.assertIn(('source', 'flying'), D.run(s, ['has_keyword'])['has_keyword'])
+
     def test_power_up_x_choices_and_independent_stack_values(self):
         from mtg.engine.env import _activate_choices
         s = state(); creature(s, 'probe')

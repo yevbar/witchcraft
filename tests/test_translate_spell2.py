@@ -79,8 +79,9 @@ def _derivation_checks():
     # an unrecognized keyword (grant) and a restricted target ABSTAIN, like the bridge did.
     check("grant of a non-engine keyword abstains (no spell_target)",
           not _derived("c", "a0", [(0, "grant_keyword", "-", "target_creature", "fakeword")], "spell_target"))
-    check("a restricted target abstains (no spell_target)",
-          not _derived("c", "a0", [(0, "destroy", "-", "target_creature_with_flying", "-")], "spell_target"))
+    check("a flying restriction is retained in the target class",
+          ("destroy", "-", bridge._target_class("target_creature_with_flying")) in
+          _derived("c", "a0", [(0, "destroy", "-", "target_creature_with_flying", "-")], "spell_target"))
 
     # spell_scope — the same verbs over a board scope.
     check("datalog derives spell destroy all_creatures -> spell_scope(destroy, -, all_creatures)",
@@ -122,7 +123,7 @@ def _old_bridge_rows(verb, amt, tgt, extra):
     out = {}
     if verb in bridge._CREATURE_VERBS:
         scope = bridge._scope(tgt)
-        if scope in ("creatures_you_control", "all_creatures"):
+        if scope in bridge._BOARD_SCOPES:
             r = bridge._creature_verb_payload(verb, amt, extra)
             if r[0] is not None:
                 out["spell_scope"] = (r[0], r[1], scope)
@@ -145,7 +146,7 @@ def _old_bridge_rows(verb, amt, tgt, extra):
             sc = bridge._scope(tgt)
             if cls is not None:
                 out["spell_target"] = ("counter", cp, cls); return out
-            if sc in ("creatures_you_control", "all_creatures"):
+            if sc in bridge._BOARD_SCOPES:
                 out["spell_scope"] = ("counter", cp, sc); return out
         return out
     if verb == "return_to_battlefield" and bridge._reanimates(tgt, extra):

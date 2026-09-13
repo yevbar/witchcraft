@@ -3752,7 +3752,9 @@ def _cant_be_countered(state: dict, spell: str) -> bool:
     Vexing Shusher, …), surfaced by the bridge as the driver-only `uncounterable` flag on this instance.
     (Controller-scoped 'spells you control can't be countered' anthems are a separate continuous static —
     not modeled here; this owns the self form.)"""
-    return (spell,) in state.get("uncounterable", set())
+    ctrl = next((p for p, c in state.get("printed_control", set()) if c == spell), None)
+    return ((spell,) in state.get("uncounterable", set())
+            or any(p == ctrl for _, p in state.get("eff_uncounterable_player", set())))
 
 
 def _to_graveyard(state: dict, obj: str) -> None:
@@ -4541,6 +4543,7 @@ def _end_of_turn(state: dict) -> None:
     """§514.2 cleanup — until-end-of-turn continuous effects end (the driver removes them)."""
     state["entered_this_turn"] = set()
     state["marked_damage"] = set()
+    state.get("loses_abilities", set()).difference_update(state.pop("_lose_abilities_until_eot", set()))
     ap = next(iter(state["active_player"]))[0]               # §514.1 active player discards to max hand size first
     _cleanup_discard(state, ap)
     ending = {e for (e,) in run(state, ["ends_at_cleanup"])["ends_at_cleanup"]}

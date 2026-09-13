@@ -1878,6 +1878,8 @@ def _static_pt(unit, ctx):
     The regex only EXTRACTS the spans (subject NP, the P/T delta, the keyword tail, the condition NP +
     its grounded connective); it abstains unless the `get(s)` anchor grounds — so a `±N/±N` value
     reached by any other verb mints no anthem fact. The keyword tail grounds via _ground_kw (§702)."""
+    if unit.raw.lower().startswith("until end of turn,"):
+        return None
     m = _STATIC_PT.match(unit.raw)
     if not m:
         return None
@@ -1955,7 +1957,7 @@ def _anthem_conjunct(unit, ctx):
     # 'Regenerate it.') is NOT a static anthem; the conjunct re-dispatch would wrongly fold the second
     # sentence into this static. Fall through to _spell. _sentences() is quote-aware, so a quoted ability
     # carrying its own '.' (Equipment statics) is still ONE sentence and keeps grounding here.
-    if len(_sentences(unit.raw)) > 1:
+    if len(_sentences(unit.raw)) > 1 or unit.raw.lower().startswith("until end of turn,"):
         return None
     raw = unit.raw
     # §611 a SHARED trailing continuous condition ('… get +1/+0 and have trample AS LONG AS you gained life

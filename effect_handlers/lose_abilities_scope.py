@@ -18,11 +18,10 @@ BOARD / FILTERED scopes block) — neither requires a driver.py / env.py edit:
   2. ONE-SHOT SPELL board scope (Wrath of Oko, an instant "all creatures lose all abilities"; You Exist
      Only to Amuse "creatures your opponents control lose all abilities until your next turn") cannot be a
      continuous static (it would leak a permanent lock). The engine instead emits a player-scoped
-     spell_effect(spell, "lose_abilities_scope", 0, <scope>); the driver's existing _run_spell_effects ->
+     spell_effect(spell, "lose_abilities_scope", 0, <scope>[|eot]); the driver's existing _run_spell_effects ->
      _apply_effects passes any unknown effect name to effect_handlers.APPLY, so the applier BELOW expands
      the scope from the live board at RESOLUTION and writes loses_abilities(c) for each covered creature.
-     The engine emits this ONLY for unfiltered, NON-targeted board scopes with a "-" / until-EOT / until-
-     your-next-turn duration (lose_ab_spell_scope x lose_ab_spell_cond in engine_rules.dl).
+     The engine emits this ONLY for unfiltered, NON-targeted board scopes with an unspecified or until-EOT duration (lose_ab_spell_scope x lose_ab_spell_cond in engine_rules.dl).
 
 FAITHFUL-OR-ABSTAIN. Covered: all_creatures / each_creature / all_other_creatures, creatures_you_control,
 creatures_your_opponents_control. ABSTAINED (the engine never emits a spell_effect / lose_ab_src for them,
@@ -36,11 +35,10 @@ so this applier is never invoked on them):
   * the "loses <specific keyword>" reading (extra != "-") — that is eff_remove_keyword's job, not ours; the
     engine gate (card_effect's extra column == "-") excludes it from both the static and the spell path.
 
-TIMING CAVEAT (mirrors lose_abilities.py): the one-shot lock is written into state['loses_abilities'] (the
-same EDB the engine reads). A "permanently" / continuous-static lock is correct as-is; an "until end of
-turn" / "until your next turn" instance relies on the driver's §514.2 cleanup to clear it — we set the lock
-faithfully and leave the precise expiry to the cleanup machinery (the same caveat the single-target handler
-records). P/T, types, supertypes, subtypes and color are UNTOUCHED — layer 6 removes only abilities.
+TIMING. An explicit until-EOT duration is carried by the engine as a '|eot' suffix. The applier records
+new locks in _lose_abilities_until_eot, and the driver's cleanup removes them. Unspecified-duration locks
+retain the existing persistent behavior. Other durations, including until your next turn, abstain.
+P/T, types, supertypes, subtypes and color are untouched by these layer-6 locks.
 
 This is a PUBLIC board fact: loses_abilities(c) survives observe.py redaction, so the suppression holds
 identically in perfect- and imperfect-information views.
@@ -57,7 +55,7 @@ def apply_lose_abilities_scope(D, state, a, n, tgt, src, ctrl):
     layer-6 loses_abilities(c) lock for each. `src` is the resolving spell instance, `ctrl` its caster.
     Covers all_creatures / creatures_you_control / creatures_your_opponents_control (the engine only ever
     emits the unfiltered, non-targeted scopes — see the module docstring); anything else is a no-op."""
-    scope = str(tgt)
+    scope, _, duration = str(tgt).partition("|")
     out = D.run(state, ["controls", "creature"])
     controls = {(p, c) for (p, c) in out["controls"]}
     creatures = {c for (c,) in out["creature"]}
@@ -80,5 +78,7 @@ def apply_lose_abilities_scope(D, state, a, n, tgt, src, ctrl):
         return
     lose = state.setdefault("loses_abilities", set())
     for c in affected:
+        if duration == "eot" and (c,) not in lose:
+            state.setdefault("_lose_abilities_until_eot", set()).add((c,))
         lose.add((c,))
     print(f"    {a}: {', '.join(affected)} lose all abilities (§613 layer 6, {scope})")

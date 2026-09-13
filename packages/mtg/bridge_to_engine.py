@@ -24,6 +24,7 @@ from mtg import sim
 
 # cards.dl trigger phrasing -> the event engine_rules.dl fires on (§603). Unmapped events abstain.
 _EVENT = {
+    "you_did": "you_did",
     "enters": "etb_self",
     "enter": "etb_self",                                         # §603 plural self-ETB ('When ~ ENTER' on a
     #                                                              plural-named permanent — The Immortal Weapons)
@@ -2805,15 +2806,20 @@ def _fold_channel(c: dict, f: dict, tid: str, add, dropped: list) -> set:
     if m is None:
         return set()
     chan_syms = tuple(_MV_SYM.findall(m.group(1)))
+    def channel_cost(cost):
+        # Channel pays the discard separately; do not relax ordinary activation costs.
+        cost = re.sub(r",\s*Discard (?:~|this card)\s*$", "", str(cost or ""), flags=re.I)
+        return _activated_cost(cost)
+
     abilities = f.get("abilities", {})
     chan_aid = next((aid for aid, ab in abilities.items()
                      if ab.get("kind") == "activated"
                      and tuple(_MV_SYM.findall(str(ab.get("cost") or ""))) == chan_syms
-                     and _activated_cost(ab.get("cost")) is not None), None)
+                     and channel_cost(ab.get("cost")) is not None), None)
     if chan_aid is None:
         return set()
     ab = abilities[chan_aid]
-    paid = _activated_cost(ab.get("cost"))
+    paid = channel_cost(ab.get("cost"))
     prim = next((e for e in ab.get("effects", []) if e[1] in _CREATURE_VERBS), None)
     if prim is None:
         return set()
@@ -2845,6 +2851,9 @@ def _fold_channel(c: dict, f: dict, tid: str, add, dropped: list) -> set:
         # the colored pips ({G}) can't be reduced, so the driver floors the cost at (total - generic).
         generic = sum(int(s) for s in _MV_SYM.findall(str(ab.get("cost") or "")) if s.isdigit())
         add("ability_cost_reduction", (a, "legendary_creature", paid[0] - generic))
+        marker = ("cost_modifier", ("less", "1", "activated_ability"))
+        if marker in dropped:
+            dropped.remove(marker)
     return consumed
 
 

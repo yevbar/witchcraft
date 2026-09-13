@@ -225,6 +225,16 @@ def run() -> None:
           ("q", "opp_sp") in h3.get("in_hand", set()) and ("opp_sp", 0) not in h3["on_stack"]
           and ("my_sp", 1) in h3["on_stack"])
 
+    # Veil protects spells cast later this turn, but never the opponent's spells,
+    # and expires at cleanup along with the other duration-based effects.
+    shield = {"is_player": {("p",), ("q",)}, "active_player": {("p",)},
+              "current_step": {("cleanup",)}, "printed_control": {("p", "later"), ("q", "enemy")}}
+    EH.APPLY["protect_spells"](driver, shield, "veil", 0, "controller", "veil", "p")
+    check("Veil protects future friendly spells only", driver._cant_be_countered(shield, "later")
+          and not driver._cant_be_countered(shield, "enemy"))
+    driver._end_of_turn(shield)
+    check("Veil's protection expires at cleanup", not driver._cant_be_countered(shield, "later"))
+
     # Boseiju, Who Endures — the CHANNEL mechanic: a from-HAND activated ability ('{1}{G}, Discard this card:
     # Destroy target artifact/enchantment/nonbasic land an opponent controls. That player may search for a
     # basic land …. Costs {1} less per legendary creature you control.').

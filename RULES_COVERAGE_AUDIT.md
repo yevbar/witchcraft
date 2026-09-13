@@ -2,7 +2,7 @@
 
 Reviewed locally on September 12, 2026 against the bundled **rules.txt effective August 7, 2026**. This is not a claim about a newer upstream rules document or complete implementation of every Comprehensive Rule.
 
-The fixes are on `codex/rules-20260807`, through `b7743fd`, for local merge into `master`. The original findings are retained below as a historical record. Their line numbers describe the earlier revision.
+The rules fixes were merged into `master` at `e2ba1a4`. Follow-up repairs on `master` address the previously failing test suites. The original findings are retained below as a historical record. Their line numbers describe the earlier revision.
 
 ## Work completed
 
@@ -29,6 +29,16 @@ These are concrete supported cases, not a universal card-text interpreter. Gener
 
 Actual corpus checks confirm the Power-up additions on Stature, Wonder Man and Hulk, and the healing replacement on Wolverine. Wolverine's separate optional fight clause remains reported as unparsed. Birgi's boast modification, Kinnan's mana trigger and Mindbreak Trap's alternative cost are also explicitly reported as unsupported; their tests no longer incorrectly assert full-card support.
 
+## Follow-up repairs
+
+- Native evaluation correctly recognizes nested rule heads, so derived counter payloads do not leak between states. Regression states compare interpreter, native and in-process results.
+- Combat requirements/restrictions, detain, goad and lure reach the action enumerator. Combat damage events transfer monarch and initiative.
+- Legendary, multicolor, keyword and counter anthem filters apply. Metalcraft and graveyard threshold conditions count the controller's relevant cards.
+- Ability-removal locks suppress keywords, with static board scopes and explicit until-end-of-turn cleanup. This remains the engine's simplified ability model, not full timestamp/dependency processing for every layer-6 interaction.
+- Trigger and spell board scopes include other friendly creatures, opponents' creatures, aliases and permanent types.
+- Boseiju's channel cost separates discard from mana and retains its legendary discount. Veil protects current and later spells until cleanup. Leading-duration team buffs parse and resolve as spells, including Triumph of the Hordes.
+- Corpus comparisons use supported scope mappings and the active face's normalized trigger IDs. Gravedigger checks its supported regrowth path. Transform tests import the slug helper directly. Conditional-static tests verify specific conditions and threshold boundaries instead of an arbitrary vocabulary-size minimum.
+
 ## Commits
 
 - `99aa862`: library movement, healing replacement and departed explore.
@@ -41,37 +51,17 @@ Actual corpus checks confirm the Power-up additions on Stature, Wonder Man and H
 
 ## Verification
 
-- New audit regressions: **24/24**, normal and incremental engines.
+- New audit regressions: **27/27**, normal and incremental engines.
 - Existing August rules regressions: **27/27**.
 - Face-down: **39/39**; targeting: **73/73**; stack: **28/28**; schema: **9/9**; fast mana: **46/46**; game: **27/27**; core engine: **48/48**.
 - Engine generation is byte-for-byte deterministic; source/engine hashes match the manifest; Souffle conformance output is empty.
 - Rebuilt the card corpus: 35,033 cards; 30,911 parse every unit (88.2%). Parsing every unit does not guarantee runtime support.
-- Rebuilt and installed a wheel outside the checkout. Its bundled native engine and manifest load without a compiler or repository imports; face-down characteristics, battle SBA, Vibranium and new runtime modules pass the smoke check. This is a local validation wheel, not a published release.
-- Full final run: **193/212 test files pass**. All **19** remaining failing files also fail in an isolated checkout of `master` at `6b70396`. This is not a fully green repository. The comparison establishes the failing-file baseline, not proof that every assertion in an already-failing suite is unchanged.
+- Before the follow-up repairs, rebuilt and installed a wheel outside the checkout. Its bundled native engine and manifest load without a compiler or repository imports; face-down characteristics, battle SBA, Vibranium and new runtime modules pass the smoke check. This is a local validation wheel, not a published release.
+- The earlier run had **193/212 passing files**, with 19 failing files also failing on the original `master` baseline. All 19 have now been repaired; the clean final rerun passes **212/212 test files**.
+- Constant-effect corpus parity: **35,033/35,033 cards**, zero mismatches and no skipped exceptions.
+- Native backend parity: **17/17 checks**, including 599 gameplay states. Permanent effect handlers: **74/74**.
 
-Remaining failing files:
-
-- `tests/test_anthem_filters.py`
-- `tests/test_board_scopes.py`
-- `tests/test_combat_requirements.py`
-- `tests/test_combat_restrict2.py`
-- `tests/test_combat_restrictions.py`
-- `tests/test_conditional_static.py`
-- `tests/test_creature_zone.py`
-- `tests/test_deck_evaluator.py`
-- `tests/test_event_map.py`
-- `tests/test_initiative.py`
-- `tests/test_kinnan.py`
-- `tests/test_lose_abilities.py`
-- `tests/test_lose_abilities_scope.py`
-- `tests/test_monarch.py`
-- `tests/test_transform.py`
-- `tests/test_translate.py`
-- `tests/test_translate_effects.py`
-- `tests/test_translate_spell2.py`
-- `tests/test_translate_static_filter.py`
-
-Local detailed logs are in `/tmp/rules-final-suite/` and `/tmp/rules-baseline-suite/`. They are temporary verification artifacts. The baseline worktree was used only for comparison.
+Local final verification logs are in `/tmp/rules-push-verification/`; these are temporary artifacts, not repository dependencies.
 
 ## Historical audit before these fixes
 

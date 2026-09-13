@@ -342,7 +342,9 @@ def _creature_scope_equivalence_checks():
     stats = {k: [0, 0] for k in keys}
     # map a resolved creature-set (over {x,y,z}) back to the scope the bridge named.
     set_to_scope = {frozenset({"x"}): "self", frozenset({"x", "y"}): "creatures_you_control",
-                    frozenset({"x", "y", "z"}): "all_creatures"}
+                    frozenset({"x", "y", "z"}): "all_creatures",
+                    frozenset({"y"}): "other_creatures_you_control",
+                    frozenset({"z"}): "creatures_your_opponents_control"}
     reads = ["pending_pt", "pending_grant", "pending_destroy", "pending_exile",
              "pending_tap", "pending_untap", "pending_return", "pending_target", "pending"]
     for name in corpus:
@@ -394,6 +396,17 @@ def _creature_scope_equivalence_checks():
                 # self-animation: pending(A, animate, 0, pt, S, P) -> (A, pt).
                 "animate": {(A, T) for (A, Eff, _N, T, _S, _P) in out["pending"] if Eff == "animate"},
             }
+            scope_members = {
+                "self": {"x"}, "creatures_you_control": {"x", "y"}, "all_creatures": {"x", "y", "z"},
+                "other_creatures_you_control": {"y"}, "creatures_your_opponents_control": {"z"},
+                "own_nonland_perms": {"x", "y"}, "all_nonland_permanents": {"x", "y", "z"},
+                "all_permanents": {"x", "y", "z"}, "all_artifacts": set(), "all_lands": set(),
+                "all_enchantments": set(), "all_planeswalkers": set(),
+            }
+            for key in ("pt", "grant", "destroy", "exile", "tap", "untap", "return"):
+                old[key] = {tuple(str(v) for v in row[:-1]) + (c, "alice")
+                            for row in old[key] for c in scope_members[row[-1]]}
+                got[key] = out["pending_" + key]
             for k in keys:
                 if not old[k]:
                     continue
